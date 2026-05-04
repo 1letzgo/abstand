@@ -1,24 +1,13 @@
-//
-//  ContentView.swift
-//  abstand
-//
-//  Created by Daniel Goletz on 25.04.26.
-//
-
 import SwiftUI
 
+/// Unused placeholder; the app entry point is `abstandApp` → `MainRootView`.
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
+  var body: some View {
+    MainRootView()
+  }
 }
 
 #Preview {
-    ContentView()
+  ContentView()
+    .environmentObject(AppModel())
 }
