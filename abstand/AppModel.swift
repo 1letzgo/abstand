@@ -119,6 +119,7 @@ final class AppModel: ObservableObject {
   @Published var isLoadingLibrary = false
   @Published var errorMessage: String?
   @Published var showSleepPicker = false
+  @Published var showPlaybackSpeedPicker = false
   @Published var downloadedItemIds: Set<String> = Set(UserDefaults.standard.stringArray(forKey: Keys.downloads) ?? [])
   /// Aus `download.json` gebaute Stubs für Home-Regal „Heruntergeladen“ und Offline-Katalog.
   @Published private(set) var downloadedShelfBooks: [ABSBook] = []
@@ -160,10 +161,11 @@ final class AppModel: ObservableObject {
       .store(in: &cancellables)
 
     pathMonitor.pathUpdateHandler = { [weak self] path in
-      Task { @MainActor in
-        guard let self else { return }
-        self.isNetworkReachable = path.status == .satisfied
-        self.refreshDownloadedShelfFromManifests()
+      let reachable = path.status == .satisfied
+      Task { @MainActor [weak self] in
+        guard let model = self else { return }
+        model.isNetworkReachable = reachable
+        model.refreshDownloadedShelfFromManifests()
       }
     }
     pathMonitor.start(queue: pathMonitorQueue)
@@ -847,10 +849,10 @@ final class AppModel: ObservableObject {
   func startDownload(book: ABSBook) {
     guard let c = client else { return }
     downloads.startDownload(client: c, book: book) { [weak self] ok in
-      Task { @MainActor in
-        guard let self, ok else { return }
-        self.downloadedItemIds.insert(book.id)
-        self.persistDownloads()
+      Task { @MainActor [weak self] in
+        guard let model = self, ok else { return }
+        model.downloadedItemIds.insert(book.id)
+        model.persistDownloads()
       }
     }
   }
@@ -878,6 +880,11 @@ final class AppModel: ObservableObject {
       player.sleepEndDate = nil
     }
     showSleepPicker = false
+  }
+
+  func applyPlaybackSpeed(_ rate: Float) {
+    player.setPlaybackRate(rate)
+    showPlaybackSpeedPicker = false
   }
 
   /// Fortschritt per PATCH, wenn kein Stream-Session-Sync läuft (z. B. nur lokale Dateien).

@@ -35,6 +35,12 @@ final class PlaybackController: NSObject, ObservableObject {
   @Published private(set) var currentChapterOrdinal: Int = 0
   @Published private(set) var currentChapterTitle: String = ""
 
+  /// Gespeicherte Abspielgeschwindigkeit (Menü: `playbackRatePresets`); wiederhergestellt bei App-Start.
+  @Published private(set) var playbackRate: Float = 1.0
+
+  static let playbackRatePresets: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+  private static let playbackRateDefaultsKey = "abstand_playback_rate"
+
   private var player: AVPlayer?
   private var timeObserver: Any?
   private var endObserver: NSObjectProtocol?
@@ -65,6 +71,7 @@ final class PlaybackController: NSObject, ObservableObject {
 
   override init() {
     super.init()
+    playbackRate = Self.loadSavedPlaybackRate()
     ensureAudioSessionForPlayback()
     configureRemoteCommands()
     interruptionObserver = NotificationCenter.default.addObserver(
@@ -121,15 +128,29 @@ final class PlaybackController: NSObject, ObservableObject {
     }
   }
 
-  /// Call after foreground / before playback so streaming can continue in background.
+  /// Session für Hintergrund / Sperrbildschirm; `setCategory` nur bei Bedarf (erneuter Aufruf kann sonst kurz unterbrechen).
   func ensureAudioSessionForPlayback() {
     let session = AVAudioSession.sharedInstance()
+    let opts: AVAudioSession.CategoryOptions = [
+      .allowBluetooth, .allowBluetoothA2DP, .allowAirPlay,
+    ]
     do {
-      try session.setCategory(
-        .playback, mode: .spokenAudio, policy: .longFormAudio, options: [])
+      if session.category != .playback || session.mode != .spokenAudio {
+        try session.setCategory(
+          .playback,
+          mode: .spokenAudio,
+          policy: .longFormAudio,
+          options: opts
+        )
+      }
       try session.setActive(true, options: [])
     } catch {
-      try? session.setActive(true)
+      try? session.setCategory(
+        .playback,
+        mode: .default,
+        options: opts
+      )
+      try? session.setActive(true, options: [])
     }
   }
 
@@ -141,7 +162,7 @@ final class PlaybackController: NSObject, ObservableObject {
       if opts.contains(.shouldResume) {
         ensureAudioSessionForPlayback()
         if isPlaying {
-          player?.play()
+          applyPlayingRate()
         }
       }
     case .began:
@@ -153,6 +174,8 @@ final class PlaybackController: NSObject, ObservableObject {
 
   private func applyBackgroundPlaybackPolicy(_ player: AVPlayer?) {
     guard let player else { return }
+    player.allowsExternalPlayback = true
+    player.automaticallyWaitsToMinimizeStalling = false
     if #available(iOS 15.0, macOS 12.0, *) {
       player.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible
     }
@@ -388,7 +411,7 @@ final class PlaybackController: NSObject, ObservableObject {
     else { throw ABSPlaybackError.noTracks }
     let asset = AVURLAsset(url: url)
     if #available(iOS 15.0, *) {
-      try? await asset.load(.isPlayable)
+      _ = try? await asset.load(.isPlayable)
     }
     let item = AVPlayerItem(asset: asset)
     player = AVPlayer(playerItem: item)
@@ -405,7 +428,7 @@ final class PlaybackController: NSObject, ObservableObject {
           self.playSessionId = nil
           self.updateNowPlaying()
           if self.shouldAutoPlayAfterLoad {
-            self.player?.play()
+            self.applyPlayingRate()
             self.isPlaying = true
           } else {
             self.player?.pause()
@@ -459,7 +482,7 @@ final class PlaybackController: NSObject, ObservableObject {
           self.updateChapterUI(global: resumeSnapshot)
           self.updateNowPlaying()
           if self.shouldAutoPlayAfterLoad {
-            self.player?.play()
+            self.applyPlayingRate()
             self.isPlaying = true
           } else {
             self.player?.pause()
@@ -556,7 +579,7 @@ final class PlaybackController: NSObject, ObservableObject {
       else { return }
       let asset = AVURLAsset(url: url)
       if #available(iOS 15.0, *) {
-        try? await asset.load(.isPlayable)
+        _ = try? await asset.load(.isPlayable)
       }
       replacePlayerItem(AVPlayerItem(asset: asset), localOffset: localOffset, play: play)
       return
@@ -595,7 +618,7 @@ final class PlaybackController: NSObject, ObservableObject {
         guard let self else { return }
         MainActor.assumeIsolated {
           if shouldPlay {
-            self.player?.play()
+            self.applyPlayingRate()
             self.isPlaying = true
           }
         }
@@ -603,9 +626,38 @@ final class PlaybackController: NSObject, ObservableObject {
     }
   }
 
+  /// Startet die Wiedergabe mit der gewählten `playbackRate` (nach Störung / neuem Item / Play).
+  private func applyPlayingRate() {
+    guard let p = player else { return }
+    if #available(iOS 15.0, *) {
+      p.playImmediately(atRate: playbackRate)
+    } else {
+      p.play()
+      p.rate = playbackRate
+    }
+  }
+
+  func setPlaybackRate(_ rate: Float) {
+    let snapped =
+      Self.playbackRatePresets.min(by: { abs($0 - rate) < abs($1 - rate) }) ?? 1.0
+    playbackRate = snapped
+    UserDefaults.standard.set(Double(snapped), forKey: Self.playbackRateDefaultsKey)
+    if isPlaying {
+      player?.rate = snapped
+    }
+    updateNowPlaying()
+  }
+
+  private static func loadSavedPlaybackRate() -> Float {
+    let v = UserDefaults.standard.double(forKey: playbackRateDefaultsKey)
+    guard v > 0.09 else { return 1.0 }
+    let f = Float(v)
+    return playbackRatePresets.min(by: { abs($0 - f) < abs($1 - f) }) ?? 1.0
+  }
+
   func play() {
     ensureAudioSessionForPlayback()
-    player?.play()
+    applyPlayingRate()
     isPlaying = true
     lastListenTick = Date()
     updateNowPlaying()
@@ -744,7 +796,9 @@ final class PlaybackController: NSObject, ObservableObject {
       MPMediaItemPropertyArtist: book.displayAuthors,
       MPMediaItemPropertyPlaybackDuration: totalDuration,
       MPNowPlayingInfoPropertyElapsedPlaybackTime: globalPosition,
-      MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0,
+      MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(playbackRate) : 0,
+      MPNowPlayingInfoPropertyDefaultPlaybackRate: Double(playbackRate),
+      MPNowPlayingInfoPropertyMediaType: NSNumber(value: MPMediaType.audioBook.rawValue),
     ]
     if let art = nowPlayingArtwork {
       info[MPMediaItemPropertyArtwork] = art

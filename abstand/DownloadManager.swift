@@ -10,6 +10,8 @@ final class DownloadManager: ObservableObject {
 
   private static let trackDownloadMaxAttempts = 3
 
+  private var downloadRunId: Int = 0
+
   func cancel() {
     task?.cancel()
     task = nil
@@ -48,12 +50,30 @@ final class DownloadManager: ObservableObject {
     try? FileManager.default.removeItem(at: url)
   }
 
+  /// Nur aufrufen, wenn `runId` noch der aktuelle Download-Lauf ist (verhindert Löschen durch abgebrochene Tasks).
+  private func finishDownloadFailureIfCurrent(runId: Int, itemId: String, completion: ((Bool) -> Void)?) {
+    guard runId == downloadRunId else { return }
+    deleteDownload(itemId: itemId)
+    activeItemId = nil
+    progress = 0
+    completion?(false)
+  }
+
+  private func finishDownloadSuccessIfCurrent(runId: Int, completion: ((Bool) -> Void)?) {
+    guard runId == downloadRunId else { return }
+    activeItemId = nil
+    progress = 1
+    completion?(true)
+  }
+
   func startDownload(client: ABSAPIClient, book: ABSBook, completion: ((Bool) -> Void)? = nil) {
     cancel()
+    downloadRunId += 1
+    let runId = downloadRunId
     let id = book.id
     activeItemId = id
     progress = 0
-    task = Task {
+    task = Task { @MainActor in
       var playSessionId: String?
       do {
         let folder: URL
@@ -69,7 +89,9 @@ final class DownloadManager: ObservableObject {
           setExcludedFromBackup(itemDir)
           folder = itemDir
         } catch {
+          guard runId == downloadRunId else { return }
           activeItemId = nil
+          progress = 0
           completion?(false)
           return
         }
@@ -151,25 +173,12 @@ final class DownloadManager: ObservableObject {
         try manifest.write(to: folder)
         try? await client.closePlaySession(sessionId: session.id)
         playSessionId = nil
-        activeItemId = nil
-        progress = 1
-        completion?(true)
-      } catch is CancellationError {
-        if let sid = playSessionId {
-          try? await client.closePlaySession(sessionId: sid)
-        }
-        deleteDownload(itemId: id)
-        activeItemId = nil
-        progress = 0
-        completion?(false)
+        finishDownloadSuccessIfCurrent(runId: runId, completion: completion)
       } catch {
         if let sid = playSessionId {
           try? await client.closePlaySession(sessionId: sid)
         }
-        deleteDownload(itemId: id)
-        activeItemId = nil
-        progress = 0
-        completion?(false)
+        finishDownloadFailureIfCurrent(runId: runId, itemId: id, completion: completion)
       }
     }
   }

@@ -360,28 +360,19 @@ actor ABSAPIClient {
     return data
   }
 
-  /// Lädt die Datei mit optionalen **Wiederholungen** und `NSURLSessionDownloadTaskResumeData`, legt sie unter passender Endung ab.
-  /// Mehrteilige Downloads: einzelne Tracks können so robuster über instabiles Netz fertig werden.
+  /// Lädt die Datei mit optionalen **Wiederholungen** (jeweils neuer Request, gleicher URL) — ohne `resumeFrom`,
+  /// damit keine inkompatiblen Resume-Daten die komplette Download-Kette blockieren.
   func downloadAuthenticatedFile(
     from streamURL: URL,
     to suggestedDestination: URL,
     maxAttempts: Int = 3
   ) async throws -> URL {
     var lastError: Error?
-    var resumeData: Data?
-
     for attempt in 0..<maxAttempts {
       do {
-        let temp: URL
-        let resp: URLResponse
-        if let data = resumeData {
-          (temp, resp) = try await urlSession.download(resumeFrom: data)
-          resumeData = nil
-        } else {
-          var req = URLRequest(url: streamURL, timeoutInterval: 600)
-          req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-          (temp, resp) = try await urlSession.download(for: req)
-        }
+        var req = URLRequest(url: streamURL, timeoutInterval: 600)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (temp, resp) = try await urlSession.download(for: req)
         guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
           try? FileManager.default.removeItem(at: temp)
           throw ABSAPIError.httpStatus((resp as? HTTPURLResponse)?.statusCode ?? -1, nil)
@@ -398,9 +389,8 @@ actor ABSAPIClient {
       } catch {
         lastError = error
         if error is CancellationError { throw error }
-        resumeData = (error as NSError).userInfo[NSURLSessionDownloadTaskResumeData] as? Data
         if attempt < maxAttempts - 1 {
-          let delay = min(12.0, pow(1.6, Double(attempt + 1)))
+          let delay = min(8.0, 0.6 * Double(attempt + 1))
           try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
         }
       }

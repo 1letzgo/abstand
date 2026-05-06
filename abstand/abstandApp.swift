@@ -29,16 +29,10 @@ private struct AppRootContainer: View {
       await model.bootstrapFromStoredCredentials()
     }
     .onChange(of: scenePhase) { _, phase in
-      switch phase {
-      case .active:
+      // Nur im Vordergrund die Session setzen: Bei `.inactive` (z. B. Control Center,
+      // Sperrbildschirm) erneutes `setCategory`/`setActive` kann die laufende Wiedergabe unterbrechen.
+      if phase == .active {
         model.player.ensureAudioSessionForPlayback()
-      case .inactive, .background:
-        // Session erneut aktivieren, damit Streaming im Hintergrund nicht abreißt.
-        if model.player.isPlaying {
-          model.player.ensureAudioSessionForPlayback()
-        }
-      @unknown default:
-        break
       }
     }
   }
