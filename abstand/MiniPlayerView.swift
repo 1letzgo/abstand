@@ -36,347 +36,597 @@ enum MiniPlayerMetrics {
   }
 }
 
-// MARK: - AirPlay (Mini-Player: nur Tapp-Bereich, Beschriftung in SwiftUI)
 
-private struct MiniPlayerAirPlayRoutePicker: UIViewRepresentable {
+// MARK: - Player-Layout (SwiftUI-typische Komponenten)
+
+private enum PlayerChromeLayout {
+  static let miniBarMaxHeight: CGFloat = 56
+  static let miniCover: CGFloat = 40
+  /// Kompaktes Cover in `tabViewBottomAccessory` (System-Miniplayer-Größe).
+  static let tabAccessoryCover: CGFloat = 32
+  static let skipBackward: Double = 15
+  static let skipForward: Double = 30
+}
+
+private func audiobookRemainingTimeCaption(total: Double, position: Double) -> String {
+  formatPlaybackTime(max(0, total - position))
+}
+
+private func authorDashTitleLine(for book: ABSBook) -> String {
+  let a = book.displayAuthors.trimmingCharacters(in: .whitespacesAndNewlines)
+  let t = book.displayTitle
+  if a.isEmpty || a == "—" { return t }
+  return "\(a) – \(t)"
+}
+
+private func playbackProgressPercent(total: Double, position: Double) -> Int {
+  let t = max(total, 1)
+  let p = max(0, position)
+  return min(100, max(0, Int((p / t * 100).rounded())))
+}
+
+private func remainingTimeDashPercent(total: Double, position: Double) -> String {
+  let rem = audiobookRemainingTimeCaption(total: total, position: position)
+  let pct = playbackProgressPercent(total: total, position: position)
+  return "\(rem) – \(pct)%"
+}
+
+private struct FullPlayerAirPlayButton: UIViewRepresentable {
   func makeUIView(context: Context) -> AVRoutePickerView {
     let v = AVRoutePickerView()
     v.prioritizesVideoDevices = false
-    v.tintColor = .clear
-    v.activeTintColor = .clear
+    v.tintColor = .white
+    v.activeTintColor = .white
+    v.backgroundColor = .clear
     return v
   }
 
   func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }
 
-// MARK: - Mini-Player: dezente Tap-Stile (ohne Kasten-Raster)
+// MARK: - Vollansicht (Now Playing)
 
-private struct MiniPlayerIconTapStyle: ButtonStyle {
-  @Environment(\.isEnabled) private var isEnabled
-
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .opacity(isEnabled ? (configuration.isPressed ? 0.55 : 1) : 0.38)
-      .scaleEffect(configuration.isPressed ? 0.92 : 1)
-      .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-  }
-}
-
-private struct MiniPlayerPlayOrbButtonStyle: ButtonStyle {
-  @Environment(\.isEnabled) private var isEnabled
-
-  func makeBody(configuration: Configuration) -> some View {
-    let d = MiniPlayerMetrics.miniPlayerPlayOrb
-    return configuration.label
-      .font(.title2)
-      .foregroundStyle(AppTheme.accent)
-      .frame(width: d, height: d)
-      .background(
-        Circle()
-          .fill(AppTheme.accent.opacity(configuration.isPressed ? 0.22 : 0.14))
-      )
-      .scaleEffect(configuration.isPressed ? 0.94 : 1)
-      .opacity(isEnabled ? 1 : 0.45)
-      .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
-      .contentShape(Circle())
-  }
-}
-
-// MARK: - Mini-Player: Umrandung (wie Karten-Aktionen)
-
-private extension View {
-  func miniPlayerOutlinedRect() -> some View {
-    overlay(
-      RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
-        .stroke(AppTheme.textSecondary.opacity(0.42), lineWidth: 1)
-    )
-  }
-
-  func miniPlayerOutlinedCircle() -> some View {
-    overlay(
-      Circle()
-        .stroke(AppTheme.textSecondary.opacity(0.42), lineWidth: 1)
-    )
-  }
-}
-
-/// Schlummer, Tempo, AirPlay: **gleiche Breite**, nur Icons, niedrige Zeile (`miniPlayerSecondaryRowHeight`).
-private struct MiniPlayerSleepAirPlayRow: View {
+struct NowPlayingDetailView: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.verticalSizeClass) private var verticalSizeClass
 
-  private var rowH: CGFloat { MiniPlayerMetrics.miniPlayerSecondaryRowHeight }
+  @State private var scrubLocal: Double?
+
+  private var showIdlePlaceholder: Bool {
+    model.player.showMiniPlayerPlaceholder && model.player.activeBook == nil
+  }
 
   var body: some View {
-    HStack(alignment: .center, spacing: 6) {
-      sleepColumn
-        .frame(maxWidth: .infinity)
-        .frame(height: rowH)
-        .miniPlayerOutlinedRect()
-
-      tempoColumn
-        .frame(maxWidth: .infinity)
-        .frame(height: rowH)
-        .miniPlayerOutlinedRect()
-
-      airPlayColumn
-        .frame(maxWidth: .infinity)
-        .frame(height: rowH)
-        .miniPlayerOutlinedRect()
-    }
-    .frame(maxWidth: .infinity)
-    .frame(height: rowH, alignment: .center)
-    .clipped()
-  }
-
-  private var sleepColumn: some View {
-    Group {
-      if let end = model.player.sleepEndDate {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-          let sleepOn = end > context.date
-          let remaining = sleepOn ? end.timeIntervalSince(context.date) : nil
-          sleepButton(sleepOn: sleepOn, remaining: remaining)
-        }
-      } else {
-        sleepButton(sleepOn: false, remaining: nil)
-      }
-    }
-  }
-
-  private func sleepButton(sleepOn: Bool, remaining: Double?) -> some View {
-    Button { model.showSleepPicker = true } label: {
-      HStack(spacing: 3) {
-        Image(systemName: "moon.fill")
-          .font(.caption.weight(.semibold))
-        if sleepOn, let r = remaining, r > 0 {
-          Text(formatPlaybackTime(r))
-            .font(.caption2.monospacedDigit().weight(.semibold))
-            .lineLimit(1)
-            .minimumScaleFactor(0.65)
-        }
-      }
-      .foregroundStyle(sleepOn ? AppTheme.accent : AppTheme.textSecondary)
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    .buttonStyle(MiniPlayerIconTapStyle())
-    .accessibilityLabel("Schlummer")
-    .accessibilityValue(
-      sleepOn && (remaining ?? 0) > 0
-        ? "Noch \(formatPlaybackTime(remaining ?? 0))"
-        : ""
-    )
-  }
-
-  private var tempoColumn: some View {
-    Button { model.showPlaybackSpeedPicker = true } label: {
-      Image(systemName: "gauge.with.dots.needle.67percent")
-        .font(.body.weight(.medium))
-        .foregroundStyle(AppTheme.textPrimary)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    .buttonStyle(MiniPlayerIconTapStyle())
-    .accessibilityLabel("Abspielgeschwindigkeit")
-    .accessibilityValue(miniPlayerFormatPlaybackRate(model.player.playbackRate))
-  }
-
-  private var airPlayColumn: some View {
     ZStack {
-      Image(systemName: "airplayaudio")
-        .font(.body.weight(.medium))
-        .foregroundStyle(AppTheme.textSecondary)
-        .allowsHitTesting(false)
+      fullPlayerBackground
+        .accessibilityHidden(true)
+        .ignoresSafeArea()
 
-      MiniPlayerAirPlayRoutePicker()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    .accessibilityLabel("AirPlay")
-  }
-}
-
-/// Nur Transport (Skip, Play): volle Breite, ohne Umrandung.
-private struct MiniPlayerActiveControlRows: View {
-  @EnvironmentObject private var model: AppModel
-
-  var body: some View {
-    let rowH = MiniPlayerMetrics.miniPlayerControlsTotalHeight
-    let transportH = MiniPlayerMetrics.miniPlayerTransportHeight
-    let hasChapters = model.player.chapterCount > 0
-
-    HStack(alignment: .center, spacing: 0) {
-      Spacer(minLength: 0)
-
-      if hasChapters {
-        Button { model.player.skipToPreviousChapter() } label: {
-          Image(systemName: "backward.end.fill")
-            .font(.title3.weight(.semibold))
-            .foregroundStyle(AppTheme.textPrimary)
+      Group {
+        if verticalSizeClass == .compact {
+          landscapeLayout
+        } else {
+          portraitLayout
         }
-        .buttonStyle(MiniPlayerIconTapStyle())
+      }
+      .padding(.top, 14)
+    }
+    .preferredColorScheme(.dark)
+  }
+
+  private var fullPlayerBackground: some View {
+    let top = model.player.miniPlayerBarFillColor
+    let dark = Color(white: 0.1)
+    return LinearGradient(colors: [top, dark], startPoint: .top, endPoint: .bottom)
+  }
+
+  private var portraitLayout: some View {
+    VStack(spacing: 0) {
+      if let b = model.player.activeBook {
+        Spacer(minLength: 8)
+        fullPlayerArtwork(book: b)
+        Spacer(minLength: 24)
+        VStack(spacing: 32) {
+          chapterTitleArea(book: b)
+          playbackColumn(book: b)
+        }
+        .frame(maxWidth: 800)
+        Spacer(minLength: 24)
+        bottomUtilityBar
+        Spacer(minLength: 8)
+      } else if model.isRestoringLaunchPlayback {
+        restoringPlaceholder
+      } else if showIdlePlaceholder {
+        idlePlaceholder
+      }
+    }
+    .padding(.horizontal, 24)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  private var landscapeLayout: some View {
+    HStack(spacing: 24) {
+      if let b = model.player.activeBook {
+        fullPlayerArtwork(book: b)
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+          .containerRelativeFrame(.horizontal) { w, _ in w * 0.4 }
+        VStack(spacing: 24) {
+          Spacer()
+          chapterTitleArea(book: b)
+          playbackColumn(book: b)
+          bottomUtilityBar
+          Spacer()
+        }
+        .frame(maxWidth: .infinity)
+      } else {
+        restoringOrIdleInLandscape
+      }
+    }
+    .padding(.horizontal, 24)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  private var restoringOrIdleInLandscape: some View {
+    Group {
+      if model.isRestoringLaunchPlayback {
+        restoringPlaceholder
+      } else if showIdlePlaceholder {
+        idlePlaceholder
+      }
+    }
+  }
+
+  private func chapterTitleArea(book: ABSBook) -> some View {
+    Text(authorDashTitleLine(for: book))
+      .font(.headline)
+      .foregroundStyle(.primary)
+      .multilineTextAlignment(.center)
+      .lineLimit(3)
+      .frame(maxWidth: .infinity)
+      .padding(.horizontal, 8)
+  }
+
+  private func scrubberCenterCaption(book: ABSBook) -> String {
+    let chapters = model.player.chapterCount
+    guard chapters > 0 else { return "" }
+    let raw = model.player.currentChapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !raw.isEmpty { return raw }
+    let ord = model.player.currentChapterOrdinal
+    if ord > 0 { return "Chapter \(ord)" }
+    return "—"
+  }
+
+  private func fullPlayerArtwork(book: ABSBook) -> some View {
+    let dur = max(model.player.totalDuration, 1)
+    let pos = model.player.globalPosition
+    let pct = min(100, max(0, Int((pos / dur * 100).rounded())))
+    let corner: CGFloat = 24
+    return CoverImageView(
+      url: model.coverURL(for: book.id),
+      token: model.token,
+      itemId: book.id,
+      cacheAccount: model.coverImageCacheAccountDirectory(),
+      cacheRevision: model.coverImageCacheRevision,
+      contentMode: .fit
+    )
+    .aspectRatio(1, contentMode: .fit)
+    .frame(maxWidth: 400)
+    .frame(maxWidth: .infinity)
+    .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: corner, style: .continuous)
+        .strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
+    }
+    .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
+    .overlay(alignment: .topTrailing) {
+      Text(verbatim: "\(pct)%")
+        .font(.caption.weight(.semibold))
+        .monospacedDigit()
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+        .overlay {
+          Capsule(style: .continuous)
+            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+        }
+        .padding(.top, 12)
+        .padding(.trailing, 12)
+        .accessibilityLabel("Fortschritt \(pct) Prozent")
+    }
+  }
+
+  private func playbackColumn(book: ABSBook) -> some View {
+    VStack(spacing: 32) {
+      scrubberSection(book: book)
+      transportControls
+    }
+  }
+
+  private func scrubberSection(book: ABSBook) -> some View {
+    let dur = max(model.player.totalDuration, 1)
+    let pos = scrubLocal ?? model.player.globalPosition
+    let centerCaption = scrubberCenterCaption(book: book)
+    return VStack(alignment: .leading, spacing: 10) {
+      Slider(
+        value: Binding(
+          get: { pos },
+          set: { scrubLocal = $0 }
+        ),
+        in: 0 ... dur,
+        onEditingChanged: { editing in
+          if !editing, let s = scrubLocal {
+            model.player.seek(global: s)
+            scrubLocal = nil
+          }
+        }
+      )
+      .tint(AppTheme.accent)
+      .controlSize(.regular)
+      .padding(.top, 6)
+      .accessibilityLabel("Playback position")
+
+      HStack {
+        Text(formatPlaybackTime(pos))
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        Spacer()
+        if !centerCaption.isEmpty {
+          Text(centerCaption)
+            .font(.caption)
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+        } else {
+          Spacer()
+            .frame(maxWidth: .infinity)
+        }
+        Spacer()
+        Text(formatPlaybackTime(max(0, dur - pos)))
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .monospacedDigit()
+    }
+  }
+
+  private var transportControls: some View {
+    let hasChapters = model.player.chapterCount > 0
+    let isBusy = model.player.activeBook != nil && model.player.isBuffering
+    return HStack(spacing: 0) {
+      if hasChapters {
+        Button {
+          model.player.skipToPreviousChapter()
+        } label: {
+          Image(systemName: "backward.end")
+            .font(.title2)
+            .symbolVariant(.fill)
+        }
         .disabled(!model.player.canSkipToPreviousChapter)
-        .frame(width: 44, height: transportH)
-        .contentShape(Rectangle())
         .accessibilityLabel("Previous chapter")
-
-        Spacer(minLength: 0)
+        Spacer(minLength: 8)
       }
 
-      Button { model.player.skip(seconds: -15) } label: {
+      Button {
+        model.player.skip(seconds: -PlayerChromeLayout.skipBackward)
+      } label: {
         Image(systemName: "gobackward.15")
-          .font(.title3)
-          .foregroundStyle(AppTheme.textPrimary)
+          .font(hasChapters ? .title2 : .largeTitle)
       }
-      .buttonStyle(MiniPlayerIconTapStyle())
-      .frame(width: 44, height: transportH)
-      .contentShape(Rectangle())
+      .disabled(isBusy)
       .accessibilityLabel("Back 15 seconds")
 
-      Spacer(minLength: 0)
+      Spacer(minLength: 8)
 
-      Button { model.player.togglePlayPause() } label: {
-        Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill")
+      Button {
+        model.player.togglePlayPause()
+      } label: {
+        Group {
+          if isBusy {
+            ProgressView()
+              .controlSize(.large)
+          } else {
+            Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill")
+              .font(.system(size: 40))
+              .symbolVariant(.fill)
+          }
+        }
+        .frame(width: 64, height: 64)
       }
-      .buttonStyle(MiniPlayerPlayOrbButtonStyle())
-      .accessibilityLabel(model.player.isPlaying ? "Pause" : "Play")
+      .buttonStyle(.borderedProminent)
+      .controlSize(.large)
+      .clipShape(Circle())
+      .disabled(model.player.activeBook == nil)
 
-      Spacer(minLength: 0)
+      Spacer(minLength: 8)
 
-      Button { model.player.skip(seconds: 30) } label: {
+      Button {
+        model.player.skip(seconds: PlayerChromeLayout.skipForward)
+      } label: {
         Image(systemName: "goforward.30")
-          .font(.title3)
-          .foregroundStyle(AppTheme.textPrimary)
+          .font(hasChapters ? .title2 : .largeTitle)
       }
-      .buttonStyle(MiniPlayerIconTapStyle())
-      .frame(width: 44, height: transportH)
-      .contentShape(Rectangle())
+      .disabled(isBusy)
       .accessibilityLabel("Forward 30 seconds")
 
       if hasChapters {
-        Spacer(minLength: 0)
-
-        Button { model.player.skipToNextChapter() } label: {
-          Image(systemName: "forward.end.fill")
-            .font(.title3.weight(.semibold))
-            .foregroundStyle(AppTheme.textPrimary)
+        Spacer(minLength: 8)
+        Button {
+          model.player.skipToNextChapter()
+        } label: {
+          Image(systemName: "forward.end")
+            .font(.title2)
+            .symbolVariant(.fill)
         }
-        .buttonStyle(MiniPlayerIconTapStyle())
         .disabled(!model.player.canSkipToNextChapter)
-        .frame(width: 44, height: transportH)
-        .contentShape(Rectangle())
         .accessibilityLabel("Next chapter")
       }
-
-      Spacer(minLength: 0)
     }
-    .frame(maxWidth: .infinity)
-    .frame(height: rowH)
+    .buttonStyle(.borderless)
+  }
+
+  private var bottomUtilityBar: some View {
+    HStack(spacing: 0) {
+      Menu {
+        ForEach(PlaybackController.playbackRatePresets, id: \.self) { r in
+          Button {
+            model.applyPlaybackSpeed(r)
+          } label: {
+            HStack {
+              Text(miniPlayerFormatPlaybackRate(r))
+              Spacer(minLength: 8)
+              if model.player.playbackRate == r {
+                Image(systemName: "checkmark")
+                  .foregroundStyle(AppTheme.accent)
+              }
+            }
+          }
+        }
+      } label: {
+        VStack(spacing: 4) {
+          Text(miniPlayerFormatPlaybackRate(model.player.playbackRate))
+            .font(.subheadline.weight(.medium))
+          Text("Tempo", comment: "Player control label")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+      }
+      .menuActionDismissBehavior(.automatic)
+
+      Menu {
+        Button("Off") { model.applySleepTimer(minutes: nil) }
+        Button("15 Min") { model.applySleepTimer(minutes: 15) }
+        Button("30 Min") { model.applySleepTimer(minutes: 30) }
+        Button("45 Min") { model.applySleepTimer(minutes: 45) }
+        Button("60 Min") { model.applySleepTimer(minutes: 60) }
+      } label: {
+        VStack(spacing: 4) {
+          if let end = model.player.sleepEndDate {
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+              Text(formatPlaybackTime(max(0, end.timeIntervalSinceNow)))
+                .font(.subheadline.weight(.medium))
+                .monospacedDigit()
+                .foregroundStyle(AppTheme.accent)
+            }
+          } else {
+            Text("Off")
+              .font(.subheadline.weight(.medium))
+              .foregroundStyle(.secondary)
+          }
+          Text("Sleep", comment: "Player control label")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+      }
+      .menuActionDismissBehavior(.automatic)
+
+      FullPlayerAirPlayButton()
+        .frame(maxWidth: .infinity)
+        .frame(height: 44)
+    }
+    .padding(.vertical, 8)
+    .buttonStyle(.plain)
+  }
+
+  private var restoringPlaceholder: some View {
+    ContentUnavailableView {
+      ProgressView()
+    } description: {
+      Text("Loading last position…")
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  private var idlePlaceholder: some View {
+    ContentUnavailableView(
+      "Nothing playing",
+      systemImage: "waveform",
+      description: Text("Choose an audiobook in the library.")
+    )
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }
 
-/// Inaktiv: drei Icon-Spalten, gleiche Maße wie aktiv.
-private struct MiniPlayerSleepAirPlayPlaceholderRow: View {
-  private var rowH: CGFloat { MiniPlayerMetrics.miniPlayerSecondaryRowHeight }
+// MARK: - Tab bar accessory artwork (equatable: ignore high-frequency playback ticks)
+
+private struct FloatingBarCoverEquatable: View, Equatable {
+  @EnvironmentObject private var model: AppModel
+  var itemId: String
+  var coverRevision: Int
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.itemId == rhs.itemId && lhs.coverRevision == rhs.coverRevision
+  }
 
   var body: some View {
-    HStack(alignment: .center, spacing: 6) {
-      Image(systemName: "moon.fill")
-        .font(.body.weight(.medium))
-        .foregroundStyle(AppTheme.textSecondary.opacity(0.35))
-        .frame(maxWidth: .infinity)
-        .frame(height: rowH)
-        .miniPlayerOutlinedRect()
-
-      Image(systemName: "gauge.with.dots.needle.67percent")
-        .font(.body.weight(.medium))
-        .foregroundStyle(AppTheme.textSecondary.opacity(0.35))
-        .frame(maxWidth: .infinity)
-        .frame(height: rowH)
-        .miniPlayerOutlinedRect()
-
-      Image(systemName: "airplayaudio")
-        .font(.body.weight(.medium))
-        .foregroundStyle(AppTheme.textSecondary.opacity(0.35))
-        .frame(maxWidth: .infinity)
-        .frame(height: rowH)
-        .miniPlayerOutlinedRect()
+    let side = PlayerChromeLayout.tabAccessoryCover
+    let plateRadius: CGFloat = 6
+    CoverImageView(
+      url: model.coverURL(for: itemId),
+      token: model.token,
+      itemId: itemId,
+      cacheAccount: model.coverImageCacheAccountDirectory(),
+      cacheRevision: coverRevision
+    )
+    .frame(width: side, height: side)
+    .clipShape(RoundedRectangle(cornerRadius: plateRadius, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: plateRadius, style: .continuous)
+        .strokeBorder(.quaternary, lineWidth: 0.5)
     }
-    .frame(maxWidth: .infinity)
-    .frame(height: rowH, alignment: .center)
-    .clipped()
   }
 }
 
-// MARK: - Mini player slider (global UISlider thumb; only one Slider in app)
+struct FloatingNowPlayingBar: View {
+  @EnvironmentObject private var model: AppModel
+  var onExpand: () -> Void
 
-private enum MiniPlayerSliderThumb {
-  private static var didApply = false
-
-  static func applyOnce() {
-    guard !didApply else { return }
-    didApply = true
-    let d: CGFloat = 12
-    let size = CGSize(width: d, height: d)
-    let img = UIGraphicsImageRenderer(size: size).image { ctx in
-      UIColor.white.setFill()
-      ctx.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size))
-    }
-    UISlider.appearance().setThumbImage(img, for: .normal)
-    UISlider.appearance().setThumbImage(img, for: .highlighted)
+  private var showIdlePlaceholder: Bool {
+    model.player.showMiniPlayerPlaceholder && model.player.activeBook == nil
   }
-}
 
-// MARK: - Mini Player Styles (Bibliothek / Karten)
+  private var canTogglePlayback: Bool {
+    model.player.activeBook != nil && !model.isRestoringLaunchPlayback
+  }
 
-/// Inaktiver Transport: volle Breite, ohne Umrandung.
-private struct MiniPlayerPlaceholderControlStrip: View {
   var body: some View {
-    let rowH = MiniPlayerMetrics.miniPlayerControlsTotalHeight
-    let transportH = MiniPlayerMetrics.miniPlayerTransportHeight
-    let orb = MiniPlayerMetrics.miniPlayerPlayOrb
-
-    HStack(alignment: .center, spacing: 0) {
-      Spacer(minLength: 0)
-
-      Image(systemName: "backward.end.fill")
-        .font(.title3.weight(.semibold))
-        .foregroundStyle(AppTheme.textSecondary.opacity(0.28))
-        .frame(width: 44, height: transportH)
-
-      Spacer(minLength: 0)
-
-      Image(systemName: "gobackward.15")
-        .font(.title3)
-        .foregroundStyle(AppTheme.textSecondary.opacity(0.28))
-        .frame(width: 44, height: transportH)
-
-      Spacer(minLength: 0)
-
-      Image(systemName: "play.fill")
-        .font(.title2)
-        .foregroundStyle(AppTheme.accent.opacity(0.35))
-        .frame(width: orb, height: orb)
-        .background(Circle().fill(AppTheme.accent.opacity(0.08)))
-
-      Spacer(minLength: 0)
-
-      Image(systemName: "goforward.30")
-        .font(.title3)
-        .foregroundStyle(AppTheme.textSecondary.opacity(0.28))
-        .frame(width: 44, height: transportH)
-
-      Spacer(minLength: 0)
-
-      Image(systemName: "forward.end.fill")
-        .font(.title3.weight(.semibold))
-        .foregroundStyle(AppTheme.textSecondary.opacity(0.28))
-        .frame(width: 44, height: transportH)
-
-      Spacer(minLength: 0)
+    HStack(spacing: 0) {
+      openNowPlayingTapRegion
+      trailingAccessoryButtons
     }
-    .frame(maxWidth: .infinity)
-    .frame(height: rowH)
-    .fixedSize(horizontal: false, vertical: true)
+    .padding(.vertical, 8)
+    .padding(.horizontal, 12)
+    .contextMenu {
+      Button(role: .destructive) {
+        Task { await model.dismissPlayer() }
+      } label: {
+        Label("Stop playback", systemImage: "xmark.circle")
+      }
+    }
+  }
+
+  /// Nur Cover + Titelzeilen: Sheet öffnen. Nicht über die Transport-Buttons legen, sonst frisst
+  /// `onTapGesture` die Touches und Play/Skip reagieren nicht.
+  private var openNowPlayingTapRegion: some View {
+    HStack(spacing: 0) {
+      miniCover
+      VStack(alignment: .leading, spacing: 2) {
+        Text(primaryLine)
+          .font(.footnote)
+          .fontWeight(.medium)
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+          .frame(maxWidth: .infinity, alignment: .leading)
+
+        Text(secondaryLine)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fontWeight(.medium)
+          .lineLimit(1)
+      }
+      .padding(.leading, 10)
+    }
+    .contentShape(Rectangle())
+    .onTapGesture { onExpand() }
+    /// Nimmt den freien Platz links; Transport bleibt rechts — unabhängig von `accessoryPlacement`,
+    /// damit Play/Pause nicht „fehlt“, wenn die Bar in der Tab-Leiste eingebettet ist.
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  /// Etwas größer als Standard-Symbol, Tab-Leiste bleibt schmal.
+  private static let accessoryTransportSide: CGFloat = 34
+
+  @ViewBuilder
+  private var trailingAccessoryButtons: some View {
+    let busy = model.player.activeBook != nil && model.player.isBuffering
+    HStack(spacing: 8) {
+      Button {
+        model.player.skip(seconds: -PlayerChromeLayout.skipBackward)
+      } label: {
+        Image(systemName: "gobackward.15")
+          .font(.system(size: 18, weight: .medium))
+          .foregroundStyle(.primary)
+          .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
+          .contentShape(Rectangle())
+      }
+      .disabled(!canTogglePlayback || busy)
+      .buttonStyle(.plain)
+      .accessibilityLabel("Back 15 seconds")
+
+      Button {
+        model.player.togglePlayPause()
+      } label: {
+        ZStack {
+          Circle()
+            .fill(Color.accentColor)
+            .aspectRatio(1, contentMode: .fit)
+          if model.player.isBuffering && canTogglePlayback {
+            ProgressView()
+              .progressViewStyle(.circular)
+              .tint(.white)
+              .scaleEffect(0.78)
+          } else {
+            Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill")
+              .font(.system(size: 13, weight: .semibold))
+              .foregroundStyle(.white)
+          }
+        }
+        .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
+        .contentShape(Circle())
+      }
+      /// Während Pufferung: Pause erlauben („Steckenbleiben“ vermeiden); erneuter Tap startet wie gewohnt.
+      .disabled(!canTogglePlayback)
+      .buttonStyle(.plain)
+    }
+  }
+
+  @ViewBuilder
+  private var miniCover: some View {
+    let side = PlayerChromeLayout.tabAccessoryCover
+    let plateRadius: CGFloat = 6
+    if let b = model.player.activeBook {
+      FloatingBarCoverEquatable(itemId: b.id, coverRevision: model.coverImageCacheRevision)
+    } else if model.isRestoringLaunchPlayback {
+      RoundedRectangle(cornerRadius: plateRadius, style: .continuous)
+        .fill(.quaternary.opacity(0.5))
+        .frame(width: side, height: side)
+        .overlay { ProgressView() }
+    } else {
+      RoundedRectangle(cornerRadius: plateRadius, style: .continuous)
+        .fill(.quaternary.opacity(0.5))
+        .frame(width: side, height: side)
+        .overlay {
+          Image(systemName: "waveform")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+    }
+  }
+
+  private var primaryLine: String {
+    if let b = model.player.activeBook { return authorDashTitleLine(for: b) }
+    if model.isRestoringLaunchPlayback { return "Playback" }
+    if showIdlePlaceholder { return "Nothing playing" }
+    return "Playback"
+  }
+
+  private var secondaryLine: String {
+    if model.player.activeBook != nil {
+      let t = max(model.player.totalDuration, 1)
+      let p = model.player.globalPosition
+      return remainingTimeDashPercent(total: t, position: p)
+    }
+    if model.isRestoringLaunchPlayback { return "Loading…" }
+    if showIdlePlaceholder { return "Choose an audiobook" }
+    return ""
   }
 }
+
 
 /// Umrandete Aktions-Buttons (Bibliothekskarte), optisch an den Mini-Player angelehnt.
 struct LibraryCardActionButtonStyle: ButtonStyle {
@@ -429,276 +679,4 @@ struct LibraryCardActionButtonStyle: ButtonStyle {
   }
 }
 
-// MARK: - Mini Player Bar
 
-struct MiniPlayerBar: View {
-  @EnvironmentObject private var model: AppModel
-  @State private var scrubLocal: Double?
-
-  private var showIdlePlaceholder: Bool {
-    model.player.showMiniPlayerPlaceholder && model.player.activeBook == nil
-  }
-
-  var body: some View {
-    let book = model.player.activeBook
-    let pos = scrubLocal ?? model.player.globalPosition
-    let dur = max(model.player.totalDuration, 1)
-
-    VStack(alignment: .leading, spacing: 0) {
-      if let b = book {
-        VStack(alignment: .leading, spacing: 2) {
-          HStack(alignment: .top, spacing: 8) {
-            CoverImageView(url: model.coverURL(for: b.id), token: model.token)
-              .frame(width: MiniPlayerMetrics.coverSide, height: MiniPlayerMetrics.coverSide)
-              .clipped()
-              .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-              .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 4) {
-              Text(b.displayTitle)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(AppTheme.textPrimary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.85)
-                .fixedSize(horizontal: false, vertical: true)
-              Text(b.displayAuthors)
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.88)
-              if model.player.chapterCount > 0 {
-                let counter = String(
-                  format: "%03d/%03d",
-                  model.player.currentChapterOrdinal,
-                  model.player.chapterCount
-                )
-                let chapterName = model.player.currentChapterTitle
-                  .trimmingCharacters(in: .whitespacesAndNewlines)
-                HStack(alignment: .firstTextBaseline, spacing: 0) {
-                  Text(counter).monospacedDigit()
-                  if !chapterName.isEmpty {
-                    Text(" - ")
-                    Text(chapterName)
-                      .lineLimit(1)
-                      .truncationMode(.tail)
-                      .frame(maxWidth: .infinity, alignment: .leading)
-                  }
-                }
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel(
-                  chapterName.isEmpty
-                    ? "Kapitel \(counter)"
-                    : "Kapitel \(counter), \(chapterName)"
-                )
-              }
-
-              Spacer(minLength: 0)
-
-              MiniPlayerSleepAirPlayRow()
-            }
-            .frame(
-              maxWidth: .infinity,
-              minHeight: MiniPlayerMetrics.coverSide,
-              alignment: .topLeading
-            )
-          }
-          .fixedSize(horizontal: false, vertical: true)
-
-          VStack(alignment: .leading, spacing: 2) {
-            VStack(alignment: .leading, spacing: 0) {
-              Slider(
-                value: Binding(
-                  get: { pos },
-                  set: { scrubLocal = $0 }
-                ),
-                in: 0 ... dur,
-                onEditingChanged: { editing in
-                  if !editing, let s = scrubLocal {
-                    model.player.seek(global: s)
-                    scrubLocal = nil
-                  }
-                }
-              )
-              .tint(AppTheme.accent)
-              .controlSize(.mini)
-
-              Group {
-                HStack(spacing: 0) {
-                  Text(formatPlaybackTime(pos))
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                  Text(formatPlaybackTime(dur))
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-                .font(.subheadline.monospacedDigit())
-              }
-              .padding(.top, -4)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            MiniPlayerActiveControlRows()
-              .frame(maxWidth: .infinity)
-              .fixedSize(horizontal: false, vertical: true)
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-        }
-      } else if model.isRestoringLaunchPlayback {
-        VStack(alignment: .leading, spacing: 2) {
-          HStack(alignment: .top, spacing: 8) {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-              .fill(AppTheme.textSecondary.opacity(0.12))
-              .frame(width: MiniPlayerMetrics.coverSide, height: MiniPlayerMetrics.coverSide)
-              .overlay {
-                ProgressView()
-                  .tint(AppTheme.accent)
-              }
-              .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 3) {
-              Text("Wiedergabe")
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(AppTheme.textPrimary)
-              Text("Letzte Position wird geladen …")
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-                .lineLimit(2)
-
-              Spacer(minLength: 0)
-
-              MiniPlayerSleepAirPlayPlaceholderRow()
-            }
-            .frame(
-              maxWidth: .infinity,
-              minHeight: MiniPlayerMetrics.coverSide,
-              alignment: .topLeading
-            )
-          }
-          .fixedSize(horizontal: false, vertical: true)
-
-          VStack(alignment: .leading, spacing: 2) {
-            VStack(alignment: .leading, spacing: 0) {
-              ProgressView()
-                .controlSize(.small)
-                .tint(AppTheme.accent)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 8)
-              HStack(spacing: 6) {
-                Text("0:00")
-                Spacer(minLength: 0)
-                Text("—")
-              }
-              .font(.subheadline.monospacedDigit())
-              .foregroundStyle(AppTheme.textSecondary.opacity(0.5))
-              .padding(.top, -4)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            MiniPlayerPlaceholderControlStrip()
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Wiedergabe wird geladen.")
-      } else if showIdlePlaceholder {
-        VStack(alignment: .leading, spacing: 2) {
-          HStack(alignment: .top, spacing: 8) {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-              .fill(AppTheme.textSecondary.opacity(0.12))
-              .frame(width: MiniPlayerMetrics.coverSide, height: MiniPlayerMetrics.coverSide)
-              .overlay {
-                Image(systemName: "waveform")
-                  .font(.title2)
-                  .foregroundStyle(AppTheme.textSecondary.opacity(0.45))
-              }
-              .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 3) {
-              Text("Keine Wiedergabe")
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(AppTheme.textPrimary)
-              Text("Wähle ein anderes Hörbuch in der Bibliothek.")
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-                .lineLimit(2)
-
-              Spacer(minLength: 0)
-
-              MiniPlayerSleepAirPlayPlaceholderRow()
-            }
-            .frame(
-              maxWidth: .infinity,
-              minHeight: MiniPlayerMetrics.coverSide,
-              alignment: .topLeading
-            )
-          }
-          .fixedSize(horizontal: false, vertical: true)
-
-          VStack(alignment: .leading, spacing: 2) {
-            VStack(alignment: .leading, spacing: 0) {
-              Slider(value: .constant(0), in: 0 ... 1)
-                .tint(AppTheme.accent.opacity(0.35))
-                .controlSize(.mini)
-                .disabled(true)
-              HStack(spacing: 6) {
-                Text("0:00")
-                Spacer(minLength: 0)
-                Text("0:00")
-              }
-              .font(.subheadline.monospacedDigit())
-              .foregroundStyle(AppTheme.textSecondary.opacity(0.5))
-              .padding(.top, -4)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            MiniPlayerPlaceholderControlStrip()
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Keine Wiedergabe. Wähle ein Hörbuch in der Bibliothek.")
-      }
-    }
-    .padding(12)
-    .background(model.player.miniPlayerBarFillColor)
-    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    .onAppear {
-      MiniPlayerSliderThumb.applyOnce()
-    }
-  }
-}
-
-// MARK: - Abspielgeschwindigkeit (Sheet wie Schlummer-Timer)
-
-struct PlaybackSpeedSheet: View {
-  @EnvironmentObject private var model: AppModel
-
-  var body: some View {
-    NavigationStack {
-      List {
-        ForEach(PlaybackController.playbackRatePresets, id: \.self) { r in
-          Button {
-            model.applyPlaybackSpeed(r)
-          } label: {
-            HStack {
-              Text(miniPlayerFormatPlaybackRate(r))
-              Spacer(minLength: 8)
-              if model.player.playbackRate == r {
-                Image(systemName: "checkmark")
-                  .foregroundStyle(AppTheme.accent)
-              }
-            }
-          }
-        }
-      }
-      .navigationTitle("Tempo")
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("Fertig") { model.showPlaybackSpeedPicker = false }
-        }
-      }
-    }
-  }
-}

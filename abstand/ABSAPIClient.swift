@@ -176,6 +176,30 @@ actor ABSAPIClient {
     }
   }
 
+  /// Neueste unbearbeitete Podcast-Folgen (wie Web „Latest episodes“).
+  func recentPodcastEpisodes(libraryId: String, page: Int = 0, limit: Int = 40) async throws
+    -> (response: ABSRecentEpisodesResponse, raw: Data)
+  {
+    let req = try authorizedRequest(
+      path: "api/libraries/\(libraryId)/recent-episodes",
+      query: [
+        "limit": "\(limit)",
+        "page": "\(page)",
+      ]
+    )
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    do {
+      let r = try decoder.decode(ABSRecentEpisodesResponse.self, from: data)
+      return (r, data)
+    } catch {
+      throw ABSAPIError.decoding(error)
+    }
+  }
+
   func item(id: String, expanded: Bool = true) async throws -> ABSBook {
     let q = ["expanded": expanded ? "1" : "0"]
     let req = try authorizedRequest(path: "api/items/\(id)", query: q)
@@ -240,7 +264,8 @@ actor ABSAPIClient {
         let title = ABSStartShelfLocalization.displayTitle(category: category, serverLabel: label)
         out.append(
           ABSStartShelfSection(
-            id: sid, category: category, displayTitle: title, books: books, authors: []))
+            id: sid, category: category, displayTitle: title, books: books, podcastEpisodes: [],
+            authors: []))
       } else if type == "series" {
         var books: [ABSBook] = []
         for ser in entities {
@@ -258,7 +283,8 @@ actor ABSAPIClient {
         let title = ABSStartShelfLocalization.displayTitle(category: category, serverLabel: label)
         out.append(
           ABSStartShelfSection(
-            id: sid, category: category, displayTitle: title, books: books, authors: []))
+            id: sid, category: category, displayTitle: title, books: books, podcastEpisodes: [],
+            authors: []))
       } else if type == "authors" {
         var authors: [ABSAuthorShelfEntity] = []
         for e in entities {
@@ -271,47 +297,80 @@ actor ABSAPIClient {
         let title = ABSStartShelfLocalization.displayTitle(category: category, serverLabel: label)
         out.append(
           ABSStartShelfSection(
-            id: sid, category: category, displayTitle: title, books: [], authors: authors))
+            id: sid, category: category, displayTitle: title, books: [], podcastEpisodes: [],
+            authors: authors))
       }
     }
     return out
   }
 
-  /// Laufende Hörbücher (Server-Dashboard / „Weiterhören“), unabhängig von der alphabetischen Bibliotheksliste.
-  func itemsInProgress(limit: Int = 50) async throws -> [ABSBook] {
+  /// Laufende Titel (Bücher + Podcast-Folgen mit Fortschritt), vgl. `GET /api/me/items-in-progress`.
+  func itemsInProgress(limit: Int = 50) async throws -> ABSItemsInProgressPayload {
     let req = try authorizedRequest(path: "api/me/items-in-progress", query: ["limit": "\(limit)"])
     let (data, resp) = try await urlSession.data(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     guard (200 ..< 300).contains(http.statusCode) else {
       throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
     }
-    return Self.decodeInProgressBooks(from: data)
+    return Self.decodeInProgressPayload(from: data)
   }
 
-  /// Dekodiert nur `mediaType == book` (Podcasts werden übersprungen, damit die ganze Antwort nicht scheitert).
-  nonisolated private static func decodeInProgressBooks(from data: Data) -> [ABSBook] {
+  nonisolated private static func decodeInProgressPayload(from data: Data) -> ABSItemsInProgressPayload {
     guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
       let items = root["libraryItems"] as? [[String: Any]]
     else {
-      return []
+      return ABSItemsInProgressPayload(books: [], podcastEpisodes: [])
     }
     let dec = ABSJSON.decoder()
-    var out: [ABSBook] = []
-    out.reserveCapacity(items.count)
+    var books: [ABSBook] = []
+    var podcastEpisodes: [ABSPodcastEpisodeListItem] = []
+    books.reserveCapacity(items.count)
+    podcastEpisodes.reserveCapacity(min(32, items.count))
     for obj in items {
-      if let mt = obj["mediaType"] as? String, mt != "book" { continue }
-      guard let sub = try? JSONSerialization.data(withJSONObject: obj) else { continue }
-      if let book = try? dec.decode(ABSBook.self, from: sub) {
-        out.append(book)
+      let mt = (obj["mediaType"] as? String)?.lowercased() ?? ""
+      if mt == "book" {
+        guard let sub = try? JSONSerialization.data(withJSONObject: obj) else { continue }
+        if let book = try? dec.decode(ABSBook.self, from: sub), book.isPlayableAudiobook {
+          books.append(book)
+        }
+      } else if mt == "podcast" {
+        guard var recent = obj["recentEpisode"] as? [String: Any] else { continue }
+        let liId = (obj["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !liId.isEmpty else { continue }
+        let existing = (recent["libraryItemId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if existing.isEmpty {
+          recent["libraryItemId"] = liId
+        }
+        guard let subEp = try? JSONSerialization.data(withJSONObject: recent) else { continue }
+        guard let dto = try? dec.decode(ABSRecentPodcastEpisodeDTO.self, from: subEp) else { continue }
+        let libId = obj["libraryId"] as? String
+        var show: ABSBook?
+        if let subLi = try? JSONSerialization.data(withJSONObject: obj) {
+          show = try? dec.decode(ABSBook.self, from: subLi)
+        }
+        if let row = ABSPodcastEpisodeListItem.fromDTO(dto, fallbackShow: show, libraryId: libId) {
+          podcastEpisodes.append(row)
+        }
       }
     }
-    return out
+    return ABSItemsInProgressPayload(books: books, podcastEpisodes: podcastEpisodes)
   }
 
-  func startPlaySession(itemId: String, deviceId: String, appVersion: String?) async throws -> ABSPlaySession {
+  func startPlaySession(
+    itemId: String,
+    episodeId: String? = nil,
+    deviceId: String,
+    appVersion: String?
+  ) async throws -> ABSPlaySession {
     let body = try encoder.encode(ABSPlaySessionRequest(deviceId: deviceId, clientVersion: appVersion))
+    let path: String
+    if let eid = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines), !eid.isEmpty {
+      path = "api/items/\(itemId)/play/\(eid)"
+    } else {
+      path = "api/items/\(itemId)/play"
+    }
     let req = try authorizedRequest(
-      path: "api/items/\(itemId)/play",
+      path: path,
       method: "POST",
       body: body,
       timeout: 60
@@ -330,14 +389,28 @@ actor ABSAPIClient {
     try await sendData(req)
   }
 
-  func patchProgress(libraryItemId: String, patch: ABSProgressPatch) async throws {
+  func patchProgress(
+    libraryItemId: String,
+    episodeId: String? = nil,
+    patch: ABSProgressPatch
+  ) async throws {
     let body = try encoder.encode(patch)
-    let req = try authorizedRequest(path: "api/me/progress/\(libraryItemId)", method: "PATCH", body: body)
+    let path: String
+    if let eid = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines), !eid.isEmpty {
+      path = "api/me/progress/\(libraryItemId)/\(eid)"
+    } else {
+      path = "api/me/progress/\(libraryItemId)"
+    }
+    let req = try authorizedRequest(path: path, method: "PATCH", body: body)
     try await sendData(req)
   }
 
-  func markFinished(libraryItemId: String) async throws {
-    try await patchProgress(libraryItemId: libraryItemId, patch: ABSProgressPatch(currentTime: nil, duration: nil, progress: nil, isFinished: true))
+  func markFinished(libraryItemId: String, episodeId: String? = nil) async throws {
+    try await patchProgress(
+      libraryItemId: libraryItemId,
+      episodeId: episodeId,
+      patch: ABSProgressPatch(currentTime: nil, duration: nil, progress: nil, isFinished: true)
+    )
   }
 
   func deleteLibraryItem(id: String) async throws {

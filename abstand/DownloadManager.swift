@@ -66,11 +66,19 @@ final class DownloadManager: ObservableObject {
     completion?(true)
   }
 
-  func startDownload(client: ABSAPIClient, book: ABSBook, completion: ((Bool) -> Void)? = nil) {
+  func startDownload(
+    client: ABSAPIClient,
+    book: ABSBook,
+    episodeId: String? = nil,
+    storageItemId: String? = nil,
+    completion: ((Bool) -> Void)? = nil
+  ) {
     cancel()
     downloadRunId += 1
     let runId = downloadRunId
-    let id = book.id
+    let trimmedEp = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let resolvedEp: String? = trimmedEp.isEmpty ? nil : trimmedEp
+    let id = storageItemId ?? book.id
     activeItemId = id
     progress = 0
     task = Task { @MainActor in
@@ -97,7 +105,8 @@ final class DownloadManager: ObservableObject {
         }
 
         let session = try await client.startPlaySession(
-          itemId: id,
+          itemId: book.id,
+          episodeId: resolvedEp,
           deviceId: PlaybackController.stableDeviceId(),
           appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
         )
@@ -153,7 +162,8 @@ final class DownloadManager: ObservableObject {
         }
         let manifest = ABSDownloadManifest(
           format: 1,
-          libraryItemId: id,
+          libraryItemId: book.id,
+          episodeId: resolvedEp,
           libraryId: book.libraryId,
           displayTitle: book.displayTitle,
           displayAuthor: book.displayAuthors,

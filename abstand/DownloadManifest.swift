@@ -8,6 +8,8 @@ struct ABSDownloadManifest: Codable {
   /// Schema-Version für spätere Migrationen.
   let format: Int
   let libraryItemId: String
+  /// Podcast-Folge (optional); Hörbücher ohne Folge = `nil`.
+  let episodeId: String?
   /// Bibliotheks-ID zum Filtern / Anzeige (ohne API offline nutzbar).
   let libraryId: String?
   /// Anzeige aus dem Buch zum Zeitpunkt des Downloads (nicht vom Server geliefert).
@@ -29,12 +31,13 @@ struct ABSDownloadManifest: Codable {
   }
 
   enum CodingKeys: String, CodingKey {
-    case format, libraryItemId, libraryId, displayTitle, displayAuthor, playSessionId, savedAtEpoch, savedAt, audioFileExtension, totalDuration, tracks
+    case format, libraryItemId, episodeId, libraryId, displayTitle, displayAuthor, playSessionId, savedAtEpoch, savedAt, audioFileExtension, totalDuration, tracks
   }
 
   init(
     format: Int,
     libraryItemId: String,
+    episodeId: String? = nil,
     libraryId: String?,
     displayTitle: String?,
     displayAuthor: String?,
@@ -46,6 +49,7 @@ struct ABSDownloadManifest: Codable {
   ) {
     self.format = format
     self.libraryItemId = libraryItemId
+    self.episodeId = episodeId
     self.libraryId = libraryId
     self.displayTitle = displayTitle
     self.displayAuthor = displayAuthor
@@ -60,6 +64,7 @@ struct ABSDownloadManifest: Codable {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     format = try c.decode(Int.self, forKey: .format)
     libraryItemId = try c.decode(String.self, forKey: .libraryItemId)
+    episodeId = try c.decodeIfPresent(String.self, forKey: .episodeId)
     libraryId = try c.decodeIfPresent(String.self, forKey: .libraryId)
     displayTitle = try c.decodeIfPresent(String.self, forKey: .displayTitle)
     displayAuthor = try c.decodeIfPresent(String.self, forKey: .displayAuthor)
@@ -87,6 +92,7 @@ struct ABSDownloadManifest: Codable {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encode(format, forKey: .format)
     try c.encode(libraryItemId, forKey: .libraryItemId)
+    try c.encodeIfPresent(episodeId, forKey: .episodeId)
     try c.encodeIfPresent(libraryId, forKey: .libraryId)
     try c.encodeIfPresent(displayTitle, forKey: .displayTitle)
     try c.encodeIfPresent(displayAuthor, forKey: .displayAuthor)

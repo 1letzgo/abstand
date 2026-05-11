@@ -33,6 +33,7 @@ private struct AppRootContainer: View {
       // Sperrbildschirm) erneutes `setCategory`/`setActive` kann die laufende Wiedergabe unterbrechen.
       if phase == .active {
         model.player.ensureAudioSessionForPlayback()
+        model.player.refreshPlaybackStateFromEngine()
       }
     }
   }

@@ -19,6 +19,8 @@ enum ABSPlaybackError: LocalizedError {
 @MainActor
 final class PlaybackController: NSObject, ObservableObject {
   @Published private(set) var activeBook: ABSBook?
+  /// Gesetzte Podcast-Folge (`play/.../episodeId`); bei Hörbüchern `nil`.
+  @Published private(set) var activePlaybackEpisodeId: String?
   @Published private(set) var isPlaying = false
   @Published private(set) var globalPosition: Double = 0
   @Published private(set) var totalDuration: Double = 0
@@ -45,6 +47,8 @@ final class PlaybackController: NSObject, ObservableObject {
   private var timeObserver: Any?
   private var endObserver: NSObjectProtocol?
   private var statusObserver: NSKeyValueObservation?
+  /// `timeControlStatus`: System/andere App kann pausieren ohne unsere `pause()` — UI angleichen.
+  private var playbackEngineStateObserver: NSKeyValueObservation?
 
   private var playSessionId: String?
   private var apiClient: ABSAPIClient?
@@ -66,6 +70,7 @@ final class PlaybackController: NSObject, ObservableObject {
   private var coverLoadTask: Task<Void, Never>?
   /// Nur in `deinit` (nicht isoliert) und im Beobachter-Setup verwendet.
   nonisolated(unsafe) private var interruptionObserver: NSObjectProtocol?
+  nonisolated(unsafe) private var routeChangeObserver: NSObjectProtocol?
   private var cancellables = Set<AnyCancellable>()
   private var sleepWakeTask: Task<Void, Never>?
 
@@ -87,6 +92,20 @@ final class PlaybackController: NSObject, ObservableObject {
         self.handleAudioSessionInterruption(typeRaw: typeRaw, optionRaw: optionRaw)
       }
     }
+    routeChangeObserver = NotificationCenter.default.addObserver(
+      forName: AVAudioSession.routeChangeNotification,
+      object: AVAudioSession.sharedInstance(),
+      queue: .main
+    ) { [weak self] n in
+      guard let self else { return }
+      let raw = (n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber)?.uintValue ?? 0
+      MainActor.assumeIsolated {
+        guard let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { return }
+        if reason == .oldDeviceUnavailable {
+          self.syncPlayingStateFromPlayerIfNeeded()
+        }
+      }
+    }
     $sleepEndDate
       .sink { [weak self] end in
         self?.rescheduleSleepWake(for: end)
@@ -98,6 +117,9 @@ final class PlaybackController: NSObject, ObservableObject {
     sleepWakeTask?.cancel()
     if let interruptionObserver {
       NotificationCenter.default.removeObserver(interruptionObserver)
+    }
+    if let routeChangeObserver {
+      NotificationCenter.default.removeObserver(routeChangeObserver)
     }
   }
 
@@ -132,7 +154,7 @@ final class PlaybackController: NSObject, ObservableObject {
   func ensureAudioSessionForPlayback() {
     let session = AVAudioSession.sharedInstance()
     let opts: AVAudioSession.CategoryOptions = [
-      .allowBluetooth, .allowBluetoothA2DP, .allowAirPlay,
+      .allowBluetoothHFP, .allowBluetoothA2DP, .allowAirPlay,
     ]
     do {
       if session.category != .playback || session.mode != .spokenAudio {
@@ -166,10 +188,42 @@ final class PlaybackController: NSObject, ObservableObject {
         }
       }
     case .began:
-      break
+      syncPlayingStateFromPlayerIfNeeded()
     @unknown default:
       break
     }
+  }
+
+  /// Abgleich nach App-Rückkehr oder wenn das OS den Player stilllegt (ohne unser `pause()`).
+  func refreshPlaybackStateFromEngine() {
+    syncPlayingStateFromPlayerIfNeeded()
+  }
+
+  /// Echter Abspielzustand (Unterbrechungen, andere Audio-App, Kopfhörer ziehen).
+  private static func engineIndicatesPlaying(_ player: AVPlayer) -> Bool {
+    switch player.timeControlStatus {
+    case .playing, .waitingToPlayAtSpecifiedRate:
+      return true
+    case .paused:
+      return false
+    @unknown default:
+      return player.rate > 0.001
+    }
+  }
+
+  private func syncPlayingStateFromPlayerIfNeeded() {
+    guard let p = player, p.currentItem != nil else { return }
+    let enginePlaying = Self.engineIndicatesPlaying(p)
+    guard isPlaying != enginePlaying else { return }
+    if enginePlaying {
+      isPlaying = true
+      lastListenTick = Date()
+    } else {
+      accumulateListenTime()
+      isPlaying = false
+      Task { await flushSync(force: true) }
+    }
+    updateNowPlaying()
   }
 
   private func applyBackgroundPlaybackPolicy(_ player: AVPlayer?) {
@@ -251,6 +305,8 @@ final class PlaybackController: NSObject, ObservableObject {
     endObserver = nil
     statusObserver?.invalidate()
     statusObserver = nil
+    playbackEngineStateObserver?.invalidate()
+    playbackEngineStateObserver = nil
     player?.pause()
     player = nil
     tracks = []
@@ -263,6 +319,7 @@ final class PlaybackController: NSObject, ObservableObject {
     pendingListenSeconds = 0
     isPlaying = false
     activeBook = nil
+    activePlaybackEpisodeId = nil
     localRoot = nil
     MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
   }
@@ -272,6 +329,7 @@ final class PlaybackController: NSObject, ObservableObject {
     book: ABSBook,
     resumeAt resumeHint: Double,
     localDownloadRoot: URL?,
+    episodeId: String? = nil,
     autoPlay: Bool = true
   ) async throws {
     tearDownPlayer()
@@ -279,12 +337,16 @@ final class PlaybackController: NSObject, ObservableObject {
     shouldAutoPlayAfterLoad = autoPlay
     apiClient = client
     activeBook = book
+    let trimmedEp = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let resolvedEpisodeId: String? = trimmedEp.isEmpty ? nil : trimmedEp
+    activePlaybackEpisodeId = resolvedEpisodeId
     localRoot = localDownloadRoot
 
     if let root = localDownloadRoot, Self.allTracksPresent(root: root, book: book) {
       try await startLocalPlayback(book: book, root: root, resumeAt: resumeHint)
     } else {
-      try await startRemotePlayback(client: client, book: book, resumeAt: resumeHint)
+      try await startRemotePlayback(
+        client: client, book: book, resumeAt: resumeHint, episodeId: resolvedEpisodeId)
     }
 
     scheduleCoverLoad(for: book.id)
@@ -440,25 +502,34 @@ final class PlaybackController: NSObject, ObservableObject {
     }
   }
 
-  private func startRemotePlayback(client: ABSAPIClient, book: ABSBook, resumeAt: Double) async throws {
+  private func startRemotePlayback(
+    client: ABSAPIClient,
+    book: ABSBook,
+    resumeAt: Double,
+    episodeId: String?
+  ) async throws {
     let session = try await client.startPlaySession(
       itemId: book.id,
+      episodeId: episodeId,
       deviceId: Self.stableDeviceId(),
       appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
     )
     playSessionId = session.id
+    let uiBook = session.bookForPlayerUI()
+    activeBook = uiBook
 
     let serverTracks = session.audioTracks ?? book.media.tracks ?? []
     guard !serverTracks.isEmpty else { throw ABSPlaybackError.noTracks }
     tracks = serverTracks.sorted { $0.index < $1.index }
     rebuildTrackStarts()
-    applyChapters(from: book, sessionChapters: session.chapters)
+    applyChapters(
+      from: uiBook, sessionChapters: session.chapters, libraryItemFallback: session.libraryItem)
 
     let serverResume = max(session.currentTime, resumeAt)
     totalDuration =
       session.duration > 0
       ? session.duration
-      : (book.media.duration ?? (trackStarts.last! + tracks.last!.duration))
+      : (uiBook.media.duration ?? book.media.duration ?? (trackStarts.last! + tracks.last!.duration))
 
     currentTrackIndex = trackIndex(forGlobal: serverResume)
     let offsetInTrack = max(0, serverResume - trackStarts[currentTrackIndex])
@@ -522,6 +593,14 @@ final class PlaybackController: NSObject, ObservableObject {
         MainActor.assumeIsolated {
           self.isBuffering = buffering
         }
+      }
+    }
+
+    playbackEngineStateObserver?.invalidate()
+    playbackEngineStateObserver = p.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+      guard let self else { return }
+      Task { @MainActor [weak self] in
+        self?.syncPlayingStateFromPlayerIfNeeded()
       }
     }
   }
@@ -611,12 +690,17 @@ final class PlaybackController: NSObject, ObservableObject {
 
     player?.replaceCurrentItem(with: item)
     installObservers()
+    let offsetSnapshot = localOffset
     player?.seek(to: CMTime(seconds: localOffset, preferredTimescale: 600)) { [weak self] _ in
       guard let self else { return }
       let shouldPlay = play
       DispatchQueue.main.async { [weak self] in
         guard let self else { return }
         MainActor.assumeIsolated {
+          let g = self.globalTime(trackIndex: self.currentTrackIndex, localSeconds: offsetSnapshot)
+          self.globalPosition = g
+          self.updateChapterUI(global: g)
+          self.updateNowPlaying()
           if shouldPlay {
             self.applyPlayingRate()
             self.isPlaying = true
@@ -700,7 +784,7 @@ final class PlaybackController: NSObject, ObservableObject {
 
   var canSkipToPreviousChapter: Bool {
     guard let idx = chapterIndex(for: globalPosition) else { return false }
-    return idx > 0 || globalPosition > sortedChapters[idx].start + 1
+    return idx > 0 || globalPosition > sortedChapters[idx].start + 1.5
   }
 
   var canSkipToNextChapter: Bool {
@@ -736,8 +820,23 @@ final class PlaybackController: NSObject, ObservableObject {
     updateNowPlaying()
   }
 
-  private func applyChapters(from book: ABSBook, sessionChapters: [ABSChapter]?) {
-    let raw = sessionChapters ?? book.media.chapters ?? []
+  private func applyChapters(
+    from book: ABSBook,
+    sessionChapters: [ABSChapter]?,
+    libraryItemFallback: ABSBook? = nil
+  ) {
+    // Play session often returns `chapters: []`; `??` alone would discard embedded item chapters.
+    let fromSession = sessionChapters ?? []
+    let fromBook = book.media.chapters ?? []
+    let fromFallback = libraryItemFallback?.media.chapters ?? []
+    let raw: [ABSChapter]
+    if !fromSession.isEmpty {
+      raw = fromSession
+    } else if !fromBook.isEmpty {
+      raw = fromBook
+    } else {
+      raw = fromFallback
+    }
     sortedChapters = raw.sorted { $0.start < $1.start }
     chapterCount = sortedChapters.count
     updateChapterUI(global: globalPosition)
