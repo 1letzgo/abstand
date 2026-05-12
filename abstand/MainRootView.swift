@@ -14,55 +14,44 @@ struct MainRootView: View {
   }
 
   var body: some View {
-    ZStack(alignment: .top) {
-      AppTheme.background.ignoresSafeArea()
-      VStack(spacing: 0) {
-        TabView(selection: $model.mainTab) {
-          StartDashboardView()
-            .tabItem {
-              Label(AppModel.MainTab.start.rawValue, systemImage: "house.fill")
-            }
-            .tag(AppModel.MainTab.start)
+    TabView(selection: $model.mainTab) {
+      Tab(AppModel.MainTab.start.rawValue, systemImage: "house.fill", value: AppModel.MainTab.start) {
+        homeTabRoot
+      }
 
-          if model.selectedBooksLibrary != nil {
-            booksTabRoot
-              .tabItem {
-                Label(AppModel.MainTab.books.rawValue, systemImage: "books.vertical.fill")
-              }
-              .tag(AppModel.MainTab.books)
-          }
-
-          if model.selectedPodcastLibrary != nil {
-            podcastsTabRoot
-              .tabItem {
-                Label(AppModel.MainTab.podcasts.rawValue, systemImage: "mic.fill")
-              }
-              .tag(AppModel.MainTab.podcasts)
-          }
-
-          AppSettingsRootView()
-            .tabItem {
-              Label(AppModel.MainTab.settings.rawValue, systemImage: "gearshape.fill")
-            }
-            .tag(AppModel.MainTab.settings)
+      if model.selectedBooksLibrary != nil {
+        Tab(AppModel.MainTab.books.rawValue, systemImage: "books.vertical.fill", value: AppModel.MainTab.books) {
+          booksTabRoot
         }
-        .tint(AppTheme.accent)
-        .tabBarMinimizeBehavior(.onScrollDown)
-        .tabViewBottomAccessory {
-          Group {
-            if shouldShowFloatingPlayerChrome && !nowPlayingSheetPresented {
-              FloatingNowPlayingBar {
-                nowPlayingSheetPresented = true
-              }
-            }
-          }
-          .colorScheme(colorScheme)
+      }
+
+      if model.selectedPodcastLibrary != nil {
+        Tab(AppModel.MainTab.podcasts.rawValue, systemImage: "mic.fill", value: AppModel.MainTab.podcasts) {
+          podcastsTabRoot
         }
-        .background(AppTheme.background)
-        .toolbarBackground(AppTheme.background, for: .tabBar)
-        .toolbarBackground(.visible, for: .tabBar)
+      }
+
+      Tab(AppModel.MainTab.search.rawValue, systemImage: "magnifyingglass", value: AppModel.MainTab.search, role: .search) {
+        searchTabRoot
+      }
+
+      Tab(AppModel.MainTab.settings.rawValue, systemImage: "gearshape.fill", value: AppModel.MainTab.settings) {
+        settingsTabRoot
       }
     }
+    .tint(AppTheme.accent)
+    .tabBarMinimizeBehavior(.onScrollDown)
+    .tabViewBottomAccessory {
+      Group {
+        if shouldShowFloatingPlayerChrome && !nowPlayingSheetPresented {
+          FloatingNowPlayingBar {
+            nowPlayingSheetPresented = true
+          }
+        }
+      }
+      .colorScheme(colorScheme)
+    }
+    .background(AppTheme.background.ignoresSafeArea())
     .sheet(isPresented: $nowPlayingSheetPresented) {
       NowPlayingDetailView()
         .environmentObject(model)
@@ -81,7 +70,7 @@ struct MainRootView: View {
       if tab == .start, model.startShelves.isEmpty {
         Task { await model.loadStartDashboard() }
       }
-      if tab == .books {
+      if tab == .search {
         model.scheduleSearch()
       }
       if tab == .settings {
@@ -100,156 +89,178 @@ struct MainRootView: View {
     }
   }
 
+  // MARK: - Home tab
+
+  private var homeTabRoot: some View {
+    NavigationStack {
+      StartDashboardView()
+        .navigationTitle(AppModel.MainTab.start.rawValue)
+        .toolbarTitleDisplayMode(.inlineLarge)
+    }
+  }
+
+  // MARK: - Settings tab root
+
+  private var settingsTabRoot: some View {
+    NavigationStack {
+      AppSettingsRootView()
+        .tint(AppTheme.accent)
+        .navigationTitle(AppModel.MainTab.settings.rawValue)
+        .toolbarTitleDisplayMode(.inlineLarge)
+    }
+  }
+
+  // MARK: - Books sort controls
+
   @ViewBuilder
   private var booksCatalogSortControls: some View {
-    HStack(spacing: 10) {
-      Button {
-        model.catalogSortDescending.toggle()
+    Menu {
+      Picker("Sort by", selection: catalogSortFieldBinding) {
+        ForEach(CatalogSortField.allCases) { field in
+          Text(field.menuTitle).tag(field)
+        }
+      }
+      if model.catalogSortField != .random {
+        Picker("Order", selection: catalogSortDescendingBinding) {
+          Label("Ascending", systemImage: "arrow.up").tag(false)
+          Label("Descending", systemImage: "arrow.down").tag(true)
+        }
+      }
+    } label: {
+      Label("Sort", systemImage: "arrow.up.arrow.down")
+    }
+  }
+
+  private var catalogSortFieldBinding: Binding<CatalogSortField> {
+    Binding(
+      get: { model.catalogSortField },
+      set: { newValue in
+        model.catalogSortField = newValue
         Task {
           await model.reloadLibrary(reset: true)
           await model.reloadPodcastLibrary(reset: true)
         }
-      } label: {
-        Label {
-          Text(
-            model.catalogSortField == .random
-              ? "Random"
-              : (model.catalogSortDescending ? "Desc" : "Asc"))
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(AppTheme.textPrimary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.75)
-        } icon: {
-          Image(systemName: model.catalogSortDescending ? "arrow.down.circle" : "arrow.up.circle")
-            .foregroundStyle(AppTheme.textPrimary)
-        }
-        .labelStyle(.titleAndIcon)
       }
-      .disabled(model.catalogSortField == .random)
-      .buttonStyle(.plain)
-      .padding(.vertical, 6)
-      .padding(.horizontal, 4)
-      .accessibilityLabel(
-        model.catalogSortField == .random
-          ? "Sort direction (not available for random)"
-          : (model.catalogSortDescending ? "Descending" : "Ascending"))
-      .accessibilityHint("Toggles between ascending and descending sort order.")
-
-      Menu {
-        ForEach(CatalogSortField.allCases) { field in
-          Button {
-            model.catalogSortField = field
-            Task {
-              await model.reloadLibrary(reset: true)
-              await model.reloadPodcastLibrary(reset: true)
-            }
-          } label: {
-            HStack {
-              Text(field.menuTitle)
-              Spacer(minLength: 8)
-              if model.catalogSortField == field {
-                Image(systemName: "checkmark")
-              }
-            }
-          }
-        }
-      } label: {
-        Label {
-          Text("Sort")
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(AppTheme.textPrimary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.75)
-        } icon: {
-          Image(systemName: "arrow.up.arrow.down.circle")
-            .foregroundStyle(AppTheme.textPrimary)
-        }
-        .labelStyle(.titleAndIcon)
-      }
-      .buttonStyle(.plain)
-      .padding(.vertical, 6)
-      .padding(.horizontal, 4)
-      .accessibilityLabel("Sort order")
-    }
+    )
   }
+
+  private var catalogSortDescendingBinding: Binding<Bool> {
+    Binding(
+      get: { model.catalogSortDescending },
+      set: { newValue in
+        model.catalogSortDescending = newValue
+        Task {
+          await model.reloadLibrary(reset: true)
+          await model.reloadPodcastLibrary(reset: true)
+        }
+      }
+    )
+  }
+
+  // MARK: - Books tab
 
   private var booksTabRoot: some View {
-    VStack(spacing: 0) {
-      VStack(alignment: .leading, spacing: AppTheme.Layout.tabTitleToHeaderBlockSpacing) {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-          tabRootTitle(AppModel.MainTab.books.rawValue, expandMaxWidth: false)
-            .lineLimit(1)
-            .minimumScaleFactor(0.82)
-          Spacer(minLength: 4)
-          booksCatalogSortControls
-        }
-        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          tabContentSectionTitle("Search")
-          searchFieldRow
-          if model.activeLibraryFilter != nil {
-            catalogFilterBanner
+    NavigationStack {
+      catalogBookList
+        .navigationTitle(model.selectedBooksLibrary?.name ?? AppModel.MainTab.books.rawValue)
+        .toolbarTitleDisplayMode(.inlineLarge)
+        .toolbar {
+          ToolbarItem(placement: .topBarTrailing) {
+            booksCatalogSortControls
           }
         }
-        .padding(.bottom, AppTheme.Layout.headerToScrollContentSpacing)
+    }
+  }
+
+  // MARK: - Search tab
+
+  private var searchTabRoot: some View {
+    NavigationStack {
+      SearchTabView()
+        .navigationTitle(AppModel.MainTab.search.rawValue)
+        .toolbarTitleDisplayMode(.inlineLarge)
+        .searchable(text: $model.searchText, prompt: "Title, author, series…")
+        .onChange(of: model.searchText) { _, _ in model.scheduleSearch() }
+        .onSubmit(of: .search) { model.scheduleSearch() }
+    }
+  }
+
+  private var catalogFilterBanner: some View {
+    HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
+      Image(systemName: "line.3.horizontal.decrease.circle")
+        .foregroundStyle(AppTheme.textSecondary)
+      Text(model.activeLibraryFilterSummary ?? "Library filtered")
+        .font(.body)
+        .foregroundStyle(AppTheme.textPrimary)
+        .lineLimit(2)
+      Spacer(minLength: 0)
+      Button("Show all") {
+        model.clearCatalogFilter()
       }
-      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.top, AppTheme.Layout.tabPaddingTop)
-      Group {
-        if booksShowsSearchResults {
-          SearchTabView()
-        } else {
-          catalogBookList
+      .font(.subheadline.weight(.semibold))
+      .foregroundStyle(AppTheme.accent)
+    }
+    .padding(.horizontal, AppTheme.Layout.tabPaddingH)
+    .padding(.vertical, 8)
+    .background(AppTheme.card)
+    .clipShape(Capsule())
+  }
+
+  private var catalogBookList: some View {
+    let rows = model.booksForDisplay()
+    return ScrollView {
+      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+        if let lib = model.selectedBooksLibrary {
+          tabContentSectionTitle(lib.name)
+        }
+        if model.activeLibraryFilter != nil {
+          catalogFilterBanner
+        }
+        ForEach(rows) { book in
+          BookRowCard(book: book)
+            .task(id: book.id) {
+              await model.loadMoreIfNeeded(currentItemId: book.id)
+            }
         }
       }
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
+      .padding(.top, AppTheme.Layout.withinSectionSpacing)
+      .padding(
+        .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(AppTheme.background)
+    .scrollContentBackground(.hidden)
+    .refreshable {
+      await model.refreshBooksCatalog()
+    }
   }
+
+  // MARK: - Podcasts tab
 
   private var podcastsTabRoot: some View {
-    VStack(spacing: 0) {
-      VStack(alignment: .leading, spacing: AppTheme.Layout.tabTitleToHeaderBlockSpacing) {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-          tabRootTitle(AppModel.MainTab.podcasts.rawValue, expandMaxWidth: false)
-            .lineLimit(1)
-            .minimumScaleFactor(0.82)
-          Spacer(minLength: 4)
-        }
-        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          tabContentSectionTitle("Shows")
-          podcastShowsCoverStrip
-        }
-        .padding(.bottom, AppTheme.Layout.headerToScrollContentSpacing)
-      }
-      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.top, AppTheme.Layout.tabPaddingTop)
-
-      Group {
-        podcastCatalogList
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    NavigationStack {
+      podcastCatalogScrollView
+        .navigationTitle(model.selectedPodcastLibrary?.name ?? AppModel.MainTab.podcasts.rawValue)
+        .toolbarTitleDisplayMode(.inlineLarge)
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(AppTheme.background)
   }
 
-  private var podcastCatalogList: some View {
+  private var podcastCatalogScrollView: some View {
     ScrollView {
-      podcastPodcastsTabEpisodesContent
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(.top, 0)
-        .padding(
-          .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
+      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+          tabContentSectionTitle(model.selectedPodcastLibrary?.name ?? "Shows")
+          podcastShowsCoverStrip
+        }
+        podcastPodcastsTabEpisodesContent
+      }
+      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
+      .padding(
+        .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
     .scrollContentBackground(.hidden)
     .refreshable {
       await model.refreshPodcastsTab()
     }
-  }
-
-  private var booksShowsSearchResults: Bool {
-    !model.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   private var podcastShowsCoverStrip: some View {
@@ -326,76 +337,6 @@ struct MainRootView: View {
     .scrollContentBackground(.hidden)
   }
 
-  private var searchFieldRow: some View {
-    HStack {
-      Image(systemName: "magnifyingglass")
-        .foregroundStyle(AppTheme.textSecondary)
-      TextField("Title, author, series…", text: $model.searchText)
-        .foregroundStyle(AppTheme.textPrimary)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .onChange(of: model.searchText) { _, _ in
-          model.scheduleSearch()
-        }
-      if !model.searchText.isEmpty {
-        Button {
-          model.searchText = ""
-          model.clearSearchResults()
-        } label: {
-          Image(systemName: "xmark.circle.fill")
-            .foregroundStyle(AppTheme.textSecondary)
-        }
-      }
-    }
-    .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-    .padding(.vertical, 8)
-    .background(AppTheme.card)
-    .clipShape(Capsule())
-  }
-
-  private var catalogFilterBanner: some View {
-    HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-      Image(systemName: "line.3.horizontal.decrease.circle")
-        .foregroundStyle(AppTheme.textSecondary)
-      Text(model.activeLibraryFilterSummary ?? "Library filtered")
-        .font(.body)
-        .foregroundStyle(AppTheme.textPrimary)
-        .lineLimit(2)
-      Spacer(minLength: 0)
-      Button("Show all") {
-        model.clearCatalogFilter()
-      }
-      .font(.subheadline.weight(.semibold))
-      .foregroundStyle(AppTheme.accent)
-    }
-    .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-    .padding(.vertical, 8)
-    .background(AppTheme.card)
-    .clipShape(Capsule())
-  }
-
-  private var catalogBookList: some View {
-    let rows = model.booksForDisplay()
-    return ScrollView {
-      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-        ForEach(rows) { book in
-          BookRowCard(book: book)
-            .task(id: book.id) {
-              await model.loadMoreIfNeeded(currentItemId: book.id)
-            }
-        }
-      }
-      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.top, 0)
-      .padding(
-        .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
-    }
-    .scrollContentBackground(.hidden)
-    .refreshable {
-      await model.refreshBooksCatalog()
-    }
-  }
-
   private var podcastPodcastsTabEpisodesContent: some View {
     let episodes = model.podcastEpisodesForPodcastsTab
     let listLoading =
@@ -441,22 +382,12 @@ struct MainRootView: View {
   }
 }
 
-/// Large heading for main tabs (Home / Books / Podcasts / Settings).
-private func tabRootTitle(_ title: String, expandMaxWidth: Bool = true) -> some View {
-  Text(title)
-    .font(.title)
-    .fontWeight(.semibold)
-    .foregroundStyle(AppTheme.textPrimary)
-    .frame(maxWidth: expandMaxWidth ? .infinity : nil, alignment: .leading)
-}
-
-/// Kleine Kategoriezeile wie auf Home (`shelf.displayTitle`).
+/// Kategoriezeile im iOS-Standard-Stil (z. B. „Hörbücher”, Home-Regal-Titel).
 private func tabContentSectionTitle(_ title: String) -> some View {
   Text(title)
-    .font(.caption.weight(.bold))
-    .foregroundStyle(AppTheme.textSecondary)
-    .textCase(.uppercase)
-    .tracking(0.6)
+    .font(.title3)
+    .bold()
+    .foregroundStyle(AppTheme.textPrimary)
 }
 
 // MARK: - Home dashboard
@@ -465,25 +396,15 @@ private struct StartDashboardView: View {
   @EnvironmentObject private var model: AppModel
 
   var body: some View {
-    VStack(spacing: 0) {
-      tabRootTitle(AppModel.MainTab.start.rawValue)
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(.top, AppTheme.Layout.tabPaddingTop)
-        .frame(maxWidth: .infinity, alignment: .leading)
-
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
           let hasHomeDownloads =
             !model.downloadedItemIds.isEmpty || model.downloads.activeItemId != nil
           let showStartEmpty =
             model.startShelves.isEmpty && model.startBooks.isEmpty && !hasHomeDownloads
               && model.downloadedTitlesForHome.isEmpty
           if showStartEmpty {
-            startDashboardEmptyVisual
-              .frame(maxWidth: .infinity)
-              .padding(32)
-              .accessibilityElement(children: .ignore)
-              .accessibilityLabel(startDashboardEmptyAccessibility)
+            startDashboardEmptyState
           }
           if hasHomeDownloads {
             VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
@@ -519,24 +440,7 @@ private struct StartDashboardView: View {
                     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
                       tabContentSectionTitle(shelf.displayTitle)
                       ForEach(shelf.authors) { author in
-                        Button {
-                          model.applyAuthorFilter(authorId: author.id, displayName: author.name)
-                        } label: {
-                          HStack {
-                            Text(author.name)
-                              .font(.subheadline.weight(.semibold))
-                              .foregroundStyle(AppTheme.textPrimary)
-                              .multilineTextAlignment(.leading)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                              .font(.caption.weight(.semibold))
-                              .foregroundStyle(AppTheme.textSecondary)
-                          }
-                          .padding(14)
-                          .background(AppTheme.card)
-                          .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
+                        startDashboardAuthorRow(author)
                       }
                     }
                   }
@@ -553,24 +457,7 @@ private struct StartDashboardView: View {
                   }
                   if shelf.hasAuthors {
                     ForEach(shelf.authors) { author in
-                      Button {
-                        model.applyAuthorFilter(authorId: author.id, displayName: author.name)
-                      } label: {
-                        HStack {
-                          Text(author.name)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppTheme.textPrimary)
-                            .multilineTextAlignment(.leading)
-                          Spacer()
-                          Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        .padding(14)
-                        .background(AppTheme.card)
-                        .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-                      }
-                      .buttonStyle(.plain)
+                      startDashboardAuthorRow(author)
                     }
                   }
                 }
@@ -579,19 +466,14 @@ private struct StartDashboardView: View {
           }
         }
         .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(.top, AppTheme.Layout.headerToScrollContentSpacing)
         .padding(
           .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
       }
       .scrollContentBackground(.hidden)
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
       .refreshable {
         await model.loadStartDashboard()
         model.refreshDownloadedShelfFromManifests()
       }
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(AppTheme.background)
   }
 
   private func startDashboardContinueBooksSorted(_ books: [ABSBook]) -> [ABSBook] {
@@ -619,25 +501,40 @@ private struct StartDashboardView: View {
     shelf.category == "recentlyListened" || shelf.category == "itemsInProgressFallback"
   }
 
-  @ViewBuilder
-  private var startDashboardEmptyVisual: some View {
-    Image(
-      systemName: startDashboardAllShelvesDisabled
-        ? "gearshape.2"
-        : "books.vertical"
-    )
-    .font(.system(size: 44, weight: .light))
-    .foregroundStyle(AppTheme.textSecondary.opacity(0.45))
-    .symbolRenderingMode(.hierarchical)
+  private func startDashboardAuthorRow(_ author: ABSAuthorShelfEntity) -> some View {
+    Button {
+      model.applyAuthorFilter(authorId: author.id, displayName: author.name)
+    } label: {
+      LabeledContent {
+        Image(systemName: "chevron.right")
+          .font(.footnote)
+          .foregroundStyle(.tertiary)
+      } label: {
+        Label(author.name, systemImage: "person.crop.circle")
+          .labelStyle(.titleAndIcon)
+          .foregroundStyle(AppTheme.textPrimary)
+      }
+      .padding(14)
+      .background(AppTheme.card, in: RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius))
+    }
+    .buttonStyle(.plain)
   }
 
-  private var startDashboardEmptyAccessibility: String {
+  @ViewBuilder
+  private var startDashboardEmptyState: some View {
     if startDashboardAllShelvesDisabled {
-      return
-        "All home shelves are turned off in Settings. Open Settings to turn shelves back on."
+      ContentUnavailableView(
+        "All shelves are off",
+        systemImage: "gearshape.2",
+        description: Text("Open Settings to turn home shelves back on.")
+      )
+    } else {
+      ContentUnavailableView(
+        "No personalized content",
+        systemImage: "books.vertical",
+        description: Text("Personalized shelves appear here when your server provides them.")
+      )
     }
-    return
-      "Personalized shelves appear here when your server provides them."
   }
 }
 
@@ -694,186 +591,84 @@ private struct AppSettingsRootView: View {
   }
 
   var body: some View {
-    VStack(spacing: 0) {
-      tabRootTitle(AppModel.MainTab.settings.rawValue)
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(.top, AppTheme.Layout.tabPaddingTop)
-        .frame(maxWidth: .infinity, alignment: .leading)
-
-      ScrollView {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-          VStack(alignment: .leading, spacing: 10) {
-            settingsSheetSectionTitle("Books library")
-
-            if model.sortedBookLibraries.isEmpty {
-              Text("No book libraries on this server.")
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
-                .background(AppTheme.card)
-                .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-            } else {
-              Picker(selection: booksLibraryPickerSelection) {
-                Text("None").tag(AppModel.libraryPickerNoneTag)
-                ForEach(model.sortedBookLibraries) { lib in
-                  Text(lib.name).tag(lib.id)
-                }
-              } label: {
-                EmptyView()
-              }
-              .labelsHidden()
-              .accessibilityLabel("Books library")
-              .pickerStyle(.menu)
-              .font(.subheadline.weight(.semibold))
-              .foregroundStyle(AppTheme.textPrimary)
-              .tint(AppTheme.accent)
-              .padding(14)
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .background(AppTheme.card)
-              .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+    Form {
+      Section("Books library") {
+        if model.sortedBookLibraries.isEmpty {
+          Text("No book libraries on this server.")
+            .foregroundStyle(.secondary)
+        } else {
+          Picker("Library", selection: booksLibraryPickerSelection) {
+            Text("None").tag(AppModel.libraryPickerNoneTag)
+            ForEach(model.sortedBookLibraries) { lib in
+              Text(lib.name).tag(lib.id)
             }
-          }
-
-          VStack(alignment: .leading, spacing: 10) {
-            settingsSheetSectionTitle("Podcasts library")
-
-            if model.sortedPodcastLibraries.isEmpty {
-              Text("No podcast libraries on this server.")
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
-                .background(AppTheme.card)
-                .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-            } else {
-              Picker(selection: podcastsLibraryPickerSelection) {
-                Text("None").tag(AppModel.libraryPickerNoneTag)
-                ForEach(model.sortedPodcastLibraries) { lib in
-                  Text(lib.name).tag(lib.id)
-                }
-              } label: {
-                EmptyView()
-              }
-              .labelsHidden()
-              .accessibilityLabel("Podcasts library")
-              .pickerStyle(.menu)
-              .font(.subheadline.weight(.semibold))
-              .foregroundStyle(AppTheme.textPrimary)
-              .tint(AppTheme.accent)
-              .padding(14)
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .background(AppTheme.card)
-              .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-            }
-          }
-
-          VStack(alignment: .leading, spacing: 10) {
-            settingsSheetSectionTitle("Home shelves")
-
-            VStack(spacing: 0) {
-              ForEach(
-                Array(model.startSettingsCategoryList.enumerated()),
-                id: \.element.category
-              ) { index, row in
-                Toggle(
-                  row.label,
-                  isOn: Binding(
-                    get: { model.isStartCategoryEnabled(row.category) },
-                    set: { model.setStartCategoryEnabled(row.category, enabled: $0) }
-                  )
-                )
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textPrimary)
-                .tint(AppTheme.accent)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                if index < model.startSettingsCategoryList.count - 1 {
-                  Divider()
-                    .background(AppTheme.textSecondary.opacity(0.2))
-                    .padding(.leading, 14)
-                }
-              }
-            }
-            .background(AppTheme.card)
-            .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-          }
-
-          VStack(alignment: .leading, spacing: 10) {
-            settingsSheetSectionTitle("Cover")
-
-            Button {
-              model.clearCoverImageCache()
-              refreshCoverCacheByteCount()
-            } label: {
-              HStack(alignment: .center, spacing: AppTheme.Layout.withinSectionSpacing) {
-                VStack(alignment: .leading, spacing: 4) {
-                  Text("Clear cover cache")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.textPrimary)
-                  Text(coverCacheSizeLabel)
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "trash")
-                  .font(.body)
-                  .foregroundStyle(AppTheme.textSecondary)
-              }
-              .padding(14)
-              .background(AppTheme.card)
-              .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .disabled(model.coverImageCacheAccountDirectory() == nil)
-            .opacity(model.coverImageCacheAccountDirectory() == nil ? 0.45 : 1)
-          }
-
-          VStack(alignment: .leading, spacing: 10) {
-            settingsSheetSectionTitle("Account")
-            Button {
-              model.logout()
-            } label: {
-              Text("Log out")
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
-                .foregroundStyle(AppTheme.danger)
-                .background(AppTheme.card)
-                .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-            }
-            .buttonStyle(.plain)
           }
         }
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(.top, AppTheme.Layout.headerToScrollContentSpacing)
-        .padding(
-          .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.background)
       }
-      .scrollContentBackground(.hidden)
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-      .onAppear {
-        refreshCoverCacheByteCount()
-      }
-      .onChange(of: model.coverImageCacheRevision) { _, _ in
-        refreshCoverCacheByteCount()
-      }
-      .tint(AppTheme.accent)
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(AppTheme.background)
-  }
-}
 
-private func settingsSheetSectionTitle(_ title: String) -> some View {
-  Text(title)
-    .font(.caption.weight(.bold))
-    .foregroundStyle(AppTheme.textSecondary)
-    .textCase(.uppercase)
-    .tracking(0.6)
+      Section("Podcasts library") {
+        if model.sortedPodcastLibraries.isEmpty {
+          Text("No podcast libraries on this server.")
+            .foregroundStyle(.secondary)
+        } else {
+          Picker("Library", selection: podcastsLibraryPickerSelection) {
+            Text("None").tag(AppModel.libraryPickerNoneTag)
+            ForEach(model.sortedPodcastLibraries) { lib in
+              Text(lib.name).tag(lib.id)
+            }
+          }
+        }
+      }
+
+      Section("Home shelves") {
+        ForEach(model.startSettingsCategoryList, id: \.category) { row in
+          Toggle(
+            row.label,
+            isOn: Binding(
+              get: { model.isStartCategoryEnabled(row.category) },
+              set: { model.setStartCategoryEnabled(row.category, enabled: $0) }
+            )
+          )
+        }
+      }
+
+      Section("Cover") {
+        Button {
+          model.clearCoverImageCache()
+          refreshCoverCacheByteCount()
+        } label: {
+          LabeledContent {
+            Image(systemName: "trash")
+              .foregroundStyle(.secondary)
+          } label: {
+            VStack(alignment: .leading, spacing: 4) {
+              Text("Clear cover cache")
+              Text(coverCacheSizeLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+          }
+        }
+        .disabled(model.coverImageCacheAccountDirectory() == nil)
+      }
+
+      Section("Account") {
+        Button("Log out", role: .destructive) {
+          model.logout()
+        }
+      }
+    }
+    .scrollContentBackground(.hidden)
+    .background(AppTheme.background.ignoresSafeArea())
+    .tint(AppTheme.accent)
+    .onAppear {
+      refreshCoverCacheByteCount()
+    }
+    .onChange(of: model.coverImageCacheRevision) { _, _ in
+      refreshCoverCacheByteCount()
+    }
+  }
 }
 
 // MARK: - Library search results
@@ -951,7 +746,6 @@ private struct SearchTabView: View {
         }
       }
       .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.top, 0)
       .padding(
         .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
@@ -1021,7 +815,7 @@ private struct PodcastEpisodeRowCard: View {
 
   private var prog: ABSUserMediaProgress? { model.progressByItemId[episode.progressLookupKey] }
 
-  /// `recentEpisode` in „items-in-progress“ liefert oft keine Länge; die kommt dann aus `mediaProgress`.
+  /// `recentEpisode` in „items-in-progress" liefert oft keine Länge; die kommt dann aus `mediaProgress`.
   private var resolvedTotalDurationSeconds: Double {
     if episode.duration > 0 { return episode.duration }
     if let p = prog, p.duration > 0 { return p.duration }

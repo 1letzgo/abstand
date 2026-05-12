@@ -189,6 +189,7 @@ final class AppModel: ObservableObject {
     case start = "Home"
     case books = "Books"
     case podcasts = "Podcasts"
+    case search = "Search"
     case settings = "Settings"
   }
 
@@ -250,7 +251,7 @@ final class AppModel: ObservableObject {
       return books
     case .podcasts:
       return []
-    case .start, .settings:
+    case .start, .settings, .search:
       return []
     }
   }
@@ -1179,7 +1180,7 @@ final class AppModel: ObservableObject {
   }
 
   func scheduleSearch() {
-    guard mainTab == .books else { return }
+    guard mainTab == .books || mainTab == .search else { return }
     searchTask?.cancel()
     let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     searchTask = Task {
@@ -1313,7 +1314,7 @@ final class AppModel: ObservableObject {
     activeLibraryFilter = nil
     activeLibraryFilterSummary = nil
     searchText = q
-    mainTab = .books
+    mainTab = .search
     Task { await performSearch(query: q) }
   }
 
