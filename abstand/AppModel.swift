@@ -17,11 +17,15 @@ private enum Keys {
   static let startDisabledCategories = "abstand_start_disabled_categories"
   static let catalogSortField = "abstand_catalog_sort_field"
   static let catalogSortDescending = "abstand_catalog_sort_descending"
+  /// Sortierung nur Podcast-Bibliothek (Shows-Leiste + Fallback `libraryItems` für Folgen).
+  static let podcastCatalogSortField = "abstand_podcast_catalog_sort_field"
+  static let podcastCatalogSortDescending = "abstand_podcast_catalog_sort_descending"
   /// Früher: kombinierter `CatalogItemsSort`-RawValue (Migration einmalig).
   static let legacyCatalogItemsSort = "abstand_catalog_items_sort"
 }
 
-/// Sortierfeld für `GET /api/libraries/:id/items` (`sort`); Richtung über `desc` / `ascending` im Client.
+/// Sortierfeld für `GET /api/libraries/:id/items` (`sort`); Richtung über `ascending` / `desc` im Client.
+/// Verwendet für den **Bücher**-Katalog (`catalogSortField`) und separat für **Podcast**-Shows/Fallback (`podcastCatalogSortField`).
 enum CatalogSortField: String, CaseIterable, Identifiable, Hashable {
   case title
   case authorName
@@ -81,6 +85,8 @@ final class AppModel: ObservableObject {
   @Published var serverURL: String = UserDefaults.standard.string(forKey: Keys.server) ?? ""
 
   private static let initialCatalogSort: (field: CatalogSortField, descending: Bool) = loadCatalogSortState()
+  private static let initialPodcastCatalogSort: (field: CatalogSortField, descending: Bool) =
+    loadPodcastCatalogSortState()
 
   @Published var catalogSortField: CatalogSortField = AppModel.initialCatalogSort.field {
     didSet {
@@ -90,6 +96,17 @@ final class AppModel: ObservableObject {
   @Published var catalogSortDescending: Bool = AppModel.initialCatalogSort.descending {
     didSet {
       UserDefaults.standard.set(catalogSortDescending, forKey: Keys.catalogSortDescending)
+    }
+  }
+
+  @Published var podcastCatalogSortField: CatalogSortField = AppModel.initialPodcastCatalogSort.field {
+    didSet {
+      UserDefaults.standard.set(podcastCatalogSortField.rawValue, forKey: Keys.podcastCatalogSortField)
+    }
+  }
+  @Published var podcastCatalogSortDescending: Bool = AppModel.initialPodcastCatalogSort.descending {
+    didSet {
+      UserDefaults.standard.set(podcastCatalogSortDescending, forKey: Keys.podcastCatalogSortDescending)
     }
   }
   /// Alle Bibliotheken vom Server (Bücher und Podcasts).
@@ -138,10 +155,8 @@ final class AppModel: ObservableObject {
   /// Anzeige unter der Suche: wonach der Bücher-Katalog gefiltert ist.
   @Published var activeLibraryFilterSummary: String?
   @Published var mainTab: MainTab = .start
-  @Published var expandedItemId: String?
-  @Published var expandedDetail: ABSBook?
-  @Published var expandedPodcastEpisodeId: String?
-  @Published var expandedPodcastEpisodeDetail: ABSPodcastEpisodeExpandedDetail?
+  /// Wird von `MainRootView` beobachtet: bei jedem Inkrement öffnet sich das Now-Playing-Sheet, ohne den Tab zu wechseln.
+  @Published private(set) var nowPlayingSheetPresentationCounter: UInt = 0
   @Published var isLoadingLibrary = false
   @Published var isLoadingPodcasts = false
   @Published var errorMessage: String?
@@ -368,6 +383,22 @@ final class AppModel: ObservableObject {
     let raw = UserDefaults.standard.string(forKey: Keys.catalogSortField) ?? ""
     let field = CatalogSortField(rawValue: raw) ?? .title
     let descending = UserDefaults.standard.bool(forKey: Keys.catalogSortDescending)
+    return (field: field, descending: descending)
+  }
+
+  /// Erste Podcast-Sortkeys: einmalig aus der bisherigen Buch-Katalog-Sortierung übernehmen (gleiches Verhalten wie vor dem Split).
+  private static func loadPodcastCatalogSortState() -> (field: CatalogSortField, descending: Bool) {
+    if UserDefaults.standard.object(forKey: Keys.podcastCatalogSortField) != nil {
+      let raw = UserDefaults.standard.string(forKey: Keys.podcastCatalogSortField) ?? ""
+      let field = CatalogSortField(rawValue: raw) ?? .title
+      let descending = UserDefaults.standard.bool(forKey: Keys.podcastCatalogSortDescending)
+      return (field: field, descending: descending)
+    }
+    let raw = UserDefaults.standard.string(forKey: Keys.catalogSortField) ?? ""
+    let field = CatalogSortField(rawValue: raw) ?? .title
+    let descending = UserDefaults.standard.bool(forKey: Keys.catalogSortDescending)
+    UserDefaults.standard.set(field.rawValue, forKey: Keys.podcastCatalogSortField)
+    UserDefaults.standard.set(descending, forKey: Keys.podcastCatalogSortDescending)
     return (field: field, descending: descending)
   }
 
@@ -818,10 +849,6 @@ final class AppModel: ObservableObject {
     clearSearchResults()
     clearPodcastSearchResults()
     progressByItemId = [:]
-    expandedItemId = nil
-    expandedDetail = nil
-    expandedPodcastEpisodeId = nil
-    expandedPodcastEpisodeDetail = nil
     UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
     UserDefaults.standard.removeObject(forKey: Keys.booksLibrary)
     UserDefaults.standard.removeObject(forKey: Keys.podcastsLibrary)
@@ -1006,8 +1033,8 @@ final class AppModel: ObservableObject {
   /// Wenn `/recent-episodes` leer ist (z. B. alle Folgen fertig oder keine unbearbeiteten): Folgen aus expandierten Podcast-Items.
   private func loadPodcastEpisodesFallback(client: ABSAPIClient, libraryId: String) async -> [ABSPodcastEpisodeListItem] {
     do {
-      let ascending = catalogSortField == .random ? true : !catalogSortDescending
-      let sortKey = catalogSortField.apiSortParameter
+      let ascending = podcastCatalogSortField == .random ? true : !podcastCatalogSortDescending
+      let sortKey = podcastCatalogSortField.apiSortParameter
       let (page, _) = try await client.libraryItems(
         libraryId: libraryId,
         page: 0,
@@ -1064,8 +1091,8 @@ final class AppModel: ObservableObject {
     podcastShowsLoading = true
     defer { podcastShowsLoading = false }
     do {
-      let ascending = catalogSortField == .random ? true : !catalogSortDescending
-      let sortKey = catalogSortField.apiSortParameter
+      let ascending = podcastCatalogSortField == .random ? true : !podcastCatalogSortDescending
+      let sortKey = podcastCatalogSortField.apiSortParameter
       let (page, _) = try await c.libraryItems(
         libraryId: lib.id,
         page: 0,
@@ -1229,11 +1256,6 @@ final class AppModel: ObservableObject {
     }
   }
 
-  private func collapseExpandedBookRowsForCatalogFilter() {
-    expandedItemId = nil
-    expandedDetail = nil
-  }
-
   private func setBooksLibraryFilterSummary(prefix: String, detail: String?) {
     let d = detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     activeLibraryFilterSummary = d.isEmpty ? prefix : "\(prefix): \(d)"
@@ -1243,7 +1265,6 @@ final class AppModel: ObservableObject {
     searchTask?.cancel()
     searchText = ""
     clearSearchResults()
-    collapseExpandedBookRowsForCatalogFilter()
     setBooksLibraryFilterSummary(prefix: "Author", detail: displayName)
     let b64 = Data(authorId.utf8).base64EncodedString()
     activeLibraryFilter = "authors.\(b64)"
@@ -1255,7 +1276,6 @@ final class AppModel: ObservableObject {
     searchTask?.cancel()
     searchText = ""
     clearSearchResults()
-    collapseExpandedBookRowsForCatalogFilter()
     setBooksLibraryFilterSummary(prefix: "Series", detail: displayName)
     let b64 = Data(seriesId.utf8).base64EncodedString()
     activeLibraryFilter = "series.\(b64)"
@@ -1267,7 +1287,6 @@ final class AppModel: ObservableObject {
     searchTask?.cancel()
     searchText = ""
     clearSearchResults()
-    collapseExpandedBookRowsForCatalogFilter()
     setBooksLibraryFilterSummary(prefix: "Narrator", detail: narratorName)
     let b64 = Data(narratorName.utf8).base64EncodedString()
     activeLibraryFilter = "narrators.\(b64)"
@@ -1279,7 +1298,6 @@ final class AppModel: ObservableObject {
     searchTask?.cancel()
     searchText = ""
     clearSearchResults()
-    collapseExpandedBookRowsForCatalogFilter()
     setBooksLibraryFilterSummary(prefix: "Tag", detail: tagName)
     let b64 = Data(tagName.utf8).base64EncodedString()
     activeLibraryFilter = "tags.\(b64)"
@@ -1291,7 +1309,6 @@ final class AppModel: ObservableObject {
     searchTask?.cancel()
     searchText = ""
     clearSearchResults()
-    collapseExpandedBookRowsForCatalogFilter()
     setBooksLibraryFilterSummary(prefix: "Genre", detail: genreName)
     let b64 = Data(genreName.utf8).base64EncodedString()
     activeLibraryFilter = "genres.\(b64)"
@@ -1323,8 +1340,6 @@ final class AppModel: ObservableObject {
     let q = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !q.isEmpty, q != "—" else { return }
     podcastSearchTask?.cancel()
-    expandedPodcastEpisodeId = nil
-    expandedPodcastEpisodeDetail = nil
     podcastSearchText = ""
     mainTab = .podcasts
     Task { await navigatePodcastsToShowMatchingQuery(q) }
@@ -1427,21 +1442,19 @@ final class AppModel: ObservableObject {
     }
   }
 
-  func expandItem(_ id: String) async {
-    if expandedItemId == id {
-      expandedItemId = nil
-      expandedDetail = nil
-      return
+  func loadBookDetail(id: String) async -> ABSBook? {
+    guard let c = client else {
+      return books.first { $0.id == id }
+        ?? podcastSearchBooks.first { $0.id == id }
+        ?? podcastEpisodes.first { $0.libraryItemId == id }.map { $0.playbackStubBook(libraryId: selectedPodcastLibrary?.id) }
+        ?? startBooks.first { $0.id == id }
+        ?? searchBooks.first { $0.id == id }
+        ?? downloadedShelfBooks.first { $0.id == id }
     }
-    expandedPodcastEpisodeId = nil
-    expandedPodcastEpisodeDetail = nil
-    expandedItemId = id
-    guard let c = client else { return }
     do {
-      expandedDetail = try await c.item(id: id, expanded: true)
+      return try await c.item(id: id, expanded: true)
     } catch {
-      expandedDetail =
-        books.first { $0.id == id }
+      return books.first { $0.id == id }
         ?? podcastSearchBooks.first { $0.id == id }
         ?? podcastEpisodes.first { $0.libraryItemId == id }.map { $0.playbackStubBook(libraryId: selectedPodcastLibrary?.id) }
         ?? startBooks.first { $0.id == id }
@@ -1450,19 +1463,180 @@ final class AppModel: ObservableObject {
     }
   }
 
-  func expandPodcastEpisode(_ episode: ABSPodcastEpisodeListItem) async {
-    let key = episode.progressLookupKey
-    if expandedPodcastEpisodeId == key {
-      expandedPodcastEpisodeId = nil
-      expandedPodcastEpisodeDetail = nil
-      return
+  /// Hör-Sitzungen zu einem **Hörbuch** (ohne Podcast-Folgen). Nutzt `GET /api/me/item/listening-sessions/:id`, mit Fallback auf die globale Liste (ältere Server, leere Antwort, oder Sessions nur per `bookId`/`mediaId` zuordenbar).
+  func loadBookListeningSessions(
+    libraryItemId: String,
+    bookMediaId: String? = nil,
+    maxPages: Int = 20
+  ) async -> [ABSListeningSession] {
+    guard let c = client, isNetworkReachable else { return [] }
+    let bid = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !bid.isEmpty else { return [] }
+    let mediaKey = bookMediaId
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .flatMap { $0.isEmpty ? nil : $0 }
+
+    func collectPaged(_ load: (Int) async throws -> ABSListeningSessionsPayload) async throws
+      -> [ABSListeningSession]
+    {
+      var collected: [ABSListeningSession] = []
+      collected.reserveCapacity(32)
+      var page = 0
+      while page < maxPages {
+        let res = try await load(page)
+        collected.append(contentsOf: res.sessions)
+        page += 1
+        if page >= res.numPages || res.sessions.isEmpty { break }
+      }
+      return collected
     }
-    expandedItemId = nil
-    expandedDetail = nil
-    expandedPodcastEpisodeId = key
-    expandedPodcastEpisodeDetail = nil
+
+    func legacy() async -> [ABSListeningSession] {
+      await loadBookListeningSessionsLegacyFiltered(
+        client: c, libraryItemId: bid, bookMediaId: mediaKey, maxPages: maxPages)
+    }
+
+    do {
+      let rows = try await collectPaged { p in
+        try await c.listeningSessionsForLibraryItem(
+          libraryItemId: bid, episodeId: nil, itemsPerPage: 100, page: p)
+      }
+      if !rows.isEmpty {
+        return rows.sorted { $0.startedAt > $1.startedAt }
+      }
+      return await legacy()
+    } catch {
+      return await legacy()
+    }
+  }
+
+  private func loadBookListeningSessionsLegacyFiltered(
+    client: ABSAPIClient,
+    libraryItemId bid: String,
+    bookMediaId: String?,
+    maxPages: Int
+  ) async -> [ABSListeningSession] {
+    var collected: [ABSListeningSession] = []
+    collected.reserveCapacity(32)
+    var page = 0
+    let mid = bookMediaId
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .flatMap { $0.isEmpty ? nil : $0 }
+    while page < maxPages {
+      do {
+        let res = try await client.listeningSessionsMe(itemsPerPage: 100, page: page)
+        let filtered = res.sessions.filter { s in
+          let ep = s.episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+          guard ep.isEmpty else { return false }
+          if s.libraryItemId == bid { return true }
+          if let mid, let raw = s.bookId {
+            let b = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !b.isEmpty, b == mid { return true }
+          }
+          return false
+        }
+        collected.append(contentsOf: filtered)
+        page += 1
+        if page >= res.numPages { break }
+      } catch {
+        break
+      }
+    }
+    return collected.sorted { $0.startedAt > $1.startedAt }
+  }
+
+  /// Hör-Sitzungen zu **einer Podcast-Folge** (`libraryItemId` = Sendung, `episodeId` = Folge).
+  func loadPodcastEpisodeListeningSessions(
+    _ episode: ABSPodcastEpisodeListItem,
+    showMediaId: String? = nil,
+    maxPages: Int = 20
+  ) async -> [ABSListeningSession] {
+    guard let c = client, isNetworkReachable else { return [] }
+    let bid = episode.libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    let eid = episode.episodeId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !bid.isEmpty, !eid.isEmpty else { return [] }
+    let mediaKey = showMediaId
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .flatMap { $0.isEmpty ? nil : $0 }
+
+    func collectPaged(_ load: (Int) async throws -> ABSListeningSessionsPayload) async throws
+      -> [ABSListeningSession]
+    {
+      var collected: [ABSListeningSession] = []
+      collected.reserveCapacity(16)
+      var page = 0
+      while page < maxPages {
+        let res = try await load(page)
+        collected.append(contentsOf: res.sessions)
+        page += 1
+        if page >= res.numPages || res.sessions.isEmpty { break }
+      }
+      return collected
+    }
+
+    func legacy() async -> [ABSListeningSession] {
+      await loadPodcastEpisodeListeningSessionsLegacyFiltered(
+        client: c,
+        libraryItemId: bid,
+        episodeId: eid,
+        showMediaId: mediaKey,
+        maxPages: maxPages)
+    }
+
+    do {
+      let rows = try await collectPaged { p in
+        try await c.listeningSessionsForLibraryItem(
+          libraryItemId: bid, episodeId: eid, itemsPerPage: 100, page: p)
+      }
+      if !rows.isEmpty {
+        return rows.sorted { $0.startedAt > $1.startedAt }
+      }
+      return await legacy()
+    } catch {
+      return await legacy()
+    }
+  }
+
+  private func loadPodcastEpisodeListeningSessionsLegacyFiltered(
+    client: ABSAPIClient,
+    libraryItemId bid: String,
+    episodeId eid: String,
+    showMediaId: String?,
+    maxPages: Int
+  ) async -> [ABSListeningSession] {
+    var collected: [ABSListeningSession] = []
+    collected.reserveCapacity(16)
+    var page = 0
+    let mid = showMediaId
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .flatMap { $0.isEmpty ? nil : $0 }
+    let eidLower = eid.lowercased()
+    while page < maxPages {
+      do {
+        let res = try await client.listeningSessionsMe(itemsPerPage: 100, page: page)
+        let filtered = res.sessions.filter { s in
+          let sEp = s.episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+          guard !sEp.isEmpty, sEp.lowercased() == eidLower else { return false }
+          if s.libraryItemId == bid { return true }
+          if let mid, let raw = s.bookId {
+            let b = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !b.isEmpty, b == mid { return true }
+          }
+          return false
+        }
+        collected.append(contentsOf: filtered)
+        page += 1
+        if page >= res.numPages { break }
+      } catch {
+        break
+      }
+    }
+    return collected.sorted { $0.startedAt > $1.startedAt }
+  }
+
+  func loadPodcastEpisodeDetail(_ episode: ABSPodcastEpisodeListItem) async -> ABSPodcastEpisodeExpandedDetail? {
     guard let c = client, isNetworkReachable else {
-      expandedPodcastEpisodeDetail = ABSPodcastEpisodeExpandedDetail(
+      return ABSPodcastEpisodeExpandedDetail(
         episode: episode,
         subtitle: nil,
         episodeDescriptionHTML: nil,
@@ -1471,7 +1645,6 @@ final class AppModel: ObservableObject {
         showGenres: nil,
         showAuthors: []
       )
-      return
     }
     do {
       let show = try await c.item(id: episode.libraryItemId, expanded: true)
@@ -1483,7 +1656,7 @@ final class AppModel: ObservableObject {
       let genres = showMeta.genres
       let showDesc = showMeta.descriptionPlain ?? showMeta.description
       let authors = showMeta.authors ?? []
-      expandedPodcastEpisodeDetail = ABSPodcastEpisodeExpandedDetail(
+      return ABSPodcastEpisodeExpandedDetail(
         episode: episode,
         subtitle: subtitle,
         episodeDescriptionHTML: epDesc,
@@ -1493,7 +1666,7 @@ final class AppModel: ObservableObject {
         showAuthors: authors
       )
     } catch {
-      expandedPodcastEpisodeDetail = ABSPodcastEpisodeExpandedDetail(
+      return ABSPodcastEpisodeExpandedDetail(
         episode: episode,
         subtitle: nil,
         episodeDescriptionHTML: nil,
@@ -1505,10 +1678,158 @@ final class AppModel: ObservableObject {
     }
   }
 
-  func play(book: ABSBook, autoPlay: Bool = true) async {
+  /// Öffnet in `MainRootView` das große Now-Playing-Sheet (Tab bleibt unverändert).
+  func requestPresentNowPlayingSheet() {
+    nowPlayingSheetPresentationCounter &+= 1
+  }
+
+  /// Sofort „Continue listening“ mit lokalem Fortschritt füllen; `loadStartDashboard()` gleicht später mit dem Server ab.
+  private func applyOptimisticProgressOnly(_ p: ABSUserMediaProgress) {
+    progressByItemId[p.progressLookupKey] = p
+  }
+
+  private func progressForOptimisticAudiobook(_ book: ABSBook, resumeAt: Double) -> ABSUserMediaProgress {
+    let dur = max(book.media.duration ?? 0, resumeAt, 1)
+    let progVal = dur > 0 ? min(1, max(0, resumeAt / dur)) : 0
+    let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+    let prev = progressByItemId[book.id]?.lastUpdate ?? 0
+    let lastUp = max(nowMs, prev + 1)
+    return ABSUserMediaProgress(
+      libraryItemId: book.id,
+      episodeId: nil,
+      duration: dur,
+      progress: progVal,
+      currentTime: resumeAt,
+      isFinished: false,
+      lastUpdate: lastUp
+    )
+  }
+
+  private func progressForOptimisticPodcastEpisode(
+    _ episode: ABSPodcastEpisodeListItem,
+    resumeAt: Double
+  ) -> ABSUserMediaProgress {
+    let dur = max(episode.duration, resumeAt, 1)
+    let progVal = dur > 0 ? min(1, max(0, resumeAt / dur)) : 0
+    let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+    let prev = progressByItemId[episode.progressLookupKey]?.lastUpdate ?? 0
+    let lastUp = max(nowMs, prev + 1)
+    return ABSUserMediaProgress(
+      libraryItemId: episode.libraryItemId,
+      episodeId: episode.episodeId,
+      duration: dur,
+      progress: progVal,
+      currentTime: resumeAt,
+      isFinished: false,
+      lastUpdate: lastUp
+    )
+  }
+
+  private func mergeOptimisticAudiobookIntoContinueShelves(_ book: ABSBook) {
+    let cat = "itemsInProgressFallback"
+    let title = ABSStartShelfLocalization.displayTitle(category: cat, serverLabel: "")
+    if startShelves.isEmpty {
+      startShelves = [
+        ABSStartShelfSection(
+          id: "optimistic-continue-seed-book",
+          category: cat,
+          displayTitle: title,
+          books: [book],
+          podcastEpisodes: [],
+          authors: []
+        )
+      ]
+      return
+    }
+    guard let idx = startShelves.firstIndex(where: { isHomeContinueCategory($0.category) }) else { return }
+    var newShelves = startShelves
+    let shelf = newShelves[idx]
+    var books = shelf.books.filter { $0.id != book.id }
+    books.append(book)
+    books.sort {
+      (progressByItemId[$0.id]?.lastUpdate ?? 0) > (progressByItemId[$1.id]?.lastUpdate ?? 0)
+    }
+    newShelves[idx] = ABSStartShelfSection(
+      id: shelf.id,
+      category: shelf.category,
+      displayTitle: shelf.displayTitle,
+      books: books,
+      podcastEpisodes: shelf.podcastEpisodes,
+      authors: shelf.authors
+    )
+    startShelves = newShelves
+  }
+
+  private func mergeOptimisticPodcastEpisodeIntoContinueShelves(_ episode: ABSPodcastEpisodeListItem) {
+    let cat = "itemsInProgressFallback"
+    let title = ABSStartShelfLocalization.displayTitle(category: cat, serverLabel: "")
+    if startShelves.isEmpty {
+      startShelves = [
+        ABSStartShelfSection(
+          id: "optimistic-continue-seed-pod",
+          category: cat,
+          displayTitle: title,
+          books: [],
+          podcastEpisodes: [episode],
+          authors: []
+        )
+      ]
+      return
+    }
+    guard let idx = startShelves.firstIndex(where: { isHomeContinueCategory($0.category) }) else { return }
+    var newShelves = startShelves
+    let shelf = newShelves[idx]
+    var eps = shelf.podcastEpisodes.filter { $0.progressLookupKey != episode.progressLookupKey }
+    eps.append(episode)
+    eps = dedupePodcastEpisodesForHomeContinueList(eps)
+    newShelves[idx] = ABSStartShelfSection(
+      id: shelf.id,
+      category: shelf.category,
+      displayTitle: shelf.displayTitle,
+      books: shelf.books,
+      podcastEpisodes: eps,
+      authors: shelf.authors
+    )
+    startShelves = newShelves
+  }
+
+  private func bumpOptimisticContinueListeningForAudiobook(_ book: ABSBook, resumeAt: Double) {
+    guard isStartCategoryEnabled("recentlyListened") else { return }
+    if let libId = selectedBooksLibrary?.id.trimmingCharacters(in: .whitespacesAndNewlines), !libId.isEmpty {
+      if let lid = book.libraryId?.trimmingCharacters(in: .whitespacesAndNewlines), !lid.isEmpty, lid != libId {
+        applyOptimisticProgressOnly(progressForOptimisticAudiobook(book, resumeAt: resumeAt))
+        return
+      }
+    }
+    let p = progressForOptimisticAudiobook(book, resumeAt: resumeAt)
+    progressByItemId[p.progressLookupKey] = p
+    mergeOptimisticAudiobookIntoContinueShelves(book)
+    recomputeStartBooksUnion(from: startShelves)
+    applyContinueListeningFinishedFilter()
+  }
+
+  private func bumpOptimisticContinueListeningForPodcastEpisode(
+    _ episode: ABSPodcastEpisodeListItem,
+    resumeAt: Double
+  ) {
+    guard isStartCategoryEnabled("recentlyListened") else { return }
+    if let plid = selectedPodcastLibrary?.id.trimmingCharacters(in: .whitespacesAndNewlines), !plid.isEmpty {
+      if let eLib = episode.libraryId?.trimmingCharacters(in: .whitespacesAndNewlines), !eLib.isEmpty, eLib != plid {
+        applyOptimisticProgressOnly(progressForOptimisticPodcastEpisode(episode, resumeAt: resumeAt))
+        return
+      }
+    }
+    let p = progressForOptimisticPodcastEpisode(episode, resumeAt: resumeAt)
+    progressByItemId[p.progressLookupKey] = p
+    mergeOptimisticPodcastEpisodeIntoContinueShelves(episode)
+    recomputeStartBooksUnion(from: startShelves)
+    applyContinueListeningFinishedFilter()
+  }
+
+  func play(book: ABSBook, resumeAtOverride: Double? = nil, autoPlay: Bool = true) async {
     guard let c = client else { return }
     errorMessage = nil
-    let resume = progressByItemId[book.id]?.currentTime ?? 0
+    let resume = resumeAtOverride ?? progressByItemId[book.id]?.currentTime ?? 0
     let local = localDownloadRoot(for: book.id)
     do {
       var resolved = book
@@ -1528,18 +1849,24 @@ final class AppModel: ObservableObject {
         autoPlay: autoPlay)
       UserDefaults.standard.set(resolved.id, forKey: Keys.lastPlayedItemId)
       if autoPlay {
-        mainTab = .start
-        await loadStartDashboard()
+        bumpOptimisticContinueListeningForAudiobook(resolved, resumeAt: resume)
+        requestPresentNowPlayingSheet()
+        Task { await loadStartDashboard() }
       }
     } catch {
       errorMessage = error.localizedDescription
     }
   }
 
-  func playPodcastEpisode(_ episode: ABSPodcastEpisodeListItem, autoPlay: Bool = true) async {
+  func playPodcastEpisode(
+    _ episode: ABSPodcastEpisodeListItem,
+    autoPlay: Bool = true,
+    resumeAtOverride: Double? = nil
+  ) async {
     guard let c = client else { return }
     errorMessage = nil
-    let resume = progressByItemId[episode.progressLookupKey]?.currentTime ?? 0
+    let resume =
+      resumeAtOverride ?? progressByItemId[episode.progressLookupKey]?.currentTime ?? 0
     let stub = episode.playbackStubBook(libraryId: selectedPodcastLibrary?.id)
     let offlineKey = podcastEpisodeOfflineStorageId(episode)
     let local = localDownloadRoot(for: offlineKey)
@@ -1554,8 +1881,9 @@ final class AppModel: ObservableObject {
       )
       UserDefaults.standard.set(stub.id, forKey: Keys.lastPlayedItemId)
       if autoPlay {
-        mainTab = .start
-        await loadStartDashboard()
+        bumpOptimisticContinueListeningForPodcastEpisode(episode, resumeAt: resume)
+        requestPresentNowPlayingSheet()
+        Task { await loadStartDashboard() }
       }
     } catch {
       errorMessage = error.localizedDescription
@@ -1579,12 +1907,6 @@ final class AppModel: ObservableObject {
       podcastSearchBooks.removeAll { $0.id == bookId }
       await reloadLibrary(reset: true)
       await reloadPodcastLibrary(reset: true)
-      expandedItemId = nil
-      expandedDetail = nil
-      if expandedPodcastEpisodeDetail?.episode.libraryItemId == bookId {
-        expandedPodcastEpisodeId = nil
-        expandedPodcastEpisodeDetail = nil
-      }
       if wasCurrentPlayback {
         await dismissPlayer()
       }
@@ -1641,13 +1963,6 @@ final class AppModel: ObservableObject {
       applyUserProgress(auth.user.mediaProgress)
       removePodcastEpisodeFromLocalCatalogLists(episode)
       await reloadPodcastLibrary(reset: true)
-      if let d = expandedPodcastEpisodeDetail,
-        d.episode.progressLookupKey == episode.progressLookupKey
-          || (d.episode.episodeId == episode.episodeId && d.episode.libraryItemId == episode.libraryItemId)
-      {
-        expandedPodcastEpisodeId = nil
-        expandedPodcastEpisodeDetail = nil
-      }
       if wasPlaying {
         await dismissPlayer()
       }
@@ -1713,12 +2028,6 @@ final class AppModel: ObservableObject {
       }
       if UserDefaults.standard.string(forKey: Keys.lastPlayedItemId) == bookId {
         UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
-      }
-      expandedItemId = nil
-      expandedDetail = nil
-      if expandedPodcastEpisodeDetail?.episode.libraryItemId == bookId {
-        expandedPodcastEpisodeId = nil
-        expandedPodcastEpisodeDetail = nil
       }
       await refreshProgressFromServer()
       await loadStartDashboard()

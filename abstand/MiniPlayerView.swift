@@ -500,7 +500,7 @@ struct FloatingNowPlayingBar: View {
       trailingAccessoryButtons
     }
     .padding(.vertical, 8)
-    .padding(.horizontal, 12)
+    .padding(.horizontal, 16)
     .contextMenu {
       Button(role: .destructive) {
         Task { await model.dismissPlayer() }
@@ -637,6 +637,7 @@ struct LibraryCardActionButtonStyle: ButtonStyle {
   }
 
   var variant: Variant = .neutral
+  var minHeight: CGFloat = MiniPlayerMetrics.controlMinHeight
   @Environment(\.isEnabled) private var isEnabled
 
   func makeBody(configuration: Configuration) -> some View {
@@ -660,8 +661,7 @@ struct LibraryCardActionButtonStyle: ButtonStyle {
 
     return configuration.label
       .fixedSize(horizontal: true, vertical: true)
-      .frame(maxWidth: .infinity)
-      .frame(height: MiniPlayerMetrics.controlMinHeight, alignment: .center)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
       .background(
         RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
           .fill(fill)
@@ -676,6 +676,7 @@ struct LibraryCardActionButtonStyle: ButtonStyle {
           : 0.38
       )
       .contentShape(RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous))
+      .frame(minHeight: minHeight)
   }
 }
 

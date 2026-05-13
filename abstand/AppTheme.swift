@@ -13,7 +13,7 @@ enum AppTheme {
   /// Raster für Tabs, Listen und Karten (Home / Books / …).
   enum Layout {
     /// Tab-Inhalt horizontal (z. B. Start, Books, Einstellungen).
-    static let tabPaddingH: CGFloat = 12
+    static let tabPaddingH: CGFloat = 16
     /// Abstand von der oberen Safe Area zum ersten fixen Element (Großtitel / Kopfblock).
     static let tabPaddingTop: CGFloat = 16
     /// Abstand unter dem Großtitel zur nächsten Kopfzeile (Suche, Shows) — entspricht Titel → erster Scroll-Beginn bei nur Titel+Scroll.
@@ -30,6 +30,13 @@ enum AppTheme {
     /// Kompakte Kachel in der Podcast-„Shows“-Leiste (nicht identisch mit Buch-Cover-Ecken).
     static let podcastShelfCoverCorner: CGFloat = 12
 
+    /// „Continue listening“-Karten (horizontal scrollbar, einheitliche Höhe).
+    static let continueHeroCardCornerRadius: CGFloat = 16
+    static let continueHeroCardWidth: CGFloat = 216
+    /// Quadrat wie die Kartenbreite: typisches Cover vollständig sichtbar (`scaledToFit`).
+    static let continueHeroCoverMaxHeight: CGFloat = 216
+    static let continueHeroCardHeight: CGFloat = 216
+
     static let cardCornerRadius: CGFloat = 14
     static let libraryRowCornerRadius: CGFloat = 16
     static let coverCornerRadius: CGFloat = 11
@@ -38,6 +45,8 @@ enum AppTheme {
     static let libraryRowCoverSide: CGFloat = 76
     /// Einheitliches Inset um Cover + Text in Library-Zeilen.
     static let libraryRowCardInset: CGFloat = 10
+    /// Höhe des Fortschrittsstreifens am unteren Kartenrand (Library-Zeilen).
+    static let libraryRowBottomProgressHeight: CGFloat = 4
   }
 }
 
@@ -51,4 +60,16 @@ func formatPlaybackTime(_ seconds: Double) -> String {
     return String(format: "%d:%02d:%02d", h, m, r)
   }
   return String(format: "%d:%02d", m, r)
+}
+
+/// Gesamtdauer für Pill-Buttons („12 Std. 4 Min.“).
+func formatPlaybackDurationShortHuman(_ seconds: Double) -> String {
+  guard seconds.isFinite, seconds >= 0 else { return "0 Min." }
+  let s = Int(seconds.rounded())
+  let h = s / 3600
+  let m = (s % 3600) / 60
+  if h > 0, m > 0 { return "\(h) Std. \(m) Min." }
+  if h > 0 { return m > 0 ? "\(h) Std. \(m) Min." : "\(h) Std." }
+  if m > 0 { return "\(m) Min." }
+  return "unter 1 Min."
 }

@@ -78,6 +78,25 @@ struct ABSUserMediaProgress: Codable {
     try c.encodeIfPresent(lastUpdate, forKey: .lastUpdate)
   }
 
+  /// Lokaler/optimistischer Fortschritt (z. B. sofort nach Play-Start für „Continue listening“).
+  init(
+    libraryItemId: String,
+    episodeId: String?,
+    duration: Double,
+    progress: Double,
+    currentTime: Double,
+    isFinished: Bool,
+    lastUpdate: Int64?
+  ) {
+    self.libraryItemId = libraryItemId
+    self.episodeId = episodeId
+    self.duration = duration
+    self.progress = progress
+    self.currentTime = currentTime
+    self.isFinished = isFinished
+    self.lastUpdate = lastUpdate
+  }
+
   /// Schlüssel für `AppModel.progressByItemId` (Episoden: `libraryItemId-episodeId`).
   var progressLookupKey: String {
     let e = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -509,16 +528,45 @@ struct ABSBookMedia: Decodable {
 struct ABSBook: Decodable, Identifiable {
   let id: String
   let libraryId: String?
+  /// Referenz auf die Medien-Zeile (Buch/Podcast), vgl. `libraryItems.mediaId` — für Playback-Sessions nötig.
+  let mediaId: String?
   let media: ABSBookMedia
   let addedAt: Date?
   let updatedAt: Date?
 
   enum CodingKeys: String, CodingKey {
     case id
-    case libraryId = "libraryId"
+    case libraryId
+    case mediaId
     case media
     case addedAt
     case updatedAt
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(String.self, forKey: .id)
+    libraryId = try c.decodeIfPresent(String.self, forKey: .libraryId)
+    mediaId = try c.decodeIfPresent(String.self, forKey: .mediaId)
+    media = try c.decode(ABSBookMedia.self, forKey: .media)
+    addedAt = try c.decodeIfPresent(Date.self, forKey: .addedAt)
+    updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
+  }
+
+  init(
+    id: String,
+    libraryId: String?,
+    media: ABSBookMedia,
+    addedAt: Date?,
+    updatedAt: Date?,
+    mediaId: String? = nil
+  ) {
+    self.id = id
+    self.libraryId = libraryId
+    self.mediaId = mediaId
+    self.media = media
+    self.addedAt = addedAt
+    self.updatedAt = updatedAt
   }
 
   var displayTitle: String { media.metadata.title }
@@ -620,7 +668,8 @@ extension ABSBook {
       libraryId: m.libraryId,
       media: media,
       addedAt: nil,
-      updatedAt: nil
+      updatedAt: nil,
+      mediaId: nil
     )
   }
 }
@@ -684,7 +733,7 @@ enum ABSStartShelfMergedRow: Identifiable {
       case (.podcastEpisode(let a), .podcastEpisode(let b)):
         return a.episodeTitle.localizedCaseInsensitiveCompare(b.episodeTitle) == .orderedAscending
       default:
-        return false
+        return $0.id < $1.id
       }
     }
     return rows
@@ -924,7 +973,267 @@ struct ABSPlaySession: Decodable {
       libraryId: libraryItem.libraryId,
       media: media,
       addedAt: libraryItem.addedAt,
-      updatedAt: libraryItem.updatedAt
+      updatedAt: libraryItem.updatedAt,
+      mediaId: libraryItem.mediaId
+    )
+  }
+}
+
+// MARK: - Listening sessions (`GET /api/me/listening-sessions`)
+
+struct ABSListeningSessionsPayload: Decodable {
+  let total: Int
+  let numPages: Int
+  let page: Int
+  let itemsPerPage: Int
+  let sessions: [ABSListeningSession]
+
+  enum CodingKeys: String, CodingKey {
+    case total, numPages, page, itemsPerPage, sessions
+  }
+
+  init(total: Int, numPages: Int, page: Int, itemsPerPage: Int, sessions: [ABSListeningSession]) {
+    self.total = total
+    self.numPages = numPages
+    self.page = page
+    self.itemsPerPage = itemsPerPage
+    self.sessions = sessions
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    total = try c.decodeIfPresent(Int.self, forKey: .total) ?? 0
+    numPages = try c.decodeIfPresent(Int.self, forKey: .numPages) ?? 0
+    page = try c.decodeIfPresent(Int.self, forKey: .page) ?? 0
+    itemsPerPage = try c.decodeIfPresent(Int.self, forKey: .itemsPerPage) ?? 0
+    sessions = try c.decodeIfPresent([ABSListeningSession].self, forKey: .sessions) ?? []
+  }
+
+  /// Wenn einzelne Session-Objekte vom strikten `Decodable` abweichen, trotzdem so viele Zeilen wie möglich parsen.
+  static func decodeLenient(data: Data, jsonDecoder: JSONDecoder) throws -> ABSListeningSessionsPayload {
+    do {
+      return try jsonDecoder.decode(ABSListeningSessionsPayload.self, from: data)
+    } catch let primary {
+      guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        throw primary
+      }
+      func jsonInt(_ any: Any?) -> Int? {
+        switch any {
+        case let i as Int: return i
+        case let i as Int64: return Int(i)
+        case let d as Double: return Int(d.rounded())
+        case let s as String: return Int(s.trimmingCharacters(in: .whitespacesAndNewlines))
+        default: return nil
+        }
+      }
+      let rawList = (root["sessions"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
+      var parsed: [ABSListeningSession] = []
+      parsed.reserveCapacity(rawList.count)
+      for d in rawList {
+        if let s = ABSListeningSession(lenientDictionary: d) {
+          parsed.append(s)
+        }
+      }
+      let total = jsonInt(root["total"]) ?? parsed.count
+      let numPages = jsonInt(root["numPages"]) ?? jsonInt(root["num_pages"]) ?? (parsed.isEmpty ? 0 : 1)
+      let page = jsonInt(root["page"]) ?? 0
+      let itemsPerPage =
+        jsonInt(root["itemsPerPage"]) ?? jsonInt(root["items_per_page"]) ?? max(parsed.count, 1)
+      return ABSListeningSessionsPayload(
+        total: total, numPages: numPages, page: page, itemsPerPage: itemsPerPage, sessions: parsed)
+    }
+  }
+}
+
+struct ABSListeningSession: Decodable, Identifiable, Hashable {
+  let id: String
+  let libraryItemId: String
+  /// Buch-Medien-UUID (entspricht oft `ABSBook.mediaId`), wenn `libraryItemId` in der API fehlt.
+  let bookId: String?
+  let episodeId: String?
+  let duration: Double
+  let startTime: Double
+  let currentTime: Double
+  let timeListening: Int
+  let startedAt: Int64
+  let updatedAt: Int64
+
+  enum CodingKeys: String, CodingKey {
+    case id, libraryItemId, bookId, episodeId, duration, startTime, currentTime, timeListening, startedAt, updatedAt
+    case libraryItem
+  }
+
+  init(
+    id: String,
+    libraryItemId: String,
+    bookId: String?,
+    episodeId: String?,
+    duration: Double,
+    startTime: Double,
+    currentTime: Double,
+    timeListening: Int,
+    startedAt: Int64,
+    updatedAt: Int64
+  ) {
+    self.id = id
+    self.libraryItemId = libraryItemId
+    self.bookId = bookId
+    self.episodeId = episodeId
+    self.duration = duration
+    self.startTime = startTime
+    self.currentTime = currentTime
+    self.timeListening = timeListening
+    self.startedAt = startedAt
+    self.updatedAt = updatedAt
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = Self.decodeStringish(c, forKey: .id) ?? ""
+    if let lid = Self.decodeStringish(c, forKey: .libraryItemId), !lid.isEmpty {
+      libraryItemId = lid
+    } else if let nested = try? c.nestedContainer(keyedBy: NestedLibraryItemKeys.self, forKey: .libraryItem),
+      let lid = Self.decodeStringish(nested, forKey: .id), !lid.isEmpty
+    {
+      libraryItemId = lid
+    } else {
+      libraryItemId = ""
+    }
+    if let b = Self.decodeStringish(c, forKey: .bookId), !b.isEmpty {
+      bookId = b
+    } else {
+      bookId = nil
+    }
+    episodeId = try c.decodeIfPresent(String.self, forKey: .episodeId)
+    duration = try c.decodeIfPresent(Double.self, forKey: .duration) ?? 0
+    startTime = try c.decodeIfPresent(Double.self, forKey: .startTime) ?? 0
+    currentTime = try c.decodeIfPresent(Double.self, forKey: .currentTime) ?? 0
+    if let i = try c.decodeIfPresent(Int.self, forKey: .timeListening) {
+      timeListening = i
+    } else if let d = try c.decodeIfPresent(Double.self, forKey: .timeListening) {
+      timeListening = Int(d.rounded())
+    } else {
+      timeListening = 0
+    }
+    if let ms = try c.decodeIfPresent(Int64.self, forKey: .startedAt) {
+      startedAt = ms
+    } else if let d = try c.decodeIfPresent(Double.self, forKey: .startedAt) {
+      startedAt = Int64(d.rounded())
+    } else {
+      startedAt = 0
+    }
+    if let ms = try c.decodeIfPresent(Int64.self, forKey: .updatedAt) {
+      updatedAt = ms
+    } else if let d = try c.decodeIfPresent(Double.self, forKey: .updatedAt) {
+      updatedAt = Int64(d.rounded())
+    } else {
+      updatedAt = 0
+    }
+  }
+
+  private enum NestedLibraryItemKeys: String, CodingKey {
+    case id
+  }
+
+  private static func decodeStringish(_ c: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> String? {
+    if let s = try? c.decode(String.self, forKey: key), !s.isEmpty { return s }
+    if let i = try? c.decode(Int.self, forKey: key) { return String(i) }
+    return nil
+  }
+
+  private static func decodeStringish(_ c: KeyedDecodingContainer<NestedLibraryItemKeys>, forKey key: NestedLibraryItemKeys)
+    -> String?
+  {
+    if let s = try? c.decode(String.self, forKey: key), !s.isEmpty { return s }
+    if let i = try? c.decode(Int.self, forKey: key) { return String(i) }
+    return nil
+  }
+
+  func hash(into hasher: inout Hasher) { hasher.combine(id) }
+  static func == (lhs: ABSListeningSession, rhs: ABSListeningSession) -> Bool { lhs.id == rhs.id }
+}
+
+extension ABSListeningSession {
+  /// Fallback-Parsing einzelner Session-Dictionaries, wenn `JSONDecoder` am Gesamt-Array scheitert.
+  init?(lenientDictionary d: [String: Any]) {
+    func jsonString(_ keys: [String]) -> String? {
+      for k in keys {
+        guard let v = d[k] else { continue }
+        if v is NSNull { continue }
+        if let s = v as? String {
+          let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+          if !t.isEmpty { return t }
+        } else if let i = v as? Int { return String(i) }
+        else if let i = v as? Int64 { return String(i) }
+        else if let x = v as? Double { return String(Int(x)) }
+      }
+      return nil
+    }
+    func jsonDouble(_ keys: [String]) -> Double {
+      for k in keys {
+        guard let v = d[k] else { continue }
+        if let x = v as? Double { return x }
+        if let i = v as? Int { return Double(i) }
+        if let i = v as? Int64 { return Double(i) }
+        if let s = v as? String, let x = Double(s.trimmingCharacters(in: .whitespacesAndNewlines)) { return x }
+      }
+      return 0
+    }
+    func jsonInt(_ keys: [String]) -> Int {
+      for k in keys {
+        guard let v = d[k] else { continue }
+        if let i = v as? Int { return i }
+        if let i = v as? Int64 { return Int(i) }
+        if let x = v as? Double { return Int(x.rounded()) }
+        if let s = v as? String, let i = Int(s.trimmingCharacters(in: .whitespacesAndNewlines)) { return i }
+      }
+      return 0
+    }
+    func jsonInt64(_ keys: [String]) -> Int64 {
+      for k in keys {
+        guard let v = d[k] else { continue }
+        if let i = v as? Int64 { return i }
+        if let i = v as? Int { return Int64(i) }
+        if let x = v as? Double { return Int64(x.rounded()) }
+        if let s = v as? String, let i = Int64(s.trimmingCharacters(in: .whitespacesAndNewlines)) { return i }
+      }
+      return 0
+    }
+
+    guard let id = jsonString(["id", "sessionId"]), !id.isEmpty else { return nil }
+
+    let nestedLi = (d["libraryItem"] as? [String: Any]) ?? (d["library_item"] as? [String: Any])
+    let fromNested = nestedLi.flatMap { li -> String? in
+      for k in ["id"] {
+        guard let v = li[k] else { continue }
+        if let s = v as? String {
+          let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+          if !t.isEmpty { return t }
+        } else if let i = v as? Int { return String(i) }
+        else if let i = v as? Int64 { return String(i) }
+      }
+      return nil
+    }
+
+    let libraryItemId =
+      jsonString(["libraryItemId", "library_item_id"]) ?? fromNested ?? ""
+    let bookRaw = jsonString(["bookId", "book_id"])
+    let bookId = bookRaw.flatMap { $0.isEmpty ? nil : $0 }
+
+    let episodeRaw = jsonString(["episodeId", "episode_id"])
+    let episodeId = episodeRaw.flatMap { $0.isEmpty ? nil : $0 }
+
+    self.init(
+      id: id,
+      libraryItemId: libraryItemId,
+      bookId: bookId,
+      episodeId: episodeId,
+      duration: jsonDouble(["duration"]),
+      startTime: jsonDouble(["startTime", "start_time"]),
+      currentTime: jsonDouble(["currentTime", "current_time"]),
+      timeListening: jsonInt(["timeListening", "time_listening"]),
+      startedAt: jsonInt64(["startedAt", "started_at"]),
+      updatedAt: jsonInt64(["updatedAt", "updated_at"])
     )
   }
 }

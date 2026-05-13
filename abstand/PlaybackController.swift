@@ -318,6 +318,9 @@ final class PlaybackController: NSObject, ObservableObject {
     currentTrackIndex = 0
     pendingListenSeconds = 0
     isPlaying = false
+    globalPosition = 0
+    totalDuration = 0
+    isBuffering = false
     activeBook = nil
     activePlaybackEpisodeId = nil
     localRoot = nil
@@ -526,13 +529,14 @@ final class PlaybackController: NSObject, ObservableObject {
       from: uiBook, sessionChapters: session.chapters, libraryItemFallback: session.libraryItem)
 
     let serverResume = max(session.currentTime, resumeAt)
+    let safeResume = min(serverResume, session.duration > 0 ? session.duration : serverResume)
     totalDuration =
       session.duration > 0
       ? session.duration
       : (uiBook.media.duration ?? book.media.duration ?? (trackStarts.last! + tracks.last!.duration))
 
-    currentTrackIndex = trackIndex(forGlobal: serverResume)
-    let offsetInTrack = max(0, serverResume - trackStarts[currentTrackIndex])
+    currentTrackIndex = trackIndex(forGlobal: safeResume)
+    let offsetInTrack = max(0, safeResume - trackStarts[currentTrackIndex])
 
     let streamURL = try await client.publicStreamURL(
       sessionId: session.id,
@@ -543,7 +547,7 @@ final class PlaybackController: NSObject, ObservableObject {
     player = AVPlayer(playerItem: item)
     applyBackgroundPlaybackPolicy(player)
     installObservers()
-    let resumeSnapshot = serverResume
+    let resumeSnapshot = safeResume
     player?.seek(to: CMTime(seconds: offsetInTrack, preferredTimescale: 600)) { [weak self] _ in
       guard let self else { return }
       DispatchQueue.main.async { [weak self] in
@@ -923,14 +927,14 @@ final class PlaybackController: NSObject, ObservableObject {
     }
     guard !Task.isCancelled, activeBook?.id == bookId else { return }
     guard let image = UIImage(data: data) else { return }
-    miniPlayerBarFillColor = Self.miniPlayerTintColor(from: image)
+    miniPlayerBarFillColor = Self.coverBarTintFromCoverImage(image)
     let artwork = Self.makeNowPlayingArtwork(from: image)
     nowPlayingArtwork = artwork
     updateNowPlaying()
   }
 
-  /// Dunkle Kartenfarbe aus dem Cover-Mittel (lesbar mit hellem Text).
-  private static func miniPlayerTintColor(from image: UIImage) -> Color {
+  /// Hintergrundfarbe aus Cover-Mittel (Mini-Player, Continue-Hero-Karten, …).
+  static func coverBarTintFromCoverImage(_ image: UIImage) -> Color {
     guard let ciImage = CIImage(image: image) else { return AppTheme.card }
     var extent = ciImage.extent
     if !extent.width.isFinite || extent.width < 1 || !extent.height.isFinite || extent.height < 1 {

@@ -123,6 +123,20 @@ actor ABSAPIClient {
     }
   }
 
+  /// Hör-Sitzungen: striktes Decoding, bei Fehler Zeilenweise per `decodeLenient` (kaputte Einträge fallen weg statt die ganze Seite).
+  private func sendListeningSessionsPayload(_ request: URLRequest) async throws -> ABSListeningSessionsPayload {
+    let (data, resp) = try await urlSession.data(for: request)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    do {
+      return try ABSListeningSessionsPayload.decodeLenient(data: data, jsonDecoder: decoder)
+    } catch {
+      throw ABSAPIError.decoding(error)
+    }
+  }
+
   private func sendData(_ request: URLRequest) async throws {
     let (data, resp) = try await urlSession.data(for: request)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
@@ -354,6 +368,40 @@ actor ABSAPIClient {
       }
     }
     return ABSItemsInProgressPayload(books: books, podcastEpisodes: podcastEpisodes)
+  }
+
+  /// Paginierte Hör-Sitzungen des eingeloggten Nutzers (`libraryItemId` + ggf. `episodeId` pro Eintrag).
+  func listeningSessionsMe(itemsPerPage: Int = 50, page: Int = 0) async throws -> ABSListeningSessionsPayload {
+    let req = try authorizedRequest(
+      path: "api/me/listening-sessions",
+      query: [
+        "itemsPerPage": "\(max(1, min(itemsPerPage, 100)))",
+        "page": "\(max(0, page))",
+      ]
+    )
+    return try await sendListeningSessionsPayload(req)
+  }
+
+  /// Hör-Sitzungen zu **einem** Medium (ab Server ~2.8; für Bücher ohne `episodeId`).
+  func listeningSessionsForLibraryItem(
+    libraryItemId: String,
+    episodeId: String? = nil,
+    itemsPerPage: Int = 100,
+    page: Int = 0
+  ) async throws -> ABSListeningSessionsPayload {
+    let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    var path = "api/me/item/listening-sessions/\(id)"
+    if let e = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines), !e.isEmpty {
+      path += "/\(e)"
+    }
+    let req = try authorizedRequest(
+      path: path,
+      query: [
+        "itemsPerPage": "\(max(1, min(itemsPerPage, 100)))",
+        "page": "\(max(0, page))",
+      ]
+    )
+    return try await sendListeningSessionsPayload(req)
   }
 
   func startPlaySession(
