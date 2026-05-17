@@ -692,11 +692,29 @@ extension ABSBookMediaMetadata {
   }
 }
 
-struct ABSChapter: Decodable {
+struct ABSChapter: Codable {
   let id: Int
   let start: Double
   let end: Double
   let title: String
+}
+
+extension ABSChapter {
+  init(manifest ch: ABSDownloadManifest.Chapter) {
+    id = ch.id
+    start = ch.start
+    end = ch.end
+    title = ch.title
+  }
+}
+
+extension ABSDownloadManifest.Chapter {
+  init(_ ch: ABSChapter) {
+    id = ch.id
+    start = ch.start
+    end = ch.end
+    title = ch.title
+  }
 }
 
 struct ABSAudioTrack: Decodable {
@@ -757,6 +775,112 @@ private struct ABSSearchAudioFile: Decodable {
   }
 }
 
+/// Datei auf Library-Item-Ebene (`libraryFiles`); supplementäre EPUBs hängen oft nur hier.
+struct ABSLibraryFile: Decodable {
+  let ino: String
+  let fileType: String?
+  let isSupplementary: Bool?
+  let metadata: Metadata?
+
+  struct Metadata: Decodable {
+    let filename: String?
+    let ext: String?
+    let format: String?
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case ino, fileType, isSupplementary, metadata
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    if let s = try c.decodeIfPresent(String.self, forKey: .ino), !s.isEmpty {
+      ino = s
+    } else if let n = try c.decodeIfPresent(Int64.self, forKey: .ino) {
+      ino = String(n)
+    } else {
+      throw DecodingError.keyNotFound(CodingKeys.ino, .init(codingPath: decoder.codingPath, debugDescription: "ino"))
+    }
+    fileType = try c.decodeIfPresent(String.self, forKey: .fileType)
+    isSupplementary = try c.decodeIfPresent(Bool.self, forKey: .isSupplementary)
+    metadata = try c.decodeIfPresent(Metadata.self, forKey: .metadata)
+  }
+
+  var isEpub: Bool {
+    let fmt = (metadata?.format ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if fmt == "epub" { return true }
+    let ext = (metadata?.ext ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if ext == ".epub" || ext == "epub" { return true }
+    let name = (metadata?.filename ?? "").lowercased()
+    return name.hasSuffix(".epub")
+  }
+
+  var isPdf: Bool {
+    let fmt = (metadata?.format ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if fmt == "pdf" { return true }
+    let ext = (metadata?.ext ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if ext == ".pdf" || ext == "pdf" { return true }
+    let name = (metadata?.filename ?? "").lowercased()
+    return name.hasSuffix(".pdf")
+  }
+
+  var isEbook: Bool {
+    if isEpub || isPdf { return true }
+    let fmt = (metadata?.format ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if ["pdf", "mobi", "azw3", "azw", "cbz", "cbr"].contains(fmt) { return true }
+    let ext = (metadata?.ext ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if [".pdf", ".mobi", ".azw3", ".azw", ".cbz", ".cbr"].contains(ext) { return true }
+    let name = (metadata?.filename ?? "").lowercased()
+    return name.hasSuffix(".pdf") || name.hasSuffix(".mobi") || name.hasSuffix(".azw3")
+      || name.hasSuffix(".cbz") || name.hasSuffix(".cbr")
+  }
+}
+
+/// Supplementärer E-Book-Eintrag (z. B. EPUB neben Hörbuch), aus `media.ebookFile`.
+struct ABSEbookFile: Codable {
+  let ino: String
+  let ebookFormat: String?
+  let metadata: Metadata?
+
+  struct Metadata: Codable {
+    let filename: String?
+    let ext: String?
+    let format: String?
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case ino, ebookFormat, metadata
+  }
+
+  init(ino: String, ebookFormat: String?, metadata: Metadata?) {
+    self.ino = ino
+    self.ebookFormat = ebookFormat
+    self.metadata = metadata
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    if let s = try c.decodeIfPresent(String.self, forKey: .ino), !s.isEmpty {
+      ino = s
+    } else if let n = try c.decodeIfPresent(Int64.self, forKey: .ino) {
+      ino = String(n)
+    } else {
+      throw DecodingError.keyNotFound(CodingKeys.ino, .init(codingPath: decoder.codingPath, debugDescription: "ino"))
+    }
+    ebookFormat = try c.decodeIfPresent(String.self, forKey: .ebookFormat)
+    metadata = try c.decodeIfPresent(Metadata.self, forKey: .metadata)
+  }
+
+  var isEpub: Bool {
+    let fmt = (ebookFormat ?? metadata?.format ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if fmt == "epub" { return true }
+    let ext = (metadata?.ext ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if ext == ".epub" || ext == "epub" { return true }
+    let name = (metadata?.filename ?? "").lowercased()
+    return name.hasSuffix(".epub")
+  }
+}
+
 struct ABSBookMedia: Decodable {
   let metadata: ABSBookMediaMetadata
   let duration: Double?
@@ -768,11 +892,16 @@ struct ABSBookMedia: Decodable {
   let podcastEpisodes: [ABSRecentPodcastEpisodeDTO]?
   let autoDownloadEpisodes: Bool?
   let autoDownloadSchedule: String?
+  /// Supplementäres E-Book (expandiert); `nil` wenn nur Hörbuch.
+  let ebookFile: ABSEbookFile?
+  /// Katalog/minified: Format-Hinweis ohne vollständiges `ebookFile`.
+  let ebookFormat: String?
 
   enum CodingKeys: String, CodingKey {
     case metadata, duration, size, numTracks, chapters, tracks, audioFiles
     case podcastEpisodes = "episodes"
     case autoDownloadEpisodes, autoDownloadSchedule
+    case ebookFile, ebookFormat, ebookFileFormat
   }
 
   init(from decoder: Decoder) throws {
@@ -785,6 +914,9 @@ struct ABSBookMedia: Decodable {
     podcastEpisodes = try c.decodeIfPresent([ABSRecentPodcastEpisodeDTO].self, forKey: .podcastEpisodes)
     autoDownloadEpisodes = try c.decodeIfPresent(Bool.self, forKey: .autoDownloadEpisodes)
     autoDownloadSchedule = try c.decodeIfPresent(String.self, forKey: .autoDownloadSchedule)
+    ebookFile = try c.decodeIfPresent(ABSEbookFile.self, forKey: .ebookFile)
+    ebookFormat = try c.decodeIfPresent(String.self, forKey: .ebookFormat)
+      ?? c.decodeIfPresent(String.self, forKey: .ebookFileFormat)
     if let ts = try c.decodeIfPresent([ABSAudioTrack].self, forKey: .tracks), !ts.isEmpty {
       tracks = ts
     } else if let files = try c.decodeIfPresent([ABSSearchAudioFile].self, forKey: .audioFiles), !files.isEmpty {
@@ -807,6 +939,8 @@ struct ABSBook: Decodable, Identifiable {
   /// Referenz auf die Medien-Zeile (Buch/Podcast), vgl. `libraryItems.mediaId` — für Playback-Sessions nötig.
   let mediaId: String?
   let media: ABSBookMedia
+  /// Nur bei expandiertem Item; supplementäre EPUBs können hier statt in `media.ebookFile` stehen.
+  let libraryFiles: [ABSLibraryFile]?
   let addedAt: Date?
   let updatedAt: Date?
 
@@ -815,6 +949,7 @@ struct ABSBook: Decodable, Identifiable {
     case libraryId
     case mediaId
     case media
+    case libraryFiles
     case addedAt
     case updatedAt
   }
@@ -825,6 +960,7 @@ struct ABSBook: Decodable, Identifiable {
     libraryId = try c.decodeIfPresent(String.self, forKey: .libraryId)
     mediaId = try c.decodeIfPresent(String.self, forKey: .mediaId)
     media = try c.decode(ABSBookMedia.self, forKey: .media)
+    libraryFiles = try c.decodeIfPresent([ABSLibraryFile].self, forKey: .libraryFiles)
     addedAt = try c.decodeIfPresent(Date.self, forKey: .addedAt)
     updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
   }
@@ -835,12 +971,14 @@ struct ABSBook: Decodable, Identifiable {
     media: ABSBookMedia,
     addedAt: Date?,
     updatedAt: Date?,
-    mediaId: String? = nil
+    mediaId: String? = nil,
+    libraryFiles: [ABSLibraryFile]? = nil
   ) {
     self.id = id
     self.libraryId = libraryId
     self.mediaId = mediaId
     self.media = media
+    self.libraryFiles = libraryFiles
     self.addedAt = addedAt
     self.updatedAt = updatedAt
   }
@@ -912,6 +1050,17 @@ struct ABSBook: Decodable, Identifiable {
 }
 
 extension ABSBookMediaMetadata {
+  /// Vollständige Item-API-Metadaten (Serie, Beschreibung, …) vs. schlanker Offline-Stub.
+  var hasRichMetadata: Bool {
+    if authors != nil || series != nil || narrators != nil { return true }
+    if description != nil || descriptionPlain != nil { return true }
+    if genres != nil || narratorName != nil || publisher != nil { return true }
+    if let y = publishedYear?.trimmingCharacters(in: .whitespacesAndNewlines), !y.isEmpty { return true }
+    if let d = publishedDate?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty { return true }
+    if let s = subtitle?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty { return true }
+    return false
+  }
+
   /// Für Offline-Stubs aus `download.json` (kein vollständiges Server-JSON).
   init(offlineTitle: String, authorLine: String) {
     title = offlineTitle.isEmpty ? "Audiobook" : offlineTitle
@@ -944,7 +1093,9 @@ extension ABSBookMedia {
     tracks: [ABSAudioTrack]?,
     podcastEpisodes: [ABSRecentPodcastEpisodeDTO]? = nil,
     autoDownloadEpisodes: Bool? = nil,
-    autoDownloadSchedule: String? = nil
+    autoDownloadSchedule: String? = nil,
+    ebookFile: ABSEbookFile? = nil,
+    ebookFormat: String? = nil
   ) {
     self.metadata = metadata
     self.duration = duration
@@ -955,6 +1106,114 @@ extension ABSBookMedia {
     self.podcastEpisodes = podcastEpisodes
     self.autoDownloadEpisodes = autoDownloadEpisodes
     self.autoDownloadSchedule = autoDownloadSchedule
+    self.ebookFile = ebookFile
+    self.ebookFormat = ebookFormat
+  }
+}
+
+extension ABSBook {
+  private var isAudiobookLibraryItem: Bool {
+    (media.numTracks ?? 0) > 0 || (media.duration ?? 0) > 0
+  }
+
+  private var epubLibraryFiles: [ABSLibraryFile] {
+    libraryFiles?.filter(\.isEpub) ?? []
+  }
+
+  /// Hörbuch mit angehängter E-Book-Datei (EPUB, PDF, …); für Listenfilter und Badge.
+  var hasAttachedEbook: Bool {
+    if media.ebookFile != nil { return true }
+    if let fmt = media.ebookFormat?.trimmingCharacters(in: .whitespacesAndNewlines), !fmt.isEmpty {
+      return true
+    }
+    if let files = libraryFiles, files.contains(where: \.isEbook) { return true }
+    return false
+  }
+
+  /// Primäre oder supplementäre E-Book-Datei zum Lesen (EPUB bevorzugt, sonst PDF).
+  var readableAttachedEbook: (ino: String, format: ABSEbookFormat)? {
+    if let ef = media.ebookFile,
+      let fmt = ABSEbookFormat.resolve(
+        format: ef.ebookFormat, ext: ef.metadata?.ext, filename: ef.metadata?.filename)
+    {
+      let ino = ef.ino.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !ino.isEmpty { return (ino, fmt) }
+    }
+    if let files = libraryFiles {
+      if let epub = files.first(where: \.isEpub) { return (epub.ino, .epub) }
+      if let pdf = files.first(where: \.isPdf) { return (pdf.ino, .pdf) }
+    }
+    return nil
+  }
+
+  var hasReadableAttachedEbook: Bool {
+    readableAttachedEbook != nil || hasAttachedEbook
+  }
+
+  /// Alle erkennbaren E-Book-Formate (primär, supplementär, Katalog-Hinweis).
+  var attachedEbookFormats: Set<ABSEbookFormat> {
+    var out = Set<ABSEbookFormat>()
+    if let ef = media.ebookFile,
+      let fmt = ABSEbookFormat.resolve(
+        format: ef.ebookFormat, ext: ef.metadata?.ext, filename: ef.metadata?.filename)
+    {
+      out.insert(fmt)
+    }
+    if let fmt = ABSEbookFormat.resolve(format: media.ebookFormat, ext: nil, filename: nil) {
+      out.insert(fmt)
+    }
+    if let files = libraryFiles {
+      if files.contains(where: \.isEpub) { out.insert(.epub) }
+      if files.contains(where: \.isPdf) { out.insert(.pdf) }
+    }
+    if let known = EbookLocalStore.knownFormat(libraryItemId: id) {
+      out.insert(known)
+    }
+    return out
+  }
+
+  /// Hat eine lesbare oder angehängte Datei des angegebenen Formats (EPUB/PDF).
+  func hasAttachedEbookFormat(_ format: ABSEbookFormat, account: URL? = nil) -> Bool {
+    if attachedEbookFormats.contains(format) { return true }
+    if let account,
+      let cached = EbookLocalStore.cachedEbookIfPresent(account: account, libraryItemId: id),
+      cached.format == format
+    {
+      return true
+    }
+    // Hörbuch in der E-Book-Liste ohne Format-Metadaten (minified): meist supplementäres EPUB.
+    if format == .epub, isAudiobookLibraryItem, hasAttachedEbook, attachedEbookFormats.isEmpty {
+      return true
+    }
+    return false
+  }
+
+  /// Hörbuch mit supplementärer EPUB-Version (Katalog oder expandiertes Item).
+  var hasSupplementalEpub: Bool {
+    if epubIno != nil { return true }
+    let fmt = (media.ebookFormat ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return fmt == "epub" && isAudiobookLibraryItem
+  }
+
+  var epubIno: String? {
+    if let ef = media.ebookFile, ef.isEpub {
+      let ino = ef.ino.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !ino.isEmpty { return ino }
+    }
+    let epubs = epubLibraryFiles
+    guard !epubs.isEmpty else { return nil }
+    if isAudiobookLibraryItem {
+      if let primary = media.ebookFile, !primary.isEpub {
+        return epubs.first?.ino
+      }
+      if let sup = epubs.first(where: { $0.isSupplementary == true }) {
+        return sup.ino
+      }
+      if media.ebookFile == nil {
+        return epubs.first?.ino
+      }
+    }
+    return nil
   }
 }
 
@@ -988,11 +1247,15 @@ extension ABSBook {
     let sumDur = trackModels.reduce(0.0) { $0 + $1.duration }
     let dur = (m.totalDuration ?? (sumDur > 0 ? sumDur : nil)).flatMap { $0 > 0 ? $0 : nil }
     let meta = ABSBookMediaMetadata(offlineTitle: title, authorLine: authorLine)
+    let chapterModels = m.chapters?.map { ABSChapter(manifest: $0) }
     let media = ABSBookMedia(
       metadata: meta,
       duration: dur,
       numTracks: n > 0 ? n : nil,
-      tracks: n > 0 ? trackModels : nil
+      chapters: chapterModels.flatMap { $0.isEmpty ? nil : $0 },
+      tracks: n > 0 ? trackModels : nil,
+      ebookFile: nil,
+      ebookFormat: nil
     )
     return ABSBook(
       id: m.libraryItemId,
@@ -1001,6 +1264,56 @@ extension ABSBook {
       addedAt: nil,
       updatedAt: nil,
       mediaId: nil
+    )
+  }
+
+  /// Lokale Tracks/Kapitel aus `download.json`, Metadaten vom Server-Buch wenn vorhanden.
+  func mergingLocalDownloadPlayback(_ local: ABSBook) -> ABSBook {
+    let lm = local.media
+    let meta = media.metadata.hasRichMetadata ? media.metadata : lm.metadata
+    let mergedMedia = ABSBookMedia(
+      metadata: meta,
+      duration: lm.duration ?? media.duration,
+      size: media.size ?? lm.size,
+      numTracks: lm.numTracks ?? media.numTracks,
+      chapters: lm.chapters ?? media.chapters,
+      tracks: lm.tracks ?? media.tracks,
+      podcastEpisodes: media.podcastEpisodes ?? lm.podcastEpisodes,
+      ebookFile: media.ebookFile ?? lm.ebookFile,
+      ebookFormat: media.ebookFormat ?? lm.ebookFormat
+    )
+    return ABSBook(
+      id: id,
+      libraryId: libraryId ?? local.libraryId,
+      media: mergedMedia,
+      addedAt: addedAt,
+      updatedAt: updatedAt,
+      mediaId: mediaId,
+      libraryFiles: libraryFiles ?? local.libraryFiles
+    )
+  }
+
+  /// Kapitel aus anderer Quelle übernehmen (z. B. Katalog, wenn altes Manifest ohne `chapters`).
+  func withChapters(_ chapters: [ABSChapter]) -> ABSBook {
+    guard !chapters.isEmpty else { return self }
+    let media = ABSBookMedia(
+      metadata: media.metadata,
+      duration: media.duration,
+      size: media.size,
+      numTracks: media.numTracks,
+      chapters: chapters,
+      tracks: media.tracks,
+      podcastEpisodes: media.podcastEpisodes,
+      ebookFile: media.ebookFile,
+      ebookFormat: media.ebookFormat
+    )
+    return ABSBook(
+      id: id,
+      libraryId: libraryId,
+      media: media,
+      addedAt: addedAt,
+      updatedAt: updatedAt,
+      mediaId: mediaId
     )
   }
 }
@@ -1100,6 +1413,7 @@ enum ABSStartShelfMergedRow: Identifiable {
 enum ABSStartShelfLocalization {
   static let categoryTitles: [String: String] = [
     "recentlyListened": "Continue listening",
+    "continueEbooks": "Continue reading",
     "continueSeries": "Continue series",
     "newestItems": "Recently added",
     "newestSeries": "Recent series",

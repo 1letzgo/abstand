@@ -11,10 +11,10 @@ struct PodcastAddFromSearchView: View {
     Group {
       if query.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 {
         ContentUnavailableView(
-          "Podcast suchen",
+          "Search podcasts",
           systemImage: "dot.radiowaves.left.and.right",
           description: Text(
-            "Treffer stammen von Apple Podcasts. Abonnieren legt die Sendung in deiner Audiobookshelf-Bibliothek an (auf dem Server oft Admin-Rechte nötig)."
+            "Results come from Apple Podcasts. Subscribing adds the show to your Audiobookshelf library (server admin rights are often required)."
           )
         )
         .padding(.horizontal)
@@ -26,9 +26,9 @@ struct PodcastAddFromSearchView: View {
           .padding(.vertical, 48)
       } else if model.podcastDirectorySearchHits.isEmpty {
         ContentUnavailableView(
-          "Keine Sendungen",
+          "No shows found",
           systemImage: "magnifyingglass",
-          description: Text("Anderen Suchbegriff versuchen.")
+          description: Text("Try a different search term.")
         )
       } else {
         List {
@@ -60,7 +60,7 @@ struct PodcastAddFromSearchView: View {
                     .foregroundStyle(AppTheme.textSecondary)
                 }
                 if let n = hit.trackCount, n > 0 {
-                  Text("\(n) Folgen")
+                  Text("\(n) episodes")
                     .font(.caption)
                     .foregroundStyle(AppTheme.textSecondary)
                 }
@@ -75,7 +75,7 @@ struct PodcastAddFromSearchView: View {
                 if model.podcastSubscribeInProgressDirectoryHitId == hit.id {
                   ProgressView()
                 } else {
-                  Text("Abonnieren")
+                  Text("Subscribe")
                 }
               }
               .buttonStyle(.borderedProminent)
@@ -91,7 +91,7 @@ struct PodcastAddFromSearchView: View {
         .listStyle(.plain)
       }
     }
-    .searchable(text: $query, prompt: "Apple Podcasts durchsuchen")
+    .searchable(text: $query, prompt: "Search Apple Podcasts")
     .onChange(of: query) { _, newValue in
       model.schedulePodcastDirectorySearch(term: newValue)
     }

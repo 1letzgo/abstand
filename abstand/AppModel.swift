@@ -37,6 +37,8 @@ private enum Keys {
   static let browseSeriesSortDescending = "abstand_browse_series_sort_desc"
   static let browseCollectionsSortField = "abstand_browse_collections_sort_field"
   static let browseCollectionsSortDescending = "abstand_browse_collections_sort_desc"
+  /// Tab „eBooks“ in der Tab-Leiste (neben Audio).
+  static let ebooksTabEnabled = "abstand_ebooks_tab_enabled"
 }
 
 /// Sortierfeld für `GET /api/libraries/:id/items` (`sort`) bei **Bücher**-Bibliotheken.
@@ -135,7 +137,7 @@ enum PodcastCatalogSortField: String, CaseIterable, Identifiable, Hashable {
   }
 }
 
-/// Unterbereiche im Tab „Books“ (horizontale Leiste wie Podcast-„Shows“).
+/// Unterbereiche im Audiobooks-Tab (horizontale Leiste wie Podcast-„Shows“).
 enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
   case books = "Books"
   case series = "Series"
@@ -152,6 +154,23 @@ enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
     case .author: return "person.text.rectangle"
     case .narrators: return "waveform"
     case .collections: return "folder"
+    }
+  }
+}
+
+/// Format-Filter im Tab „eBooks“ (horizontale Leiste).
+enum EbooksBrowseFormatSection: String, CaseIterable, Identifiable, Hashable {
+  case all = "All"
+  case epub = "EPUB"
+  case pdf = "PDF"
+
+  var id: String { rawValue }
+
+  var systemImage: String {
+    switch self {
+    case .all: return "books.vertical"
+    case .epub: return "book.closed.fill"
+    case .pdf: return "doc.fill"
     }
   }
 }
@@ -356,6 +375,8 @@ final class AppModel: ObservableObject {
     UserDefaults.standard.dictionary(forKey: Keys.startShelfBookLayouts) as? [String: String] ?? [:]
   @Published var progressByItemId: [String: ABSUserMediaProgress] = [:]
   @Published private(set) var bookmarks: [ABSAudioBookmark] = []
+  @Published var ebookReaderSession: EbookReaderPresentation?
+  @Published var isPreparingEbook = false
   @Published var searchText: String = ""
   @Published var searchBooks: [ABSBook] = []
   @Published var podcastSearchText: String = ""
@@ -388,6 +409,11 @@ final class AppModel: ObservableObject {
   @Published private(set) var browseAuthorsTotal = 0
   @Published private(set) var browseCollectionsTotal = 0
   @Published private(set) var browseNarratorCoverItemIdByNarratorName: [String: String] = [:]
+  @Published var ebooksBrowseFormatSection: EbooksBrowseFormatSection = .all
+  @Published private(set) var browseEbooksBooks: [ABSBook] = []
+  @Published private(set) var browseEbooksLoading = false
+  @Published private(set) var browseEbooksTotal = 0
+  private var browseEbooksPage = 0
 
   @Published var booksEntityDetailNav: BooksEntityDetailNav?
   @Published private(set) var entityDetailBooks: [ABSBook] = []
@@ -460,6 +486,16 @@ final class AppModel: ObservableObject {
       UserDefaults.standard.set(smartDownloadRemoveWhenFinished, forKey: Keys.smartDlRemoveWhenFinished)
     }
   }
+  /// Separater Tab „eBooks“ für die gewählte Bücher-Bibliothek.
+  @Published var ebooksTabEnabled: Bool = AppModel.initialEbooksTabEnabled() {
+    didSet {
+      UserDefaults.standard.set(ebooksTabEnabled, forKey: Keys.ebooksTabEnabled)
+      guard oldValue != ebooksTabEnabled else { return }
+      clampMainTabForEbooksTabIfNeeded()
+      updateStartSettingsCategoryList(parsed: startShelves)
+      Task { await loadStartDashboard() }
+    }
+  }
   /// Nur Home mit Regal „Heruntergeladen“ (persistiert). Fortschritt beim Deaktivieren an den Server senden.
   @Published var offlineHomeMode: Bool = AppModel.initialOfflineHomeMode() {
     didSet {
@@ -490,6 +526,17 @@ final class AppModel: ObservableObject {
     if offlineHomeUIActive, mainTab != .start {
       mainTab = .start
     }
+  }
+
+  func clampMainTabForEbooksTabIfNeeded() {
+    guard !ebooksTabEnabled, mainTab == .ebooks else { return }
+    mainTab = selectedBooksLibrary != nil ? .audio : .start
+  }
+
+  private static func initialEbooksTabEnabled() -> Bool {
+    let d = UserDefaults.standard
+    if d.object(forKey: Keys.ebooksTabEnabled) == nil { return true }
+    return d.bool(forKey: Keys.ebooksTabEnabled)
   }
 
   /// Mini-Player: Session aus Server-Fortschritt / `item`-Laden; UI kann sofort Skelett zeigen.
@@ -548,9 +595,10 @@ final class AppModel: ObservableObject {
 
   enum MainTab: String, CaseIterable, Hashable {
     case start = "Home"
-    case books = "Books"
+    case audio = "Audio"
+    case ebooks = "eBooks"
     case podcasts = "Podcasts"
-    case stats = "Statistik"
+    case stats = "Stats"
     case search = "Search"
     case settings = "Settings"
   }
@@ -758,16 +806,53 @@ final class AppModel: ObservableObject {
 
   func booksForDisplay() -> [ABSBook] {
     switch mainTab {
-    case .books:
+    case .audio:
       if !isNetworkReachable, !books.isEmpty { return books }
       if !isNetworkReachable { return downloadedShelfBooks }
       return books
+    case .ebooks:
+      return browseEbooksBooks
     case .podcasts:
       return []
     case .start, .settings, .search, .stats:
       return []
     }
   }
+
+  /// Bücher mit angehängter E-Book-Datei (Tab „eBooks“; servergefiltert, optional nach Format).
+  func booksWithEbookForDisplay() -> [ABSBook] {
+    Self.filterEbooks(browseEbooksBooks, format: ebooksBrowseFormatSection, account: cacheAccountURL())
+  }
+
+  static func filterEbooks(
+    _ books: [ABSBook], format: EbooksBrowseFormatSection, account: URL?
+  ) -> [ABSBook] {
+    switch format {
+    case .all:
+      return books
+    case .epub:
+      return books.filter { $0.hasAttachedEbookFormat(.epub, account: account) }
+    case .pdf:
+      return books.filter { $0.hasAttachedEbookFormat(.pdf, account: account) }
+    }
+  }
+
+  func selectEbooksBrowseFormatSection(_ section: EbooksBrowseFormatSection) {
+    ebooksBrowseFormatSection = section
+    if section != .all, booksWithEbookForDisplay().isEmpty, !browseEbooksBooks.isEmpty {
+      Task { await loadBrowseEbooks(force: true) }
+    }
+  }
+
+  /// ABS erwartet `gruppe.<base64(wert)>` (vgl. Tags/Autoren in dieser App).
+  private static func absLibraryFilter(group: String, value: String) -> String {
+    let b64 = Data(value.utf8).base64EncodedString()
+    return "\(group).\(b64)"
+  }
+
+  private static let ebooksBrowsePrimaryFilter = absLibraryFilter(group: "ebooks", value: "ebook")
+  private static let ebooksBrowseSupplementaryFilter = absLibraryFilter(
+    group: "ebooks", value: "supplementary")
 
   /// Home-Regal „Heruntergeladen“: Manifest-Zeilen plus Platzhalter für laufende / unfertige Downloads ohne `download.json`.
   var downloadedTitlesForHome: [ABSBook] {
@@ -1071,7 +1156,10 @@ final class AppModel: ObservableObject {
   /// Lädt personalisierte Regale der aktuellen Bibliothek; Fallback: `items-in-progress`.
   /// Cache zuerst (beim App-Start), hier nur mit Live-Daten überschreiben — kein blockierender Ladezustand für Home.
   func loadStartDashboard() async {
-    defer { applyContinueListeningFinishedFilter() }
+    defer {
+      applyContinueListeningFinishedFilter()
+      injectEbookContinueReadingShelfIfNeeded()
+    }
     if offlineHomeUIActive {
       refreshDownloadedShelfFromManifests()
       return
@@ -1082,11 +1170,17 @@ final class AppModel: ObservableObject {
     }
     if !isNetworkReachable {
       applyOfflineHomeShelvesIfNeeded()
+      if ebooksTabEnabled, selectedBooksLibrary != nil {
+        _ = restoreBrowseEbooksFromDisk()
+      }
       refreshDownloadedShelfFromManifests()
       return
     }
     do {
       await refreshProgressFromServer()
+      if ebooksTabEnabled, selectedBooksLibrary != nil {
+        await loadBrowseEbooks(force: false)
+      }
       if let lib = selectedBooksLibrary {
         async let shelvesData = c.personalizedShelves(libraryId: lib.id, limit: 14)
         async let inProgressPayload = c.itemsInProgress(limit: 80)
@@ -1155,17 +1249,143 @@ final class AppModel: ObservableObject {
     UserDefaults.standard.set(next, forKey: Keys.startShelfBookLayouts)
   }
 
+  /// Schalter-Reihenfolge inkl. optionalem eBook-„Continue reading“ direkt nach „Continue listening“.
+  private func effectiveStartSettingsCategoryOrder() -> [String] {
+    var order = ABSStartShelfLocalization.settingsCategoryOrder
+    guard ebooksTabEnabled else { return order }
+    guard !order.contains("continueEbooks") else { return order }
+    if let idx = order.firstIndex(of: "recentlyListened") {
+      order.insert("continueEbooks", at: idx + 1)
+    } else {
+      order.insert("continueEbooks", at: 0)
+    }
+    return order
+  }
+
   private func updateStartSettingsCategoryList(parsed: [ABSStartShelfSection]) {
     var fromServer: [String: String] = [:]
     for s in parsed {
       fromServer[s.category] = s.displayTitle
     }
-    startSettingsCategoryList = ABSStartShelfLocalization.settingsCategoryOrder.map { cat in
+    startSettingsCategoryList = effectiveStartSettingsCategoryOrder().map { cat in
       let label =
         fromServer[cat]
         ?? ABSStartShelfLocalization.displayTitle(category: cat, serverLabel: "")
       return (category: cat, label: label)
     }
+  }
+
+  /// Home-Regal „Continue reading“ aus lokalem Readium-Fortschritt (nur bei aktivem eBook-Tab).
+  func refreshEbookContinueReadingShelf() {
+    injectEbookContinueReadingShelfIfNeeded()
+  }
+
+  private func injectEbookContinueReadingShelfIfNeeded() {
+    var shelves = startShelves.filter { $0.category != "continueEbooks" }
+    guard ebooksTabEnabled, isStartCategoryEnabled("continueEbooks") else {
+      if shelves.count != startShelves.count {
+        startShelves = shelves
+        recomputeStartBooksUnion(from: shelves)
+      }
+      return
+    }
+    let books = buildEbookContinueReadingBooks()
+    guard !books.isEmpty else {
+      if shelves.count != startShelves.count {
+        startShelves = shelves
+        recomputeStartBooksUnion(from: shelves)
+      }
+      return
+    }
+    let section = ABSStartShelfSection(
+      id: "continue-ebooks-local",
+      category: "continueEbooks",
+      displayTitle: ABSStartShelfLocalization.displayTitle(category: "continueEbooks", serverLabel: ""),
+      books: books
+    )
+    if let idx = shelves.firstIndex(where: { isHomeContinueCategory($0.category) }) {
+      shelves.insert(section, at: idx + 1)
+    } else {
+      shelves.insert(section, at: 0)
+    }
+    startShelves = shelves
+    recomputeStartBooksUnion(from: shelves)
+  }
+
+  private func buildEbookContinueReadingBooks() -> [ABSBook] {
+    if browseEbooksBooks.isEmpty, selectedBooksLibrary != nil {
+      _ = restoreBrowseEbooksFromDisk()
+    }
+    var seen = Set<String>()
+    var candidates: [ABSBook] = []
+    func absorb(_ book: ABSBook) {
+      guard book.isEbookContinueReadingCandidate, seen.insert(book.id).inserted else { return }
+      candidates.append(book)
+    }
+    for ref in EbookLocalStore.inProgressReadingRefs() {
+      if let book = bookForEbookContinue(libraryItemId: ref.libraryItemId) {
+        absorb(book)
+      }
+    }
+    for b in browseEbooksBooks + books + startBooks {
+      absorb(b)
+    }
+    candidates.sort { ($0.ebookReadProgressFraction() ?? 0) > ($1.ebookReadProgressFraction() ?? 0) }
+    return Array(candidates.prefix(14))
+  }
+
+  /// Buch zu gespeicherter Readium-Position (Katalog, eBooks-Cache, Download-Meta).
+  private func bookForEbookContinue(libraryItemId: String) -> ABSBook? {
+    if let b = browseEbooksBooks.first(where: { $0.id == libraryItemId }) { return b }
+    if let b = books.first(where: { $0.id == libraryItemId }) { return b }
+    if let b = startBooks.first(where: { $0.id == libraryItemId }) { return b }
+    guard let account = cacheAccountURL(), let lib = selectedBooksLibrary else { return nil }
+    let dec = ABSJSON.decoder()
+    if let merged = LibraryDiskCache.loadMergedBrowseEbooks(
+      account: account,
+      libraryId: lib.id,
+      sort: ebooksBrowseSortKey,
+      descending: !ebooksBrowseSortAscending,
+      decoder: dec
+    ), let b = merged.books.first(where: { $0.id == libraryItemId }) {
+      return b
+    }
+    let ascending = catalogSortField == .random ? true : !catalogSortDescending
+    if let merged = LibraryDiskCache.loadMergedCatalog(
+      account: account,
+      libraryId: lib.id,
+      filter: activeLibraryFilter,
+      sortField: catalogSortField.apiSortParameter,
+      ascending: ascending,
+      decoder: dec
+    ), let b = merged.books.first(where: { $0.id == libraryItemId }) {
+      return b
+    }
+    for fmt in ABSEbookFormat.allCases {
+      if let meta = EbookLocalStore.loadDownloadMeta(account: account, libraryItemId: libraryItemId, format: fmt) {
+        let title = meta.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let displayTitle = title.isEmpty ? "eBook" : title
+        let bookMeta = ABSBookMediaMetadata(offlineTitle: displayTitle, authorLine: "—")
+        let media = ABSBookMedia(
+          metadata: bookMeta,
+          duration: nil,
+          numTracks: nil,
+          chapters: nil,
+          tracks: nil,
+          ebookFile: nil,
+          ebookFormat: fmt.rawValue
+        )
+        return ABSBook(
+          id: libraryItemId,
+          libraryId: lib.id,
+          media: media,
+          addedAt: nil,
+          updatedAt: nil,
+          mediaId: nil
+        )
+      }
+    }
+    return nil
   }
 
   private func recomputeStartBooksUnion(from shelves: [ABSStartShelfSection]) {
@@ -1568,6 +1788,8 @@ final class AppModel: ObservableObject {
     clearPodcastDirectorySearch()
     progressByItemId = [:]
     bookmarks = []
+    ebookReaderSession = nil
+    isPreparingEbook = false
     listeningStats = nil
     listeningStatsFetchedAt = nil
     UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
@@ -1588,7 +1810,7 @@ final class AppModel: ObservableObject {
     resetBooksBrowseLists()
     selectedBooksLibrary = lib
     UserDefaults.standard.set(lib.id, forKey: Keys.booksLibrary)
-    if navigateToCatalog { mainTab = .books }
+    if navigateToCatalog { mainTab = .audio }
     restoreBooksCatalogAndHomeFromDisk(libraryIdOverride: lib.id)
     restoreAllBrowseListsFromDisk()
   }
@@ -1612,7 +1834,7 @@ final class AppModel: ObservableObject {
     libraryPage = 0
     libraryTotal = 0
     UserDefaults.standard.set(Keys.librarySelectionNone, forKey: Keys.booksLibrary)
-    if mainTab == .books { mainTab = .start }
+    if mainTab == .audio || mainTab == .ebooks { mainTab = .start }
     Task { await loadStartDashboard() }
   }
 
@@ -1642,6 +1864,7 @@ final class AppModel: ObservableObject {
     _ = restoreBrowseSeriesFromDisk()
     _ = restoreBrowseNarratorsFromDisk()
     _ = restoreBrowseCollectionsFromDisk()
+    _ = restoreBrowseEbooksFromDisk()
   }
 
   func reloadLibrary(reset: Bool) async {
@@ -1958,7 +2181,11 @@ final class AppModel: ObservableObject {
   }
 
   func loadMoreIfNeeded(currentItemId: String?) async {
-    guard mainTab == .books else { return }
+    if mainTab == .ebooks {
+      await loadMoreBrowseEbooksIfNeeded(currentItemId: currentItemId)
+      return
+    }
+    guard mainTab == .audio else { return }
     guard let id = currentItemId, let last = books.last?.id, id == last, books.count < libraryTotal else { return }
     await reloadLibrary(reset: false)
   }
@@ -1974,11 +2201,40 @@ final class AppModel: ObservableObject {
     await reloadPodcastLibrary(reset: false)
   }
 
-  /// Pull-to-Refresh: Bücher-Katalog (Server-Fortschritt + erste Seite neu).
+  /// Pull-to-Refresh: Audio-Katalog (Server-Fortschritt + erste Seite neu).
   func refreshBooksCatalog() async {
-    await refreshProgressFromServer()
-    await reloadLibrary(reset: true)
-    await refreshBooksBrowseSectionLists()
+    await performPullToRefresh { [self] in
+      await refreshProgressFromServer()
+      await reloadLibrary(reset: true)
+      await refreshBooksBrowseSectionLists()
+    }
+  }
+
+  /// Pull-to-Refresh: eBooks-Liste.
+  func refreshEbooksCatalog() async {
+    await performPullToRefresh { [self] in
+      await refreshProgressFromServer()
+      await loadBrowseEbooks(force: true)
+    }
+  }
+
+  /// Pull-to-Refresh: Start-Tab (Regale / Offline-Reconnect).
+  func refreshStartTabPullToRefresh() async {
+    await performPullToRefresh { [self] in
+      if offlineHomeUIActive {
+        await tryReconnectFromOfflineHomePullToRefresh()
+      } else {
+        await loadStartDashboard()
+        refreshDownloadedShelfFromManifests()
+      }
+    }
+  }
+
+  /// Pull-to-Refresh: Entity-Detail (Autor/Serie/…).
+  func refreshEntityDetail(for nav: BooksEntityDetailNav) async {
+    await performPullToRefresh { [self] in
+      await reloadEntityDetail(for: nav, reset: true)
+    }
   }
 
   private func resetBooksBrowseLists() {
@@ -1999,6 +2255,232 @@ final class AppModel: ObservableObject {
     browseSeriesNextPage = 0
     browseSeriesTotal = 0
     browseCollectionsTotal = 0
+    browseEbooksBooks = []
+    browseEbooksLoading = false
+    browseEbooksTotal = 0
+    browseEbooksPage = 0
+    ebooksBrowseFormatSection = .all
+  }
+
+  private var ebooksBrowseSortAscending: Bool {
+    catalogSortField == .random ? true : !catalogSortDescending
+  }
+
+  private var ebooksBrowseSortKey: String {
+    catalogSortField.apiSortParameter
+  }
+
+  @discardableResult
+  private func restoreBrowseEbooksFromDisk() -> Bool {
+    guard let account = cacheAccountURL(), let lib = selectedBooksLibrary else { return false }
+    guard
+      let m = LibraryDiskCache.loadMergedBrowseEbooks(
+        account: account,
+        libraryId: lib.id,
+        sort: ebooksBrowseSortKey,
+        descending: !ebooksBrowseSortAscending,
+        decoder: ABSJSON.decoder()
+      )
+    else { return false }
+    // Server-Filter „ebooks“; minified-Einträge haben oft kein hasAttachedEbook-Flag.
+    browseEbooksBooks = m.books.filter(\.isUsableLibraryCatalogRow)
+    rememberEbookFormatsFromCatalog(browseEbooksBooks)
+    browseEbooksTotal = max(m.total, browseEbooksBooks.count)
+    browseEbooksPage = m.nextPage
+    return !browseEbooksBooks.isEmpty
+  }
+
+  /// Beim Wechsel in den Tab „eBooks“: Liste laden (ohne erzwungenen Reload).
+  func loadBrowseEbooksOnTabAppear() async {
+    await loadBrowseEbooks(force: false)
+  }
+
+  private func loadBrowseEbooks(force: Bool) async {
+    guard selectedBooksLibrary != nil else { return }
+    if browseEbooksLoading { return }
+    if !force, !browseEbooksBooks.isEmpty { return }
+    if browseEbooksBooks.isEmpty {
+      _ = restoreBrowseEbooksFromDisk()
+    }
+    if !force, !browseEbooksBooks.isEmpty { return }
+    if !isNetworkReachable || client == nil {
+      if browseEbooksBooks.isEmpty {
+        browseEbooksBooks = offlineEbookFallbackFromAudioCatalog()
+      }
+      return
+    }
+    await loadBrowseEbooksPage(reset: true)
+  }
+
+  private func rememberEbookFormatsFromCatalog(_ books: [ABSBook]) {
+    for book in books {
+      for fmt in book.attachedEbookFormats {
+        EbookLocalStore.rememberKnownFormat(fmt, libraryItemId: book.id)
+      }
+    }
+  }
+
+  private func offlineEbookFallbackFromAudioCatalog() -> [ABSBook] {
+    let catalog = books.isEmpty ? downloadedShelfBooks : books
+    return catalog.filter(\.hasAttachedEbook)
+  }
+
+  private func loadBrowseEbooksPage(reset: Bool) async {
+    guard let c = client, let lib = selectedBooksLibrary else { return }
+    if !isNetworkReachable {
+      if browseEbooksBooks.isEmpty {
+        _ = restoreBrowseEbooksFromDisk()
+      }
+      if browseEbooksBooks.isEmpty {
+        browseEbooksBooks = offlineEbookFallbackFromAudioCatalog()
+      }
+      return
+    }
+    if browseEbooksLoading { return }
+    if reset {
+      browseEbooksPage = 0
+      if browseEbooksBooks.isEmpty {
+        _ = restoreBrowseEbooksFromDisk()
+      }
+      if browseEbooksBooks.isEmpty {
+        browseEbooksTotal = 0
+      }
+    } else {
+      guard browseEbooksTotal > 0, browseEbooksBooks.count < browseEbooksTotal else { return }
+    }
+    let pageIndex = browseEbooksPage
+    browseEbooksLoading = true
+    defer { browseEbooksLoading = false }
+    let ascending = ebooksBrowseSortAscending
+    let sortKey = ebooksBrowseSortKey
+    let descending = !ascending
+    do {
+      let (page, raw) = try await c.libraryItems(
+        libraryId: lib.id,
+        page: pageIndex,
+        limit: 40,
+        sort: sortKey,
+        ascending: ascending,
+        minified: false,
+        filter: Self.ebooksBrowsePrimaryFilter
+      )
+      if let account = cacheAccountURL() {
+        if reset, pageIndex == 0 {
+          try? LibraryDiskCache.wipeBrowseEbooksSlug(
+            account: account, libraryId: lib.id, sort: sortKey, descending: descending)
+        }
+        try? LibraryDiskCache.saveBrowseEbooksPage(
+          account: account, libraryId: lib.id, sort: sortKey, descending: descending,
+          pageIndex: pageIndex, data: raw)
+      }
+      let rawRows = page.results.filter(\.isUsableLibraryCatalogRow)
+      let trustServer = serverEbookFilterLooksApplied(ebookPageTotal: page.total)
+      let rows = trustServer ? rawRows : rawRows.filter(\.hasAttachedEbook)
+      if reset {
+        browseEbooksBooks = rows
+      } else {
+        browseEbooksBooks.append(contentsOf: rows)
+      }
+      rememberEbookFormatsFromCatalog(rows)
+      browseEbooksTotal = page.total
+      browseEbooksPage = page.page + 1
+      if reset {
+        await appendSupplementaryEbooksPage(client: c, libraryId: lib.id, sortKey: sortKey, descending: descending)
+        if browseEbooksBooks.isEmpty, !trustServer {
+          browseEbooksBooks = await collectEbooksFromLoadedCatalog(client: c, libraryId: lib.id)
+          browseEbooksTotal = browseEbooksBooks.count
+          browseEbooksPage = 1
+        }
+      }
+    } catch {
+      if Task.isCancelled || Self.isBenignCancellationError(error) { return }
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  /// Server-Filter greift nur, wenn die Trefferzahl deutlich unter dem Gesamtkatalog liegt.
+  private func serverEbookFilterLooksApplied(ebookPageTotal: Int) -> Bool {
+    guard ebookPageTotal > 0 else { return false }
+    guard libraryTotal > 0 else { return true }
+    return ebookPageTotal < libraryTotal * 9 / 10
+  }
+
+  /// Fallback, wenn der Server-Filter ignoriert wird: Katalog durchsuchen (mit `ebookFormat` in minified).
+  private func collectEbooksFromLoadedCatalog(client: ABSAPIClient, libraryId: String) async -> [ABSBook] {
+    var seen = Set<String>()
+    var out: [ABSBook] = []
+    out.reserveCapacity(64)
+    func absorb(_ batch: [ABSBook]) {
+      for b in batch where b.hasAttachedEbook && seen.insert(b.id).inserted {
+        out.append(b)
+      }
+    }
+    absorb(books)
+    var page = 0
+    let limit = 100
+    while page < 100 {
+      do {
+        let (pg, _) = try await client.libraryItems(
+          libraryId: libraryId,
+          page: page,
+          limit: limit,
+          sort: catalogSortField.apiSortParameter,
+          ascending: catalogSortField == .random ? true : !catalogSortDescending,
+          minified: true,
+          filter: nil
+        )
+        absorb(pg.results.filter(\.isUsableLibraryCatalogRow))
+        page += 1
+        if pg.results.count < limit { break }
+      } catch {
+        break
+      }
+    }
+    return out
+  }
+
+  /// Einmalig supplementäre E-Books ergänzen (kein Vollscan der Bibliothek).
+  private func appendSupplementaryEbooksPage(
+    client: ABSAPIClient, libraryId: String, sortKey: String, descending: Bool
+  ) async {
+    let ascending = !descending
+    var seen = Set(browseEbooksBooks.map(\.id))
+    guard
+      let (pg, raw) = try? await client.libraryItems(
+        libraryId: libraryId,
+        page: 0,
+        limit: 100,
+        sort: sortKey,
+        ascending: ascending,
+        minified: false,
+        filter: Self.ebooksBrowseSupplementaryFilter
+      ),
+      serverEbookFilterLooksApplied(ebookPageTotal: pg.total)
+    else { return }
+    if let account = cacheAccountURL() {
+      try? LibraryDiskCache.saveBrowseEbooksSupplementary(
+        account: account, libraryId: libraryId, sort: sortKey, descending: descending, data: raw)
+    }
+    let rows = pg.results.filter(\.isUsableLibraryCatalogRow)
+    for book in rows where seen.insert(book.id).inserted {
+      browseEbooksBooks.append(book)
+    }
+  }
+
+  func loadMoreBrowseEbooksIfNeeded(currentItemId: String?) async {
+    guard mainTab == .ebooks else { return }
+    guard browseEbooksTotal > 0 else { return }
+    let initialDisplayed = booksWithEbookForDisplay()
+    guard let id = currentItemId, let last = initialDisplayed.last?.id, id == last else { return }
+    var attempts = 0
+    while browseEbooksBooks.count < browseEbooksTotal, attempts < 10 {
+      let countBefore = browseEbooksBooks.count
+      await loadBrowseEbooksPage(reset: false)
+      attempts += 1
+      if browseEbooksBooks.count <= countBefore { break }
+      if ebooksBrowseFormatSection == .all { break }
+      if booksWithEbookForDisplay().count > initialDisplayed.count { break }
+    }
   }
 
   func booksInBrowseCollection(id: String) -> [ABSBook] {
@@ -2033,6 +2515,9 @@ final class AppModel: ObservableObject {
       switch kind {
       case .mainCatalog:
         await reloadLibrary(reset: true)
+        if mainTab == .ebooks {
+          await loadBrowseEbooks(force: true)
+        }
       case .browseAuthors:
         await reloadBrowseAuthorsAfterSortChange()
       case .browseSeries:
@@ -2719,13 +3204,15 @@ final class AppModel: ObservableObject {
 
   /// Pull-to-Refresh: Bibliothekssuche (aktueller Suchtext, ohne Debounce).
   func refreshBooksSearchResults() async {
-    let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    searchTask?.cancel()
-    await performSearch(query: q)
+    await performPullToRefresh { [self] in
+      searchTask?.cancel()
+      let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+      await performSearch(query: q)
+    }
   }
 
   func scheduleSearch() {
-    guard mainTab == .books || mainTab == .search else { return }
+    guard mainTab == .audio || mainTab == .search else { return }
     searchTask?.cancel()
     let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     searchTask = Task {
@@ -3012,7 +3499,7 @@ final class AppModel: ObservableObject {
     setBooksLibraryFilterSummary(prefix: "Tag", detail: tagName)
     let b64 = Data(tagName.utf8).base64EncodedString()
     activeLibraryFilter = "tags.\(b64)"
-    mainTab = .books
+    mainTab = .audio
     Task { await reloadLibrary(reset: true) }
   }
 
@@ -3023,7 +3510,7 @@ final class AppModel: ObservableObject {
     setBooksLibraryFilterSummary(prefix: "Genre", detail: genreName)
     let b64 = Data(genreName.utf8).base64EncodedString()
     activeLibraryFilter = "genres.\(b64)"
-    mainTab = .books
+    mainTab = .audio
     Task { await reloadLibrary(reset: true) }
   }
 
@@ -3153,24 +3640,36 @@ final class AppModel: ObservableObject {
     }
   }
 
-  func loadBookDetail(id: String) async -> ABSBook? {
-    guard let c = client else {
-      return books.first { $0.id == id }
-        ?? podcastSearchBooks.first { $0.id == id }
-        ?? podcastEpisodes.first { $0.libraryItemId == id }.map { $0.playbackStubBook(libraryId: selectedPodcastLibrary?.id) }
-        ?? startBooks.first { $0.id == id }
-        ?? searchBooks.first { $0.id == id }
-        ?? downloadedShelfBooks.first { $0.id == id }
+  private func cachedBookFallback(id: String) -> ABSBook? {
+    if let book = books.first(where: { $0.id == id }) { return book }
+    if let book = podcastSearchBooks.first(where: { $0.id == id }) { return book }
+    if let episode = podcastEpisodes.first(where: { $0.libraryItemId == id }) {
+      return episode.playbackStubBook(libraryId: selectedPodcastLibrary?.id)
     }
+    if let book = startBooks.first(where: { $0.id == id }) { return book }
+    if let book = searchBooks.first(where: { $0.id == id }) { return book }
+    return downloadedShelfBooks.first(where: { $0.id == id })
+  }
+
+  func loadBookDetail(id: String) async -> ABSBook? {
+    if let root = localDownloadRoot(for: id),
+      let manifest = ABSDownloadManifest.load(from: root)
+    {
+      let fromManifest = ABSBook.fromDownloadManifest(manifest)
+      if !isNetworkReachable {
+        return fromManifest
+      }
+      guard let c = client else { return fromManifest }
+      if let expanded = try? await c.item(id: id, expanded: true) {
+        return expanded.mergingLocalDownloadPlayback(fromManifest)
+      }
+      return fromManifest
+    }
+    guard let c = client else { return cachedBookFallback(id: id) }
     do {
       return try await c.item(id: id, expanded: true)
     } catch {
-      return books.first { $0.id == id }
-        ?? podcastSearchBooks.first { $0.id == id }
-        ?? podcastEpisodes.first { $0.libraryItemId == id }.map { $0.playbackStubBook(libraryId: selectedPodcastLibrary?.id) }
-        ?? startBooks.first { $0.id == id }
-        ?? searchBooks.first { $0.id == id }
-        ?? downloadedShelfBooks.first { $0.id == id }
+      return cachedBookFallback(id: id)
     }
   }
 
@@ -3549,14 +4048,23 @@ final class AppModel: ObservableObject {
     do {
       var resolved = book
       if let root = local, let manifest = ABSDownloadManifest.load(from: root) {
-        resolved = ABSBook.fromDownloadManifest(manifest)
+        let fromManifest = ABSBook.fromDownloadManifest(manifest)
+        if isNetworkReachable, !book.media.metadata.hasRichMetadata,
+          let expanded = try? await c.item(id: book.id, expanded: true)
+        {
+          resolved = expanded.mergingLocalDownloadPlayback(fromManifest)
+        } else {
+          resolved = book.mergingLocalDownloadPlayback(fromManifest)
+        }
       } else if isNetworkReachable {
-        if local != nil {
+        let needsExpanded =
+          local != nil
+          || book.media.tracks == nil || book.media.tracks?.isEmpty == true
+          || book.media.chapters == nil || book.media.chapters?.isEmpty == true
+        if needsExpanded {
           do {
             resolved = try await c.item(id: book.id, expanded: true)
           } catch {}
-        } else if book.media.tracks == nil || book.media.tracks?.isEmpty == true {
-          resolved = try await c.item(id: book.id, expanded: true)
         }
       }
       try await player.playBook(
@@ -3956,13 +4464,21 @@ final class AppModel: ObservableObject {
       libraryItemId: book.id,
       episodeId: nil
     )
-    downloads.startDownload(client: c, book: book, reusePlaySessionId: reuse) { [weak self] ok in
+    Task { @MainActor in
+      var bookToDownload = book
+      if (book.media.chapters ?? []).isEmpty, isNetworkReachable,
+        let expanded = try? await c.item(id: book.id, expanded: true)
+      {
+        bookToDownload = expanded
+      }
+      downloads.startDownload(client: c, book: bookToDownload, reusePlaySessionId: reuse) { [weak self] ok in
       Task { @MainActor [weak self] in
         self?.endDownloadBackgroundExecution()
         guard let model = self, ok else { return }
         model.downloadedItemIds.insert(book.id)
         model.persistDownloads()
         await model.applyLocalPlaybackIfDownloadMatchesCurrent(storageId: book.id)
+      }
       }
     }
   }
@@ -4135,10 +4651,12 @@ final class AppModel: ObservableObject {
       if !visible.isEmpty {
         startShelves = visible
         recomputeStartBooksUnion(from: visible)
+        injectEbookContinueReadingShelfIfNeeded()
         return
       }
     }
     applyLocalContinueListeningFromCachedBooks()
+    injectEbookContinueReadingShelfIfNeeded()
   }
 
   /// Lädt gespeicherte Podcast-Folgen (recent-episodes-Seiten oder Expand-Fallback) vom Datenträger.
@@ -4300,8 +4818,86 @@ final class AppModel: ObservableObject {
       .sorted { $0.time < $1.time }
   }
 
+  func bookHasSupplementalEpub(_ book: ABSBook) -> Bool {
+    book.hasSupplementalEpub
+  }
+
+  /// EPUB oder PDF öffnen: lokaler Cache zuerst, sonst Download vom Server.
+  func openAttachedEbook(for book: ABSBook) async {
+    isPreparingEbook = true
+    errorMessage = nil
+    defer { isPreparingEbook = false }
+
+    if let account = cacheAccountURL(),
+      let cached = EbookLocalStore.cachedEbookIfPresent(account: account, libraryItemId: book.id)
+    {
+      let meta = EbookLocalStore.loadDownloadMeta(
+        account: account, libraryItemId: book.id, format: cached.format)
+      let title = meta?.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+      EbookLocalStore.rememberKnownFormat(cached.format, libraryItemId: book.id)
+      ebookReaderSession = EbookReaderPresentation(
+        title: (title?.isEmpty == false ? title! : book.displayTitle),
+        libraryItemId: book.id,
+        localFileURL: cached.url,
+        format: cached.format
+      )
+      return
+    }
+
+    guard isNetworkReachable, let c = client, let account = cacheAccountURL() else {
+      errorMessage =
+        "Keine Verbindung zum Server. Öffne das eBook einmal online, damit es lokal zwischengespeichert wird."
+      return
+    }
+
+    do {
+      var resolved = book
+      if resolved.readableAttachedEbook == nil {
+        if let expanded = await loadBookDetail(id: book.id) {
+          resolved = expanded
+        }
+      }
+      guard let (ino, format) = resolved.readableAttachedEbook else {
+        errorMessage = "Für dieses Hörbuch ist keine eBook- oder PDF-Datei verfügbar."
+        return
+      }
+      EbookLocalStore.rememberKnownFormat(format, libraryItemId: resolved.id)
+      rememberEbookFormatsFromCatalog([resolved])
+      try EbookLocalStore.ensureAccountDirs(account: account)
+      let fileURL = EbookLocalStore.ebookFileURL(
+        account: account, libraryItemId: resolved.id, format: format)
+      if !EbookLocalStore.hasCachedEbook(account: account, libraryItemId: resolved.id, format: format) {
+        _ = try await c.downloadEbookFile(
+          itemId: resolved.id,
+          ino: ino,
+          format: format,
+          to: fileURL.deletingPathExtension()
+        )
+        try EbookLocalStore.saveDownloadMeta(
+          account: account,
+          meta: EbookDownloadMeta(
+            libraryItemId: resolved.id,
+            ino: ino,
+            format: format,
+            title: resolved.displayTitle
+          )
+        )
+      }
+      ebookReaderSession = EbookReaderPresentation(
+        title: resolved.displayTitle,
+        libraryItemId: resolved.id,
+        localFileURL: fileURL,
+        format: format
+      )
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
   func defaultBookmarkTitle(atSeconds time: Int) -> String {
-    formatPlaybackDurationShortHuman(Double(max(0, time)))
+    let t = max(0, time)
+    if t >= 3600 { return formatPlaybackDurationShortHuman(Double(t)) }
+    return formatPlaybackTime(Double(t))
   }
 
   /// Lesezeichen anlegen (nur Hörbücher, nicht Podcast-Folgen).
@@ -4463,6 +5059,14 @@ final class AppModel: ObservableObject {
       return
     }
     UserDefaults.standard.set(p.libraryItemId, forKey: Keys.lastPlayedItemId)
+  }
+
+  /// SwiftUI `.refreshable` bricht die Struktur-Task oft ab, bevor Netzwerk fertig ist.
+  @MainActor
+  private func performPullToRefresh(_ work: @MainActor @escaping () async -> Void) async {
+    await Task.detached(priority: .userInitiated) { @MainActor in
+      await work()
+    }.value
   }
 
   /// Abgebrochene/debounced Requests sollen keinen Fehlerdialog auslösen.

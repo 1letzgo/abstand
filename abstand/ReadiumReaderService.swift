@@ -1,0 +1,445 @@
+import Foundation
+import ReadiumNavigator
+import ReadiumShared
+import ReadiumStreamer
+import UIKit
+
+enum ReadiumReaderError: LocalizedError {
+  case invalidFileURL
+  case openFailed(String)
+  case formatNotSupported
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidFileURL: return "The eBook file could not be opened."
+    case let .openFailed(msg): return msg
+    case .formatNotSupported: return "This file format is not supported."
+    }
+  }
+}
+
+/// Readium-Setup (Streamer + Navigator) für lokale EPUB/PDF-Dateien.
+@MainActor
+final class ReadiumReaderService {
+  static let shared = ReadiumReaderService()
+
+  private let httpClient = DefaultHTTPClient()
+  private lazy var assetRetriever = AssetRetriever(httpClient: httpClient)
+  private lazy var publicationOpener = PublicationOpener(
+    parser: DefaultPublicationParser(
+      httpClient: httpClient,
+      assetRetriever: assetRetriever,
+      pdfFactory: DefaultPDFDocumentFactory()
+    )
+  )
+
+  /// Rand-Taps (links/zurück, rechts/weiter); muss stark gehalten werden.
+  private var directionalNavigationAdapter: DirectionalNavigationAdapter?
+
+  private init() {}
+
+  func makeReader(
+    localFileURL: URL,
+    libraryItemId: String,
+    format: ABSEbookFormat
+  ) async throws -> UIViewController {
+    guard let absolute = FileURL(url: localFileURL) else {
+      throw ReadiumReaderError.invalidFileURL
+    }
+    let asset: Asset
+    switch await assetRetriever.retrieve(url: absolute) {
+    case let .success(a): asset = a
+    case let .failure(err):
+      throw ReadiumReaderError.openFailed(err.localizedDescription)
+    }
+    let publication: Publication
+    switch await publicationOpener.open(asset: asset, allowUserInteraction: false, sender: nil) {
+    case let .success(pub): publication = pub
+    case let .failure(err):
+      throw ReadiumReaderError.openFailed(err.localizedDescription)
+    }
+
+    let locator = EbookLocalStore.loadReadiumLocator(libraryItemId: libraryItemId, format: format)
+    let positionCount = try? await publication.positions().get().count
+    ReadiumReaderDelegate.shared.setPositionCount(positionCount)
+
+    if publication.conforms(to: .epub) {
+      return try makeEPUBNavigator(publication: publication, locator: locator)
+    }
+    if publication.conforms(to: .pdf) {
+      return try makePDFNavigator(publication: publication, locator: locator)
+    }
+    throw ReadiumReaderError.formatNotSupported
+  }
+
+  private func makeEPUBNavigator(publication: Publication, locator: Locator?) throws -> UIViewController {
+    let theme = EpubReaderSettings.loadTheme()
+    let prefs = EPUBPreferences(
+      fontSize: EpubReaderSettings.loadFontSize(),
+      publisherStyles: false,
+      theme: theme == .dark ? .dark : .light
+    )
+    var epubConfig = EPUBNavigatorViewController.Configuration(preferences: prefs)
+    epubConfig.contentInset = [
+      .compact: (top: 0, bottom: 0),
+      .regular: (top: 0, bottom: 0),
+    ]
+    ReadiumReaderDelegate.shared.configureEPUBReadingOrder(publication.readingOrder)
+    let navigator = try EPUBNavigatorViewController(
+      publication: publication,
+      initialLocation: locator,
+      config: epubConfig
+    )
+    navigator.delegate = ReadiumReaderDelegate.shared
+    bindEdgeTapNavigation(to: navigator)
+    return navigator
+  }
+
+  private func makePDFNavigator(publication: Publication, locator: Locator?) throws -> UIViewController {
+    let theme = EpubReaderSettings.loadTheme()
+    let readiumTheme: Theme = theme == .dark ? .dark : .light
+    let prefs = PDFPreferences(backgroundColor: readiumTheme.backgroundColor)
+    let navigator = try PDFNavigatorViewController(
+      publication: publication,
+      initialLocation: locator,
+      config: PDFNavigatorViewController.Configuration(preferences: prefs)
+    )
+    navigator.delegate = ReadiumReaderDelegate.shared
+    bindEdgeTapNavigation(to: navigator)
+    return navigator
+  }
+
+  /// Links/rechts am Bildrand tippen → Seite zurück/vor (LTR: links=zurück, rechts=weiter).
+  private func bindEdgeTapNavigation(to navigator: VisualNavigator) {
+    directionalNavigationAdapter?.unbind()
+    let adapter = DirectionalNavigationAdapter(
+      pointerPolicy: DirectionalNavigationAdapter.PointerPolicy(
+        types: [.touch],
+        edges: .horizontal,
+        ignoreWhileScrolling: false
+      ),
+      animatedTransition: true
+    )
+    adapter.bind(to: navigator)
+    directionalNavigationAdapter = adapter
+  }
+
+  func applyPDFPreferences(to navigator: PDFNavigatorViewController) {
+    let theme = EpubReaderSettings.loadTheme()
+    let readiumTheme: Theme = theme == .dark ? .dark : .light
+    navigator.submitPreferences(PDFPreferences(backgroundColor: readiumTheme.backgroundColor))
+  }
+
+  func applyEPUBPreferences(to navigator: EPUBNavigatorViewController) {
+    ReadiumReaderDelegate.shared.invalidateChapterPageCache()
+    let theme = EpubReaderSettings.loadTheme()
+    navigator.submitPreferences(
+      EPUBPreferences(
+        fontSize: EpubReaderSettings.loadFontSize(),
+        publisherStyles: false,
+        theme: theme == .dark ? .dark : .light
+      )
+    )
+    Task { await refreshEpubProgressDisplay(epub: navigator) }
+  }
+
+  /// Nach Layout-Umbruch (Schriftgröße, Theme): Fortschritt inkl. gerenderte Seitenzahl aktualisieren.
+  func refreshEpubProgressDisplay(epub: EPUBNavigatorViewController) async {
+    try? await Task.sleep(nanoseconds: 450_000_000)
+    guard let locator = epub.currentLocation else { return }
+    await publishProgressUpdate(locator: locator, format: .epub, epub: epub)
+  }
+
+  func publishProgressUpdate(
+    locator: Locator,
+    format: ABSEbookFormat,
+    epub: EPUBNavigatorViewController? = nil
+  ) async {
+    var userInfo: [String: Any] = [ReadiumReaderProgressInfo.locatorKey: locator]
+    if format == .epub, let epub {
+      if let chapterPages = await fetchRenderedPageInfo(from: epub) {
+        let bookPages = ReadiumReaderDelegate.shared.bookWidePageProgress(
+          locator: locator, chapterPages: chapterPages)
+        userInfo[ReadiumReaderProgressInfo.bookPageProgressKey] = bookPages
+        persistPageProgress(locator: locator, format: format, bookPages: bookPages)
+      }
+    } else {
+      persistPageProgress(locator: locator, format: format, bookPages: nil)
+    }
+    NotificationCenter.default.post(
+      name: .readiumReaderProgressDidChange,
+      object: nil,
+      userInfo: userInfo
+    )
+  }
+
+  /// Paginierte EPUB-Ansicht: tatsächliche Spalten/Seiten im aktuellen Abschnitt (reagiert auf Schriftgröße).
+  private func fetchRenderedPageInfo(from navigator: EPUBNavigatorViewController) async -> RenderedPageInfo? {
+    let script = """
+    (function() {
+      var root = document.scrollingElement;
+      if (!root) return null;
+      var vw = window.innerWidth, vh = window.innerHeight;
+      if (vw <= 0 || vh <= 0) return null;
+      var vertical = root.scrollHeight > root.clientHeight * 1.25;
+      var total, cur;
+      if (vertical) {
+        total = Math.max(1, Math.ceil(root.scrollHeight / vh));
+        cur = Math.min(total, Math.max(1, Math.floor((window.scrollY + vh * 0.5) / vh)));
+      } else {
+        total = Math.max(1, Math.ceil(root.scrollWidth / vw));
+        var x = Math.abs(window.scrollX);
+        cur = Math.min(total, Math.max(1, Math.floor(x / vw) + 1));
+      }
+      return { current: cur, total: total };
+    })();
+    """
+    switch await navigator.evaluateJavaScript(script) {
+    case let .success(value):
+      guard let dict = value as? [String: Any] else { return nil }
+      guard let current = jsInt(dict["current"]), let total = jsInt(dict["total"]), total > 0 else {
+        return nil
+      }
+      return RenderedPageInfo(current: min(max(1, current), total), total: total)
+    case .failure:
+      return nil
+    }
+  }
+
+  private func jsInt(_ value: Any?) -> Int? {
+    if let i = value as? Int { return i }
+    if let n = value as? NSNumber { return n.intValue }
+    return nil
+  }
+
+  private func persistPageProgress(
+    locator: Locator, format: ABSEbookFormat, bookPages: BookPageProgress?
+  ) {
+    guard let libraryItemId = ReadiumReaderDelegate.shared.resolvedLibraryItemId else { return }
+    if let bookPages {
+      EbookLocalStore.savePageProgress(
+        current: bookPages.current,
+        total: bookPages.total,
+        libraryItemId: libraryItemId,
+        format: format
+      )
+      return
+    }
+    if format == .pdf,
+      let position = locator.locations.position,
+      let total = ReadiumReaderDelegate.shared.positionCountForDisplay,
+      total > 0
+    {
+      EbookLocalStore.savePageProgress(
+        current: position,
+        total: total,
+        libraryItemId: libraryItemId,
+        format: format
+      )
+    }
+  }
+
+  /// Lesezeichen löschen und zum Anfang springen.
+  @MainActor
+  func resetReadingPosition(
+    navigator: Navigator,
+    libraryItemId: String,
+    format: ABSEbookFormat
+  ) async {
+    EbookLocalStore.clearReadiumLocator(libraryItemId: libraryItemId, format: format)
+    guard let locator = await startLocator(for: navigator.publication) else { return }
+    _ = await navigator.go(to: locator)
+    await publishProgressAfterNavigation(navigator: navigator, format: format)
+  }
+
+  private func publishProgressAfterNavigation(navigator: Navigator, format: ABSEbookFormat) async {
+    guard let locator = navigator.currentLocation else { return }
+    if format == .epub, let epub = navigator as? EPUBNavigatorViewController {
+      await publishProgressUpdate(locator: locator, format: .epub, epub: epub)
+    } else {
+      await publishProgressUpdate(locator: locator, format: format, epub: nil)
+    }
+  }
+
+  private func startLocator(for publication: Publication) async -> Locator? {
+    if case let .success(positions) = await publication.positions(), let first = positions.first {
+      return first
+    }
+    guard let link = publication.readingOrder.first else { return nil }
+    return locator(for: link, locations: Locator.Locations())
+  }
+
+  private func locator(for link: Link, locations: Locator.Locations) -> Locator? {
+    Locator(
+      href: link.url(),
+      mediaType: link.mediaType ?? MediaType.html,
+      locations: locations
+    )
+  }
+}
+
+@MainActor
+final class ReadiumReaderDelegate: NSObject, EPUBNavigatorDelegate, PDFNavigatorDelegate {
+  static let shared = ReadiumReaderDelegate()
+
+  private var libraryItemId: String?
+  private var format: ABSEbookFormat?
+
+  private var positionCount: Int?
+
+  /// Lese-Reihenfolge (ein Eintrag ≈ Kapitel/Ressource) für buchweite Seitenschätzung.
+  private var epubReadingOrderHrefs: [String] = []
+  /// Gerenderte Seitenzahl pro Kapitel (aktueller Schriftgrad); wird bei Font-Änderung geleert.
+  private var chapterPageTotalsByHref: [String: Int] = [:]
+
+  func configure(libraryItemId: String, format: ABSEbookFormat) {
+    self.libraryItemId = libraryItemId
+    self.format = format
+  }
+
+  func configureEPUBReadingOrder(_ links: [Link]) {
+    epubReadingOrderHrefs = links.map { hrefKey($0.url()) }
+    chapterPageTotalsByHref.removeAll()
+  }
+
+  func invalidateChapterPageCache() {
+    chapterPageTotalsByHref.removeAll()
+  }
+
+  func setPositionCount(_ count: Int?) {
+    positionCount = count
+  }
+
+  var positionCountForDisplay: Int? {
+    positionCount
+  }
+
+  var resolvedLibraryItemId: String? {
+    libraryItemId
+  }
+
+  private func hrefKey(_ href: AnyURL) -> String {
+    let s = href.string
+    if let hash = s.firstIndex(of: "#") {
+      return String(s[..<hash])
+    }
+    return s
+  }
+
+  /// Aus Kapitel-Paginierung (JS) + Cache aller besuchten Kapitel → Buch gesamt.
+  func bookWidePageProgress(locator: Locator, chapterPages: RenderedPageInfo) -> BookPageProgress {
+    let key = hrefKey(locator.href)
+    chapterPageTotalsByHref[key] = chapterPages.total
+
+    let percent = Int((ReadiumReaderProgressInfo.fraction(from: locator) * 100).rounded())
+    guard !epubReadingOrderHrefs.isEmpty, let chapterIndex = epubReadingOrderHrefs.firstIndex(of: key) else {
+      return BookPageProgress(current: chapterPages.current, total: chapterPages.total, percent: percent)
+    }
+
+    let knownTotals = epubReadingOrderHrefs.compactMap { chapterPageTotalsByHref[$0] }
+    let averageChapterPages = max(
+      1,
+      knownTotals.isEmpty ? chapterPages.total : knownTotals.reduce(0, +) / knownTotals.count
+    )
+
+    var bookTotal = 0
+    for href in epubReadingOrderHrefs {
+      bookTotal += chapterPageTotalsByHref[href] ?? averageChapterPages
+    }
+    bookTotal = max(1, bookTotal)
+
+    let pagesBefore = epubReadingOrderHrefs.prefix(chapterIndex).compactMap { chapterPageTotalsByHref[$0] }
+      .reduce(0, +)
+    let fromChapter = pagesBefore + chapterPages.current
+    let fromProgression = Int((ReadiumReaderProgressInfo.fraction(from: locator) * Double(bookTotal)).rounded())
+    let bookCurrent = min(bookTotal, max(1, max(fromChapter, fromProgression)))
+
+    return BookPageProgress(current: bookCurrent, total: bookTotal, percent: percent)
+  }
+
+  func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
+    guard let libraryItemId, let format else { return }
+    EbookLocalStore.saveReadiumLocator(locator, libraryItemId: libraryItemId, format: format)
+    if format == .epub, let epub = navigator as? EPUBNavigatorViewController {
+      Task {
+        await ReadiumReaderService.shared.publishProgressUpdate(
+          locator: locator, format: .epub, epub: epub)
+      }
+    } else {
+      NotificationCenter.default.post(
+        name: .readiumReaderProgressDidChange,
+        object: nil,
+        userInfo: [ReadiumReaderProgressInfo.locatorKey: locator]
+      )
+    }
+  }
+
+  func navigator(_ navigator: VisualNavigator, presentationDidChange presentation: VisualNavigatorPresentation) {
+    guard format == .epub, let epub = navigator as? EPUBNavigatorViewController else { return }
+    invalidateChapterPageCache()
+    Task { await ReadiumReaderService.shared.refreshEpubProgressDisplay(epub: epub) }
+  }
+
+  func navigator(_ navigator: Navigator, presentError error: NavigatorError) {}
+
+  func navigator(_ navigator: VisualNavigator, didTapAt point: CGPoint) {
+    let width = navigator.view.bounds.width
+    let edge = max(80, width * 0.3)
+    if point.x > edge, point.x < width - edge {
+      NotificationCenter.default.post(name: .readiumReaderToggleChrome, object: nil)
+    }
+  }
+
+  /// Nur Geräte-Notch/Home-Indicator — keine zusätzlichen Leser-Ränder.
+  func navigatorContentInset(_ navigator: VisualNavigator) -> UIEdgeInsets? {
+    let safe = navigator.view.window?.safeAreaInsets ?? navigator.view.safeAreaInsets
+    return UIEdgeInsets(top: safe.top, left: 0, bottom: safe.bottom, right: 0)
+  }
+}
+
+struct RenderedPageInfo: Equatable {
+  let current: Int
+  let total: Int
+}
+
+struct BookPageProgress: Equatable {
+  let current: Int
+  let total: Int
+  let percent: Int
+}
+
+enum ReadiumReaderProgressInfo {
+  static let locatorKey = "locator"
+  static let bookPageProgressKey = "bookPageProgress"
+
+  static func fraction(from locator: Locator) -> Double {
+    if let total = locator.locations.totalProgression {
+      return min(1, max(0, total))
+    }
+    if let local = locator.locations.progression {
+      return min(1, max(0, local))
+    }
+    return 0
+  }
+
+  static func label(
+    from locator: Locator,
+    format: ABSEbookFormat,
+    positionCount: Int?,
+    bookPages: BookPageProgress?
+  ) -> String {
+    let pct = Int((fraction(from: locator) * 100).rounded())
+    switch format {
+    case .epub:
+      if let bookPages {
+        return "Page \(bookPages.current) of \(bookPages.total) · \(bookPages.percent)%"
+      }
+      return "\(pct)%"
+    case .pdf:
+      if let position = locator.locations.position, let total = positionCount, total > 0 {
+        return "Page \(position) of \(total)"
+      }
+      return "\(pct) %"
+    }
+  }
+}

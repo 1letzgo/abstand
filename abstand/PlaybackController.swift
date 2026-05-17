@@ -665,6 +665,20 @@ final class PlaybackController: NSObject, ObservableObject {
     }
   }
 
+  /// Frische Abspielposition (AVPlayer + Track-Offset), z. B. für Lesezeichen — nicht nur gecachtes `globalPosition`.
+  func snapshotPlaybackTimeSeconds() -> Int {
+    if let p = player, p.currentItem != nil {
+      let local = p.currentTime().seconds
+      if local.isFinite {
+        let g = globalTime(trackIndex: currentTrackIndex, localSeconds: local)
+        if g.isFinite, g >= 0 { return max(0, Int(g.rounded(.down))) }
+      }
+    }
+    let raw = globalPosition
+    guard raw.isFinite, raw >= 0 else { return 0 }
+    return max(0, Int(raw.rounded(.down)))
+  }
+
   private func advanceToNextTrack() {
     guard currentTrackIndex + 1 < tracks.count else {
       globalPosition = totalDuration

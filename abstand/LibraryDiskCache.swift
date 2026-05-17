@@ -346,6 +346,83 @@ enum LibraryDiskCache {
     return (all, total, sorted.count)
   }
 
+  private static func browseEbooksSlugURL(account: URL, libraryId: String, sort: String, descending: Bool) -> URL {
+    let slug = browseSortSlug(sort: sort, descending: descending)
+    return account.appendingPathComponent("browseEbooks", isDirectory: true)
+      .appendingPathComponent(libraryId, isDirectory: true)
+      .appendingPathComponent("full", isDirectory: true)
+      .appendingPathComponent(slug, isDirectory: true)
+  }
+
+  static func wipeBrowseEbooksSlug(
+    account: URL, libraryId: String, sort: String, descending: Bool
+  ) throws {
+    let u = browseEbooksSlugURL(account: account, libraryId: libraryId, sort: sort, descending: descending)
+    if fm.fileExists(atPath: u.path) {
+      try fm.removeItem(at: u)
+    }
+    try fm.createDirectory(at: u, withIntermediateDirectories: true)
+  }
+
+  static func saveBrowseEbooksPage(
+    account: URL, libraryId: String, sort: String, descending: Bool, pageIndex: Int, data: Data
+  ) throws {
+    let dir = browseEbooksSlugURL(account: account, libraryId: libraryId, sort: sort, descending: descending)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let file = dir.appendingPathComponent("page_\(pageIndex).json")
+    try data.write(to: file, options: .atomic)
+  }
+
+  static func saveBrowseEbooksSupplementary(
+    account: URL, libraryId: String, sort: String, descending: Bool, data: Data
+  ) throws {
+    let dir = browseEbooksSlugURL(account: account, libraryId: libraryId, sort: sort, descending: descending)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    try data.write(to: dir.appendingPathComponent("supplementary.json"), options: .atomic)
+  }
+
+  static func loadMergedBrowseEbooks(
+    account: URL,
+    libraryId: String,
+    sort: String,
+    descending: Bool,
+    decoder: JSONDecoder
+  ) -> (books: [ABSBook], total: Int, nextPage: Int)? {
+    let dir = browseEbooksSlugURL(account: account, libraryId: libraryId, sort: sort, descending: descending)
+    guard fm.fileExists(atPath: dir.path) else { return nil }
+    let files = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+    let pageFiles = files.filter { $0.pathExtension == "json" && $0.lastPathComponent.hasPrefix("page_") }
+    guard !pageFiles.isEmpty else { return nil }
+
+    func pageIndex(_ url: URL) -> Int {
+      let base = url.deletingPathExtension().lastPathComponent
+      let parts = base.split(separator: "_")
+      return Int(parts.last ?? "0") ?? 0
+    }
+    let sorted = pageFiles.sorted { pageIndex($0) < pageIndex($1) }
+
+    var all: [ABSBook] = []
+    var total = 0
+    for url in sorted {
+      guard let data = try? Data(contentsOf: url) else { continue }
+      guard let page = try? decoder.decode(ABSPage<ABSBook>.self, from: data) else { continue }
+      total = page.total
+      all.append(contentsOf: page.results.filter(\.isUsableLibraryCatalogRow))
+    }
+    let supURL = dir.appendingPathComponent("supplementary.json")
+    if fm.fileExists(atPath: supURL.path),
+      let sdata = try? Data(contentsOf: supURL),
+      let spage = try? decoder.decode(ABSPage<ABSBook>.self, from: sdata)
+    {
+      var seen = Set(all.map(\.id))
+      for book in spage.results.filter(\.isUsableLibraryCatalogRow) where seen.insert(book.id).inserted {
+        all.append(book)
+      }
+    }
+    guard !all.isEmpty else { return nil }
+    return (all, total, sorted.count)
+  }
+
   private static func browseCollectionsURL(account: URL, libraryId: String) -> URL {
     account.appendingPathComponent("browseCollections", isDirectory: true)
       .appendingPathComponent(libraryId, isDirectory: true)

@@ -45,22 +45,25 @@ enum AppTheme {
     /// Abstand Titel ↔ Unterzeile im Hero-Metablock.
     static let continueHeroMetadataTitleDetailSpacing: CGFloat = 4
     static let continueHeroMetadataVerticalPadding: CGFloat = 8
-    /// Genau zwei Zeilen `subheadline` (fester Slot).
-    static let continueHeroMetadataTitleFixedHeight: CGFloat = 38
+    /// Genau zwei Zeilen `headline` (wie `BookRowCard`, fester Slot).
+    static let continueHeroMetadataTitleFixedHeight: CGFloat = 44
     /// Eine Zeile `caption` für Autor/Show.
     static let continueHeroMetadataDetailFixedHeight: CGFloat = 18
     /// Abstand Autor-/Show-Zeile → Play-Pille.
     static let continueHeroMetadataPlayPillTopPadding: CGFloat = 8
-    /// Slot für die Play-Pille (Capsule + Zeit) unter dem Autor.
-    static let continueHeroMetadataPlayPillRowHeight: CGFloat = 38
+    /// Höhe der Play-/Read-Pille (Capsule inkl. Innen-Padding).
+    static let continueHeroMetadataPlayPillIntrinsicHeight: CGFloat = 34
+    /// Abstand unter der Play-/Read-Pille (Continue Listening + eBooks-Grid).
+    static let continueHeroMetadataExtraBottomPadding: CGFloat = 10
     /// Fester Textblock unter dem Cover — alle Continue-Hero-Karten gleich hoch.
     static let continueHeroMetadataBlockHeight: CGFloat =
-      continueHeroMetadataVerticalPadding * 2
+      continueHeroMetadataVerticalPadding
       + continueHeroMetadataTitleFixedHeight
       + continueHeroMetadataTitleDetailSpacing
       + continueHeroMetadataDetailFixedHeight
       + continueHeroMetadataPlayPillTopPadding
-      + continueHeroMetadataPlayPillRowHeight
+      + continueHeroMetadataPlayPillIntrinsicHeight
+      + continueHeroMetadataExtraBottomPadding
     /// Gesamthöhe Continue-Hero-Karte (Cover + Metadaten).
     static let continueHeroCardTotalHeight: CGFloat = continueHeroCoverMaxHeight + continueHeroMetadataBlockHeight
     static let continueHeroCardHeight: CGFloat = continueHeroCardTotalHeight

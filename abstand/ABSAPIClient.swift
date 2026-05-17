@@ -51,6 +51,43 @@ actor ABSAPIClient {
     try buildURL(path: "api/items/\(itemId)/file/\(ino)/download", query: [:])
   }
 
+  /// E-Book- oder PDF-Datei eines Hörbuchs herunterladen.
+  func downloadEbookFile(
+    itemId: String,
+    ino: String,
+    format: ABSEbookFormat,
+    to suggestedDestination: URL
+  ) async throws -> URL {
+    let streamURL = try itemFileDownloadURL(itemId: itemId, ino: ino)
+    let dir = suggestedDestination.deletingLastPathComponent()
+    let stem = suggestedDestination.deletingPathExtension().lastPathComponent
+    let dest = dir.appendingPathComponent("\(stem).\(format.fileExtension)")
+    var lastError: Error?
+    for attempt in 0..<3 {
+      do {
+        var req = URLRequest(url: streamURL, timeoutInterval: 600)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (temp, resp) = try await urlSession.download(for: req)
+        guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
+          try? FileManager.default.removeItem(at: temp)
+          throw ABSAPIError.httpStatus((resp as? HTTPURLResponse)?.statusCode ?? -1, nil)
+        }
+        if FileManager.default.fileExists(atPath: dest.path) {
+          try FileManager.default.removeItem(at: dest)
+        }
+        try FileManager.default.moveItem(at: temp, to: dest)
+        return dest
+      } catch {
+        lastError = error
+        if error is CancellationError { throw error }
+        if attempt < 2 {
+          try await Task.sleep(nanoseconds: UInt64(0.6 * Double(attempt + 1) * 1_000_000_000))
+        }
+      }
+    }
+    throw lastError ?? ABSAPIError.emptyBody
+  }
+
   // MARK: - Static helpers
 
   static func normalizeServerURL(_ raw: String) -> URL? {

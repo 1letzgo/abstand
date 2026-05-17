@@ -30,8 +30,18 @@ struct ABSDownloadManifest: Codable {
     let title: String?
   }
 
+  /// Kapitelmarken für Offline-Wiedergabe und Detailansicht (optional, ältere `download.json` ohne Feld).
+  struct Chapter: Codable {
+    let id: Int
+    let start: Double
+    let end: Double
+    let title: String
+  }
+
+  let chapters: [Chapter]?
+
   enum CodingKeys: String, CodingKey {
-    case format, libraryItemId, episodeId, libraryId, displayTitle, displayAuthor, playSessionId, savedAtEpoch, savedAt, audioFileExtension, totalDuration, tracks
+    case format, libraryItemId, episodeId, libraryId, displayTitle, displayAuthor, playSessionId, savedAtEpoch, savedAt, audioFileExtension, totalDuration, tracks, chapters
   }
 
   init(
@@ -45,7 +55,8 @@ struct ABSDownloadManifest: Codable {
     savedAtEpoch: TimeInterval,
     audioFileExtension: String?,
     totalDuration: Double?,
-    tracks: [Track]
+    tracks: [Track],
+    chapters: [Chapter]? = nil
   ) {
     self.format = format
     self.libraryItemId = libraryItemId
@@ -58,6 +69,7 @@ struct ABSDownloadManifest: Codable {
     self.audioFileExtension = audioFileExtension
     self.totalDuration = totalDuration
     self.tracks = tracks
+    self.chapters = chapters
   }
 
   init(from decoder: Decoder) throws {
@@ -86,6 +98,7 @@ struct ABSDownloadManifest: Codable {
     audioFileExtension = try c.decodeIfPresent(String.self, forKey: .audioFileExtension)
     totalDuration = try c.decodeIfPresent(Double.self, forKey: .totalDuration)
     tracks = try c.decode([Track].self, forKey: .tracks)
+    chapters = try c.decodeIfPresent([Chapter].self, forKey: .chapters)
   }
 
   func encode(to encoder: Encoder) throws {
@@ -101,6 +114,7 @@ struct ABSDownloadManifest: Codable {
     try c.encodeIfPresent(audioFileExtension, forKey: .audioFileExtension)
     try c.encodeIfPresent(totalDuration, forKey: .totalDuration)
     try c.encode(tracks, forKey: .tracks)
+    try c.encodeIfPresent(chapters, forKey: .chapters)
   }
 
   static func load(from downloadRoot: URL) -> ABSDownloadManifest? {

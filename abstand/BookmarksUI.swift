@@ -2,6 +2,25 @@ import SwiftUI
 
 // MARK: - Bookmarks (detail & player)
 
+/// Stabile Menüzeile (entkoppelt von `@Published bookmarks`-Ticks im Player).
+struct PlayerBookmarkMenuItem: Equatable, Identifiable {
+  let id: String
+  let libraryItemId: String
+  let title: String
+  let time: Int
+
+  init(_ mark: ABSAudioBookmark) {
+    id = mark.id
+    libraryItemId = mark.libraryItemId
+    title = mark.title
+    time = mark.time
+  }
+
+  var bookmark: ABSAudioBookmark {
+    ABSAudioBookmark(libraryItemId: libraryItemId, title: title, time: time)
+  }
+}
+
 struct BookmarksDisclosure: View {
   @EnvironmentObject private var model: AppModel
   @Binding var expanded: Bool
@@ -105,15 +124,9 @@ struct AddBookmarkTitleSheet: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.dismiss) private var dismiss
   let libraryItemId: String
-  let timeSeconds: Int
-  @State private var title: String
+  @State private var timeSeconds = 0
+  @State private var title = ""
   @State private var saving = false
-
-  init(libraryItemId: String, timeSeconds: Int, initialTitle: String) {
-    self.libraryItemId = libraryItemId
-    self.timeSeconds = timeSeconds
-    _title = State(initialValue: initialTitle)
-  }
 
   var body: some View {
     NavigationStack {
@@ -143,10 +156,11 @@ struct AddBookmarkTitleSheet: View {
           Button("Save") {
             guard !saving else { return }
             saving = true
+            let at = model.player.snapshotPlaybackTimeSeconds()
             Task {
               let ok = await model.createBookmark(
                 libraryItemId: libraryItemId,
-                time: timeSeconds,
+                time: at,
                 title: title
               )
               await MainActor.run {
@@ -162,32 +176,66 @@ struct AddBookmarkTitleSheet: View {
     .presentationDetents([.medium])
     .presentationDragIndicator(.visible)
     .preferredColorScheme(.dark)
+    .onAppear { refreshPositionAndDefaultTitle() }
+  }
+
+  private func refreshPositionAndDefaultTitle() {
+    let at = model.player.snapshotPlaybackTimeSeconds()
+    timeSeconds = at
+    title = model.defaultBookmarkTitle(atSeconds: at)
   }
 }
 
-/// Bookmark control in the full-player utility bar: tap = title sheet; long-press = list.
+/// Bookmark control in the full-player utility bar: tap = title sheet; long-press = jump list.
 struct PlayerBookmarkUtilityControl: View {
   @EnvironmentObject private var model: AppModel
   let activeAudiobookId: String?
+  let menuItems: [PlayerBookmarkMenuItem]
 
   @State private var showAddSheet = false
-  @State private var sheetTimeSeconds = 0
 
-  private var marks: [ABSAudioBookmark] {
-    guard let activeAudiobookId else { return [] }
-    return model.bookmarks(for: activeAudiobookId)
+  var body: some View {
+    PlayerBookmarkUtilityControlChrome(
+      activeAudiobookId: activeAudiobookId,
+      menuItems: menuItems,
+      showAddSheet: $showAddSheet,
+      onJump: { mark in
+        Task { await model.jumpToBookmark(mark) }
+      }
+    )
+    .equatable()
+    .sheet(isPresented: $showAddSheet) {
+      if let activeAudiobookId {
+        AddBookmarkTitleSheet(libraryItemId: activeAudiobookId)
+          .environmentObject(model)
+      }
+    }
+  }
+}
+
+/// Ohne `AppModel`-Observation — Long-Press-Menü flackert sonst bei Kapitel-Ticks nicht mit.
+private struct PlayerBookmarkUtilityControlChrome: View, Equatable {
+  let activeAudiobookId: String?
+  let menuItems: [PlayerBookmarkMenuItem]
+  @Binding var showAddSheet: Bool
+  let onJump: (ABSAudioBookmark) -> Void
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.activeAudiobookId == rhs.activeAudiobookId
+      && lhs.menuItems == rhs.menuItems
+      && lhs.showAddSheet == rhs.showAddSheet
   }
 
   var body: some View {
-    if let activeAudiobookId {
+    if activeAudiobookId != nil {
       Button {
-        sheetTimeSeconds = Int(model.player.globalPosition.rounded())
         showAddSheet = true
       } label: {
         VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
           Image(systemName: "bookmark")
             .font(.title3)
             .foregroundStyle(Color.white)
+            .frame(width: 44, height: 44)
             .frame(
               maxWidth: .infinity,
               minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
@@ -203,29 +251,13 @@ struct PlayerBookmarkUtilityControl: View {
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Add bookmark at current position")
-      .sheet(isPresented: $showAddSheet) {
-        AddBookmarkTitleSheet(
-          libraryItemId: activeAudiobookId,
-          timeSeconds: sheetTimeSeconds,
-          initialTitle: model.defaultBookmarkTitle(atSeconds: sheetTimeSeconds)
-        )
-        .environmentObject(model)
-      }
       .contextMenu {
-        if !marks.isEmpty {
-          ForEach(marks) { mark in
+        if !menuItems.isEmpty {
+          ForEach(menuItems) { item in
             Button {
-              Task { await model.jumpToBookmark(mark) }
+              onJump(item.bookmark)
             } label: {
-              Text("\(mark.title) · \(formatPlaybackTime(Double(mark.time)))")
-            }
-          }
-          Divider()
-          ForEach(marks) { mark in
-            Button(role: .destructive) {
-              Task { await model.deleteBookmark(mark) }
-            } label: {
-              Label(mark.title, systemImage: "trash")
+              Text("\(item.title) · \(formatPlaybackTime(Double(item.time)))")
             }
           }
         }

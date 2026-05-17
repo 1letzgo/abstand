@@ -248,6 +248,12 @@ final class DownloadManager: ObservableObject {
         } else {
           totalDur = nil
         }
+        let chapterSource: [ABSChapter]? = {
+          if let ch = book.media.chapters, !ch.isEmpty { return ch }
+          if let ch = serverSession?.chapters, !ch.isEmpty { return ch }
+          if let ch = serverSession?.libraryItem.media.chapters, !ch.isEmpty { return ch }
+          return nil
+        }()
         let manifest = ABSDownloadManifest(
           format: 1,
           libraryItemId: book.id,
@@ -266,7 +272,8 @@ final class DownloadManager: ObservableObject {
               duration: tr.duration,
               title: tr.title
             )
-          }
+          },
+          chapters: chapterSource?.map { ABSDownloadManifest.Chapter($0) }
         )
         try manifest.write(to: folder)
         try? FileManager.default.removeItem(at: wipURL(in: folder))

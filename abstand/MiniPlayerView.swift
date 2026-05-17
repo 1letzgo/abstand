@@ -54,10 +54,6 @@ private enum PlayerChromeLayout {
   static let skipForward: Double = 30
 }
 
-private func audiobookRemainingTimeCaption(total: Double, position: Double) -> String {
-  formatPlaybackTime(max(0, total - position))
-}
-
 private func authorDashTitleLine(for book: ABSBook) -> String {
   let a = book.displayAuthorsCardLine.trimmingCharacters(in: .whitespacesAndNewlines)
   let t = book.displayTitle
@@ -71,8 +67,9 @@ private func playbackProgressPercent(total: Double, position: Double) -> Int {
   return min(100, max(0, Int((p / t * 100).rounded())))
 }
 
-private func remainingTimeDashPercent(total: Double, position: Double) -> String {
-  let rem = audiobookRemainingTimeCaption(total: total, position: position)
+/// Untertitel der Floating-Bar: Restzeit (Std./Min., ohne Sekunden) und Fortschritt in %.
+private func floatingBarProgressSubtitle(total: Double, position: Double) -> String {
+  let rem = formatPlaybackDurationShortHuman(max(0, total - position))
   let pct = playbackProgressPercent(total: total, position: position)
   return "\(rem) – \(pct)%"
 }
@@ -143,7 +140,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
   let isDownloaded: Bool
   let isDownloading: Bool
   let downloadProgressBucket: Int
-  let bookmarkCount: Int
+  let bookmarkMenuItems: [PlayerBookmarkMenuItem]
   let isLoggedIn: Bool
 
   static func == (lhs: Self, rhs: Self) -> Bool {
@@ -154,7 +151,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
       && lhs.isDownloaded == rhs.isDownloaded
       && lhs.isDownloading == rhs.isDownloading
       && lhs.downloadProgressBucket == rhs.downloadProgressBucket
-      && lhs.bookmarkCount == rhs.bookmarkCount
+      && lhs.bookmarkMenuItems == rhs.bookmarkMenuItems
       && lhs.isLoggedIn == rhs.isLoggedIn
   }
 
@@ -205,8 +202,10 @@ private struct FullPlayerUtilityBar: View, Equatable {
         SleepTimerUtilityMenuLabel(endDate: sleepEndDate)
       }
 
-      PlayerBookmarkUtilityControl(activeAudiobookId: activeAudiobookId)
-        .id(bookmarkCount)
+      PlayerBookmarkUtilityControl(
+        activeAudiobookId: activeAudiobookId,
+        menuItems: bookmarkMenuItems
+      )
 
       VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
         FullPlayerAirPlayButton()
@@ -604,7 +603,9 @@ struct NowPlayingDetailView: View {
       isDownloaded: sid.map { model.downloadedItemIds.contains($0) } ?? false,
       isDownloading: isDownloading,
       downloadProgressBucket: isDownloading ? Int(model.downloads.progress * 20) : -1,
-      bookmarkCount: audiobookId.map { model.bookmarks(for: $0).count } ?? 0,
+      bookmarkMenuItems: audiobookId.map { id in
+        model.bookmarks(for: id).map(PlayerBookmarkMenuItem.init)
+      } ?? [],
       isLoggedIn: model.isLoggedIn
     )
     .equatable()
@@ -659,57 +660,157 @@ private struct FloatingBarCoverEquatable: View, Equatable {
   }
 }
 
-struct FloatingNowPlayingBar: View {
-  @EnvironmentObject private var model: AppModel
-  @EnvironmentObject private var player: PlaybackController
-  var onExpand: () -> Void
+/// Stabiler Schlüssel fürs Tab-Bar-Accessory — ohne `globalPosition`, damit die Leiste nicht pro Tick neu gebaut wird.
+struct FloatingPlayerChromeKey: Equatable {
+  let isVisible: Bool
+  let activeBookId: String?
+  let isRestoringLaunchPlayback: Bool
+  let showIdlePlaceholder: Bool
+  let isPlaying: Bool
+  let isBuffering: Bool
+  let coverRevision: Int
+}
 
-  private var showIdlePlaceholder: Bool {
-    player.showMiniPlayerPlaceholder && player.activeBook == nil
-  }
+/// Host isoliert das Accessory von `MainRootView`-Ticks (`globalPosition` triggert sonst ständige Rebuilds).
+struct FloatingPlayerAccessoryHost: View, Equatable {
+  let chromeKey: FloatingPlayerChromeKey
+  let onExpand: () -> Void
 
-  private var canTogglePlayback: Bool {
-    player.activeBook != nil && !model.isRestoringLaunchPlayback
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.chromeKey == rhs.chromeKey
   }
 
   var body: some View {
-    HStack(alignment: .center, spacing: 0) {
-      openNowPlayingTapRegion
-        .layoutPriority(1)
-      trailingAccessoryButtons
-        .fixedSize(horizontal: true, vertical: false)
-    }
-    .frame(maxWidth: .infinity, minHeight: Self.rowMinHeight, alignment: .center)
-    .padding(.horizontal, 16)
-    .padding(.vertical, 6)
-    .contextMenu {
-      Button(role: .destructive) {
-        Task { await model.dismissPlayer() }
-      } label: {
-        Label("Stop playback", systemImage: "xmark.circle")
+    Group {
+      if chromeKey.isVisible {
+        FloatingNowPlayingBar(onExpand: onExpand)
       }
     }
   }
+}
 
-  /// Nur Cover + Titelzeilen: Sheet öffnen. Als `Button` statt `onTapGesture` — zuverlässigeres
-  /// Hit-Testing neben `ScrollView` / Tab-Leiste.
-  private var openNowPlayingTapRegion: some View {
+private enum FloatingBarSubtitleMode: Equatable {
+  case hidden
+  case restoring
+  case idle(String)
+  case playing(totalDuration: Double)
+}
+
+private struct FloatingNowPlayingOpenSnapshot: Equatable {
+  let activeBookId: String?
+  let coverRevision: Int
+  let primaryLine: String
+  let subtitleMode: FloatingBarSubtitleMode
+}
+
+private struct FloatingNowPlayingTransportSnapshot: Equatable {
+  let isPlaying: Bool
+  let isBuffering: Bool
+  let canTogglePlayback: Bool
+}
+
+/// Restzeit/Fortschritt in der Floating-Bar: Minutentakt (60 s), kein Rebuild der Transport-Buttons.
+private struct FloatingBarProgressLabel: View {
+  @EnvironmentObject private var model: AppModel
+  let totalDuration: Double
+
+  var body: some View {
+    TimelineView(.periodic(from: .now, by: 60)) { _ in
+      Text(
+        floatingBarProgressSubtitle(
+          total: max(totalDuration, 1),
+          position: model.player.globalPosition
+        )
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+      .fontWeight(.medium)
+      .lineLimit(1)
+    }
+  }
+}
+
+private struct FloatingNowPlayingTransport: View, Equatable {
+  @EnvironmentObject private var model: AppModel
+  let snapshot: FloatingNowPlayingTransportSnapshot
+
+  private static let rowMinHeight: CGFloat = 48
+  private static let accessoryTransportSide: CGFloat = 44
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.snapshot == rhs.snapshot
+  }
+
+  var body: some View {
+    transportControls
+      .frame(minHeight: Self.rowMinHeight, alignment: .center)
+      .contentShape(Rectangle())
+  }
+
+  private var transportControls: some View {
+    let busy = snapshot.canTogglePlayback && snapshot.isBuffering
+    let playDiameter: CGFloat = 36
+    return HStack(spacing: 4) {
+      Button {
+        model.player.skip(seconds: -PlayerChromeLayout.skipBackward)
+      } label: {
+        Image(systemName: "gobackward.15")
+          .font(.system(size: 18, weight: .medium))
+          .foregroundStyle(.primary)
+          .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
+          .contentShape(Rectangle())
+      }
+      .disabled(!snapshot.canTogglePlayback || busy)
+      .buttonStyle(.plain)
+      .accessibilityLabel("Back 15 seconds")
+
+      Button {
+        model.player.togglePlayPause()
+      } label: {
+        ZStack {
+          Circle()
+            .fill(Color.accentColor)
+            .frame(width: playDiameter, height: playDiameter)
+          if snapshot.isBuffering && snapshot.canTogglePlayback {
+            ProgressView()
+              .progressViewStyle(.circular)
+              .tint(.white)
+              .scaleEffect(0.72)
+          } else {
+            Image(systemName: snapshot.isPlaying ? "pause.fill" : "play.fill")
+              .font(.system(size: 14, weight: .semibold))
+              .foregroundStyle(.white)
+          }
+        }
+        .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
+        .contentShape(Rectangle())
+      }
+      .disabled(!snapshot.canTogglePlayback)
+      .buttonStyle(.plain)
+      .accessibilityLabel(snapshot.isPlaying ? "Pause" : "Play")
+    }
+  }
+}
+
+private struct FloatingNowPlayingOpenRegion: View {
+  @EnvironmentObject private var model: AppModel
+  let snapshot: FloatingNowPlayingOpenSnapshot
+  let onExpand: () -> Void
+
+  private static let rowMinHeight: CGFloat = 48
+
+  var body: some View {
     Button(action: onExpand) {
       HStack(spacing: 0) {
         miniCover
         VStack(alignment: .leading, spacing: 2) {
-          Text(primaryLine)
+          Text(snapshot.primaryLine)
             .font(.footnote)
             .fontWeight(.medium)
             .foregroundStyle(.primary)
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
-
-          Text(secondaryLine)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fontWeight(.medium)
-            .lineLimit(1)
+          subtitleView
         }
         .padding(.leading, 10)
         Spacer(minLength: 0)
@@ -718,70 +819,38 @@ struct FloatingNowPlayingBar: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    /// Nimmt den freien Platz links; Transport bleibt rechts — unabhängig von `accessoryPlacement`,
-    /// damit Play/Pause nicht „fehlt“, wenn die Bar in der Tab-Leiste eingebettet ist.
     .frame(maxWidth: .infinity, minHeight: Self.rowMinHeight, alignment: .leading)
   }
 
-  /// Einheitliche Zeilenhöhe: größere Touchfläche als nur die Glyphen (wichtig für `tabViewBottomAccessory`).
-  private static let rowMinHeight: CGFloat = 48
-  /// Mindest-Touchfläche (HIG) für Skip; Play nutzt dieselbe Außenfläche, Kreis bleibt kleiner.
-  private static let accessoryTransportSide: CGFloat = 44
-
   @ViewBuilder
-  private var trailingAccessoryButtons: some View {
-    let busy = player.activeBook != nil && player.isBuffering
-    /// Kompakter als Skip: volle Kreisfläche ohne zusätzlichen Leerraum im 44-pt-Raster.
-    let playDiameter: CGFloat = 36
-    HStack(spacing: 4) {
-      Button {
-        player.skip(seconds: -PlayerChromeLayout.skipBackward)
-      } label: {
-        Image(systemName: "gobackward.15")
-          .font(.system(size: 18, weight: .medium))
-          .foregroundStyle(.primary)
-          .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
-          .contentShape(Rectangle())
-      }
-      .disabled(!canTogglePlayback || busy)
-      .buttonStyle(.plain)
-      .accessibilityLabel("Back 15 seconds")
-
-      Button {
-        player.togglePlayPause()
-      } label: {
-        ZStack {
-          Circle()
-            .fill(Color.accentColor)
-            .frame(width: playDiameter, height: playDiameter)
-          if player.isBuffering && canTogglePlayback {
-            ProgressView()
-              .progressViewStyle(.circular)
-              .tint(.white)
-              .scaleEffect(0.72)
-          } else {
-            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-              .font(.system(size: 14, weight: .semibold))
-              .foregroundStyle(.white)
-          }
-        }
-        .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
-        .contentShape(Rectangle())
-      }
-      /// Während Pufferung: Pause erlauben („Steckenbleiben“ vermeiden); erneuter Tap startet wie gewohnt.
-      .disabled(!canTogglePlayback)
-      .buttonStyle(.plain)
+  private var subtitleView: some View {
+    switch snapshot.subtitleMode {
+    case .hidden:
+      EmptyView()
+    case .restoring:
+      Text("Loading…")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fontWeight(.medium)
+        .lineLimit(1)
+    case .idle(let text):
+      Text(text)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fontWeight(.medium)
+        .lineLimit(1)
+    case .playing(let totalDuration):
+      FloatingBarProgressLabel(totalDuration: totalDuration)
     }
-    .frame(minHeight: Self.rowMinHeight, alignment: .center)
   }
 
   @ViewBuilder
   private var miniCover: some View {
     let side = PlayerChromeLayout.tabAccessoryCover
     let plateRadius: CGFloat = 6
-    if let b = player.activeBook {
-      FloatingBarCoverEquatable(itemId: b.id, coverRevision: model.coverImageCacheRevision)
-    } else if model.isRestoringLaunchPlayback {
+    if let id = snapshot.activeBookId {
+      FloatingBarCoverEquatable(itemId: id, coverRevision: snapshot.coverRevision)
+    } else if case .restoring = snapshot.subtitleMode {
       RoundedRectangle(cornerRadius: plateRadius, style: .continuous)
         .fill(.quaternary.opacity(0.5))
         .frame(width: side, height: side)
@@ -797,23 +866,66 @@ struct FloatingNowPlayingBar: View {
         }
     }
   }
+}
 
-  private var primaryLine: String {
-    if let b = player.activeBook { return authorDashTitleLine(for: b) }
-    if model.isRestoringLaunchPlayback { return "Playback" }
-    if showIdlePlaceholder { return "Nothing playing" }
-    return "Playback"
+struct FloatingNowPlayingBar: View {
+  @EnvironmentObject private var model: AppModel
+  @EnvironmentObject private var player: PlaybackController
+  var onExpand: () -> Void
+
+  private static let rowMinHeight: CGFloat = 48
+
+  var body: some View {
+    HStack(alignment: .center, spacing: 0) {
+      FloatingNowPlayingOpenRegion(snapshot: openSnapshot, onExpand: onExpand)
+        .environmentObject(model)
+        .layoutPriority(1)
+      FloatingNowPlayingTransport(snapshot: transportSnapshot)
+        .equatable()
+        .fixedSize(horizontal: true, vertical: false)
+    }
+    .frame(maxWidth: .infinity, minHeight: Self.rowMinHeight, alignment: .center)
+    .padding(.horizontal, 16)
+    .padding(.vertical, 6)
+    .contextMenu {
+      Button(role: .destructive) {
+        Task { await model.dismissPlayer() }
+      } label: {
+        Label("Stop playback", systemImage: "xmark.circle")
+      }
+    }
   }
 
-  private var secondaryLine: String {
-    if player.activeBook != nil {
-      let t = max(player.totalDuration, 1)
-      let p = player.globalPosition
-      return remainingTimeDashPercent(total: t, position: p)
-    }
-    if model.isRestoringLaunchPlayback { return "Loading…" }
-    if showIdlePlaceholder { return "Choose an audiobook" }
-    return ""
+  private var openSnapshot: FloatingNowPlayingOpenSnapshot {
+    let showIdle = player.showMiniPlayerPlaceholder && player.activeBook == nil
+    let subtitle: FloatingBarSubtitleMode = {
+      if player.activeBook != nil {
+        return .playing(totalDuration: max(player.totalDuration, 0))
+      }
+      if model.isRestoringLaunchPlayback { return .restoring }
+      if showIdle { return .idle("Choose an audiobook") }
+      return .hidden
+    }()
+    let primary: String = {
+      if let b = player.activeBook { return authorDashTitleLine(for: b) }
+      if model.isRestoringLaunchPlayback { return "Playback" }
+      if showIdle { return "Nothing playing" }
+      return "Playback"
+    }()
+    return FloatingNowPlayingOpenSnapshot(
+      activeBookId: player.activeBook?.id,
+      coverRevision: model.coverImageCacheRevision,
+      primaryLine: primary,
+      subtitleMode: subtitle
+    )
+  }
+
+  private var transportSnapshot: FloatingNowPlayingTransportSnapshot {
+    FloatingNowPlayingTransportSnapshot(
+      isPlaying: player.isPlaying,
+      isBuffering: player.isBuffering,
+      canTogglePlayback: player.activeBook != nil && !model.isRestoringLaunchPlayback
+    )
   }
 }
 
