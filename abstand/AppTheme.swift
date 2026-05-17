@@ -30,12 +30,40 @@ enum AppTheme {
     /// Kompakte Kachel in der Podcast-„Shows“-Leiste (nicht identisch mit Buch-Cover-Ecken).
     static let podcastShelfCoverCorner: CGFloat = 12
 
+    /// Horizontale Cover-Leiste: Podcast „Shows“ und Books „Browse“ (gleiche Maße).
+    static let horizontalBrowseStripTile: CGFloat = 68
+    static let horizontalBrowseStripLabelWidthExtra: CGFloat = 0
+    static let horizontalBrowseStripInterTileSpacing: CGFloat = withinSectionSpacing
+    static let horizontalBrowseStripTileLabelSpacing: CGFloat = 6
+    static let horizontalBrowseStripVerticalPadding: CGFloat = 4
+
     /// „Continue listening“-Karten (horizontal scrollbar, einheitliche Höhe).
     static let continueHeroCardCornerRadius: CGFloat = 16
     static let continueHeroCardWidth: CGFloat = 216
     /// Quadrat wie die Kartenbreite: typisches Cover vollständig sichtbar (`scaledToFit`).
     static let continueHeroCoverMaxHeight: CGFloat = 216
-    static let continueHeroCardHeight: CGFloat = 216
+    /// Abstand Titel ↔ Unterzeile im Hero-Metablock.
+    static let continueHeroMetadataTitleDetailSpacing: CGFloat = 4
+    static let continueHeroMetadataVerticalPadding: CGFloat = 8
+    /// Genau zwei Zeilen `subheadline` (fester Slot).
+    static let continueHeroMetadataTitleFixedHeight: CGFloat = 38
+    /// Eine Zeile `caption` für Autor/Show.
+    static let continueHeroMetadataDetailFixedHeight: CGFloat = 18
+    /// Abstand Autor-/Show-Zeile → Play-Pille.
+    static let continueHeroMetadataPlayPillTopPadding: CGFloat = 8
+    /// Slot für die Play-Pille (Capsule + Zeit) unter dem Autor.
+    static let continueHeroMetadataPlayPillRowHeight: CGFloat = 38
+    /// Fester Textblock unter dem Cover — alle Continue-Hero-Karten gleich hoch.
+    static let continueHeroMetadataBlockHeight: CGFloat =
+      continueHeroMetadataVerticalPadding * 2
+      + continueHeroMetadataTitleFixedHeight
+      + continueHeroMetadataTitleDetailSpacing
+      + continueHeroMetadataDetailFixedHeight
+      + continueHeroMetadataPlayPillTopPadding
+      + continueHeroMetadataPlayPillRowHeight
+    /// Gesamthöhe Continue-Hero-Karte (Cover + Metadaten).
+    static let continueHeroCardTotalHeight: CGFloat = continueHeroCoverMaxHeight + continueHeroMetadataBlockHeight
+    static let continueHeroCardHeight: CGFloat = continueHeroCardTotalHeight
 
     static let cardCornerRadius: CGFloat = 14
     static let libraryRowCornerRadius: CGFloat = 16

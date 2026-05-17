@@ -17,9 +17,71 @@ struct ABSUser: Decodable {
   let username: String
   let token: String
   let mediaProgress: [ABSUserMediaProgress]?
+  let bookmarks: [ABSAudioBookmark]?
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(String.self, forKey: .id)
+    username = try c.decode(String.self, forKey: .username)
+    token = try c.decode(String.self, forKey: .token)
+    mediaProgress = try c.decodeIfPresent([ABSUserMediaProgress].self, forKey: .mediaProgress)
+    bookmarks = try c.decodeIfPresent([ABSAudioBookmark].self, forKey: .bookmarks)
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case id, username, token, mediaProgress, bookmarks
+  }
+}
+
+/// Lesezeichen in einem Hörbuch (`POST/PATCH/DELETE …/api/me/item/:id/bookmark`).
+struct ABSAudioBookmark: Codable, Hashable, Identifiable {
+  let libraryItemId: String
+  let title: String
+  let time: Int
+  let createdAt: Int64?
+
+  var id: String { "\(libraryItemId)-\(time)" }
+
+  enum CodingKeys: String, CodingKey {
+    case libraryItemId, title, time, createdAt
+  }
+
+  init(libraryItemId: String, title: String, time: Int, createdAt: Int64? = nil) {
+    self.libraryItemId = libraryItemId
+    self.title = title
+    self.time = time
+    self.createdAt = createdAt
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    libraryItemId = try c.decode(String.self, forKey: .libraryItemId)
+    title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+    if let t = try? c.decode(Int.self, forKey: .time) {
+      time = t
+    } else if let d = try? c.decode(Double.self, forKey: .time) {
+      time = Int(d.rounded())
+    } else {
+      time = 0
+    }
+    if let s = try c.decodeIfPresent(Int64.self, forKey: .createdAt) {
+      createdAt = s
+    } else if let d = try c.decodeIfPresent(Double.self, forKey: .createdAt) {
+      createdAt = Int64(d.rounded())
+    } else {
+      createdAt = nil
+    }
+  }
+}
+
+struct ABSCreateBookmarkRequest: Encodable {
+  let time: Int
+  let title: String
 }
 
 struct ABSUserMediaProgress: Codable {
+  /// Primärschlüssel der Progress-Zeile auf dem Server — `DELETE /api/me/progress/:id` erwartet genau diesen Wert.
+  let mediaProgressServerId: String?
   let libraryItemId: String
   let episodeId: String?
   let duration: Double
@@ -50,6 +112,9 @@ struct ABSUserMediaProgress: Codable {
 
     let explicit = try c.decodeIfPresent(String.self, forKey: .libraryItemId)
     let rawId = try c.decodeIfPresent(String.self, forKey: .id)
+    let trimmedId = rawId?.trimmingCharacters(in: .whitespacesAndNewlines)
+    mediaProgressServerId =
+      (trimmedId?.isEmpty == false) ? trimmedId : nil
     if let explicit, !explicit.isEmpty {
       libraryItemId = explicit
     } else if let rawId, !rawId.isEmpty {
@@ -69,6 +134,9 @@ struct ABSUserMediaProgress: Codable {
 
   func encode(to encoder: Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
+    if let mediaProgressServerId, !mediaProgressServerId.isEmpty {
+      try c.encode(mediaProgressServerId, forKey: .id)
+    }
     try c.encode(libraryItemId, forKey: .libraryItemId)
     try c.encodeIfPresent(episodeId, forKey: .episodeId)
     try c.encode(duration, forKey: .duration)
@@ -80,6 +148,7 @@ struct ABSUserMediaProgress: Codable {
 
   /// Lokaler/optimistischer Fortschritt (z. B. sofort nach Play-Start für „Continue listening“).
   init(
+    mediaProgressServerId: String? = nil,
     libraryItemId: String,
     episodeId: String?,
     duration: Double,
@@ -88,6 +157,7 @@ struct ABSUserMediaProgress: Codable {
     isFinished: Bool,
     lastUpdate: Int64?
   ) {
+    self.mediaProgressServerId = mediaProgressServerId
     self.libraryItemId = libraryItemId
     self.episodeId = episodeId
     self.duration = duration
@@ -102,6 +172,12 @@ struct ABSUserMediaProgress: Codable {
     let e = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     if !e.isEmpty { return "\(libraryItemId)-\(e)" }
     return libraryItemId
+  }
+
+  /// ABS `DELETE /api/me/progress/:id` — der Server prüft `MediaProgress.id`, nicht `libraryItemId`.
+  var idForMediaProgressDeleteRequest: String {
+    if let s = mediaProgressServerId, !s.isEmpty { return s }
+    return progressLookupKey
   }
 }
 
@@ -126,6 +202,99 @@ struct ABSLibrary: Decodable, Identifiable, Equatable {
     self.name = name
     self.mediaType = mediaType
     self.displayOrder = displayOrder
+  }
+}
+
+// MARK: - Podcast directory (iTunes search) & library folders
+
+struct ABSLibraryFolderRow: Decodable, Identifiable, Hashable {
+  let id: String
+  let fullPath: String
+}
+
+/// Nur die Felder, die wir für `POST /api/podcasts` brauchen (`GET /api/libraries/:id`).
+struct ABSLibraryDetailFoldersPayload: Decodable {
+  let folders: [ABSLibraryFolderRow]?
+
+  enum CodingKeys: String, CodingKey {
+    case folders
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    folders = try c.decodeIfPresent([ABSLibraryFolderRow].self, forKey: .folders)
+  }
+}
+
+/// Treffer von `GET /api/search/podcast` (iTunes, vgl. `PodcastFinder`).
+struct ABSPodcastDirectorySearchHit: Decodable, Identifiable, Hashable {
+  let id: String
+  let artistId: String?
+  let title: String
+  let artistName: String?
+  let descriptionPlain: String?
+  let releaseDate: String?
+  let genres: [String]?
+  let cover: String?
+  let trackCount: Int?
+  let feedUrl: String?
+  let pageUrl: String?
+  let explicit: Bool?
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case artistId
+    case title
+    case artistName
+    case descriptionPlain
+    case description
+    case releaseDate
+    case genres
+    case cover
+    case trackCount
+    case feedUrl
+    case pageUrl
+    case explicit
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = Self.decodeRequiredString(c, forKey: .id)
+    artistId = Self.decodeOptionalString(c, forKey: .artistId)
+    title = (try? c.decode(String.self, forKey: .title))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    artistName = try? c.decode(String.self, forKey: .artistName)
+    if let p = try? c.decode(String.self, forKey: .descriptionPlain) {
+      descriptionPlain = p
+    } else {
+      descriptionPlain = try? c.decode(String.self, forKey: .description)
+    }
+    releaseDate = try? c.decode(String.self, forKey: .releaseDate)
+    genres = try? c.decode([String].self, forKey: .genres)
+    cover = try? c.decode(String.self, forKey: .cover)
+    trackCount = Self.decodeOptionalInt(c, forKey: .trackCount)
+    feedUrl = try? c.decode(String.self, forKey: .feedUrl)
+    pageUrl = try? c.decode(String.self, forKey: .pageUrl)
+    explicit = try? c.decode(Bool.self, forKey: .explicit)
+  }
+
+  private static func decodeRequiredString(_ c: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> String {
+    if let s = try? c.decode(String.self, forKey: key) { return s }
+    if let i = try? c.decode(Int64.self, forKey: key) { return "\(i)" }
+    if let i = try? c.decode(Int.self, forKey: key) { return "\(i)" }
+    return ""
+  }
+
+  private static func decodeOptionalString(_ c: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> String? {
+    if let s = try? c.decode(String.self, forKey: key) { return s }
+    if let i = try? c.decode(Int64.self, forKey: key) { return "\(i)" }
+    if let i = try? c.decode(Int.self, forKey: key) { return "\(i)" }
+    return nil
+  }
+
+  private static func decodeOptionalInt(_ c: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> Int? {
+    if let v = try? c.decode(Int.self, forKey: key) { return v }
+    if let s = try? c.decode(String.self, forKey: key), let v = Int(s) { return v }
+    return nil
   }
 }
 
@@ -203,6 +372,85 @@ struct ABSRecentEpisodePodcastMeta: Decodable {
   let author: String?
   let description: String?
   let genres: [String]?
+}
+
+/// Einzelne Folge aus `POST /api/podcasts/feed` (noch nicht als Library-Episode); Payload für `POST …/download-episodes`.
+struct ABSPodcastRssFeedEpisodeDraft: Identifiable, Hashable {
+  let id: UUID
+  let title: String
+  let publishedAt: Int64?
+  let subtitle: String?
+  let episodePayloadJSON: Data
+
+  func matchesLibraryEpisode(_ row: ABSPodcastEpisodeListItem) -> Bool {
+    let t0 = Self.normTitle(title)
+    let t1 = Self.normTitle(row.episodeTitle)
+    guard !t0.isEmpty, t0 == t1 else { return false }
+    let pa = publishedAt.map { $0 / 1000 }
+    let pb = row.publishedAt.map { $0 / 1000 }
+    if let pa, let pb, pa != 0, pb != 0, abs(pa - pb) <= 2 { return true }
+    if (publishedAt == nil || publishedAt == 0), (row.publishedAt == nil || row.publishedAt == 0) { return true }
+    return false
+  }
+
+  private static func normTitle(_ s: String) -> String {
+    s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+  }
+
+  static func episodesFromFeedApiResponse(_ data: Data) throws -> [ABSPodcastRssFeedEpisodeDraft] {
+    let root = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any]
+    let podcast = root?["podcast"] as? [String: Any]
+    guard let episodes = podcast?["episodes"] as? [[String: Any]] else {
+      return []
+    }
+    var out: [ABSPodcastRssFeedEpisodeDraft] = []
+    out.reserveCapacity(episodes.count)
+    for ep in episodes {
+      guard JSONSerialization.isValidJSONObject(ep) else { continue }
+      let payload = try JSONSerialization.data(withJSONObject: ep)
+      let titleRaw = (ep["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      let title = titleRaw.isEmpty ? "Episode" : titleRaw
+      let subRaw = (ep["subtitle"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      let subtitle: String? = subRaw.isEmpty ? nil : subRaw
+      let publishedAt = int64Millis(from: ep["publishedAt"]) ?? int64Millis(from: ep["pubDate"])
+      out.append(
+        ABSPodcastRssFeedEpisodeDraft(
+          id: UUID(),
+          title: title,
+          publishedAt: publishedAt,
+          subtitle: subtitle,
+          episodePayloadJSON: payload
+        )
+      )
+    }
+    return out.sorted {
+      let pa = $0.publishedAt ?? 0
+      let pb = $1.publishedAt ?? 0
+      if pa != pb { return pa > pb }
+      return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedDescending
+    }
+  }
+
+  private static func int64Millis(from value: Any?) -> Int64? {
+    switch value {
+    case let n as Int64:
+      return n
+    case let n as Int:
+      return Int64(n)
+    case let n as UInt64:
+      return Int64(clamping: n)
+    case let n as Double:
+      if n > 10_000_000_000 { return Int64(n) }
+      if n > 1_000_000_000 { return Int64(n * 1000) }
+      return Int64(n * 1000)
+    case let s as String:
+      let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+      if let i = Int64(t) { return i }
+      return nil
+    default:
+      return nil
+    }
+  }
 }
 
 struct ABSPodcastEpisodeListItem: Identifiable, Hashable, Codable {
@@ -421,6 +669,29 @@ struct ABSBookMediaMetadata: Decodable {
   }
 }
 
+extension ABSBookMediaMetadata {
+  /// Sprecher-Namen für Zuordnung Bibliotheksitem → Sprecher (exakter Name wie in `/narrators`).
+  func narratorNamesForLibraryBrowseCoverMatch() -> [String] {
+    var seen = Set<String>()
+    var out: [String] = []
+    func push(_ raw: String) {
+      let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !t.isEmpty, !seen.contains(t) else { return }
+      seen.insert(t)
+      out.append(t)
+    }
+    if let arr = narrators {
+      for raw in arr { push(raw) }
+    }
+    if let single = narratorName?.trimmingCharacters(in: .whitespacesAndNewlines), !single.isEmpty {
+      for part in single.split(separator: ",") {
+        push(String(part))
+      }
+    }
+    return out
+  }
+}
+
 struct ABSChapter: Decodable {
   let id: Int
   let start: Double
@@ -495,10 +766,13 @@ struct ABSBookMedia: Decodable {
   let tracks: [ABSAudioTrack]?
   /// Nur Podcast-`media.episodes` (expandiertes Library-Item).
   let podcastEpisodes: [ABSRecentPodcastEpisodeDTO]?
+  let autoDownloadEpisodes: Bool?
+  let autoDownloadSchedule: String?
 
   enum CodingKeys: String, CodingKey {
     case metadata, duration, size, numTracks, chapters, tracks, audioFiles
     case podcastEpisodes = "episodes"
+    case autoDownloadEpisodes, autoDownloadSchedule
   }
 
   init(from decoder: Decoder) throws {
@@ -509,6 +783,8 @@ struct ABSBookMedia: Decodable {
     numTracks = try c.decodeIfPresent(Int.self, forKey: .numTracks)
     chapters = try c.decodeIfPresent([ABSChapter].self, forKey: .chapters)
     podcastEpisodes = try c.decodeIfPresent([ABSRecentPodcastEpisodeDTO].self, forKey: .podcastEpisodes)
+    autoDownloadEpisodes = try c.decodeIfPresent(Bool.self, forKey: .autoDownloadEpisodes)
+    autoDownloadSchedule = try c.decodeIfPresent(String.self, forKey: .autoDownloadSchedule)
     if let ts = try c.decodeIfPresent([ABSAudioTrack].self, forKey: .tracks), !ts.isEmpty {
       tracks = ts
     } else if let files = try c.decodeIfPresent([ABSSearchAudioFile].self, forKey: .audioFiles), !files.isEmpty {
@@ -576,11 +852,62 @@ struct ABSBook: Decodable, Identifiable {
     if let a = m.authors, !a.isEmpty { return a.map(\.name).joined(separator: ", ") }
     return "—"
   }
+  /// Erste Autor:in für kompakte UI (Listenkarten, Continue-Hero, Miniplayer); Detail- und Filterzeilen nutzen `displayAuthors`.
+  var displayAuthorsCardLine: String {
+    let m = media.metadata
+    let raw: String? = {
+      if let a = m.authors, let first = a.first {
+        let t = first.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !t.isEmpty { return t }
+      }
+      if let n = m.authorName?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
+        return n
+      }
+      return nil
+    }()
+    guard let raw else { return "—" }
+    return Self.primaryAuthorForCardCompactDisplay(raw)
+  }
+
+  /// Katalog liefert oft einen langen `authorName` („Autor1, Autor2 - Übersetzer, …“). Nur den ersten Namen zeigen,
+  /// außer bei typischem „Nachname, Vorname“ (zwei Segmente ohne Rollenhinweis).
+  private static func primaryAuthorForCardCompactDisplay(_ full: String) -> String {
+    let t = full.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty else { return "—" }
+    let parts = t.components(separatedBy: ", ")
+    guard parts.count >= 2 else { return t }
+    let p1 = parts[1]
+    let p1Lower = p1.lowercased()
+    let looksLikeMultiPersonOrCreditsList =
+      parts.count >= 3
+      || p1.contains(" - ")
+      || p1Lower.contains("überset")
+      || p1Lower.contains("translat")
+      || p1Lower.contains("traduct")
+      || p1Lower.contains("lector")
+      || p1Lower.contains("bearbeit")
+    if looksLikeMultiPersonOrCreditsList {
+      return parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    return t
+  }
+
   var totalDuration: Double { media.duration ?? 0 }
 
   /// Enough metadata to play or show in lists.
   var isPlayableAudiobook: Bool {
     (media.numTracks ?? 0) > 0 || (media.duration ?? 0) > 0
+  }
+
+  /// Listen-Katalog (`GET …/libraries/:id/items`, oft `minified=1`): Spuren/Dauer fehlen häufig — ohne Fallback
+  /// verschwinden neu hinzugefügte Titel aus der Liste.
+  var isUsableLibraryCatalogRow: Bool {
+    if isPlayableAudiobook { return true }
+    let tracks = media.numTracks
+    if tracks == nil, (media.duration ?? 0) <= 0 {
+      return !displayTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    return false
   }
 }
 
@@ -615,7 +942,9 @@ extension ABSBookMedia {
     numTracks: Int?,
     chapters: [ABSChapter]? = nil,
     tracks: [ABSAudioTrack]?,
-    podcastEpisodes: [ABSRecentPodcastEpisodeDTO]? = nil
+    podcastEpisodes: [ABSRecentPodcastEpisodeDTO]? = nil,
+    autoDownloadEpisodes: Bool? = nil,
+    autoDownloadSchedule: String? = nil
   ) {
     self.metadata = metadata
     self.duration = duration
@@ -624,6 +953,8 @@ extension ABSBookMedia {
     self.chapters = chapters
     self.tracks = tracks
     self.podcastEpisodes = podcastEpisodes
+    self.autoDownloadEpisodes = autoDownloadEpisodes
+    self.autoDownloadSchedule = autoDownloadSchedule
   }
 }
 
@@ -680,6 +1011,12 @@ struct ABSAuthorShelfEntity: Decodable, Identifiable, Hashable {
   let id: String
   let name: String
   let numBooks: Int?
+  let imagePath: String?
+
+  var hasAuthorImage: Bool {
+    let s = imagePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return !s.isEmpty
+  }
 }
 
 struct ABSStartShelfSection: Identifiable {
@@ -689,10 +1026,30 @@ struct ABSStartShelfSection: Identifiable {
   let books: [ABSBook]
   let podcastEpisodes: [ABSPodcastEpisodeListItem]
   let authors: [ABSAuthorShelfEntity]
+  let series: [ABSLibrarySeriesListItem]
 
   var hasBooks: Bool { !books.isEmpty }
   var hasPodcastEpisodes: Bool { !podcastEpisodes.isEmpty }
   var hasAuthors: Bool { !authors.isEmpty }
+  var hasSeries: Bool { !series.isEmpty }
+
+  init(
+    id: String,
+    category: String,
+    displayTitle: String,
+    books: [ABSBook] = [],
+    podcastEpisodes: [ABSPodcastEpisodeListItem] = [],
+    authors: [ABSAuthorShelfEntity] = [],
+    series: [ABSLibrarySeriesListItem] = []
+  ) {
+    self.id = id
+    self.category = category
+    self.displayTitle = displayTitle
+    self.books = books
+    self.podcastEpisodes = podcastEpisodes
+    self.authors = authors
+    self.series = series
+  }
 }
 
 /// Gemischte Zeilen für Home-Regale (Weiterhören mit Büchern + Podcast-Folgen).
@@ -765,6 +1122,37 @@ enum ABSStartShelfLocalization {
     "recommended", "recentlyFinished", "newestAuthors",
   ]
 
+  /// Regale mit Listen- vs. Cover-Streifen-Layout (Bücher und/oder Autoren) — kein Hero.
+  static let categoriesWithBookLayoutSetting: Set<String> = [
+    "continueSeries", "newestItems", "newestSeries", "recommended", "recentlyFinished",
+    "newestAuthors",
+  ]
+
+  static func supportsBookLayoutSetting(category: String) -> Bool {
+    categoriesWithBookLayoutSetting.contains(category)
+  }
+}
+
+/// Home-Regal: volle Zeilenkarte oder horizontaler Cover-Streifen.
+enum StartShelfBookLayout: String, CaseIterable, Identifiable {
+  case list
+  case compact
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .list: "List"
+    case .compact: "Covers"
+    }
+  }
+
+  static func defaultForCategory(_ category: String) -> StartShelfBookLayout {
+    category == "newestItems" ? .compact : .list
+  }
+}
+
+extension ABSStartShelfLocalization {
   /// `/personalized` liefert oft `id` wie `continue-listening`; die Schalter nutzen camelCase-Keys wie `recentlyListened`.
   static func normalizedSettingsCategory(shelfId: String, apiCategory: String?) -> String {
     if let c = apiCategory, settingsCategoryOrder.contains(c) { return c }
@@ -782,6 +1170,163 @@ enum ABSStartShelfLocalization {
       "newest-episodes": "newestItems",
     ]
     return kebabToSettings[shelfId] ?? shelfId
+  }
+}
+
+// MARK: - Library browse (catalog sections)
+
+/// `GET /api/libraries/:id/authors` (ältere Server: nur `authors`, neuere: `results` + `total` mit Pagination).
+struct ABSLibraryAuthorsAPIEnvelope: Decodable {
+  let authors: [ABSLibraryAuthorListItem]?
+  let results: [ABSLibraryAuthorListItem]?
+  let total: Int?
+
+  enum CodingKeys: String, CodingKey {
+    case authors, results, total
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    authors = try c.decodeIfPresent([ABSLibraryAuthorListItem].self, forKey: .authors)
+    results = try c.decodeIfPresent([ABSLibraryAuthorListItem].self, forKey: .results)
+    if let t = try? c.decode(Int.self, forKey: .total) {
+      total = t
+    } else if let s = try? c.decode(String.self, forKey: .total), let t = Int(s) {
+      total = t
+    } else {
+      total = nil
+    }
+  }
+
+  func itemsAndTotal() -> ([ABSLibraryAuthorListItem], Int) {
+    if let results {
+      return (results, total ?? results.count)
+    }
+    let a = authors ?? []
+    return (a, total ?? a.count)
+  }
+}
+
+/// `GET /api/libraries/:id/authors` (Legacy-Form ohne Pagination).
+struct ABSLibraryAuthorsEnvelope: Decodable {
+  let authors: [ABSLibraryAuthorListItem]
+}
+
+/// `GET /api/libraries/:id/authors`
+struct ABSLibraryAuthorListItem: Decodable, Identifiable, Hashable {
+  let id: String
+  let name: String
+  let numBooks: Int?
+  let imagePath: String?
+
+  var hasAuthorImage: Bool {
+    let s = imagePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return !s.isEmpty
+  }
+}
+
+/// `GET /api/authors/:id` (optional `include=items,series` und `library`).
+struct ABSAuthorDetail: Decodable {
+  let id: String
+  let name: String
+  let description: String?
+  let libraryItems: [ABSBook]?
+  let series: [ABSAuthorDetailSeries]?
+}
+
+/// Serien unter einem Autor (`include=items,series`).
+struct ABSAuthorDetailSeries: Decodable, Identifiable {
+  let id: String
+  let name: String
+  let items: [ABSBook]?
+}
+
+/// Darstellung Autor-Detail: eine Serie mit ihren Büchern (Reihenfolge aus API/`sequence`).
+struct EntityDetailAuthorSeriesSection: Identifiable {
+  let id: String
+  let name: String
+  let books: [ABSBook]
+}
+
+/// `GET /api/series/:id`.
+struct ABSSeriesDetail: Decodable {
+  let id: String
+  let name: String
+  let description: String?
+}
+
+/// `GET /api/libraries/:id/narrators`
+struct ABSLibraryNarratorListItem: Decodable, Identifiable, Hashable {
+  let id: String
+  let name: String
+  let numBooks: Int?
+}
+
+struct ABSLibraryNarratorsEnvelope: Decodable {
+  let narrators: [ABSLibraryNarratorListItem]
+}
+
+/// Eintrag aus `GET /api/libraries/:id/series`
+struct ABSLibrarySeriesListItem: Decodable, Identifiable {
+  let id: String
+  let name: String
+  let books: [ABSBook]?
+
+  enum CodingKeys: String, CodingKey {
+    case id, name, books
+  }
+}
+
+/// Eintrag aus `GET /api/libraries/:id/collections`
+struct ABSLibraryCollectionListItem: Decodable, Identifiable {
+  let id: String
+  let name: String
+  let books: [ABSBook]?
+  let createdAt: TimeInterval?
+  let lastUpdate: TimeInterval?
+
+  enum CodingKeys: String, CodingKey {
+    case id, name, books, createdAt, lastUpdate
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(String.self, forKey: .id)
+    name = try c.decode(String.self, forKey: .name)
+    books = try c.decodeIfPresent([ABSBook].self, forKey: .books)
+    createdAt = Self.decodeOptionalMillis(c, key: .createdAt)
+    lastUpdate = Self.decodeOptionalMillis(c, key: .lastUpdate)
+  }
+
+  private static func decodeOptionalMillis(
+    _ c: KeyedDecodingContainer<CodingKeys>, key: CodingKeys
+  ) -> TimeInterval? {
+    if let d = try? c.decode(Double.self, forKey: key) { return d / 1000.0 }
+    if let i = try? c.decode(Int64.self, forKey: key) { return TimeInterval(i) / 1000.0 }
+    if let i = try? c.decode(Int.self, forKey: key) { return TimeInterval(i) / 1000.0 }
+    if let s = try? c.decode(String.self, forKey: key), let d = Double(s) { return d / 1000.0 }
+    return nil
+  }
+}
+
+struct ABSLibraryResultsPageEnvelope<T: Decodable>: Decodable {
+  let results: [T]
+  let total: Int
+
+  enum CodingKeys: String, CodingKey {
+    case results, total
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    results = (try? c.decode([T].self, forKey: .results)) ?? []
+    if let t = try? c.decode(Int.self, forKey: .total) {
+      total = t
+    } else if let s = try? c.decode(String.self, forKey: .total), let t = Int(s) {
+      total = t
+    } else {
+      total = results.count
+    }
   }
 }
 
@@ -1243,6 +1788,11 @@ struct ABSSessionSyncBody: Encodable {
   let currentTime: Double
 }
 
+struct ABSPodcastMediaAutoDownloadPatch: Encodable {
+  let autoDownloadEpisodes: Bool
+  let autoDownloadSchedule: String
+}
+
 struct ABSProgressPatch: Encodable {
   var currentTime: Double?
   var duration: Double?
@@ -1259,5 +1809,370 @@ struct ABSProgressPatch: Encodable {
     try c.encodeIfPresent(duration, forKey: .duration)
     try c.encodeIfPresent(progress, forKey: .progress)
     try c.encodeIfPresent(isFinished, forKey: .isFinished)
+  }
+}
+
+// MARK: - Listening stats (`GET /api/me/listening-stats`)
+
+/// String-Keys für das `items`-Objekt (Library-Item-ID → Aggregat).
+private struct ABSListeningStatsItemsCodingKey: CodingKey, Hashable {
+  var stringValue: String
+  var intValue: Int? { nil }
+  init?(intValue: Int) { nil }
+  init(stringValue: String) { self.stringValue = stringValue }
+}
+
+/// Antwortgemäß [API: Get Your Listening Stats](https://api.audiobookshelf.org).
+/// Tolerant gegen Float-Zahlen, fehlende Teilfelder und kaputte einzelne `items`-Einträge.
+struct ABSListeningStatsResponse: Decodable {
+  let totalTime: Int
+  let today: Int
+  let days: [String: Int]
+  let dayOfWeek: [String: Int]
+  let items: [String: ABSListeningStatsItemAggregate]
+  let recentSessions: [ABSListeningStatsRecentSession]
+
+  enum CodingKeys: String, CodingKey {
+    case totalTime, today, days, dayOfWeek, items, recentSessions
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    totalTime = ABSListeningStatsDecode.flexibleInt(c, forKey: .totalTime)
+    today = ABSListeningStatsDecode.flexibleInt(c, forKey: .today)
+    days = Self.decodeStringIntDictionary(c, forKey: .days)
+    dayOfWeek = Self.decodeStringIntDictionary(c, forKey: .dayOfWeek)
+    items = Self.decodeItemsSkippingBroken(c)
+    recentSessions = Self.decodeRecentSessionsLenient(c)
+  }
+
+  /// Tag / Wochentag → Sekunden (Server liefert manchmal `Double`).
+  private static func decodeStringIntDictionary(
+    _ c: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys
+  ) -> [String: Int] {
+    guard c.contains(key) else { return [:] }
+    if let m = try? c.decode([String: Int].self, forKey: key) { return m }
+    if let m = try? c.decode([String: Double].self, forKey: key) {
+      return m.mapValues { Int($0.rounded()) }
+    }
+    return [:]
+  }
+
+  private static func decodeItemsSkippingBroken(_ c: KeyedDecodingContainer<CodingKeys>)
+    -> [String: ABSListeningStatsItemAggregate]
+  {
+    guard c.contains(.items) else { return [:] }
+    guard let nested = try? c.nestedContainer(keyedBy: ABSListeningStatsItemsCodingKey.self, forKey: .items) else {
+      return [:]
+    }
+    var out: [String: ABSListeningStatsItemAggregate] = [:]
+    out.reserveCapacity(nested.allKeys.count)
+    for key in nested.allKeys {
+      guard let item = try? nested.decode(ABSListeningStatsItemAggregate.self, forKey: key) else { continue }
+      let kid = key.stringValue
+      if item.id.isEmpty {
+        out[kid] = item.withLibraryItemIdFallback(kid)
+      } else {
+        out[kid] = item
+      }
+    }
+    return out
+  }
+
+  private static func decodeRecentSessionsLenient(_ c: KeyedDecodingContainer<CodingKeys>)
+    -> [ABSListeningStatsRecentSession]
+  {
+    guard c.contains(.recentSessions) else { return [] }
+    if let sessions = try? c.decode([ABSListeningStatsRecentSession].self, forKey: .recentSessions) {
+      return sessions
+    }
+    return []
+  }
+}
+
+struct ABSListeningStatsItemAggregate: Decodable, Identifiable {
+  let id: String
+  let timeListening: Int
+  let mediaMetadata: ABSListeningStatsMetadata?
+
+  enum CodingKeys: String, CodingKey {
+    case id, timeListening, mediaMetadata
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+    timeListening = ABSListeningStatsDecode.flexibleInt(c, forKey: .timeListening)
+    mediaMetadata = try? c.decode(ABSListeningStatsMetadata.self, forKey: .mediaMetadata)
+  }
+
+  func withLibraryItemIdFallback(_ libraryItemId: String) -> ABSListeningStatsItemAggregate {
+    ABSListeningStatsItemAggregate(
+      id: id.isEmpty ? libraryItemId : id,
+      timeListening: timeListening,
+      mediaMetadata: mediaMetadata
+    )
+  }
+
+  init(id: String, timeListening: Int, mediaMetadata: ABSListeningStatsMetadata?) {
+    self.id = id
+    self.timeListening = timeListening
+    self.mediaMetadata = mediaMetadata
+  }
+}
+
+private enum ABSListeningStatsDecode {
+  static func flexibleInt<K: CodingKey>(_ c: KeyedDecodingContainer<K>, forKey key: K) -> Int {
+    if let v = try? c.decode(Int.self, forKey: key) { return v }
+    if let v = try? c.decode(Double.self, forKey: key) { return Int(v.rounded()) }
+    if let v = try? c.decode(Int64.self, forKey: key) { return Int(v) }
+    return 0
+  }
+
+  static func flexibleDouble<K: CodingKey>(_ c: KeyedDecodingContainer<K>, forKey key: K) -> Double {
+    if let v = try? c.decode(Double.self, forKey: key) { return v }
+    if let v = try? c.decode(Int.self, forKey: key) { return Double(v) }
+    if let v = try? c.decode(Int64.self, forKey: key) { return Double(v) }
+    return 0
+  }
+}
+
+struct ABSListeningStatsMetadata: Decodable {
+  let title: String?
+  let author: String?
+  let authorName: String?
+  let feedUrl: String?
+  let type: String?
+
+  var displayTitle: String {
+    let t = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    return t.isEmpty ? "—" : t
+  }
+
+  var displaySubtitle: String {
+    let a = author?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !a.isEmpty { return a }
+    let an = authorName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return an.isEmpty ? "—" : an
+  }
+
+  /// Heuristik Buch vs. Podcast-Show (Server liefert unterschiedliche Metadaten).
+  var isPodcastLike: Bool {
+    if feedUrl != nil { return true }
+    let t = type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    if t == "episodic" || t == "serial" { return true }
+    return false
+  }
+}
+
+struct ABSListeningStatsRecentSession: Decodable, Identifiable {
+  let id: String
+  let libraryItemId: String
+  let episodeId: String?
+  let displayTitle: String?
+  let displayAuthor: String?
+  let mediaType: String?
+  let timeListening: Int
+  let startTime: Double
+  let startedAt: Int64
+
+  enum CodingKeys: String, CodingKey {
+    case id, libraryItemId, episodeId, displayTitle, displayAuthor, mediaType
+    case timeListening, startTime, startedAt
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+    if let lid = try c.decodeIfPresent(String.self, forKey: .libraryItemId), !lid.isEmpty {
+      libraryItemId = lid
+    } else {
+      libraryItemId = ""
+    }
+    episodeId = try c.decodeIfPresent(String.self, forKey: .episodeId)
+    displayTitle = try c.decodeIfPresent(String.self, forKey: .displayTitle)
+    displayAuthor = try c.decodeIfPresent(String.self, forKey: .displayAuthor)
+    mediaType = try c.decodeIfPresent(String.self, forKey: .mediaType)
+    timeListening = ABSListeningStatsDecode.flexibleInt(c, forKey: .timeListening)
+    startTime = ABSListeningStatsDecode.flexibleDouble(c, forKey: .startTime)
+    if let s = try c.decodeIfPresent(Int64.self, forKey: .startedAt) {
+      startedAt = s
+    } else if let d = try c.decodeIfPresent(Double.self, forKey: .startedAt) {
+      startedAt = Int64(d.rounded())
+    } else {
+      startedAt = 0
+    }
+  }
+}
+
+extension ABSListeningStatsResponse {
+  /// Dekodierung: zuerst Standard-JSON (camelCase wie in der API-Doku), sonst mit `convertFromSnakeCase` (Proxys / ältere Server).
+  static func decodeAPIPayload(_ data: Data) throws -> ABSListeningStatsResponse {
+    if let s = try? ABSJSON.decoder().decode(ABSListeningStatsResponse.self, from: data) {
+      return s
+    }
+    return try ABSJSON.decoderListeningStats().decode(ABSListeningStatsResponse.self, from: data)
+  }
+}
+
+extension ABSListeningStatsResponse {
+  /// Höchste Hördauer zuerst (für „Meist gehört“).
+  var itemsSortedByListeningTime: [(id: String, item: ABSListeningStatsItemAggregate)] {
+    items.map { (id: $0.key, item: $0.value) }
+      .filter { !$0.item.id.isEmpty }
+      .sorted { $0.item.timeListening > $1.item.timeListening }
+  }
+
+  func secondsInLastDays(_ dayCount: Int, calendar: Calendar = .current, now: Date = Date()) -> Int {
+    let start = calendar.startOfDay(for: now)
+    var sum = 0
+    for i in 0 ..< max(0, dayCount) {
+      guard let d = calendar.date(byAdding: .day, value: -i, to: start) else { continue }
+      let k = Self.dayKey(d, calendar: calendar)
+      sum += days[k, default: 0]
+    }
+    return sum
+  }
+
+  /// Letzte 7 Tage (ältester Tag zuerst) für Diagramme — Schlüssel `id` = `yyyy-MM-dd`.
+  func lastSevenDayBars(calendar: Calendar = .current, now: Date = Date(), locale: Locale = .current)
+    -> [(id: String, label: String, seconds: Int)]
+  {
+    let start = calendar.startOfDay(for: now)
+    let df = DateFormatter()
+    df.locale = locale
+    df.setLocalizedDateFormatFromTemplate("EEE")
+    var rows: [(String, String, Int)] = []
+    for offset in 0 ..< 7 {
+      guard let d = calendar.date(byAdding: .day, value: offset - 6, to: start) else { continue }
+      let k = Self.dayKey(d, calendar: calendar)
+      rows.append((k, df.string(from: d), days[k, default: 0]))
+    }
+    return rows
+  }
+
+  /// Sekunden im aktuellen Kalendermonat (lokale Zeitzone).
+  func secondsThisCalendarMonth(calendar: Calendar = .current, now: Date = Date()) -> Int {
+    let comps = calendar.dateComponents([.year, .month], from: now)
+    guard let y = comps.year, let m = comps.month else { return 0 }
+    var sum = 0
+    for (key, sec) in days where sec > 0 {
+      guard let d = Self.parseDayKey(key, calendar: calendar) else { continue }
+      let c2 = calendar.dateComponents([.year, .month], from: d)
+      if c2.year == y, c2.month == m { sum += sec }
+    }
+    return sum
+  }
+
+  /// Summe der `days`-Einträge im laufenden Kalenderjahr (lokal).
+  func secondsThisCalendarYear(calendar: Calendar = .current, now: Date = Date()) -> Int {
+    let y = calendar.component(.year, from: now)
+    var sum = 0
+    for (key, sec) in days where sec > 0 {
+      guard let d = Self.parseDayKey(key, calendar: calendar) else { continue }
+      if calendar.component(.year, from: d) == y { sum += sec }
+    }
+    return sum
+  }
+
+  var daysActive: Int {
+    days.values.filter { $0 > 0 }.count
+  }
+
+  /// Tagesdurchschnitt über Tage mit Aktivität (wie typische Statistik-Übersichten).
+  var dailyAverageSeconds: Int {
+    let d = max(daysActive, 1)
+    return totalTime / d
+  }
+
+  var totalTimeAsCalendarDaysApprox: Double {
+    Double(totalTime) / 86_400.0
+  }
+
+  func currentListeningStreakDays(calendar: Calendar = .current, now: Date = Date()) -> Int {
+    let active = activeDayStarts(calendar: calendar)
+    guard !active.isEmpty else { return 0 }
+    let today = calendar.startOfDay(for: now)
+    let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+    var cursor: Date
+    if active.contains(today) {
+      cursor = today
+    } else if active.contains(yesterday) {
+      cursor = yesterday
+    } else {
+      return 0
+    }
+    var streak = 0
+    while active.contains(cursor) {
+      streak += 1
+      guard let prev = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
+      cursor = prev
+    }
+    return streak
+  }
+
+  func bestListeningStreakDays(calendar: Calendar = .current) -> Int {
+    let daysSorted = activeDayStarts(calendar: calendar).sorted()
+    guard daysSorted.count >= 2 else { return daysSorted.isEmpty ? 0 : 1 }
+    var best = 1
+    var run = 1
+    for i in 1 ..< daysSorted.count {
+      let prev = daysSorted[i - 1]
+      let cur = daysSorted[i]
+      if let next = calendar.date(byAdding: .day, value: 1, to: prev), calendar.isDate(next, inSameDayAs: cur) {
+        run += 1
+        best = max(best, run)
+      } else {
+        run = 1
+      }
+    }
+    return best
+  }
+
+  var bookLikeItemCount: Int {
+    items.values.filter { !($0.mediaMetadata?.isPodcastLike ?? false) }.count
+  }
+
+  var podcastLikeItemCount: Int {
+    items.values.filter { $0.mediaMetadata?.isPodcastLike ?? false }.count
+  }
+
+  private func activeDayStarts(calendar: Calendar) -> Set<Date> {
+    var set = Set<Date>()
+    for (key, sec) in days where sec > 0 {
+      if let d = Self.parseDayKey(key, calendar: calendar) {
+        set.insert(calendar.startOfDay(for: d))
+      }
+    }
+    return set
+  }
+
+  private static func dayKey(_ date: Date, calendar: Calendar) -> String {
+    let c = calendar.dateComponents([.year, .month, .day], from: date)
+    return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+  }
+
+  private static func parseDayKey(_ key: String, calendar: Calendar) -> Date? {
+    let p = key.trimmingCharacters(in: .whitespacesAndNewlines)
+    let parts = p.split(separator: "-").compactMap { Int($0) }
+    guard parts.count == 3 else { return nil }
+    var comp = DateComponents()
+    comp.year = parts[0]
+    comp.month = parts[1]
+    comp.day = parts[2]
+    return calendar.date(from: comp)
+  }
+}
+
+extension String {
+  /// Ein POSIX-Segment für Server-Bibliothekspfade (Unterordner unter dem Bibliotheksordner).
+  func absSanitizedLibraryPathSegment() -> String {
+    let t = trimmingCharacters(in: .whitespacesAndNewlines)
+    let base = t.isEmpty ? "Podcast" : t
+    let invalid = CharacterSet(charactersIn: "/\\:?*\"<>|\u{0000}")
+    var s = base.components(separatedBy: invalid).joined(separator: "_")
+    s = s.replacingOccurrences(of: "..", with: "_")
+    if s.isEmpty { return "Podcast" }
+    return String(s.prefix(120))
   }
 }

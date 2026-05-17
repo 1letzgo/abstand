@@ -177,7 +177,9 @@ actor ABSAPIClient {
       q["filter"] = filter
     }
     let req = try authorizedRequest(path: "api/libraries/\(libraryId)/items", query: q)
-    let (data, resp) = try await urlSession.data(for: req)
+    var reqNoCache = req
+    reqNoCache.cachePolicy = .reloadIgnoringLocalCacheData
+    let (data, resp) = try await urlSession.data(for: reqNoCache)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     guard (200 ..< 300).contains(http.statusCode) else {
       throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
@@ -214,10 +216,57 @@ actor ABSAPIClient {
     }
   }
 
+  private struct ABSPodcastRssFeedRequestBody: Encodable {
+    let rssFeed: String
+  }
+
+  /// RSS parsen ohne Library zu ändern (`POST /api/podcasts/feed`).
+  func fetchPodcastRssFeed(rssFeedUrl: String) async throws -> Data {
+    let body = try encoder.encode(ABSPodcastRssFeedRequestBody(rssFeed: rssFeedUrl))
+    let req = try authorizedRequest(
+      path: "api/podcasts/feed",
+      method: "POST",
+      body: body,
+      timeout: 180
+    )
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    return data
+  }
+
+  /// Ausgewählte Feed-Folgen auf den Server laden (`POST /api/podcasts/:id/download-episodes`, Body = JSON-Array von Folgenobjekten).
+  func downloadPodcastEpisodesToLibrary(podcastLibraryItemId: String, episodesJsonArray: Data) async throws {
+    let req = try authorizedRequest(
+      path: "api/podcasts/\(podcastLibraryItemId)/download-episodes",
+      method: "POST",
+      body: episodesJsonArray,
+      timeout: 300
+    )
+    try await sendData(req)
+  }
+
   func item(id: String, expanded: Bool = true) async throws -> ABSBook {
     let q = ["expanded": expanded ? "1" : "0"]
     let req = try authorizedRequest(path: "api/items/\(id)", query: q)
     return try await send(req)
+  }
+
+  /// Podcast: Auto-Download und Cron-Zeitplan (`PATCH /api/items/:id/media`).
+  func patchPodcastMediaAutoDownload(
+    itemId: String,
+    autoDownloadEpisodes: Bool,
+    autoDownloadSchedule: String
+  ) async throws {
+    let body = try encoder.encode(
+      ABSPodcastMediaAutoDownloadPatch(
+        autoDownloadEpisodes: autoDownloadEpisodes,
+        autoDownloadSchedule: autoDownloadSchedule
+      ))
+    let req = try authorizedRequest(path: "api/items/\(itemId)/media", method: "PATCH", body: body)
+    try await sendData(req)
   }
 
   func search(libraryId: String, query: String, limit: Int = 48) async throws -> ABSSearchResponse {
@@ -281,24 +330,21 @@ actor ABSAPIClient {
             id: sid, category: category, displayTitle: title, books: books, podcastEpisodes: [],
             authors: []))
       } else if type == "series" {
-        var books: [ABSBook] = []
+        var series: [ABSLibrarySeriesListItem] = []
         for ser in entities {
-          let booksArr = ser["books"] as? [[String: Any]] ?? []
-          for e in booksArr {
-            if let mt = e["mediaType"] as? String, mt != "book" { continue }
-            guard let sub = try? JSONSerialization.data(withJSONObject: e),
-              let book = try? dec.decode(ABSBook.self, from: sub),
-              book.isPlayableAudiobook
-            else { continue }
-            books.append(book)
+          guard let sub = try? JSONSerialization.data(withJSONObject: ser),
+            let item = try? dec.decode(ABSLibrarySeriesListItem.self, from: sub)
+          else { continue }
+          let playable = (item.books ?? []).contains(where: \.isPlayableAudiobook)
+          if playable || !(item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+            series.append(item)
           }
         }
-        guard !books.isEmpty else { continue }
+        guard !series.isEmpty else { continue }
         let title = ABSStartShelfLocalization.displayTitle(category: category, serverLabel: label)
         out.append(
           ABSStartShelfSection(
-            id: sid, category: category, displayTitle: title, books: books, podcastEpisodes: [],
-            authors: []))
+            id: sid, category: category, displayTitle: title, series: series))
       } else if type == "authors" {
         var authors: [ABSAuthorShelfEntity] = []
         for e in entities {
@@ -404,6 +450,41 @@ actor ABSAPIClient {
     return try await sendListeningSessionsPayload(req)
   }
 
+  func createBookmark(libraryItemId: String, time: Int, title: String) async throws -> ABSAudioBookmark {
+    let body = try encoder.encode(ABSCreateBookmarkRequest(time: time, title: title))
+    let req = try authorizedRequest(
+      path: "api/me/item/\(libraryItemId)/bookmark",
+      method: "POST",
+      body: body
+    )
+    return try await send(req)
+  }
+
+  func deleteBookmark(libraryItemId: String, time: Int) async throws {
+    let req = try authorizedRequest(
+      path: "api/me/item/\(libraryItemId)/bookmark/\(time)",
+      method: "DELETE"
+    )
+    try await sendData(req)
+  }
+
+  /// Aggregierte Statistik (Hördauer pro Tag, meist gehört, letzte Sitzungen).
+  /// Liefert die Rohantwort für den lokalen Cache (`LibraryDiskCache`).
+  func listeningStats() async throws -> (stats: ABSListeningStatsResponse, rawData: Data) {
+    let req = try authorizedRequest(path: "api/me/listening-stats")
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    do {
+      let stats = try ABSListeningStatsResponse.decodeAPIPayload(data)
+      return (stats, data)
+    } catch {
+      throw ABSAPIError.decoding(error)
+    }
+  }
+
   func startPlaySession(
     itemId: String,
     episodeId: String? = nil,
@@ -451,6 +532,20 @@ actor ABSAPIClient {
     }
     let req = try authorizedRequest(path: path, method: "PATCH", body: body)
     try await sendData(req)
+  }
+
+  /// Entfernt den Media-Progress-Eintrag (`DELETE /api/me/progress/:id` mit `MediaProgress.id` aus `/authorize`).
+  func deleteMediaProgress(progressRowId: String) async throws {
+    let id = progressRowId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !id.isEmpty else { throw ABSAPIError.invalidURL }
+    let path = "api/me/progress/\(id)"
+    let req = try authorizedRequest(path: path, method: "DELETE")
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    if http.statusCode == 404 { return }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
   }
 
   func markFinished(libraryItemId: String, episodeId: String? = nil) async throws {
@@ -547,5 +642,206 @@ actor ABSAPIClient {
       if ftyp == Data([0x66, 0x74, 0x79, 0x70]) { return "m4a" }  // "ftyp"
     }
     return "m4a"
+  }
+
+  /// Apple-Podcasts-Suche (`GET /api/search/podcast`).
+  func searchPodcastsDirectory(term: String, country: String) async throws -> [ABSPodcastDirectorySearchHit] {
+    let t = term.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty else { return [] }
+    let req = try authorizedRequest(
+      path: "api/search/podcast",
+      query: [
+        "term": t,
+        "country": country,
+      ]
+    )
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    return try decoder.decode([ABSPodcastDirectorySearchHit].self, from: data)
+  }
+
+  /// Autoren der Bibliothek (`GET /api/libraries/:id/authors`), mit Pagination und `sort`/`desc`.
+  func libraryAuthorsPage(
+    libraryId: String,
+    page: Int,
+    limit: Int = 50,
+    sort: String,
+    descending: Bool
+  ) async throws -> (results: [ABSLibraryAuthorListItem], total: Int, raw: Data) {
+    var q: [String: String] = [
+      "limit": "\(limit)",
+      "page": "\(page)",
+      "sort": sort,
+    ]
+    if descending { q["desc"] = "1" }
+    let req = try authorizedRequest(path: "api/libraries/\(libraryId)/authors", query: q)
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    do {
+      let env = try decoder.decode(ABSLibraryAuthorsAPIEnvelope.self, from: data)
+      let pair = env.itemsAndTotal()
+      return (pair.0, pair.1, data)
+    } catch {
+      if page != 0 { throw ABSAPIError.decoding(error) }
+      let plain = try authorizedRequest(path: "api/libraries/\(libraryId)/authors")
+      let (data2, resp2) = try await urlSession.data(for: plain)
+      guard let http2 = resp2 as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+      guard (200 ..< 300).contains(http2.statusCode) else {
+        throw ABSAPIError.httpStatus(http2.statusCode, String(data: data2, encoding: .utf8))
+      }
+      do {
+        let legacy = try decoder.decode(ABSLibraryAuthorsEnvelope.self, from: data2)
+        let list = legacy.authors
+        return (list, list.count, data2)
+      } catch {
+        throw ABSAPIError.decoding(error)
+      }
+    }
+  }
+
+  /// Autor inkl. optionaler Bücher/Serien (`GET /api/authors/:id`).
+  func authorDetail(
+    authorId: String,
+    libraryId: String?,
+    includeItems: Bool,
+    includeSeries: Bool
+  ) async throws -> ABSAuthorDetail {
+    var q: [String: String] = [:]
+    var include: [String] = []
+    if includeItems { include.append("items") }
+    if includeSeries, includeItems { include.append("series") }
+    if !include.isEmpty { q["include"] = include.joined(separator: ",") }
+    if let libraryId, !libraryId.isEmpty { q["library"] = libraryId }
+    let req = try authorizedRequest(path: "api/authors/\(authorId)", query: q)
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    do {
+      return try decoder.decode(ABSAuthorDetail.self, from: data)
+    } catch {
+      throw ABSAPIError.decoding(error)
+    }
+  }
+
+  /// Serie inkl. Beschreibung (`GET /api/series/:id`).
+  func seriesDetail(seriesId: String) async throws -> ABSSeriesDetail {
+    let req = try authorizedRequest(path: "api/series/\(seriesId)")
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    do {
+      return try decoder.decode(ABSSeriesDetail.self, from: data)
+    } catch {
+      throw ABSAPIError.decoding(error)
+    }
+  }
+
+  /// Alle Sprecher:innen (`GET /api/libraries/:id/narrators`).
+  func libraryNarrators(libraryId: String) async throws -> (results: [ABSLibraryNarratorListItem], raw: Data) {
+    let req = try authorizedRequest(path: "api/libraries/\(libraryId)/narrators")
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    do {
+      let env = try decoder.decode(ABSLibraryNarratorsEnvelope.self, from: data)
+      return (env.narrators, data)
+    } catch {
+      throw ABSAPIError.decoding(error)
+    }
+  }
+
+  /// Serien mit Paginierung (`GET /api/libraries/:id/series`).
+  func librarySeriesPage(
+    libraryId: String,
+    page: Int,
+    limit: Int = 40,
+    sort: String,
+    descending: Bool
+  ) async throws -> (results: [ABSLibrarySeriesListItem], total: Int, raw: Data) {
+    var q: [String: String] = [
+      "limit": "\(limit)",
+      "page": "\(page)",
+      "sort": sort,
+      "minified": "1",
+    ]
+    if descending { q["desc"] = "1" }
+    let req = try authorizedRequest(path: "api/libraries/\(libraryId)/series", query: q)
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    do {
+      let env = try decoder.decode(ABSLibraryResultsPageEnvelope<ABSLibrarySeriesListItem>.self, from: data)
+      return (env.results, env.total, data)
+    } catch {
+      throw ABSAPIError.decoding(error)
+    }
+  }
+
+  /// Alle Sammlungen (`GET /api/libraries/:id/collections`, `limit=0` = vollständig — Sortierung im Client).
+  func libraryCollectionsAll(libraryId: String, minified: Bool = true) async throws -> (
+    results: [ABSLibraryCollectionListItem], total: Int, raw: Data
+  ) {
+    let q: [String: String] = [
+      "limit": "0",
+      "page": "0",
+      "minified": minified ? "1" : "0",
+    ]
+    let req = try authorizedRequest(path: "api/libraries/\(libraryId)/collections", query: q)
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    do {
+      let env = try decoder.decode(ABSLibraryResultsPageEnvelope<ABSLibraryCollectionListItem>.self, from: data)
+      return (env.results, env.total, data)
+    } catch {
+      throw ABSAPIError.decoding(error)
+    }
+  }
+
+  /// Ordner der Bibliothek (`GET /api/libraries/:id`, Feld `folders`).
+  func libraryFolders(libraryId: String) async throws -> [ABSLibraryFolderRow] {
+    let req = try authorizedRequest(path: "api/libraries/\(libraryId)")
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    let parsed = try decoder.decode(ABSLibraryDetailFoldersPayload.self, from: data)
+    return parsed.folders ?? []
+  }
+
+  /// Neuen Podcast anlegen (`POST /api/podcasts`).
+  func createPodcastInLibrary(jsonBody: Data) async throws -> String {
+    let req = try authorizedRequest(path: "api/podcasts", method: "POST", body: jsonBody, timeout: 180)
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    struct IdRow: Decodable {
+      let id: String?
+    }
+    let row = try decoder.decode(IdRow.self, from: data)
+    guard let id = row.id?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+      throw ABSAPIError.decoding(
+        DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Missing podcast id in response")))
+    }
+    return id
   }
 }

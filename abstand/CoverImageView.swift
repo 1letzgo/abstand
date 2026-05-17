@@ -28,6 +28,7 @@ struct CoverImageView: View {
     token: String,
     itemId: String,
     cacheAccount: URL?,
+    
     cacheRevision: Int = 0,
     contentMode: CoverImageContentMode = .fill
   ) {

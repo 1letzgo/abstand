@@ -87,7 +87,7 @@ enum LibraryDiskCache {
       guard let data = try? Data(contentsOf: url) else { continue }
       guard let page = try? decoder.decode(ABSPage<ABSBook>.self, from: data) else { continue }
       total = page.total
-      let filtered = page.results.filter { ($0.media.numTracks ?? 0) > 0 || (($0.media.duration ?? 0) > 0) }
+      let filtered = page.results.filter(\.isUsableLibraryCatalogRow)
       all.append(contentsOf: filtered)
     }
     if sorted.isEmpty { return nil }
@@ -117,6 +117,19 @@ enum LibraryDiskCache {
     let u = account.appendingPathComponent("progress.json")
     guard let data = try? Data(contentsOf: u) else { return nil }
     return try? decoder.decode([ABSUserMediaProgress].self, from: data)
+  }
+
+  static func saveBookmarks(account: URL, list: [ABSAudioBookmark]) throws {
+    let enc = JSONEncoder()
+    enc.outputFormatting = [.sortedKeys]
+    let data = try enc.encode(list)
+    try data.write(to: account.appendingPathComponent("bookmarks.json"), options: .atomic)
+  }
+
+  static func loadBookmarks(account: URL, decoder: JSONDecoder) -> [ABSAudioBookmark]? {
+    let u = account.appendingPathComponent("bookmarks.json")
+    guard let data = try? Data(contentsOf: u) else { return nil }
+    return try? decoder.decode([ABSAudioBookmark].self, from: data)
   }
 
   // MARK: - Podcast recent-episodes (pro Bibliothek, wie Paginierung vom Server)
@@ -201,5 +214,275 @@ enum LibraryDiskCache {
     let u = podcastRecentLibraryURL(account: account, libraryId: libraryId).appendingPathComponent("episodes_fallback.json")
     guard let data = try? Data(contentsOf: u) else { return nil }
     return try? ABSJSON.decoder().decode(PodcastFallbackFile.self, from: data).episodes
+  }
+
+  // MARK: - Books browse (authors / series paginated; collections + narrators blob)
+
+  private static func browseSortSlug(sort: String, descending: Bool) -> String {
+    let raw = "\(sort)|\(descending)"
+    let h = SHA256.hash(data: Data(raw.utf8))
+    return h.map { String(format: "%02x", $0) }.joined()
+  }
+
+  private static func browseAuthorsSlugURL(account: URL, libraryId: String, sort: String, descending: Bool) -> URL {
+    let slug = browseSortSlug(sort: sort, descending: descending)
+    return account.appendingPathComponent("browseAuthors", isDirectory: true)
+      .appendingPathComponent(libraryId, isDirectory: true)
+      .appendingPathComponent(slug, isDirectory: true)
+  }
+
+  static func wipeBrowseAuthorsSlug(
+    account: URL, libraryId: String, sort: String, descending: Bool
+  ) throws {
+    let u = browseAuthorsSlugURL(account: account, libraryId: libraryId, sort: sort, descending: descending)
+    if fm.fileExists(atPath: u.path) {
+      try fm.removeItem(at: u)
+    }
+    try fm.createDirectory(at: u, withIntermediateDirectories: true)
+  }
+
+  static func saveBrowseAuthorsPage(
+    account: URL, libraryId: String, sort: String, descending: Bool, pageIndex: Int, data: Data
+  ) throws {
+    let dir = browseAuthorsSlugURL(account: account, libraryId: libraryId, sort: sort, descending: descending)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let file = dir.appendingPathComponent("page_\(pageIndex).json")
+    try data.write(to: file, options: .atomic)
+  }
+
+  static func loadMergedBrowseAuthors(
+    account: URL,
+    libraryId: String,
+    sort: String,
+    descending: Bool,
+    decoder: JSONDecoder
+  ) -> (items: [ABSLibraryAuthorListItem], total: Int, nextPage: Int)? {
+    let dir = browseAuthorsSlugURL(account: account, libraryId: libraryId, sort: sort, descending: descending)
+    guard fm.fileExists(atPath: dir.path) else { return nil }
+    let files = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+    let pageFiles = files.filter { $0.pathExtension == "json" && $0.lastPathComponent.hasPrefix("page_") }
+    guard !pageFiles.isEmpty else { return nil }
+
+    func pageIndex(_ url: URL) -> Int {
+      let base = url.deletingPathExtension().lastPathComponent
+      let parts = base.split(separator: "_")
+      return Int(parts.last ?? "0") ?? 0
+    }
+    let sorted = pageFiles.sorted { pageIndex($0) < pageIndex($1) }
+
+    var all: [ABSLibraryAuthorListItem] = []
+    var total = 0
+    for url in sorted {
+      guard let data = try? Data(contentsOf: url) else { continue }
+      if let env = try? decoder.decode(ABSLibraryAuthorsAPIEnvelope.self, from: data) {
+        let pair = env.itemsAndTotal()
+        total = pair.1
+        all.append(contentsOf: pair.0)
+      } else if let leg = try? decoder.decode(ABSLibraryAuthorsEnvelope.self, from: data) {
+        total = leg.authors.count
+        all.append(contentsOf: leg.authors)
+      }
+    }
+    guard !sorted.isEmpty, !all.isEmpty else { return nil }
+    return (all, total, sorted.count)
+  }
+
+  private static func browseSeriesSlugURL(account: URL, libraryId: String, sort: String, descending: Bool) -> URL {
+    let slug = browseSortSlug(sort: sort, descending: descending)
+    return account.appendingPathComponent("browseSeries", isDirectory: true)
+      .appendingPathComponent(libraryId, isDirectory: true)
+      .appendingPathComponent(slug, isDirectory: true)
+  }
+
+  static func wipeBrowseSeriesSlug(
+    account: URL, libraryId: String, sort: String, descending: Bool
+  ) throws {
+    let u = browseSeriesSlugURL(account: account, libraryId: libraryId, sort: sort, descending: descending)
+    if fm.fileExists(atPath: u.path) {
+      try fm.removeItem(at: u)
+    }
+    try fm.createDirectory(at: u, withIntermediateDirectories: true)
+  }
+
+  static func saveBrowseSeriesPage(
+    account: URL, libraryId: String, sort: String, descending: Bool, pageIndex: Int, data: Data
+  ) throws {
+    let dir = browseSeriesSlugURL(account: account, libraryId: libraryId, sort: sort, descending: descending)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let file = dir.appendingPathComponent("page_\(pageIndex).json")
+    try data.write(to: file, options: .atomic)
+  }
+
+  static func loadMergedBrowseSeries(
+    account: URL,
+    libraryId: String,
+    sort: String,
+    descending: Bool,
+    decoder: JSONDecoder
+  ) -> (items: [ABSLibrarySeriesListItem], total: Int, nextPage: Int)? {
+    let dir = browseSeriesSlugURL(account: account, libraryId: libraryId, sort: sort, descending: descending)
+    guard fm.fileExists(atPath: dir.path) else { return nil }
+    let files = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+    let pageFiles = files.filter { $0.pathExtension == "json" && $0.lastPathComponent.hasPrefix("page_") }
+    guard !pageFiles.isEmpty else { return nil }
+
+    func pageIndex(_ url: URL) -> Int {
+      let base = url.deletingPathExtension().lastPathComponent
+      let parts = base.split(separator: "_")
+      return Int(parts.last ?? "0") ?? 0
+    }
+    let sorted = pageFiles.sorted { pageIndex($0) < pageIndex($1) }
+
+    var all: [ABSLibrarySeriesListItem] = []
+    var total = 0
+    for url in sorted {
+      guard let data = try? Data(contentsOf: url) else { continue }
+      guard let env = try? decoder.decode(ABSLibraryResultsPageEnvelope<ABSLibrarySeriesListItem>.self, from: data)
+      else { continue }
+      total = env.total
+      all.append(contentsOf: env.results)
+    }
+    guard !sorted.isEmpty, !all.isEmpty else { return nil }
+    return (all, total, sorted.count)
+  }
+
+  private static func browseCollectionsURL(account: URL, libraryId: String) -> URL {
+    account.appendingPathComponent("browseCollections", isDirectory: true)
+      .appendingPathComponent(libraryId, isDirectory: true)
+  }
+
+  static func saveBrowseCollections(account: URL, libraryId: String, data: Data) throws {
+    let dir = browseCollectionsURL(account: account, libraryId: libraryId)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    try data.write(to: dir.appendingPathComponent("all.json"), options: .atomic)
+  }
+
+  static func loadBrowseCollections(
+    account: URL,
+    libraryId: String,
+    decoder: JSONDecoder
+  ) -> (items: [ABSLibraryCollectionListItem], total: Int)? {
+    let u = browseCollectionsURL(account: account, libraryId: libraryId).appendingPathComponent("all.json")
+    guard let data = try? Data(contentsOf: u) else { return nil }
+    guard let env = try? decoder.decode(ABSLibraryResultsPageEnvelope<ABSLibraryCollectionListItem>.self, from: data)
+    else { return nil }
+    return (env.results, env.total)
+  }
+
+  private static func browseNarratorsURL(account: URL, libraryId: String) -> URL {
+    account.appendingPathComponent("browseNarrators", isDirectory: true)
+      .appendingPathComponent(libraryId, isDirectory: true)
+  }
+
+  private struct NarratorCoverMapFile: Codable {
+    let entries: [String: String]
+  }
+
+  static func saveBrowseNarrators(account: URL, libraryId: String, narratorsJSON: Data, coverMap: [String: String]?)
+    throws
+  {
+    let dir = browseNarratorsURL(account: account, libraryId: libraryId)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    try narratorsJSON.write(to: dir.appendingPathComponent("narrators.json"), options: .atomic)
+    if let coverMap, !coverMap.isEmpty {
+      try saveBrowseNarratorCoverMap(account: account, libraryId: libraryId, coverMap: coverMap)
+    }
+  }
+
+  static func saveBrowseNarratorCoverMap(account: URL, libraryId: String, coverMap: [String: String]) throws {
+    let dir = browseNarratorsURL(account: account, libraryId: libraryId)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let enc = JSONEncoder()
+    enc.outputFormatting = [.sortedKeys]
+    let data = try enc.encode(NarratorCoverMapFile(entries: coverMap))
+    try data.write(to: dir.appendingPathComponent("coverMap.json"), options: .atomic)
+  }
+
+  static func loadBrowseNarrators(
+    account: URL,
+    libraryId: String,
+    decoder: JSONDecoder
+  ) -> (narrators: [ABSLibraryNarratorListItem], coverMap: [String: String])? {
+    let dir = browseNarratorsURL(account: account, libraryId: libraryId)
+    let narrPath = dir.appendingPathComponent("narrators.json")
+    guard let ndata = try? Data(contentsOf: narrPath) else { return nil }
+    guard let env = try? decoder.decode(ABSLibraryNarratorsEnvelope.self, from: ndata) else { return nil }
+    var map: [String: String] = [:]
+    let mapURL = dir.appendingPathComponent("coverMap.json")
+    if let mdata = try? Data(contentsOf: mapURL),
+      let parsed = try? decoder.decode(NarratorCoverMapFile.self, from: mdata)
+    {
+      map = parsed.entries
+    }
+    return (env.narrators, map)
+  }
+
+  // MARK: - Podcast shows strip (library items, podcast rows)
+
+  private static func podcastShowsFolderSlug(sortField: String, ascending: Bool) -> String {
+    let raw = "podcastShows|\(sortField)|\(ascending)"
+    let h = SHA256.hash(data: Data(raw.utf8))
+    return h.map { String(format: "%02x", $0) }.joined()
+  }
+
+  private static func podcastShowsSlugURL(account: URL, libraryId: String, sortField: String, ascending: Bool) -> URL {
+    let slug = podcastShowsFolderSlug(sortField: sortField, ascending: ascending)
+    return account.appendingPathComponent("podcastShows", isDirectory: true)
+      .appendingPathComponent(libraryId, isDirectory: true)
+      .appendingPathComponent(slug, isDirectory: true)
+  }
+
+  static func wipePodcastShowsSlug(
+    account: URL, libraryId: String, sortField: String, ascending: Bool
+  ) throws {
+    let u = podcastShowsSlugURL(account: account, libraryId: libraryId, sortField: sortField, ascending: ascending)
+    if fm.fileExists(atPath: u.path) {
+      try fm.removeItem(at: u)
+    }
+    try fm.createDirectory(at: u, withIntermediateDirectories: true)
+  }
+
+  static func savePodcastShows(
+    account: URL, libraryId: String, sortField: String, ascending: Bool, data: Data
+  ) throws {
+    let dir = podcastShowsSlugURL(account: account, libraryId: libraryId, sortField: sortField, ascending: ascending)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    try data.write(to: dir.appendingPathComponent("shows.json"), options: .atomic)
+  }
+
+  static func loadPodcastShows(
+    account: URL,
+    libraryId: String,
+    sortField: String,
+    ascending: Bool,
+    decoder: JSONDecoder
+  ) -> [ABSBook]? {
+    let u =
+      podcastShowsSlugURL(account: account, libraryId: libraryId, sortField: sortField, ascending: ascending)
+      .appendingPathComponent("shows.json")
+    guard let data = try? Data(contentsOf: u) else { return nil }
+    guard let page = try? decoder.decode(ABSPage<ABSBook>.self, from: data) else { return nil }
+    let rows = page.results.filter(\.isListablePodcastLibraryItem)
+    return rows.isEmpty ? nil : rows
+  }
+
+  // MARK: - Listening stats (`api/me/listening-stats`)
+
+  private static let listeningStatsResponseFile = "listeningStats.response.json"
+
+  static func saveListeningStatsResponse(account: URL, data: Data) throws {
+    try data.write(to: account.appendingPathComponent(listeningStatsResponseFile), options: .atomic)
+  }
+
+  static func loadListeningStatsResponse(account: URL) -> Data? {
+    let u = account.appendingPathComponent(listeningStatsResponseFile)
+    guard fm.fileExists(atPath: u.path) else { return nil }
+    return try? Data(contentsOf: u)
+  }
+
+  static func listeningStatsResponseModificationDate(account: URL) -> Date? {
+    let u = account.appendingPathComponent(listeningStatsResponseFile)
+    guard fm.fileExists(atPath: u.path) else { return nil }
+    return try? fm.attributesOfItem(atPath: u.path)[.modificationDate] as? Date
   }
 }

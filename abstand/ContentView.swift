@@ -8,6 +8,8 @@ struct ContentView: View {
 }
 
 #Preview {
-  ContentView()
-    .environmentObject(AppModel())
+  let model = AppModel()
+  return ContentView()
+    .environmentObject(model)
+    .environmentObject(model.player)
 }

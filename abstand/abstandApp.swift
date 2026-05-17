@@ -8,6 +8,7 @@ struct abstandApp: App {
     WindowGroup {
       AppRootContainer()
         .environmentObject(model)
+        .environmentObject(model.player)
     }
   }
 }

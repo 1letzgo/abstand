@@ -36,6 +36,12 @@ enum MiniPlayerMetrics {
   }
 }
 
+/// Obere Steuerzeile + Beschriftung im Vollplayer unten: gleiche Primärhöhe für alle Spalten.
+enum FullPlayerUtilityBarLayout {
+  static let primaryRowHeight: CGFloat = 44
+  static let rowSpacing: CGFloat = 4
+}
+
 
 // MARK: - Player-Layout (SwiftUI-typische Komponenten)
 
@@ -53,7 +59,7 @@ private func audiobookRemainingTimeCaption(total: Double, position: Double) -> S
 }
 
 private func authorDashTitleLine(for book: ABSBook) -> String {
-  let a = book.displayAuthors.trimmingCharacters(in: .whitespacesAndNewlines)
+  let a = book.displayAuthorsCardLine.trimmingCharacters(in: .whitespacesAndNewlines)
   let t = book.displayTitle
   if a.isEmpty || a == "—" { return t }
   return "\(a) – \(t)"
@@ -71,29 +77,245 @@ private func remainingTimeDashPercent(total: Double, position: Double) -> String
   return "\(rem) – \(pct)%"
 }
 
+/// `AVRoutePickerView` meldet in SwiftUI oft keine sinnvolle Intrinsic-Größe — ohne feste Bounds
+/// frisst die Spalte die ganze Zeile bzw. vertikalen Platz.
+private final class InlineRoutePickerView: AVRoutePickerView {
+  override var intrinsicContentSize: CGSize { CGSize(width: 44, height: 44) }
+}
+
 private struct FullPlayerAirPlayButton: UIViewRepresentable {
-  func makeUIView(context: Context) -> AVRoutePickerView {
-    let v = AVRoutePickerView()
+  func makeUIView(context: Context) -> InlineRoutePickerView {
+    let v = InlineRoutePickerView()
     v.prioritizesVideoDevices = false
     v.tintColor = .white
     v.activeTintColor = .white
     v.backgroundColor = .clear
+    v.clipsToBounds = true
     return v
   }
 
-  func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+  func updateUIView(_ uiView: InlineRoutePickerView, context: Context) {}
+}
+
+/// Sleep-Menü-Label: Countdown per `TimelineView` — Endzeit ändert sich nicht jede Sekunde, daher kein Menu-Flackern.
+private struct SleepTimerUtilityMenuLabel: View {
+  let endDate: Date?
+
+  var body: some View {
+    VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
+      Group {
+        if let end = endDate {
+          TimelineView(.periodic(from: .now, by: 1)) { _ in
+            Text(formatPlaybackTime(max(0, end.timeIntervalSinceNow)))
+              .font(.subheadline.weight(.medium))
+              .monospacedDigit()
+              .foregroundStyle(AppTheme.accent)
+          }
+        } else {
+          Text("Off")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.secondary)
+        }
+      }
+      .frame(
+        maxWidth: .infinity,
+        minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+        maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+        alignment: .center
+      )
+      Text("Sleep", comment: "Player control label")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    }
+    .frame(maxWidth: .infinity)
+    .contentShape(Rectangle())
+  }
+}
+
+/// Untere Steuerzeile: von `globalPosition`-Ticks entkoppelt, damit `Menu` nicht flackert.
+private struct FullPlayerUtilityBar: View, Equatable {
+  @EnvironmentObject private var model: AppModel
+
+  let playbackRate: Float
+  let sleepEndDate: Date?
+  let activeAudiobookId: String?
+  let offlineStorageId: String?
+  let isDownloaded: Bool
+  let isDownloading: Bool
+  let downloadProgressBucket: Int
+  let bookmarkCount: Int
+  let isLoggedIn: Bool
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.playbackRate == rhs.playbackRate
+      && lhs.sleepEndDate == rhs.sleepEndDate
+      && lhs.activeAudiobookId == rhs.activeAudiobookId
+      && lhs.offlineStorageId == rhs.offlineStorageId
+      && lhs.isDownloaded == rhs.isDownloaded
+      && lhs.isDownloading == rhs.isDownloading
+      && lhs.downloadProgressBucket == rhs.downloadProgressBucket
+      && lhs.bookmarkCount == rhs.bookmarkCount
+      && lhs.isLoggedIn == rhs.isLoggedIn
+  }
+
+  var body: some View {
+    HStack(spacing: 0) {
+      Menu {
+        ForEach(PlaybackController.playbackRatePresets, id: \.self) { r in
+          Button {
+            model.applyPlaybackSpeed(r)
+          } label: {
+            HStack {
+              Text(miniPlayerFormatPlaybackRate(r))
+              Spacer(minLength: 8)
+              if playbackRate == r {
+                Image(systemName: "checkmark")
+                  .foregroundStyle(AppTheme.accent)
+              }
+            }
+          }
+        }
+      } label: {
+        VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
+          Text(miniPlayerFormatPlaybackRate(playbackRate))
+            .font(.subheadline.weight(.medium))
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .frame(
+              maxWidth: .infinity,
+              minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+              maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+              alignment: .center
+            )
+          Text("Tempo", comment: "Player control label")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+      }
+
+      Menu {
+        Button("Off") { model.applySleepTimer(minutes: nil) }
+        Button("15 Min") { model.applySleepTimer(minutes: 15) }
+        Button("30 Min") { model.applySleepTimer(minutes: 30) }
+        Button("45 Min") { model.applySleepTimer(minutes: 45) }
+        Button("60 Min") { model.applySleepTimer(minutes: 60) }
+      } label: {
+        SleepTimerUtilityMenuLabel(endDate: sleepEndDate)
+      }
+
+      PlayerBookmarkUtilityControl(activeAudiobookId: activeAudiobookId)
+        .id(bookmarkCount)
+
+      VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
+        FullPlayerAirPlayButton()
+          .frame(width: 44, height: 44)
+          .frame(
+            maxWidth: .infinity,
+            minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+            maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+            alignment: .center
+          )
+        Text("AirPlay", comment: "Player control label")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
+      .frame(maxWidth: .infinity)
+      .contentShape(Rectangle())
+
+      downloadControl
+        .frame(maxWidth: .infinity)
+    }
+    .padding(.vertical, 8)
+    .buttonStyle(.plain)
+  }
+
+  @ViewBuilder
+  private var downloadControl: some View {
+    if let offlineStorageId {
+      if isDownloaded {
+        Button {
+          model.removeLocalDownloadForActivePlayback()
+        } label: {
+          VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
+            Image(systemName: "arrow.down.circle.fill")
+              .font(.title3)
+              .foregroundStyle(Color.white)
+              .frame(
+                maxWidth: .infinity,
+                minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+                maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+                alignment: .center
+              )
+            Text("Download", comment: "Player download control caption")
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isLoggedIn)
+        .accessibilityLabel("Remove download")
+      } else if isDownloading {
+        VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
+          ProgressView(value: Double(downloadProgressBucket) / 20.0)
+            .tint(.white)
+            .scaleEffect(x: 1, y: 0.9, anchor: .center)
+            .frame(
+              maxWidth: .infinity,
+              minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+              maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+              alignment: .center
+            )
+          Text("Download", comment: "Player download control caption")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Download in progress")
+      } else {
+        Button {
+          model.startDownloadForActivePlayback()
+        } label: {
+          VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
+            Image(systemName: "arrow.down.circle")
+              .font(.title3)
+              .foregroundStyle(Color.white)
+              .frame(
+                maxWidth: .infinity,
+                minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+                maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+                alignment: .center
+              )
+            Text("Download", comment: "Player download control caption")
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isLoggedIn)
+        .accessibilityLabel("Download")
+      }
+    }
+  }
 }
 
 // MARK: - Vollansicht (Now Playing)
 
 struct NowPlayingDetailView: View {
   @EnvironmentObject private var model: AppModel
+  @EnvironmentObject private var player: PlaybackController
   @Environment(\.verticalSizeClass) private var verticalSizeClass
 
   @State private var scrubLocal: Double?
 
   private var showIdlePlaceholder: Bool {
-    model.player.showMiniPlayerPlaceholder && model.player.activeBook == nil
+    player.showMiniPlayerPlaceholder && player.activeBook == nil
   }
 
   var body: some View {
@@ -115,14 +337,14 @@ struct NowPlayingDetailView: View {
   }
 
   private var fullPlayerBackground: some View {
-    let top = model.player.miniPlayerBarFillColor
+    let top = player.miniPlayerBarFillColor
     let dark = Color(white: 0.1)
     return LinearGradient(colors: [top, dark], startPoint: .top, endPoint: .bottom)
   }
 
   private var portraitLayout: some View {
     VStack(spacing: 0) {
-      if let b = model.player.activeBook {
+      if let b = player.activeBook {
         Spacer(minLength: 8)
         fullPlayerArtwork(book: b)
         Spacer(minLength: 24)
@@ -132,7 +354,7 @@ struct NowPlayingDetailView: View {
         }
         .frame(maxWidth: 800)
         Spacer(minLength: 24)
-        bottomUtilityBar
+        fullPlayerUtilityBar
         Spacer(minLength: 8)
       } else if model.isRestoringLaunchPlayback {
         restoringPlaceholder
@@ -146,7 +368,7 @@ struct NowPlayingDetailView: View {
 
   private var landscapeLayout: some View {
     HStack(spacing: 24) {
-      if let b = model.player.activeBook {
+      if let b = player.activeBook {
         fullPlayerArtwork(book: b)
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
           .containerRelativeFrame(.horizontal) { w, _ in w * 0.4 }
@@ -154,7 +376,7 @@ struct NowPlayingDetailView: View {
           Spacer()
           chapterTitleArea(book: b)
           playbackColumn(book: b)
-          bottomUtilityBar
+          fullPlayerUtilityBar
           Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -187,18 +409,18 @@ struct NowPlayingDetailView: View {
   }
 
   private func scrubberCenterCaption(book: ABSBook) -> String {
-    let chapters = model.player.chapterCount
+    let chapters = player.chapterCount
     guard chapters > 0 else { return "" }
-    let raw = model.player.currentChapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    let raw = player.currentChapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
     if !raw.isEmpty { return raw }
-    let ord = model.player.currentChapterOrdinal
+    let ord = player.currentChapterOrdinal
     if ord > 0 { return "Chapter \(ord)" }
     return "—"
   }
 
   private func fullPlayerArtwork(book: ABSBook) -> some View {
-    let dur = max(model.player.totalDuration, 1)
-    let pos = model.player.globalPosition
+    let dur = max(player.totalDuration, 1)
+    let pos = player.globalPosition
     let pct = min(100, max(0, Int((pos / dur * 100).rounded())))
     let corner: CGFloat = 24
     return CoverImageView(
@@ -244,8 +466,8 @@ struct NowPlayingDetailView: View {
   }
 
   private func scrubberSection(book: ABSBook) -> some View {
-    let dur = max(model.player.totalDuration, 1)
-    let pos = scrubLocal ?? model.player.globalPosition
+    let dur = max(player.totalDuration, 1)
+    let pos = scrubLocal ?? player.globalPosition
     let centerCaption = scrubberCenterCaption(book: book)
     return VStack(alignment: .leading, spacing: 10) {
       Slider(
@@ -256,7 +478,7 @@ struct NowPlayingDetailView: View {
         in: 0 ... dur,
         onEditingChanged: { editing in
           if !editing, let s = scrubLocal {
-            model.player.seek(global: s)
+            player.seek(global: s)
             scrubLocal = nil
           }
         }
@@ -292,24 +514,24 @@ struct NowPlayingDetailView: View {
   }
 
   private var transportControls: some View {
-    let hasChapters = model.player.chapterCount > 0
-    let isBusy = model.player.activeBook != nil && model.player.isBuffering
+    let hasChapters = player.chapterCount > 0
+    let isBusy = player.activeBook != nil && player.isBuffering
     return HStack(spacing: 0) {
       if hasChapters {
         Button {
-          model.player.skipToPreviousChapter()
+          player.skipToPreviousChapter()
         } label: {
           Image(systemName: "backward.end")
             .font(.title2)
             .symbolVariant(.fill)
         }
-        .disabled(!model.player.canSkipToPreviousChapter)
+        .disabled(!player.canSkipToPreviousChapter)
         .accessibilityLabel("Previous chapter")
         Spacer(minLength: 8)
       }
 
       Button {
-        model.player.skip(seconds: -PlayerChromeLayout.skipBackward)
+        player.skip(seconds: -PlayerChromeLayout.skipBackward)
       } label: {
         Image(systemName: "gobackward.15")
           .font(hasChapters ? .title2 : .largeTitle)
@@ -320,14 +542,14 @@ struct NowPlayingDetailView: View {
       Spacer(minLength: 8)
 
       Button {
-        model.player.togglePlayPause()
+        player.togglePlayPause()
       } label: {
         Group {
           if isBusy {
             ProgressView()
               .controlSize(.large)
           } else {
-            Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill")
+            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
               .font(.system(size: 40))
               .symbolVariant(.fill)
           }
@@ -337,12 +559,12 @@ struct NowPlayingDetailView: View {
       .buttonStyle(.borderedProminent)
       .controlSize(.large)
       .clipShape(Circle())
-      .disabled(model.player.activeBook == nil)
+      .disabled(player.activeBook == nil)
 
       Spacer(minLength: 8)
 
       Button {
-        model.player.skip(seconds: PlayerChromeLayout.skipForward)
+        player.skip(seconds: PlayerChromeLayout.skipForward)
       } label: {
         Image(systemName: "goforward.30")
           .font(hasChapters ? .title2 : .largeTitle)
@@ -353,84 +575,39 @@ struct NowPlayingDetailView: View {
       if hasChapters {
         Spacer(minLength: 8)
         Button {
-          model.player.skipToNextChapter()
+          player.skipToNextChapter()
         } label: {
           Image(systemName: "forward.end")
             .font(.title2)
             .symbolVariant(.fill)
         }
-        .disabled(!model.player.canSkipToNextChapter)
+        .disabled(!player.canSkipToNextChapter)
         .accessibilityLabel("Next chapter")
       }
     }
     .buttonStyle(.borderless)
   }
 
-  private var bottomUtilityBar: some View {
-    HStack(spacing: 0) {
-      Menu {
-        ForEach(PlaybackController.playbackRatePresets, id: \.self) { r in
-          Button {
-            model.applyPlaybackSpeed(r)
-          } label: {
-            HStack {
-              Text(miniPlayerFormatPlaybackRate(r))
-              Spacer(minLength: 8)
-              if model.player.playbackRate == r {
-                Image(systemName: "checkmark")
-                  .foregroundStyle(AppTheme.accent)
-              }
-            }
-          }
-        }
-      } label: {
-        VStack(spacing: 4) {
-          Text(miniPlayerFormatPlaybackRate(model.player.playbackRate))
-            .font(.subheadline.weight(.medium))
-          Text("Tempo", comment: "Player control label")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-      }
-      .menuActionDismissBehavior(.automatic)
-
-      Menu {
-        Button("Off") { model.applySleepTimer(minutes: nil) }
-        Button("15 Min") { model.applySleepTimer(minutes: 15) }
-        Button("30 Min") { model.applySleepTimer(minutes: 30) }
-        Button("45 Min") { model.applySleepTimer(minutes: 45) }
-        Button("60 Min") { model.applySleepTimer(minutes: 60) }
-      } label: {
-        VStack(spacing: 4) {
-          if let end = model.player.sleepEndDate {
-            TimelineView(.periodic(from: .now, by: 1)) { _ in
-              Text(formatPlaybackTime(max(0, end.timeIntervalSinceNow)))
-                .font(.subheadline.weight(.medium))
-                .monospacedDigit()
-                .foregroundStyle(AppTheme.accent)
-            }
-          } else {
-            Text("Off")
-              .font(.subheadline.weight(.medium))
-              .foregroundStyle(.secondary)
-          }
-          Text("Sleep", comment: "Player control label")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-      }
-      .menuActionDismissBehavior(.automatic)
-
-      FullPlayerAirPlayButton()
-        .frame(maxWidth: .infinity)
-        .frame(height: 44)
-    }
-    .padding(.vertical, 8)
-    .buttonStyle(.plain)
+  private var fullPlayerUtilityBar: some View {
+    let sid = model.currentPlaybackOfflineStorageId()
+    let isDownloading = sid != nil && model.downloads.activeItemId == sid
+    let audiobookId: String? = {
+      guard let id = player.activeBook?.id else { return nil }
+      let ep = player.activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      return ep.isEmpty ? id : nil
+    }()
+    return FullPlayerUtilityBar(
+      playbackRate: player.playbackRate,
+      sleepEndDate: player.sleepEndDate,
+      activeAudiobookId: audiobookId,
+      offlineStorageId: sid,
+      isDownloaded: sid.map { model.downloadedItemIds.contains($0) } ?? false,
+      isDownloading: isDownloading,
+      downloadProgressBucket: isDownloading ? Int(model.downloads.progress * 20) : -1,
+      bookmarkCount: audiobookId.map { model.bookmarks(for: $0).count } ?? 0,
+      isLoggedIn: model.isLoggedIn
+    )
+    .equatable()
   }
 
   private var restoringPlaceholder: some View {
@@ -484,23 +661,27 @@ private struct FloatingBarCoverEquatable: View, Equatable {
 
 struct FloatingNowPlayingBar: View {
   @EnvironmentObject private var model: AppModel
+  @EnvironmentObject private var player: PlaybackController
   var onExpand: () -> Void
 
   private var showIdlePlaceholder: Bool {
-    model.player.showMiniPlayerPlaceholder && model.player.activeBook == nil
+    player.showMiniPlayerPlaceholder && player.activeBook == nil
   }
 
   private var canTogglePlayback: Bool {
-    model.player.activeBook != nil && !model.isRestoringLaunchPlayback
+    player.activeBook != nil && !model.isRestoringLaunchPlayback
   }
 
   var body: some View {
-    HStack(spacing: 0) {
+    HStack(alignment: .center, spacing: 0) {
       openNowPlayingTapRegion
+        .layoutPriority(1)
       trailingAccessoryButtons
+        .fixedSize(horizontal: true, vertical: false)
     }
-    .padding(.vertical, 8)
+    .frame(maxWidth: .infinity, minHeight: Self.rowMinHeight, alignment: .center)
     .padding(.horizontal, 16)
+    .padding(.vertical, 6)
     .contextMenu {
       Button(role: .destructive) {
         Task { await model.dismissPlayer() }
@@ -510,43 +691,51 @@ struct FloatingNowPlayingBar: View {
     }
   }
 
-  /// Nur Cover + Titelzeilen: Sheet öffnen. Nicht über die Transport-Buttons legen, sonst frisst
-  /// `onTapGesture` die Touches und Play/Skip reagieren nicht.
+  /// Nur Cover + Titelzeilen: Sheet öffnen. Als `Button` statt `onTapGesture` — zuverlässigeres
+  /// Hit-Testing neben `ScrollView` / Tab-Leiste.
   private var openNowPlayingTapRegion: some View {
-    HStack(spacing: 0) {
-      miniCover
-      VStack(alignment: .leading, spacing: 2) {
-        Text(primaryLine)
-          .font(.footnote)
-          .fontWeight(.medium)
-          .foregroundStyle(.primary)
-          .lineLimit(1)
-          .frame(maxWidth: .infinity, alignment: .leading)
+    Button(action: onExpand) {
+      HStack(spacing: 0) {
+        miniCover
+        VStack(alignment: .leading, spacing: 2) {
+          Text(primaryLine)
+            .font(.footnote)
+            .fontWeight(.medium)
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-        Text(secondaryLine)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .fontWeight(.medium)
-          .lineLimit(1)
+          Text(secondaryLine)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fontWeight(.medium)
+            .lineLimit(1)
+        }
+        .padding(.leading, 10)
+        Spacer(minLength: 0)
       }
-      .padding(.leading, 10)
+      .frame(maxWidth: .infinity, minHeight: Self.rowMinHeight, alignment: .leading)
+      .contentShape(Rectangle())
     }
-    .contentShape(Rectangle())
-    .onTapGesture { onExpand() }
+    .buttonStyle(.plain)
     /// Nimmt den freien Platz links; Transport bleibt rechts — unabhängig von `accessoryPlacement`,
     /// damit Play/Pause nicht „fehlt“, wenn die Bar in der Tab-Leiste eingebettet ist.
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .frame(maxWidth: .infinity, minHeight: Self.rowMinHeight, alignment: .leading)
   }
 
-  /// Etwas größer als Standard-Symbol, Tab-Leiste bleibt schmal.
-  private static let accessoryTransportSide: CGFloat = 34
+  /// Einheitliche Zeilenhöhe: größere Touchfläche als nur die Glyphen (wichtig für `tabViewBottomAccessory`).
+  private static let rowMinHeight: CGFloat = 48
+  /// Mindest-Touchfläche (HIG) für Skip; Play nutzt dieselbe Außenfläche, Kreis bleibt kleiner.
+  private static let accessoryTransportSide: CGFloat = 44
 
   @ViewBuilder
   private var trailingAccessoryButtons: some View {
-    let busy = model.player.activeBook != nil && model.player.isBuffering
-    HStack(spacing: 8) {
+    let busy = player.activeBook != nil && player.isBuffering
+    /// Kompakter als Skip: volle Kreisfläche ohne zusätzlichen Leerraum im 44-pt-Raster.
+    let playDiameter: CGFloat = 36
+    HStack(spacing: 4) {
       Button {
-        model.player.skip(seconds: -PlayerChromeLayout.skipBackward)
+        player.skip(seconds: -PlayerChromeLayout.skipBackward)
       } label: {
         Image(systemName: "gobackward.15")
           .font(.system(size: 18, weight: .medium))
@@ -559,37 +748,38 @@ struct FloatingNowPlayingBar: View {
       .accessibilityLabel("Back 15 seconds")
 
       Button {
-        model.player.togglePlayPause()
+        player.togglePlayPause()
       } label: {
         ZStack {
           Circle()
             .fill(Color.accentColor)
-            .aspectRatio(1, contentMode: .fit)
-          if model.player.isBuffering && canTogglePlayback {
+            .frame(width: playDiameter, height: playDiameter)
+          if player.isBuffering && canTogglePlayback {
             ProgressView()
               .progressViewStyle(.circular)
               .tint(.white)
-              .scaleEffect(0.78)
+              .scaleEffect(0.72)
           } else {
-            Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill")
-              .font(.system(size: 13, weight: .semibold))
+            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+              .font(.system(size: 14, weight: .semibold))
               .foregroundStyle(.white)
           }
         }
         .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
-        .contentShape(Circle())
+        .contentShape(Rectangle())
       }
       /// Während Pufferung: Pause erlauben („Steckenbleiben“ vermeiden); erneuter Tap startet wie gewohnt.
       .disabled(!canTogglePlayback)
       .buttonStyle(.plain)
     }
+    .frame(minHeight: Self.rowMinHeight, alignment: .center)
   }
 
   @ViewBuilder
   private var miniCover: some View {
     let side = PlayerChromeLayout.tabAccessoryCover
     let plateRadius: CGFloat = 6
-    if let b = model.player.activeBook {
+    if let b = player.activeBook {
       FloatingBarCoverEquatable(itemId: b.id, coverRevision: model.coverImageCacheRevision)
     } else if model.isRestoringLaunchPlayback {
       RoundedRectangle(cornerRadius: plateRadius, style: .continuous)
@@ -609,16 +799,16 @@ struct FloatingNowPlayingBar: View {
   }
 
   private var primaryLine: String {
-    if let b = model.player.activeBook { return authorDashTitleLine(for: b) }
+    if let b = player.activeBook { return authorDashTitleLine(for: b) }
     if model.isRestoringLaunchPlayback { return "Playback" }
     if showIdlePlaceholder { return "Nothing playing" }
     return "Playback"
   }
 
   private var secondaryLine: String {
-    if model.player.activeBook != nil {
-      let t = max(model.player.totalDuration, 1)
-      let p = model.player.globalPosition
+    if player.activeBook != nil {
+      let t = max(player.totalDuration, 1)
+      let p = player.globalPosition
       return remainingTimeDashPercent(total: t, position: p)
     }
     if model.isRestoringLaunchPlayback { return "Loading…" }
@@ -634,6 +824,8 @@ struct LibraryCardActionButtonStyle: ButtonStyle {
     case neutral
     case accent
     case danger
+    /// Lokale Kopie vorhanden — dezenter Akzent-Hintergrund (nicht mit „deaktiviert“ verwechseln).
+    case downloaded
   }
 
   var variant: Variant = .neutral
@@ -649,6 +841,8 @@ struct LibraryCardActionButtonStyle: ButtonStyle {
         return AppTheme.accent.opacity(isEnabled ? 0.55 : 0.22)
       case .danger:
         return AppTheme.danger.opacity(isEnabled ? 0.55 : 0.22)
+      case .downloaded:
+        return AppTheme.accent.opacity(isEnabled ? 0.72 : 0.5)
       }
     }()
     let fill: Color = {
@@ -656,6 +850,7 @@ struct LibraryCardActionButtonStyle: ButtonStyle {
       case .neutral: return .clear
       case .accent: return AppTheme.accent.opacity(0.12)
       case .danger: return AppTheme.danger.opacity(0.12)
+      case .downloaded: return AppTheme.accent.opacity(0.28)
       }
     }()
 
@@ -675,6 +870,31 @@ struct LibraryCardActionButtonStyle: ButtonStyle {
           ? (configuration.isPressed ? 0.72 : 1)
           : 0.38
       )
+      .contentShape(RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous))
+      .frame(minHeight: minHeight)
+  }
+}
+
+/// Neutraler Outline-Rahmen für Detail-Icon-Aktionen (z. B. Fortschritt verwerfen / beendet markieren) — kein Akzent-Gelb.
+struct ResetProgressOutlineButtonStyle: ButtonStyle {
+  var minHeight: CGFloat = MiniPlayerMetrics.controlMinHeight
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .fixedSize(horizontal: true, vertical: true)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .background(
+        RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
+          .fill(Color.white.opacity(0.06))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
+          .stroke(
+            AppTheme.textSecondary.opacity(configuration.isPressed ? 0.62 : 0.78),
+            lineWidth: 1
+          )
+      )
+      .opacity(configuration.isPressed ? 0.88 : 1)
       .contentShape(RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous))
       .frame(minHeight: minHeight)
   }

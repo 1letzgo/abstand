@@ -26,7 +26,7 @@ final class PlaybackController: NSObject, ObservableObject {
   @Published private(set) var totalDuration: Double = 0
   @Published private(set) var isBuffering = false
   @Published var sleepEndDate: Date?
-  /// Mini-Player bleibt sichtbar nach „Fertig“, ohne aktives Hörbuch.
+  /// Leere Mini-Player-Leiste („Nothing playing“) ohne aktives Medium.
   @Published private(set) var showMiniPlayerPlaceholder = false
   /// Hintergrundfarbe der Mini-Player-Karte, abgeleitet vom Cover (sonst `AppTheme.card`).
   @Published private(set) var miniPlayerBarFillColor: Color = AppTheme.card
@@ -55,6 +55,19 @@ final class PlaybackController: NSObject, ObservableObject {
 
   /// `true`, solange ein Audiobookshelf-Stream mit Session-Sync aktiv ist.
   var isRemotePlaySessionActive: Bool { playSessionId != nil }
+
+  /// Wenn gerade **dieselbe** Remote-Session läuft, dieselbe `sessionId` für parallele Downloads nutzen — vermeidet ein zweites `POST …/play`, das die Wiedergabe beenden würde.
+  func playSessionIdForReuseWhenDownloadingSameItem(libraryItemId: String, episodeId: String?) -> String? {
+    guard let sid = playSessionId?.trimmingCharacters(in: .whitespacesAndNewlines), !sid.isEmpty else {
+      return nil
+    }
+    guard let b = activeBook, b.id == libraryItemId else { return nil }
+    let playingEp = activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let wantEp = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if playingEp != wantEp { return nil }
+    return sid
+  }
+
   private var tracks: [ABSAudioTrack] = []
   private var trackStarts: [Double] = []
   private var currentTrackIndex: Int = 0
@@ -63,8 +76,15 @@ final class PlaybackController: NSObject, ObservableObject {
   private var syncTask: Task<Void, Never>?
 
   private var localRoot: URL?
+  /// `true`, wenn die Wiedergabe aus einem lokalen Download-Ordner läuft (kein Auto-Download nötig).
+  var isPlaybackFromOfflineDownload: Bool { localRoot != nil }
   /// Nach Laden: sofort abspielen oder nur positionieren (App-Start).
   private var shouldAutoPlayAfterLoad = true
+
+  /// Wird bei jedem periodischen Player-Tick aufgerufen (z. B. Smart-Download).
+  var onPlaybackTick: (() -> Void)?
+  /// Letzter Track eines Hörbuchs zu Ende (keine Podcast-Folge).
+  var onAudiobookPlaybackCompleted: (() -> Void)?
 
   private var nowPlayingArtwork: MPMediaItemArtwork?
   private var coverLoadTask: Task<Void, Never>?
@@ -409,6 +429,11 @@ final class PlaybackController: NSObject, ObservableObject {
     return true
   }
 
+  /// Alle erwarteten Track-Dateien im Download-Ordner vorhanden (z. B. nach abgeschlossenem Download).
+  static func allLocalTracksPresentForOfflinePlayback(root: URL, book: ABSBook) -> Bool {
+    allTracksPresent(root: root, book: book)
+  }
+
   /// Globale Startzeiten: Server-`startOffset`, falls plausibel (monoton); sonst aus Dauern kumulieren.
   private func rebuildTrackStarts() {
     trackStarts = []
@@ -611,6 +636,7 @@ final class PlaybackController: NSObject, ObservableObject {
 
   private func tick() {
     accumulateListenTime()
+    onPlaybackTick?()
     refreshGlobalFromPlayer()
     updateChapterUI(global: globalPosition)
     updateNowPlaying()
@@ -644,6 +670,9 @@ final class PlaybackController: NSObject, ObservableObject {
       globalPosition = totalDuration
       updateChapterUI(global: globalPosition)
       pause()
+      if activePlaybackEpisodeId == nil {
+        onAudiobookPlaybackCompleted?()
+      }
       return
     }
     currentTrackIndex += 1
@@ -933,9 +962,9 @@ final class PlaybackController: NSObject, ObservableObject {
     updateNowPlaying()
   }
 
-  /// Hintergrundfarbe aus Cover-Mittel (Mini-Player, Continue-Hero-Karten, …).
-  static func coverBarTintFromCoverImage(_ image: UIImage) -> Color {
-    guard let ciImage = CIImage(image: image) else { return AppTheme.card }
+  /// RGB wie in `coverBarTintFromCoverImage` (z. B. für Platten-Cache der Continue-Hero-Karten).
+  static func coverBarTintRGB(from image: UIImage) -> (Double, Double, Double)? {
+    guard let ciImage = CIImage(image: image) else { return nil }
     var extent = ciImage.extent
     if !extent.width.isFinite || extent.width < 1 || !extent.height.isFinite || extent.height < 1 {
       extent = CGRect(origin: .zero, size: image.size)
@@ -946,7 +975,7 @@ final class PlaybackController: NSObject, ObservableObject {
         parameters: [kCIInputImageKey: ciImage, kCIInputExtentKey: CIVector(cgRect: extent)]
       ),
       let output = filter.outputImage
-    else { return AppTheme.card }
+    else { return nil }
     var bitmap = [UInt8](repeating: 0, count: 4)
     let ctx = CIContext(options: [.workingColorSpace: NSNull()])
     ctx.render(
@@ -965,7 +994,13 @@ final class PlaybackController: NSObject, ObservableObject {
     let nr = min(1, r * mix + floor)
     let ng = min(1, g * mix + floor)
     let nb = min(1, b * mix + floor)
-    return Color(red: Double(nr), green: Double(ng), blue: Double(nb))
+    return (Double(nr), Double(ng), Double(nb))
+  }
+
+  /// Hintergrundfarbe aus Cover-Mittel (Mini-Player, Continue-Hero-Karten, …).
+  static func coverBarTintFromCoverImage(_ image: UIImage) -> Color {
+    guard let (r, g, b) = coverBarTintRGB(from: image) else { return AppTheme.card }
+    return Color(red: r, green: g, blue: b)
   }
 
   private static func makeNowPlayingArtwork(from image: UIImage) -> MPMediaItemArtwork {
@@ -1005,6 +1040,11 @@ final class PlaybackController: NSObject, ObservableObject {
       try? await client.closePlaySession(sessionId: sid)
     }
     playSessionId = nil
+  }
+
+  /// Für `AppModel.syncOfflineProgressToServer`: offene Play-Session-Zeit an den Server schreiben.
+  func flushPendingPlaySessionSync() async {
+    await flushSync(force: true)
   }
 }
 

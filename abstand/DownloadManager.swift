@@ -1,6 +1,13 @@
 import Combine
 import Foundation
 
+private struct DownloadWIP: Codable {
+  var storageItemId: String
+  var libraryItemId: String
+  var episodeId: String?
+  var completedTrackIndexes: [Int]
+}
+
 @MainActor
 final class DownloadManager: ObservableObject {
   @Published private(set) var activeItemId: String?
@@ -9,6 +16,7 @@ final class DownloadManager: ObservableObject {
   private var task: Task<Void, Never>?
 
   private static let trackDownloadMaxAttempts = 3
+  private static let wipFilename = "download-wip.json"
 
   private var downloadRunId: Int = 0
 
@@ -50,10 +58,37 @@ final class DownloadManager: ObservableObject {
     try? FileManager.default.removeItem(at: url)
   }
 
+  private func wipURL(in folder: URL) -> URL {
+    folder.appendingPathComponent(Self.wipFilename)
+  }
+
+  private func loadWIP(folder: URL, storageId: String, episodeId: String?) -> DownloadWIP? {
+    let url = wipURL(in: folder)
+    guard let data = try? Data(contentsOf: url) else { return nil }
+    guard let wip = try? JSONDecoder().decode(DownloadWIP.self, from: data) else { return nil }
+    guard wip.storageItemId == storageId else { return nil }
+    let wEp = wip.episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let eEp = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if wEp != eEp { return nil }
+    return wip
+  }
+
+  private func saveWIP(_ wip: DownloadWIP, folder: URL) throws {
+    let data = try JSONEncoder().encode(wip)
+    try data.write(to: wipURL(in: folder), options: .atomic)
+  }
+
   /// Nur aufrufen, wenn `runId` noch der aktuelle Download-Lauf ist (verhindert Löschen durch abgebrochene Tasks).
   private func finishDownloadFailureIfCurrent(runId: Int, itemId: String, completion: ((Bool) -> Void)?) {
     guard runId == downloadRunId else { return }
     deleteDownload(itemId: itemId)
+    activeItemId = nil
+    progress = 0
+    completion?(false)
+  }
+
+  private func finishDownloadInterruptedIfCurrent(runId: Int, completion: ((Bool) -> Void)?) {
+    guard runId == downloadRunId else { return }
     activeItemId = nil
     progress = 0
     completion?(false)
@@ -71,6 +106,7 @@ final class DownloadManager: ObservableObject {
     book: ABSBook,
     episodeId: String? = nil,
     storageItemId: String? = nil,
+    reusePlaySessionId: String? = nil,
     completion: ((Bool) -> Void)? = nil
   ) {
     cancel()
@@ -81,16 +117,32 @@ final class DownloadManager: ObservableObject {
     let id = storageItemId ?? book.id
     activeItemId = id
     progress = 0
+    let reuseSid: String? = {
+      guard let r = reusePlaySessionId?.trimmingCharacters(in: .whitespacesAndNewlines), !r.isEmpty else {
+        return nil
+      }
+      return r
+    }()
+
     task = Task { @MainActor in
-      var playSessionId: String?
+      var ownsPlaySession = false
+      var streamSessionId = ""
+      var serverSession: ABSPlaySession?
       do {
         let folder: URL
+        var resumeCompleted = Set<Int>()
         do {
           let root = try downloadsRootURL()
           try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
           setExcludedFromBackup(root)
           let itemDir = root.appendingPathComponent(id, isDirectory: true)
-          if FileManager.default.fileExists(atPath: itemDir.path) {
+          if FileManager.default.fileExists(atPath: itemDir.path),
+            ABSDownloadManifest.load(from: itemDir) == nil,
+            let wip = loadWIP(folder: itemDir, storageId: id, episodeId: resolvedEp),
+            !wip.completedTrackIndexes.isEmpty
+          {
+            resumeCompleted = Set(wip.completedTrackIndexes)
+          } else if FileManager.default.fileExists(atPath: itemDir.path) {
             try FileManager.default.removeItem(at: itemDir)
           }
           try FileManager.default.createDirectory(at: itemDir, withIntermediateDirectories: true)
@@ -104,17 +156,29 @@ final class DownloadManager: ObservableObject {
           return
         }
 
-        let session = try await client.startPlaySession(
-          itemId: book.id,
-          episodeId: resolvedEp,
-          deviceId: PlaybackController.stableDeviceId(),
-          appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-        )
-        playSessionId = session.id
+        if let reuse = reuseSid,
+          let tracksFromBook = book.media.tracks,
+          !tracksFromBook.isEmpty
+        {
+          streamSessionId = reuse
+          ownsPlaySession = false
+        } else {
+          let session = try await client.startPlaySession(
+            itemId: book.id,
+            episodeId: resolvedEp,
+            deviceId: PlaybackController.stableDeviceId(),
+            appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+          )
+          serverSession = session
+          streamSessionId = session.id
+          ownsPlaySession = true
+        }
 
-        let serverTracks = session.audioTracks ?? book.media.tracks ?? []
+        let serverTracks =
+          (serverSession?.audioTracks ?? book.media.tracks ?? [])
+          .sorted { $0.index < $1.index }
         guard !serverTracks.isEmpty else { throw ABSPlaybackError.noTracks }
-        let sorted = serverTracks.sorted { $0.index < $1.index }
+        let sorted = serverTracks
 
         let weights: [Double] = sorted.map { tr in
           let d = tr.duration
@@ -123,10 +187,24 @@ final class DownloadManager: ObservableObject {
         }
         let sumW = max(weights.reduce(0, +), 1)
         var doneW: Double = 0
+        for (i, tr) in sorted.enumerated() where resumeCompleted.contains(tr.index) {
+          doneW += weights[i]
+        }
 
         var savedAudioExtension: String?
+        var wip = DownloadWIP(
+          storageItemId: id,
+          libraryItemId: book.id,
+          episodeId: resolvedEp,
+          completedTrackIndexes: Array(resumeCompleted).sorted()
+        )
+
         for (i, tr) in sorted.enumerated() {
           try Task.checkCancellation()
+          if resumeCompleted.contains(tr.index) {
+            progress = min(1, doneW / sumW)
+            continue
+          }
           progress = doneW / sumW
           let suggested = folder.appendingPathComponent(PlaybackController.trackFilename(index: tr.index))
           let finalURL: URL
@@ -138,7 +216,7 @@ final class DownloadManager: ObservableObject {
               maxAttempts: Self.trackDownloadMaxAttempts
             )
           } else {
-            let stream = try await client.publicStreamURL(sessionId: session.id, trackIndex: tr.index)
+            let stream = try await client.publicStreamURL(sessionId: streamSessionId, trackIndex: tr.index)
             finalURL = try await client.downloadAuthenticatedFile(
               from: stream,
               to: suggested,
@@ -150,11 +228,21 @@ final class DownloadManager: ObservableObject {
           }
           doneW += weights[i]
           progress = min(1, doneW / sumW)
+          resumeCompleted.insert(tr.index)
+          wip.completedTrackIndexes = Array(resumeCompleted).sorted()
+          try? saveWIP(wip, folder: folder)
+        }
+
+        if savedAudioExtension == nil, let first = sorted.first,
+          let u = PlaybackController.resolvedLocalTrackURL(root: folder, trackIndex: first.index, manifest: nil)
+        {
+          let ext = u.pathExtension.lowercased()
+          if !ext.isEmpty { savedAudioExtension = ext }
         }
 
         let totalDur: Double?
-        if session.duration > 0 {
-          totalDur = session.duration
+        if let s = serverSession, s.duration > 0 {
+          totalDur = s.duration
         } else if let d = book.media.duration, d > 0 {
           totalDur = d
         } else {
@@ -167,7 +255,7 @@ final class DownloadManager: ObservableObject {
           libraryId: book.libraryId,
           displayTitle: book.displayTitle,
           displayAuthor: book.displayAuthors,
-          playSessionId: session.id,
+          playSessionId: streamSessionId,
           savedAtEpoch: Date().timeIntervalSince1970,
           audioFileExtension: savedAudioExtension,
           totalDuration: totalDur,
@@ -181,14 +269,23 @@ final class DownloadManager: ObservableObject {
           }
         )
         try manifest.write(to: folder)
-        try? await client.closePlaySession(sessionId: session.id)
-        playSessionId = nil
+        try? FileManager.default.removeItem(at: wipURL(in: folder))
+        if ownsPlaySession {
+          try? await client.closePlaySession(sessionId: streamSessionId)
+        }
         finishDownloadSuccessIfCurrent(runId: runId, completion: completion)
       } catch {
-        if let sid = playSessionId {
-          try? await client.closePlaySession(sessionId: sid)
+        let cancelled =
+          error is CancellationError
+          || (error as? URLError)?.code == .cancelled
+        if ownsPlaySession, !streamSessionId.isEmpty {
+          try? await client.closePlaySession(sessionId: streamSessionId)
         }
-        finishDownloadFailureIfCurrent(runId: runId, itemId: id, completion: completion)
+        if cancelled {
+          finishDownloadInterruptedIfCurrent(runId: runId, completion: completion)
+        } else {
+          finishDownloadFailureIfCurrent(runId: runId, itemId: id, completion: completion)
+        }
       }
     }
   }
