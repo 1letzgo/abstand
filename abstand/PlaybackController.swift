@@ -22,7 +22,9 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Gesetzte Podcast-Folge (`play/.../episodeId`); bei Hörbüchern `nil`.
   @Published private(set) var activePlaybackEpisodeId: String?
   @Published private(set) var isPlaying = false
-  @Published private(set) var globalPosition: Double = 0
+  /// Laufende Position — absichtlich **nicht** `@Published`, damit SwiftUI nicht ~3×/s invalidiert
+  /// (`tabViewBottomAccessory`, Listen). Vollplayer nutzt `TimelineView`; Sync/Now Playing lesen hier.
+  private(set) var globalPosition: Double = 0
   @Published private(set) var totalDuration: Double = 0
   @Published private(set) var isBuffering = false
   @Published var sleepEndDate: Date?

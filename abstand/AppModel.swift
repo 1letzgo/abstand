@@ -158,10 +158,10 @@ enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
   }
 }
 
-/// Format-Filter im Tab „eBooks“ (horizontale Leiste).
+/// Format-Filter im Tab „eBooks“ (horizontale Leiste): All · eBooks (EPUB) · PDF.
 enum EbooksBrowseFormatSection: String, CaseIterable, Identifiable, Hashable {
   case all = "All"
-  case epub = "EPUB"
+  case ebooks = "eBooks"
   case pdf = "PDF"
 
   var id: String { rawValue }
@@ -169,7 +169,7 @@ enum EbooksBrowseFormatSection: String, CaseIterable, Identifiable, Hashable {
   var systemImage: String {
     switch self {
     case .all: return "books.vertical"
-    case .epub: return "book.closed.fill"
+    case .ebooks: return "book.closed.fill"
     case .pdf: return "doc.fill"
     }
   }
@@ -546,6 +546,8 @@ final class AppModel: ObservableObject {
 
   let player = PlaybackController()
   let downloads = DownloadManager()
+  /// Nur Player-Chrome — entkoppelt `tabViewBottomAccessory` von übrigen `@Published`-Feldern in `AppModel`.
+  let floatingChrome = FloatingPlayerChromeController()
 
   /// Zusatz für `ScrollView`-Inhalt, damit `tabViewBottomAccessory` die letzten Zeilen nicht verdeckt.
   var nowPlayingAccessoryScrollBottomInset: CGFloat {
@@ -554,6 +556,18 @@ final class AppModel: ObservableObject {
     if isRestoringLaunchPlayback { return 56 }
     if p.showMiniPlayerPlaceholder && p.activeBook == nil { return 56 }
     return 0
+  }
+
+  /// Stabiler Zustand für `tabViewBottomAccessory` — nur bei echten Player-/UI-Wechseln, nicht bei `globalPosition`-Ticks.
+  func floatingPlayerAccessoryState(nowPlayingSheetPresented: Bool) -> FloatingPlayerAccessoryState {
+    let p = player
+    let showChrome =
+      p.activeBook != nil || isRestoringLaunchPlayback
+      || (p.showMiniPlayerPlaceholder && p.activeBook == nil)
+    return FloatingPlayerAccessoryState(
+      isVisible: showChrome && !nowPlayingSheetPresented,
+      bar: FloatingNowPlayingBarSnapshot.make(model: self)
+    )
   }
 
   private var cancellables = Set<AnyCancellable>()
@@ -574,6 +588,8 @@ final class AppModel: ObservableObject {
   /// Entkoppelt Sort-Menü von schnellen `@Published`-Updates während des Reloads.
   private var podcastCatalogSortReloadTask: Task<Void, Never>?
   private var booksToolbarSortReloadTask: Task<Void, Never>?
+  /// Fehlende EPUB/PDF-Metadaten für den eBooks-Tab (expandiertes Item), ohne jedes Buch zu öffnen.
+  private var enrichBrowseEbookFormatsTask: Task<Void, Never>?
   private var searchTask: Task<Void, Never>?
   private var podcastSearchTask: Task<Void, Never>?
   private var podcastDirectorySearchTask: Task<Void, Never>?
@@ -666,6 +682,7 @@ final class AppModel: ObservableObject {
         await self?.handleAudiobookPlaybackCompleted()
       }
     }
+    floatingChrome.bind(model: self)
     refreshDownloadedShelfFromManifests()
     restoreAllFromDiskOnLaunch()
     if offlineHomeUIActive {
@@ -830,7 +847,7 @@ final class AppModel: ObservableObject {
     switch format {
     case .all:
       return books
-    case .epub:
+    case .ebooks:
       return books.filter { $0.hasAttachedEbookFormat(.epub, account: account) }
     case .pdf:
       return books.filter { $0.hasAttachedEbookFormat(.pdf, account: account) }
@@ -839,6 +856,7 @@ final class AppModel: ObservableObject {
 
   func selectEbooksBrowseFormatSection(_ section: EbooksBrowseFormatSection) {
     ebooksBrowseFormatSection = section
+    scheduleEnrichBrowseEbookFormats()
     if section != .all, booksWithEbookForDisplay().isEmpty, !browseEbooksBooks.isEmpty {
       Task { await loadBrowseEbooks(force: true) }
     }
@@ -2287,12 +2305,14 @@ final class AppModel: ObservableObject {
     rememberEbookFormatsFromCatalog(browseEbooksBooks)
     browseEbooksTotal = max(m.total, browseEbooksBooks.count)
     browseEbooksPage = m.nextPage
+    scheduleEnrichBrowseEbookFormats()
     return !browseEbooksBooks.isEmpty
   }
 
   /// Beim Wechsel in den Tab „eBooks“: Liste laden (ohne erzwungenen Reload).
   func loadBrowseEbooksOnTabAppear() async {
     await loadBrowseEbooks(force: false)
+    scheduleEnrichBrowseEbookFormats()
   }
 
   private func loadBrowseEbooks(force: Bool) async {
@@ -2313,9 +2333,55 @@ final class AppModel: ObservableObject {
   }
 
   private func rememberEbookFormatsFromCatalog(_ books: [ABSBook]) {
+    EbookLocalStore.syncKnownFormatsFromDisk(account: cacheAccountURL())
     for book in books {
       for fmt in book.attachedEbookFormats {
         EbookLocalStore.rememberKnownFormat(fmt, libraryItemId: book.id)
+      }
+    }
+  }
+
+  private func scheduleEnrichBrowseEbookFormats() {
+    enrichBrowseEbookFormatsTask?.cancel()
+    enrichBrowseEbookFormatsTask = Task { @MainActor [weak self] in
+      await self?.enrichBrowseEbookFormatMetadata()
+    }
+  }
+
+  private func bookNeedsEbookFormatEnrichment(_ book: ABSBook) -> Bool {
+    if !book.attachedEbookFormats.isEmpty { return false }
+    if EbookLocalStore.knownFormat(libraryItemId: book.id) != nil { return false }
+    return true
+  }
+
+  /// `GET /api/items/:id?expanded=1` — liefert `libraryFiles` / `ebookFile` für EPUB/PDF-Filter im Tab.
+  private func enrichBrowseEbookFormatMetadata() async {
+    guard let c = client, isNetworkReachable else { return }
+    let targets = browseEbooksBooks.filter { bookNeedsEbookFormatEnrichment($0) }
+    guard !targets.isEmpty else { return }
+    let batchSize = 4
+    var offset = 0
+    while offset < targets.count {
+      if Task.isCancelled { return }
+      let batch = Array(targets[offset..<min(offset + batchSize, targets.count)])
+      offset += batch.count
+      await withTaskGroup(of: (String, ABSBook)?.self) { group in
+        for book in batch {
+          let id = book.id
+          group.addTask { @MainActor in
+            guard !Task.isCancelled else { return nil }
+            guard let expanded = try? await c.item(id: id, expanded: true) else { return nil }
+            return (id, expanded)
+          }
+        }
+        for await pair in group {
+          guard let (id, expanded) = pair else { continue }
+          guard let i = browseEbooksBooks.firstIndex(where: { $0.id == id }) else { continue }
+          browseEbooksBooks[i] = expanded
+          for fmt in expanded.attachedEbookFormats {
+            EbookLocalStore.rememberKnownFormat(fmt, libraryItemId: id)
+          }
+        }
       }
     }
   }
@@ -2392,6 +2458,7 @@ final class AppModel: ObservableObject {
           browseEbooksPage = 1
         }
       }
+      scheduleEnrichBrowseEbookFormats()
     } catch {
       if Task.isCancelled || Self.isBenignCancellationError(error) { return }
       errorMessage = error.localizedDescription
@@ -2465,6 +2532,8 @@ final class AppModel: ObservableObject {
     for book in rows where seen.insert(book.id).inserted {
       browseEbooksBooks.append(book)
     }
+    rememberEbookFormatsFromCatalog(rows)
+    scheduleEnrichBrowseEbookFormats()
   }
 
   func loadMoreBrowseEbooksIfNeeded(currentItemId: String?) async {

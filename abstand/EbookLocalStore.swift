@@ -81,7 +81,9 @@ enum ABSEbookFormat: String, Codable, CaseIterable {
   static func resolve(format: String?, ext: String?, filename: String?) -> ABSEbookFormat? {
     let f = (format ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     if f == "epub" || f.contains("epub") { return .epub }
+    if f == "application/epub+zip" || f == "application/x-epub+zip" { return .epub }
     if f == "pdf" || f.contains("pdf") { return .pdf }
+    if f == "application/pdf" { return .pdf }
     let e = (ext ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     if e == ".epub" || e == "epub" { return .epub }
     if e == ".pdf" || e == "pdf" { return .pdf }
@@ -106,6 +108,30 @@ extension EbookLocalStore {
       return nil
     }
     return ABSEbookFormat(rawValue: raw)
+  }
+
+  /// Bereits heruntergeladene Dateien / Meta-JSON → `knownFormat`, damit EPUB/PDF-Filter ohne vorheriges Öffnen greifen.
+  static func syncKnownFormatsFromDisk(account: URL?) {
+    guard let account else { return }
+    let dir = account.appendingPathComponent("ebooks", isDirectory: true)
+    guard let urls = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+    for url in urls {
+      let name = url.lastPathComponent
+      if name.hasSuffix(".meta.json") {
+        let stem = String(name.dropLast(".meta.json".count))
+        guard let dot = stem.lastIndex(of: ".") else { continue }
+        let itemId = String(stem[..<dot])
+        let ext = String(stem[stem.index(after: dot)...]).lowercased()
+        guard let fmt = ABSEbookFormat(rawValue: ext) else { continue }
+        rememberKnownFormat(fmt, libraryItemId: itemId)
+        continue
+      }
+      let ext = url.pathExtension.lowercased()
+      guard let fmt = ABSEbookFormat(rawValue: ext) else { continue }
+      let itemId = url.deletingPathExtension().lastPathComponent
+      guard !itemId.isEmpty else { continue }
+      rememberKnownFormat(fmt, libraryItemId: itemId)
+    }
   }
 }
 

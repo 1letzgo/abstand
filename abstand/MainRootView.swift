@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 private struct PodcastLibraryRemoveConfirmation: Identifiable {
@@ -17,7 +18,6 @@ private struct BooksBrowseCollectionNav: Hashable, Identifiable {
 
 struct MainRootView: View {
   @EnvironmentObject private var model: AppModel
-  @EnvironmentObject private var player: PlaybackController
   @Environment(\.colorScheme) private var colorScheme
   @State private var nowPlayingSheetPresented = false
   @State private var showStatsNav = false
@@ -26,27 +26,6 @@ struct MainRootView: View {
   @State private var podcastLibraryRemoveConfirmation: PodcastLibraryRemoveConfirmation?
   @State private var podcastShowSettingsSheet: PodcastShowSettingsSheetContext?
   @State private var booksBrowseCollectionNav: BooksBrowseCollectionNav?
-
-  private var shouldShowFloatingPlayerChrome: Bool {
-    let p = player
-    if p.activeBook != nil { return true }
-    if model.isRestoringLaunchPlayback { return true }
-    if p.showMiniPlayerPlaceholder && p.activeBook == nil { return true }
-    return false
-  }
-
-  /// Ohne `globalPosition` — sonst flackert `tabViewBottomAccessory` bei jedem Tick.
-  private var floatingPlayerChromeKey: FloatingPlayerChromeKey {
-    FloatingPlayerChromeKey(
-      isVisible: shouldShowFloatingPlayerChrome && !nowPlayingSheetPresented,
-      activeBookId: player.activeBook?.id,
-      isRestoringLaunchPlayback: model.isRestoringLaunchPlayback,
-      showIdlePlaceholder: player.showMiniPlayerPlaceholder && player.activeBook == nil,
-      isPlaying: player.isPlaying,
-      isBuffering: player.isBuffering,
-      coverRevision: model.coverImageCacheRevision
-    )
-  }
 
   var body: some View {
     Group {
@@ -87,17 +66,16 @@ struct MainRootView: View {
             searchTabRoot
           }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
       }
     }
     .tint(AppTheme.accent)
     .tabViewBottomAccessory {
-      FloatingPlayerAccessoryHost(
-        chromeKey: floatingPlayerChromeKey,
-        onExpand: { nowPlayingSheetPresented = true }
+      FloatingPlayerAccessoryRoot(
+        chrome: model.floatingChrome,
+        nowPlayingSheetPresented: $nowPlayingSheetPresented,
+        onDismissPlayback: { Task { await model.dismissPlayer() } }
       )
-      .equatable()
-      .frame(maxWidth: .infinity)
+      .id("abstand-floating-player")
       .colorScheme(colorScheme)
     }
     .background(AppTheme.background.ignoresSafeArea())
@@ -118,7 +96,7 @@ struct MainRootView: View {
     .onChange(of: model.nowPlayingSheetPresentationCounter) { _, _ in
       nowPlayingSheetPresented = true
     }
-    .onChange(of: player.isPlaying) { _, playing in
+    .onReceive(model.player.$isPlaying.dropFirst()) { playing in
       Task {
         if !playing {
           await model.syncProgressToServer()
@@ -484,8 +462,8 @@ struct MainRootView: View {
     switch model.ebooksBrowseFormatSection {
     case .all:
       return "No books with an eBook file found."
-    case .epub:
-      return "No EPUB files found."
+    case .ebooks:
+      return "No eBooks found."
     case .pdf:
       return "No PDF files found."
     }
@@ -3727,7 +3705,6 @@ private struct ListeningHistoryRow: View {
 
 private struct BookDetailView: View {
   @EnvironmentObject private var model: AppModel
-  @EnvironmentObject private var player: PlaybackController
   @Environment(\.dismiss) private var dismiss
   let bookId: String
   @State private var detail: ABSBook?
