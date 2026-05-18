@@ -3,7 +3,26 @@ import ReadiumShared
 
 enum EpubReaderTheme: String, CaseIterable {
   case light
+  case sepia
   case dark
+
+  /// Nächstes Theme (Hell → Sepia → Dunkel).
+  func next() -> EpubReaderTheme {
+    switch self {
+    case .light: return .sepia
+    case .sepia: return .dark
+    case .dark: return .light
+    }
+  }
+
+  /// Symbol für den Theme-Button (zeigt das nächste Theme an).
+  var nextThemeToolbarIcon: String {
+    switch next() {
+    case .light: return "sun.max.fill"
+    case .sepia: return "text.page.fill"
+    case .dark: return "moon.fill"
+    }
+  }
 }
 
 /// Leseeinstellungen (global, UserDefaults).

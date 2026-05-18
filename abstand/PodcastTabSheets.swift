@@ -66,24 +66,31 @@ struct PodcastAddFromSearchView: View {
                 }
               }
               Spacer(minLength: 0)
-              Button {
-                Task {
-                  let ok = await model.subscribeToPodcastDirectoryHit(hit)
-                  if ok { dismiss() }
+              if model.podcastDirectoryHitIsInLibrary(hit) {
+                Text("In library")
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(AppTheme.textSecondary)
+                  .padding(.horizontal, 4)
+              } else {
+                Button {
+                  Task {
+                    let ok = await model.subscribeToPodcastDirectoryHit(hit)
+                    if ok { dismiss() }
+                  }
+                } label: {
+                  if model.podcastSubscribeInProgressDirectoryHitId == hit.id {
+                    ProgressView()
+                  } else {
+                    Text("Subscribe")
+                  }
                 }
-              } label: {
-                if model.podcastSubscribeInProgressDirectoryHitId == hit.id {
-                  ProgressView()
-                } else {
-                  Text("Subscribe")
-                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.accent)
+                .disabled(
+                  model.podcastSubscribeInProgressDirectoryHitId != nil
+                    || (hit.feedUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
+                    || !model.isNetworkReachable)
               }
-              .buttonStyle(.borderedProminent)
-              .tint(AppTheme.accent)
-              .disabled(
-                model.podcastSubscribeInProgressDirectoryHitId != nil
-                  || (hit.feedUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
-                  || !model.isNetworkReachable)
             }
             .padding(.vertical, 4)
           }
@@ -92,6 +99,11 @@ struct PodcastAddFromSearchView: View {
       }
     }
     .searchable(text: $query, prompt: "Search Apple Podcasts")
+    .task {
+      if model.podcastShows.isEmpty {
+        await model.reloadPodcastShowsCatalog()
+      }
+    }
     .onChange(of: query) { _, newValue in
       model.schedulePodcastDirectorySearch(term: newValue)
     }

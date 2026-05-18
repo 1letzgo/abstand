@@ -987,29 +987,3 @@ struct LibraryCardActionButtonStyle: ButtonStyle {
   }
 }
 
-/// Neutraler Outline-Rahmen für Detail-Icon-Aktionen (z. B. Fortschritt verwerfen / beendet markieren) — kein Akzent-Gelb.
-struct ResetProgressOutlineButtonStyle: ButtonStyle {
-  var minHeight: CGFloat = MiniPlayerMetrics.controlMinHeight
-
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .fixedSize(horizontal: true, vertical: true)
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(
-        RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
-          .fill(Color.white.opacity(0.06))
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
-          .stroke(
-            AppTheme.textSecondary.opacity(configuration.isPressed ? 0.62 : 0.78),
-            lineWidth: 1
-          )
-      )
-      .opacity(configuration.isPressed ? 0.88 : 1)
-      .contentShape(RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous))
-      .frame(minHeight: minHeight)
-  }
-}
-
-

@@ -5078,6 +5078,34 @@ final class AppModel: ObservableObject {
     return false
   }
 
+  /// Normalisierte Feed-URL für Abgleich Verzeichnis ↔ Bibliothek.
+  private static func normalizedPodcastFeedURL(_ raw: String?) -> String? {
+    var s = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !s.isEmpty else { return nil }
+    if let url = URL(string: s), let host = url.host?.lowercased() {
+      var path = url.path
+      while path.hasSuffix("/") { path.removeLast() }
+      let port =
+        url.port.map { ":\($0)" } ?? ""
+      s = "\(url.scheme?.lowercased() ?? "https")://\(host)\(port)\(path)"
+      if let q = url.query?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty {
+        s += "?\(q)"
+      }
+    } else {
+      s = s.lowercased()
+      while s.hasSuffix("/") { s.removeLast() }
+    }
+    return s
+  }
+
+  /// Sendung aus Apple-Podcasts-Suche ist bereits in der gewählten Podcast-Bibliothek.
+  func podcastDirectoryHitIsInLibrary(_ hit: ABSPodcastDirectorySearchHit) -> Bool {
+    guard let hitFeed = Self.normalizedPodcastFeedURL(hit.feedUrl) else { return false }
+    return podcastShows.contains { show in
+      Self.normalizedPodcastFeedURL(show.media.metadata.feedUrl) == hitFeed
+    }
+  }
+
   func schedulePodcastDirectorySearch(term: String) {
     podcastDirectorySearchTask?.cancel()
     let t = term.trimmingCharacters(in: .whitespacesAndNewlines)

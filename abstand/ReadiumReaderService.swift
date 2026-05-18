@@ -72,12 +72,20 @@ final class ReadiumReaderService {
     throw ReadiumReaderError.formatNotSupported
   }
 
+  private func readiumTheme(from theme: EpubReaderTheme) -> Theme {
+    switch theme {
+    case .light: return .light
+    case .sepia: return .sepia
+    case .dark: return .dark
+    }
+  }
+
   private func makeEPUBNavigator(publication: Publication, locator: Locator?) throws -> UIViewController {
     let theme = EpubReaderSettings.loadTheme()
     let prefs = EPUBPreferences(
       fontSize: EpubReaderSettings.loadFontSize(),
       publisherStyles: false,
-      theme: theme == .dark ? .dark : .light
+      theme: readiumTheme(from: theme)
     )
     var epubConfig = EPUBNavigatorViewController.Configuration(preferences: prefs)
     epubConfig.contentInset = [
@@ -96,9 +104,8 @@ final class ReadiumReaderService {
   }
 
   private func makePDFNavigator(publication: Publication, locator: Locator?) throws -> UIViewController {
-    let theme = EpubReaderSettings.loadTheme()
-    let readiumTheme: Theme = theme == .dark ? .dark : .light
-    let prefs = PDFPreferences(backgroundColor: readiumTheme.backgroundColor)
+    let theme = readiumTheme(from: EpubReaderSettings.loadTheme())
+    let prefs = PDFPreferences(backgroundColor: theme.backgroundColor)
     let navigator = try PDFNavigatorViewController(
       publication: publication,
       initialLocation: locator,
@@ -125,9 +132,8 @@ final class ReadiumReaderService {
   }
 
   func applyPDFPreferences(to navigator: PDFNavigatorViewController) {
-    let theme = EpubReaderSettings.loadTheme()
-    let readiumTheme: Theme = theme == .dark ? .dark : .light
-    navigator.submitPreferences(PDFPreferences(backgroundColor: readiumTheme.backgroundColor))
+    let theme = readiumTheme(from: EpubReaderSettings.loadTheme())
+    navigator.submitPreferences(PDFPreferences(backgroundColor: theme.backgroundColor))
   }
 
   func applyEPUBPreferences(to navigator: EPUBNavigatorViewController) {
@@ -137,7 +143,7 @@ final class ReadiumReaderService {
       EPUBPreferences(
         fontSize: EpubReaderSettings.loadFontSize(),
         publisherStyles: false,
-        theme: theme == .dark ? .dark : .light
+        theme: readiumTheme(from: theme)
       )
     )
     Task { await refreshEpubProgressDisplay(epub: navigator) }
@@ -249,6 +255,21 @@ final class ReadiumReaderService {
     EbookLocalStore.clearReadiumLocator(libraryItemId: libraryItemId, format: format)
     guard let locator = await startLocator(for: navigator.publication) else { return }
     _ = await navigator.go(to: locator)
+    await publishProgressAfterNavigation(navigator: navigator, format: format)
+  }
+
+  /// Springt zu einer Stelle im Buch (0…1 Gesamtfortschritt), z. B. per Fortschritts-Slider.
+  @MainActor
+  func seekToProgression(
+    navigator: Navigator,
+    libraryItemId: String,
+    format: ABSEbookFormat,
+    progression: Double
+  ) async {
+    let fraction = min(1, max(0, progression))
+    guard let locator = await navigator.publication.locate(progression: fraction) else { return }
+    _ = await navigator.go(to: locator)
+    EbookLocalStore.saveReadiumLocator(locator, libraryItemId: libraryItemId, format: format)
     await publishProgressAfterNavigation(navigator: navigator, format: format)
   }
 

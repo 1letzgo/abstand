@@ -29,13 +29,28 @@ struct ReadiumReaderView: View {
   @State private var readProgressLabel = "0 %"
   @State private var bookPageProgress: BookPageProgress?
   @State private var readerActionInProgress = false
+  @State private var confirmResetReadingPosition = false
+  @State private var isScrubbingProgress = false
+  @State private var scrubProgress: Double = 0
 
   private var chromeColorScheme: ColorScheme {
     readerTheme == .dark ? .dark : .light
   }
 
   private var readerBackground: SwiftUI.Color {
-    readerTheme == .dark ? AppTheme.background : .white
+    switch readerTheme {
+    case .dark: AppTheme.background
+    case .light: .white
+    case .sepia: Color(red: 250 / 255, green: 244 / 255, blue: 232 / 255)
+    }
+  }
+
+  private var readerChromeForeground: SwiftUI.Color {
+    readerTheme == .dark ? AppTheme.textPrimary : .primary
+  }
+
+  private var readerChromeSecondary: SwiftUI.Color {
+    readerTheme == .dark ? AppTheme.textSecondary : .secondary
   }
 
   var body: some View {
@@ -69,6 +84,7 @@ struct ReadiumReaderView: View {
       }
     }
     .onReceive(NotificationCenter.default.publisher(for: .readiumReaderProgressDidChange)) { note in
+      guard !isScrubbingProgress else { return }
       guard let locator = note.userInfo?[ReadiumReaderProgressInfo.locatorKey] as? Locator else { return }
       let pages = note.userInfo?[ReadiumReaderProgressInfo.bookPageProgressKey] as? BookPageProgress
       applyProgress(from: locator, bookPages: pages)
@@ -76,6 +92,14 @@ struct ReadiumReaderView: View {
     .task(id: localFileURL.path) {
       fontSize = EpubReaderSettings.loadFontSize()
       await loadNavigator()
+    }
+    .alert("Reset reading position?", isPresented: $confirmResetReadingPosition) {
+      Button("Cancel", role: .cancel) {}
+      Button("Reset", role: .destructive) {
+        Task { await resetReadingPosition() }
+      }
+    } message: {
+      Text("This removes your saved position for this book. You cannot undo this.")
     }
   }
 
@@ -105,7 +129,7 @@ struct ReadiumReaderView: View {
         Text(title)
           .font(.subheadline.weight(.semibold))
           .lineLimit(1)
-          .foregroundStyle(readerTheme == .dark ? AppTheme.textPrimary : .primary)
+          .foregroundStyle(readerChromeForeground)
 
         Spacer(minLength: 0)
       }
@@ -140,7 +164,17 @@ struct ReadiumReaderView: View {
         Spacer(minLength: 16)
 
         Button {
-          readerTheme = readerTheme == .light ? .dark : .light
+          confirmResetReadingPosition = true
+        } label: {
+          Image(systemName: "arrow.counterclockwise")
+            .font(.body)
+            .frame(width: 36, height: 36)
+        }
+        .disabled(readerActionInProgress)
+        .accessibilityLabel("Reset position")
+
+        Button {
+          readerTheme = readerTheme.next()
           EpubReaderSettings.saveTheme(readerTheme)
           if format == .epub {
             applyEPUBPrefs()
@@ -148,41 +182,81 @@ struct ReadiumReaderView: View {
             applyPDFPrefs()
           }
         } label: {
-          Image(systemName: readerTheme == .light ? "moon.fill" : "sun.max.fill")
+          Image(systemName: readerTheme.nextThemeToolbarIcon)
             .font(.body)
             .frame(width: 36, height: 36)
         }
+        .accessibilityLabel("Reading theme")
+        .accessibilityValue(readerTheme.rawValue.capitalized)
       }
-      .foregroundStyle(readerTheme == .dark ? AppTheme.textPrimary : .primary)
+      .foregroundStyle(readerChromeForeground)
 
-      VStack(alignment: .leading, spacing: 4) {
-        ProgressView(value: readProgress)
-          .tint(AppTheme.accent)
-        Text(readProgressLabel)
-          .font(.caption)
-          .foregroundStyle(readerTheme == .dark ? AppTheme.textSecondary : .secondary)
-      }
-
-      HStack(spacing: 10) {
-        Button {
-          Task { await resetReadingPosition() }
-        } label: {
-          Label("Reset position", systemImage: "arrow.counterclockwise")
-            .font(.caption.weight(.semibold))
-            .lineLimit(1)
-            .minimumScaleFactor(0.85)
-        }
-        .disabled(readerActionInProgress)
-
-        Spacer(minLength: 0)
-      }
-      .foregroundStyle(readerTheme == .dark ? AppTheme.textPrimary : .primary)
+      readerProgressScrubber
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 10)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(.ultraThinMaterial)
     .safeAreaPadding(.top, 4)
+  }
+
+  private var readerProgressScrubber: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Slider(
+        value: isScrubbingProgress ? $scrubProgress : $readProgress,
+        in: 0 ... 1,
+        onEditingChanged: { editing in
+          if editing {
+            isScrubbingProgress = true
+            scrubProgress = readProgress
+          } else {
+            let target = scrubProgress
+            isScrubbingProgress = false
+            Task { await seekToProgression(target) }
+          }
+        }
+      )
+      .tint(AppTheme.accent)
+      .disabled(readerActionInProgress || isLoading)
+      .accessibilityLabel("Reading progress")
+      .accessibilityValue(
+        isScrubbingProgress
+          ? "\(Int((scrubProgress * 100).rounded())) percent"
+          : readProgressLabel
+      )
+
+      Text(isScrubbingProgress ? scrubProgressCaption : readProgressLabel)
+        .font(.caption)
+        .monospacedDigit()
+        .foregroundStyle(readerChromeSecondary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.85)
+    }
+  }
+
+  private var scrubProgressCaption: String {
+    let pct = Int((scrubProgress * 100).rounded())
+    if format == .pdf,
+      let total = ReadiumReaderDelegate.shared.positionCountForDisplay,
+      total > 1
+    {
+      let page = min(total, max(1, Int((scrubProgress * Double(total)).rounded())))
+      return "Page \(page) of \(total) · \(pct)%"
+    }
+    return "\(pct)%"
+  }
+
+  @MainActor
+  private func seekToProgression(_ progression: Double) async {
+    guard let navigator: Navigator = epubNavigator ?? pdfNavigator else { return }
+    readerActionInProgress = true
+    defer { readerActionInProgress = false }
+    await ReadiumReaderService.shared.seekToProgression(
+      navigator: navigator,
+      libraryItemId: libraryItemId,
+      format: format,
+      progression: progression
+    )
   }
 
   private func applyProgress(from locator: Locator, bookPages: BookPageProgress? = nil) {

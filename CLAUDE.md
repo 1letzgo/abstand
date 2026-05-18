@@ -62,6 +62,15 @@ All API models in `ABSModels.swift`, prefixed `ABS`. `ABSBook` is used for both 
 
 `ABSJSON.swift` provides shared `decoder()` / `encoder()` with `convertFromSnakeCase` strategy. Use these everywhere instead of plain `JSONDecoder()`.
 
+### eBook Reader: `ReadiumReaderService` & `ReadiumReaderView`
+
+eBook support (EPUB files) integrates [Readium](https://readium.org/) via `ReadiumShared` framework. Architecture:
+- `ReadiumReaderService` (`@MainActor ObservableObject`) — wraps Readium's publication/navigator lifecycle. Manages publication loading, bookmark syncing, deferred parsing
+- `ReadiumReaderView` — SwiftUI host for Readium's web-based EPUB renderer (WKWebView under the hood)
+- `EbookLocalStore` — reader theme (light/sepia/dark) and font size scaling (`0.7x`–`1.8x`), persisted to `UserDefaults`
+
+Downloads land in `Documents/Downloads/<itemId>/`. Books downloaded as EPUB are reconstructed via `DownloadManager`, then passed to `ReadiumReaderService` for rendering. Same progress tracking as audiobooks: `AppModel.progressByItemId`.
+
 ### Language note
 
 Inline comments in this codebase are written in German.

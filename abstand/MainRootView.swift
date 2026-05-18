@@ -3982,11 +3982,11 @@ private struct BookDetailView: View {
         } label: {
           Image(systemName: "arrow.counterclockwise.circle")
             .font(.callout)
-            .foregroundStyle(discardEnabled ? AppTheme.textPrimary : AppTheme.textSecondary.opacity(0.42))
+            .foregroundStyle(AppTheme.danger)
         }
-        .buttonStyle(ResetProgressOutlineButtonStyle())
-        .allowsHitTesting(discardEnabled)
-        .accessibilityLabel("Discard progress")
+        .buttonStyle(LibraryCardActionButtonStyle(variant: .danger))
+        .disabled(!discardEnabled)
+        .accessibilityLabel("Reset listening progress")
 
         Button {
           if isFinished {
@@ -3997,10 +3997,11 @@ private struct BookDetailView: View {
         } label: {
           Image(systemName: isFinished ? "arrow.uturn.backward.circle" : "checkmark.circle")
             .font(.callout)
-            .foregroundStyle(markToggleEnabled ? AppTheme.textPrimary : AppTheme.textSecondary.opacity(0.42))
+            .foregroundStyle(isFinished ? AppTheme.accent : AppTheme.textPrimary)
         }
-        .buttonStyle(ResetProgressOutlineButtonStyle())
-        .allowsHitTesting(markToggleEnabled)
+        .buttonStyle(LibraryCardActionButtonStyle(variant: isFinished ? .accent : .neutral))
+        .disabled(!markToggleEnabled)
+        .accessibilityLabel(isFinished ? "Mark as not finished" : "Mark as finished")
       }
       .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
 
@@ -4398,11 +4399,11 @@ private struct PodcastEpisodeDetailView: View {
         } label: {
           Image(systemName: "arrow.counterclockwise.circle")
             .font(.callout)
-            .foregroundStyle(discardEnabled ? AppTheme.textPrimary : AppTheme.textSecondary.opacity(0.42))
+            .foregroundStyle(AppTheme.danger)
         }
-        .buttonStyle(ResetProgressOutlineButtonStyle())
-        .allowsHitTesting(discardEnabled)
-        .accessibilityLabel("Discard progress")
+        .buttonStyle(LibraryCardActionButtonStyle(variant: .danger))
+        .disabled(!discardEnabled)
+        .accessibilityLabel("Reset listening progress")
 
         Button {
           if isFinished {
@@ -4413,10 +4414,11 @@ private struct PodcastEpisodeDetailView: View {
         } label: {
           Image(systemName: isFinished ? "arrow.uturn.backward.circle" : "checkmark.circle")
             .font(.callout)
-            .foregroundStyle(markToggleEnabled ? AppTheme.textPrimary : AppTheme.textSecondary.opacity(0.42))
+            .foregroundStyle(isFinished ? AppTheme.accent : AppTheme.textPrimary)
         }
-        .buttonStyle(ResetProgressOutlineButtonStyle())
-        .allowsHitTesting(markToggleEnabled)
+        .buttonStyle(LibraryCardActionButtonStyle(variant: isFinished ? .accent : .neutral))
+        .disabled(!markToggleEnabled)
+        .accessibilityLabel(isFinished ? "Mark as not finished" : "Mark as finished")
       }
       .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
 
