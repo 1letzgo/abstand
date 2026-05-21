@@ -60,7 +60,7 @@ struct LoginView: View {
         .padding(24)
         .frame(maxWidth: .infinity)
       }
-      .scrollContentBackground(.hidden)
+      .abstandScrollScreenBackground()
       .refreshable {
         await model.bootstrapFromStoredCredentials()
       }

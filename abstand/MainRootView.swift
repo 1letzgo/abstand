@@ -1,108 +1,30 @@
 import Combine
 import SwiftUI
 
-private struct PodcastLibraryRemoveConfirmation: Identifiable {
-  let id: String
-  let title: String
-}
-
-private struct PodcastShowSettingsSheetContext: Identifiable {
-  let id: String
-  let title: String
-}
-
-private struct BooksBrowseCollectionNav: Hashable, Identifiable {
-  let id: String
-  let title: String
-}
-
 struct MainRootView: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.colorScheme) private var colorScheme
-  @State private var nowPlayingSheetPresented = false
-  @State private var showStatsNav = false
-  @State private var showSettingsNav = false
-  @State private var podcastAddFromSearchNav = false
-  @State private var podcastLibraryRemoveConfirmation: PodcastLibraryRemoveConfirmation?
-  @State private var podcastShowSettingsSheet: PodcastShowSettingsSheetContext?
+  @Binding var nowPlayingSheetPresented: Bool
+  @StateObject private var booksLibraryToolbarState = BooksLibraryToolbarState()
+  @StateObject private var podcastCatalogToolbarState = PodcastCatalogToolbarState()
   @State private var booksBrowseCollectionNav: BooksBrowseCollectionNav?
 
   var body: some View {
-    Group {
-      if model.offlineHomeUIActive {
-        TabView(selection: $model.mainTab) {
-          Tab(AppModel.MainTab.start.rawValue, systemImage: "house.fill", value: AppModel.MainTab.start) {
-            homeTabRoot
-          }
-        }
-        .toolbar(.hidden, for: .tabBar)
-      } else {
-        TabView(selection: $model.mainTab) {
-          Tab(AppModel.MainTab.start.rawValue, systemImage: "house.fill", value: AppModel.MainTab.start) {
-            homeTabRoot
-          }
-
-          if model.selectedBooksLibrary != nil {
-            Tab(AppModel.MainTab.audio.rawValue, systemImage: "headphones", value: AppModel.MainTab.audio) {
-              audioTabRoot
-            }
-            if model.ebooksTabEnabled {
-              Tab(AppModel.MainTab.ebooks.rawValue, systemImage: "book.closed.fill", value: AppModel.MainTab.ebooks) {
-                ebooksTabRoot
-              }
-            }
-          }
-
-          if model.selectedPodcastLibrary != nil {
-            Tab(AppModel.MainTab.podcasts.rawValue, systemImage: "mic.fill", value: AppModel.MainTab.podcasts) {
-              podcastsTabRoot
-            }
-          }
-
-          Tab(
-            AppModel.MainTab.search.rawValue, systemImage: "magnifyingglass", value: AppModel.MainTab.search,
-            role: .search
-          ) {
-            searchTabRoot
-          }
-        }
-      }
-    }
-    .tint(AppTheme.accent)
-    .tabViewBottomAccessory {
-      FloatingPlayerAccessoryRoot(
-        chrome: model.floatingChrome,
-        nowPlayingSheetPresented: $nowPlayingSheetPresented,
-        onDismissPlayback: { Task { await model.dismissPlayer() } }
-      )
-      .id("abstand-floating-player")
-      .colorScheme(colorScheme)
-    }
-    .background(AppTheme.background.ignoresSafeArea())
-    .sheet(isPresented: $nowPlayingSheetPresented) {
-      NowPlayingDetailView()
-        .environmentObject(model)
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
-    }
+    tabViewBody
+      .tint(AppTheme.accent)
+      .background(AppTheme.background.ignoresSafeArea())
     .fullScreenCover(item: $model.ebookReaderSession) { session in
       ReadiumReaderView(
         title: session.title,
+        author: session.author,
         libraryItemId: session.libraryItemId,
         localFileURL: session.localFileURL,
         format: session.format
       )
     }
-    .onChange(of: model.nowPlayingSheetPresentationCounter) { _, _ in
-      nowPlayingSheetPresented = true
-    }
     .onReceive(model.player.$isPlaying.dropFirst()) { playing in
-      Task {
-        if !playing {
-          await model.syncProgressToServer()
-        }
-        await model.loadStartDashboard()
-      }
+      guard !playing else { return }
+      Task { await model.handlePlaybackPaused() }
     }
     .onChange(of: model.mainTab) { _, tab in
       if tab == .start, model.startShelves.isEmpty, !model.offlineHomeUIActive {
@@ -111,18 +33,12 @@ struct MainRootView: View {
       if tab == .search {
         model.scheduleSearch()
       }
-      if tab == .ebooks {
-        Task { await model.loadBrowseEbooksOnTabAppear() }
-      }
     }
     .onChange(of: model.offlineHomeMode) { _, _ in
       model.clampMainTabForOfflineHomeIfNeeded()
     }
     .onChange(of: model.offlineHomeModeAuto) { _, _ in
       model.clampMainTabForOfflineHomeIfNeeded()
-    }
-    .onChange(of: model.ebooksTabEnabled) { _, _ in
-      model.clampMainTabForEbooksTabIfNeeded()
     }
     .onChange(of: model.ebookReaderSession?.libraryItemId) { _, newId in
       if newId == nil {
@@ -131,7 +47,7 @@ struct MainRootView: View {
     }
     .onChange(of: model.selectedBooksLibrary?.id) { _, _ in
       if model.selectedBooksLibrary == nil,
-        model.mainTab == .audio || model.mainTab == .ebooks
+        model.mainTab == .library
       {
         model.mainTab = .start
       }
@@ -152,6 +68,52 @@ struct MainRootView: View {
     } message: {
       Text(model.errorMessage ?? "")
     }
+    .alert("Enable offline mode?", isPresented: $model.showOfflineModeConfirmation) {
+      Button("Cancel", role: .cancel) {
+        model.cancelEnterOfflineHomeModeConfirmation()
+      }
+      Button("Go offline") {
+        model.confirmEnterOfflineHomeMode()
+      }
+    } message: {
+      Text(
+        "The server connection will be paused. You can only play downloaded content. Progress syncs when you go back online."
+      )
+    }
+  }
+
+  private var tabViewBody: some View {
+    TabView(selection: $model.mainTab) {
+      Tab(AppModel.MainTab.start.rawValue, systemImage: "house.fill", value: AppModel.MainTab.start) {
+        homeTabRoot
+      }
+
+      if !model.offlineHomeUIActive {
+        if model.selectedBooksLibrary != nil {
+          Tab(AppModel.MainTab.library.rawValue, systemImage: "books.vertical", value: AppModel.MainTab.library) {
+            libraryTabRoot
+          }
+        }
+
+        if model.selectedPodcastLibrary != nil {
+          Tab(AppModel.MainTab.podcasts.rawValue, systemImage: "mic.fill", value: AppModel.MainTab.podcasts) {
+            podcastsTabRoot
+          }
+        }
+
+        Tab(
+          AppModel.MainTab.search.rawValue, systemImage: "magnifyingglass", value: AppModel.MainTab.search,
+          role: .search
+        ) {
+          searchTabRoot
+        }
+
+        Tab(AppModel.MainTab.settings.rawValue, systemImage: "gearshape.fill", value: AppModel.MainTab.settings) {
+          settingsTabRoot
+        }
+      }
+    }
+    .tabBarMinimizeBehavior(.onScrollDown)
   }
 
   // MARK: - Home tab
@@ -159,32 +121,16 @@ struct MainRootView: View {
   private var homeTabRoot: some View {
     NavigationStack {
       StartDashboardView()
+        .abstandTabScreenChrome()
         .navigationTitle(AppModel.MainTab.start.rawValue)
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
           ToolbarItemGroup(placement: .topBarTrailing) {
-            Button {
-              showStatsNav = true
-            } label: {
-              Image(systemName: "chart.bar.fill")
-                .foregroundStyle(AppTheme.accent)
-            }
-            .accessibilityLabel("Stats")
-
-            Button {
-              showSettingsNav = true
-            } label: {
-              Image(systemName: "gearshape.fill")
-                .foregroundStyle(AppTheme.accent)
-            }
-            .accessibilityLabel("Settings")
+            HomeServerConnectionIndicatorButton()
           }
         }
-        .navigationDestination(isPresented: $showStatsNav) {
-          statsTabRoot
-        }
-        .navigationDestination(isPresented: $showSettingsNav) {
-          settingsTabRoot
+        .task {
+          await model.probeServerConnectionIfNeeded()
         }
         .booksEntityDetailNavigation()
     }
@@ -193,101 +139,35 @@ struct MainRootView: View {
   // MARK: - Settings tab root
 
   private var settingsTabRoot: some View {
-    AppSettingsRootView()
-      .tint(AppTheme.accent)
-      .navigationTitle(AppModel.MainTab.settings.rawValue)
-      .toolbarTitleDisplayMode(.inline)
-  }
-
-  private var podcastAddFromSearchDestination: some View {
-    PodcastAddFromSearchView()
-      .environmentObject(model)
-      .tint(AppTheme.accent)
-      .navigationTitle("Add podcast")
-      .toolbarTitleDisplayMode(.inline)
-  }
-
-  // MARK: - Audio tab
-
-  private var audioTabRoot: some View {
     NavigationStack {
-      booksCatalogScrollView
-        .navigationTitle("Audiobooks")
-        .toolbarTitleDisplayMode(.inlineLarge)
-        .toolbar {
-          switch model.booksBrowseSection {
-          case .books:
-            ToolbarItem(id: "booksSortMainCatalog", placement: .topBarTrailing) {
-              BooksCatalogSortToolbarMenu()
-            }
-          case .author:
-            ToolbarItem(id: "booksSortAuthors", placement: .topBarTrailing) {
-              BrowseAuthorsSortToolbarMenu()
-            }
-          case .narrators:
-            ToolbarItem(id: "booksSortNarrators", placement: .topBarTrailing) {
-              BrowseNarratorsSortToolbarMenu()
-            }
-          case .series:
-            ToolbarItem(id: "booksSortSeries", placement: .topBarTrailing) {
-              BrowseSeriesSortToolbarMenu()
-            }
-          case .collections:
-            ToolbarItem(id: "booksSortCollections", placement: .topBarTrailing) {
-              BrowseCollectionsSortToolbarMenu()
-            }
-          }
-        }
-        .navigationDestination(item: $booksBrowseCollectionNav) { nav in
-          booksBrowseCollectionDetailView(nav: nav)
-        }
+      SettingsHubRootView()
+        .abstandTabScreenChrome()
         .booksEntityDetailNavigation()
     }
+    .tint(AppTheme.accent)
   }
 
-  // MARK: - eBooks tab
+  // MARK: - Library tab
 
-  private var ebooksTabRoot: some View {
-    NavigationStack {
-      ebooksCatalogScrollView
-        .navigationTitle(AppModel.MainTab.ebooks.rawValue)
-        .toolbarTitleDisplayMode(.inlineLarge)
-        .toolbar {
-          ToolbarItem(id: "ebooksSortCatalog", placement: .topBarTrailing) {
-            BooksCatalogSortToolbarMenu()
-          }
-        }
-        .booksEntityDetailNavigation()
-    }
-  }
-
-  private var ebooksCatalogScrollView: some View {
-    ScrollView {
-      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          tabContentSectionTitle("Browse")
-          ebooksBrowseFormatStrip
-        }
-        booksEbookFilteredListBody
+  private var libraryTabRoot: some View {
+    BooksLibraryTabShell(
+      toolbarState: booksLibraryToolbarState,
+      collectionNav: $booksBrowseCollectionNav,
+      catalog: { booksCatalogScrollView },
+      collectionDetail: { nav in
+        AnyView(booksBrowseCollectionDetailView(nav: nav))
       }
-      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.top, AppTheme.Layout.withinSectionSpacing)
-      .padding(
-        .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
-    }
-    .scrollContentBackground(.hidden)
-    .refreshable {
-      await model.refreshEbooksCatalog()
-    }
+    )
+    .id("books-library-tab")
+    .booksEntityDetailNavigation()
+    .onAppear { booksLibraryToolbarState.attach(model) }
+    .onDisappear { booksLibraryToolbarState.detach() }
   }
 
   private var booksCatalogScrollView: some View {
     ScrollView {
-      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          tabContentSectionTitle("Browse")
-          booksBrowseSectionStrip
-        }
+      VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+        booksBrowseSectionStrip
         booksBrowseMainContent
       }
       .padding(.horizontal, AppTheme.Layout.tabPaddingH)
@@ -295,7 +175,7 @@ struct MainRootView: View {
       .padding(
         .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
-    .scrollContentBackground(.hidden)
+    .abstandScrollScreenBackground()
     .refreshable {
       await model.refreshBooksCatalog()
     }
@@ -346,53 +226,6 @@ struct MainRootView: View {
     .scrollContentBackground(.hidden)
   }
 
-  private var ebooksBrowseFormatStrip: some View {
-    let tile = AppTheme.Layout.horizontalBrowseStripTile
-    let captionW = tile + AppTheme.Layout.horizontalBrowseStripLabelWidthExtra
-    return ScrollView(.horizontal, showsIndicators: false) {
-      HStack(alignment: .top, spacing: AppTheme.Layout.horizontalBrowseStripInterTileSpacing) {
-        ForEach(EbooksBrowseFormatSection.allCases) { section in
-          Button {
-            model.selectEbooksBrowseFormatSection(section)
-          } label: {
-            VStack(spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
-              ZStack {
-                RoundedRectangle(
-                  cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous
-                )
-                .fill(AppTheme.card)
-                .frame(width: tile, height: tile)
-                Image(systemName: section.systemImage)
-                  .font(.title2)
-                  .foregroundStyle(
-                    model.ebooksBrowseFormatSection == section
-                      ? AppTheme.accent : AppTheme.textSecondary)
-              }
-              .overlay {
-                RoundedRectangle(
-                  cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous
-                )
-                .strokeBorder(
-                  model.ebooksBrowseFormatSection == section ? AppTheme.accent : Color.clear,
-                  lineWidth: 2.5)
-              }
-              Text(section.rawValue)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(AppTheme.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .multilineTextAlignment(.center)
-                .frame(width: captionW)
-            }
-          }
-          .buttonStyle(.plain)
-        }
-      }
-      .padding(.vertical, AppTheme.Layout.horizontalBrowseStripVerticalPadding)
-    }
-    .scrollContentBackground(.hidden)
-  }
-
   @ViewBuilder
   private var booksBrowseMainContent: some View {
     switch model.booksBrowseSection {
@@ -413,59 +246,17 @@ struct MainRootView: View {
     let rows = model.booksForDisplay()
     return LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       if let lib = model.selectedBooksLibrary {
-        tabContentSectionTitle(lib.name)
+        TabContentSectionTitle(title:lib.name)
       }
-      if model.activeLibraryFilter != nil {
+      if model.isLibraryCatalogFiltered {
         catalogFilterBanner
       }
       ForEach(rows) { book in
-        BookRowCard(book: book)
+        BookRowCard(book: book, model: model)
           .task(id: book.id) {
             await model.loadMoreIfNeeded(currentItemId: book.id)
           }
       }
-    }
-  }
-
-  private var booksEbookFilteredListBody: some View {
-    let rows = model.booksWithEbookForDisplay()
-    return LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      if let lib = model.selectedBooksLibrary {
-        tabContentSectionTitle(lib.name)
-      }
-      if !model.isNetworkReachable {
-        booksBrowseOfflineHint
-        if !rows.isEmpty {
-          ForEach(rows) { book in
-            BookRowCard(book: book, opensEbookOnCover: true)
-          }
-        }
-      } else if model.browseEbooksLoading && rows.isEmpty {
-        booksBrowseCenteredProgress
-      } else if rows.isEmpty {
-        Text(ebooksEmptyListMessage)
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.vertical, 8)
-      } else {
-        ForEach(rows) { book in
-          BookRowCard(book: book, opensEbookOnCover: true)
-            .task(id: book.id) {
-              await model.loadMoreIfNeeded(currentItemId: book.id)
-            }
-        }
-      }
-    }
-  }
-
-  private var ebooksEmptyListMessage: String {
-    switch model.ebooksBrowseFormatSection {
-    case .all:
-      return "No books with an eBook file found."
-    case .ebooks:
-      return "No eBooks found."
-    case .pdf:
-      return "No PDF files found."
     }
   }
 
@@ -491,7 +282,7 @@ struct MainRootView: View {
 
   private var booksBrowseAuthorListBody: some View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      tabContentSectionTitle("Author")
+      TabContentSectionTitle(title:"Author")
       if !model.isNetworkReachable {
         booksBrowseOfflineHint
       } else if model.browseAuthorsLoading && model.browseAuthors.isEmpty {
@@ -526,7 +317,7 @@ struct MainRootView: View {
 
   private var booksBrowseNarratorListBody: some View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      tabContentSectionTitle("Narrators")
+      TabContentSectionTitle(title:"Narrators")
       if !model.isNetworkReachable {
         booksBrowseOfflineHint
       } else if model.browseNarratorsLoading && model.browseNarrators.isEmpty {
@@ -551,7 +342,7 @@ struct MainRootView: View {
 
   private var booksBrowseSeriesListBody: some View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      tabContentSectionTitle("Series")
+      TabContentSectionTitle(title:"Series")
       if !model.isNetworkReachable {
         booksBrowseOfflineHint
       } else if model.browseSeriesLoading && model.browseSeries.isEmpty {
@@ -582,7 +373,7 @@ struct MainRootView: View {
 
   private var booksBrowseCollectionsListBody: some View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      tabContentSectionTitle("Collections")
+      TabContentSectionTitle(title:"Collections")
       if !model.isNetworkReachable {
         booksBrowseOfflineHint
       } else if model.browseCollectionsLoading && model.browseCollections.isEmpty {
@@ -652,7 +443,7 @@ struct MainRootView: View {
             .padding(.vertical, 8)
         } else {
           ForEach(books) { book in
-            BookRowCard(book: book)
+            BookRowCard(book: book, model: model)
           }
         }
       }
@@ -660,18 +451,9 @@ struct MainRootView: View {
       .padding(
         .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
-    .scrollContentBackground(.hidden)
+    .abstandScrollScreenBackground()
     .navigationTitle(nav.title)
     .toolbarTitleDisplayMode(.inline)
-  }
-
-  // MARK: - Stats
-
-  private var statsTabRoot: some View {
-    StatsTabView()
-      .tint(AppTheme.accent)
-      .navigationTitle(AppModel.MainTab.stats.rawValue)
-      .toolbarTitleDisplayMode(.inline)
   }
 
   // MARK: - Search tab
@@ -679,6 +461,7 @@ struct MainRootView: View {
   private var searchTabRoot: some View {
     NavigationStack {
       SearchTabView()
+        .abstandTabScreenChrome()
         .navigationTitle(AppModel.MainTab.search.rawValue)
         .toolbarTitleDisplayMode(.inlineLarge)
         .searchable(text: $model.searchText, prompt: "Title, author, series…")
@@ -710,105 +493,13 @@ struct MainRootView: View {
   }
 
   private var podcastsTabRoot: some View {
-    NavigationStack {
+    PodcastCatalogTabShell(toolbarState: podcastCatalogToolbarState) {
       podcastCatalogScrollView
-        .navigationTitle(AppModel.MainTab.podcasts.rawValue)
-        .toolbarTitleDisplayMode(.inlineLarge)
-        .toolbar {
-          ToolbarItem(id: "podcastCatalogActions", placement: .topBarTrailing) {
-            HStack(spacing: 16) {
-              if model.podcastSelectedShowId == nil {
-                Button {
-                  podcastAddFromSearchNav = true
-                } label: {
-                  Image(systemName: "plus.circle.fill")
-                }
-                .disabled(model.selectedPodcastLibrary == nil || !model.isNetworkReachable)
-                .accessibilityLabel("Add podcast")
-              }
-
-              if let sid = model.podcastSelectedShowId {
-                Button {
-                  podcastShowSettingsSheet = nil
-                  Task { await model.togglePodcastRssFeedToolbar(podcastLibraryItemId: sid) }
-                } label: {
-                  Label("RSS", systemImage: "dot.radiowaves.left.and.right")
-                    .opacity(
-                      model.podcastRssFeedLoadInProgressShowIds.contains(sid) ? 0.45 : 1)
-                }
-                .disabled(!model.isNetworkReachable || model.podcastRssFeedLoadInProgressShowIds.contains(sid))
-                .foregroundStyle(
-                  model.podcastRssFeedPreviewForShowId == sid
-                    ? AppTheme.accent : AppTheme.textSecondary)
-                .accessibilityLabel(
-                  model.podcastRssFeedLoadInProgressShowIds.contains(sid)
-                    ? "Loading RSS feed"
-                    : model.podcastRssFeedPreviewForShowId == sid
-                      ? "RSS feed preview on, hide episodes"
-                      : "Show episodes from RSS feed")
-
-                Button {
-                  let title =
-                    model.podcastShows.first(where: { $0.id == sid })?.displayTitle ?? "Podcast"
-                  Task {
-                    await model.preparePodcastShowSettingsSheet(showId: sid)
-                    podcastShowSettingsSheet = PodcastShowSettingsSheetContext(
-                      id: sid, title: title)
-                  }
-                } label: {
-                  Label("Settings", systemImage: "gearshape")
-                }
-                .foregroundStyle(AppTheme.textSecondary)
-                .accessibilityLabel("Show settings")
-              }
-            }
-          }
-          ToolbarItem(id: "podcastCatalogSort", placement: .topBarTrailing) {
-            PodcastCatalogSortToolbarMenu()
-          }
-        }
-        .navigationDestination(isPresented: $podcastAddFromSearchNav) {
-          podcastAddFromSearchDestination
-        }
-        .alert(
-          "Remove show?",
-          isPresented: Binding(
-            get: { podcastLibraryRemoveConfirmation != nil },
-            set: { if !$0 { podcastLibraryRemoveConfirmation = nil } }
-          )
-        ) {
-          Button("Remove from library") {
-            if let item = podcastLibraryRemoveConfirmation {
-              Task { await model.removePodcastShowFromLibrary(showLibraryItemId: item.id) }
-            }
-            podcastLibraryRemoveConfirmation = nil
-          }
-          Button("Cancel", role: .cancel) {
-            podcastLibraryRemoveConfirmation = nil
-          }
-        } message: {
-          if let item = podcastLibraryRemoveConfirmation {
-            Text(
-              "\"\(item.title)\" will be deleted on the server. Local downloads for this show will be removed."
-            )
-          }
-        }
-        .sheet(item: $podcastShowSettingsSheet) { ctx in
-          PodcastShowSettingsSheet(
-            showId: ctx.id,
-            showTitle: ctx.title,
-            onRemove: {
-              podcastShowSettingsSheet = nil
-              podcastLibraryRemoveConfirmation = PodcastLibraryRemoveConfirmation(
-                id: ctx.id, title: ctx.title)
-            }
-          )
-          .environmentObject(model)
-        }
-        .onChange(of: model.podcastSelectedShowId) { _, _ in
-          podcastShowSettingsSheet = nil
-        }
     }
+    .id("podcast-catalog-tab")
+    .booksEntityDetailNavigation()
+    .onAppear { podcastCatalogToolbarState.attach(model) }
+    .onDisappear { podcastCatalogToolbarState.detach() }
   }
 
   private var podcastCatalogBodyIdentity: String {
@@ -821,11 +512,8 @@ struct MainRootView: View {
     ScrollViewReader { proxy in
       ScrollView {
         VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-          VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-            tabContentSectionTitle("Shows")
-            podcastShowsCoverStrip
-          }
-          .id("podcastScrollTop")
+          podcastShowsCoverStrip
+            .id("podcastScrollTop")
           podcastCatalogMainBody
             .id("podcastCatalogBody-\(podcastCatalogBodyIdentity)")
         }
@@ -834,7 +522,7 @@ struct MainRootView: View {
         .padding(
           .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
       }
-      .scrollContentBackground(.hidden)
+      .abstandScrollScreenBackground()
       .refreshable {
         await model.refreshPodcastsTab()
       }
@@ -861,7 +549,7 @@ struct MainRootView: View {
   @ViewBuilder
   private var podcastCatalogMainBody: some View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      tabContentSectionTitle("Episodes")
+      TabContentSectionTitle(title:"Episodes")
       podcastPodcastsTabEpisodesContent
     }
   }
@@ -946,7 +634,9 @@ struct MainRootView: View {
     let sel = model.podcastSelectedShowId
     let rssConsolidated =
       sel != nil && sel == model.podcastRssFeedPreviewForShowId
-    let rssDrafts = model.podcastRssFeedPreviewEpisodes
+    let rssDrafts =
+      sel.flatMap { model.podcastRssFeedCachedDrafts(forShowId: $0) }
+      ?? model.podcastRssFeedPreviewEpisodes
     let episodes = model.podcastEpisodesForPodcastsTab
 
     let rssListLoading: Bool = {
@@ -1002,7 +692,7 @@ struct MainRootView: View {
         }
 
         ForEach(episodes, id: \.progressLookupKey) { episode in
-          PodcastEpisodeRowCard(episode: episode)
+          PodcastEpisodeRowCard(episode: episode, model: model)
             .task(id: episode.progressLookupKey) {
               await model.loadMorePodcastsIfNeeded(currentItemId: episode.id)
             }
@@ -1024,12 +714,56 @@ struct MainRootView: View {
   }
 }
 
-/// Kategoriezeile im iOS-Standard-Stil (z. B. „Hörbücher”, Home-Regal-Titel).
-private func tabContentSectionTitle(_ title: String) -> some View {
-  Text(title)
-    .font(.title3)
-    .bold()
-    .foregroundStyle(AppTheme.textPrimary)
+// MARK: - Home server connection indicator
+
+private struct HomeServerConnectionIndicatorButton: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    Button {
+      model.homeToolbarServerConnectionTapped()
+    } label: {
+      Group {
+        if model.isServerConnectionProbeInProgress {
+          ProgressView()
+            .controlSize(.small)
+            .tint(AppTheme.warning)
+        } else {
+          Image(systemName: "circle.fill")
+            .font(.system(size: 14))
+            .foregroundStyle(indicatorColor)
+        }
+      }
+      .frame(width: 28, height: 28)
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(accessibilityLabel)
+  }
+
+  private var indicatorColor: Color {
+    switch model.serverConnectionIndicatorState {
+    case .online:
+      return AppTheme.success
+    case .connecting:
+      return AppTheme.warning
+    case .offline:
+      return AppTheme.danger
+    }
+  }
+
+  private var accessibilityLabel: String {
+    switch model.serverConnectionIndicatorState {
+    case .online:
+      return "Connected to server. Tap to enable offline mode."
+    case .connecting:
+      return "Checking server connection."
+    case .offline:
+      if model.offlineHomeUIActive {
+        return "Offline mode. Tap to go online."
+      }
+      return "Not connected to server. Tap to retry."
+    }
+  }
 }
 
 // MARK: - Home dashboard
@@ -1043,16 +777,24 @@ private struct StartDashboardView: View {
         let hasHomeDownloads =
           !model.downloadedItemIds.isEmpty || model.downloads.activeItemId != nil
         if model.offlineHomeUIActive {
+          let hasOfflineContinue = model.startShelves.contains { shelf in
+            startDashboardIsContinueShelf(shelf) && (shelf.hasBooks || shelf.hasPodcastEpisodes)
+          }
           let showOfflineEmpty =
-            !hasHomeDownloads && model.downloadedTitlesForHome.isEmpty
+            !hasHomeDownloads && model.downloadedTitlesForHome.isEmpty && !hasOfflineContinue
           if showOfflineEmpty {
             startDashboardOfflineOnlyEmptyState
           }
+          ForEach(model.startShelves) { shelf in
+            if startDashboardIsContinueShelf(shelf), shelf.hasBooks || shelf.hasPodcastEpisodes {
+              startDashboardContinueListeningSection(shelf)
+            }
+          }
           if hasHomeDownloads {
             VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-              tabContentSectionTitle("Downloaded")
+              TabContentSectionTitle(title:"Downloaded")
               ForEach(model.downloadedTitlesForHome) { book in
-                BookRowCard(book: book)
+                BookRowCard(book: book, model: model)
               }
             }
           }
@@ -1070,35 +812,11 @@ private struct StartDashboardView: View {
               if continueSplit {
                 VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
                   if shelf.hasBooks || shelf.hasPodcastEpisodes {
-                    // Hero-Karten (horizontal scrollbar, kompakter als Vollbreite)
-                    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-                      tabContentSectionTitle(shelf.displayTitle)
-                      ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(alignment: .top, spacing: 12) {
-                          ForEach(
-                            ABSStartShelfMergedRow.merged(
-                              books: shelf.books,
-                              podcastEpisodes: shelf.podcastEpisodes,
-                              progress: model.progressByItemId
-                            )
-                          ) { row in
-                            switch row {
-                            case .book(let book):
-                              ContinueListeningHeroBookCard(book: book)
-                            case .podcastEpisode(let episode):
-                              ContinueListeningHeroPodcastCard(episode: episode)
-                            }
-                          }
-                        }
-                        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-                        .padding(.vertical, 2)
-                      }
-                      .padding(.horizontal, -AppTheme.Layout.tabPaddingH)
-                    }
+                    startDashboardContinueListeningSection(shelf)
                   }
                   if shelf.hasAuthors {
                     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-                      tabContentSectionTitle(shelf.displayTitle)
+                      TabContentSectionTitle(title:shelf.displayTitle)
                       startDashboardAuthorsContent(shelf.authors, shelf: shelf)
                     }
                   }
@@ -1107,7 +825,7 @@ private struct StartDashboardView: View {
                 // Kompaktes „Listen“-Layout (Zeilen wie Bibliothek); „Recently added“ = Cover-Streifen
                 VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
                   if shelf.hasBooks || shelf.hasAuthors || shelf.hasSeries || shelf.hasPodcastEpisodes {
-                    tabContentSectionTitle(shelf.displayTitle)
+                    TabContentSectionTitle(title:shelf.displayTitle)
                   }
                   if shelf.hasSeries {
                     startDashboardSeriesContent(shelf.series, shelf: shelf)
@@ -1118,6 +836,7 @@ private struct StartDashboardView: View {
                       ForEach(shelf.books) { book in
                         BookRowCard(
                           book: book,
+                          model: model,
                           opensEbookOnCover: shelf.category == "continueEbooks"
                         )
                       }
@@ -1137,12 +856,15 @@ private struct StartDashboardView: View {
       .padding(
         .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
-    .scrollContentBackground(.hidden)
+    .abstandScrollScreenBackground()
     .refreshable {
       await model.refreshStartTabPullToRefresh()
     }
     .onAppear {
       model.refreshEbookContinueReadingShelf()
+      if model.offlineHomeUIActive {
+        Task { await model.loadStartDashboard() }
+      }
     }
   }
 
@@ -1153,7 +875,35 @@ private struct StartDashboardView: View {
   }
 
   private func startDashboardIsContinueShelf(_ shelf: ABSStartShelfSection) -> Bool {
-    shelf.category == "recentlyListened" || shelf.category == "itemsInProgressFallback"
+    shelf.category == "recentlyListened"
+  }
+
+  @ViewBuilder
+  private func startDashboardContinueListeningSection(_ shelf: ABSStartShelfSection) -> some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      TabContentSectionTitle(title: shelf.displayTitle)
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
+          ForEach(
+            ABSStartShelfMergedRow.merged(
+              books: shelf.books,
+              podcastEpisodes: shelf.podcastEpisodes,
+              progress: model.progressByItemId
+            )
+          ) { row in
+            switch row {
+            case .book(let book):
+              ContinueListeningHeroBookCard(book: book)
+            case .podcastEpisode(let episode):
+              ContinueListeningHeroPodcastCard(episode: episode)
+            }
+          }
+        }
+        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
+        .padding(.vertical, 2)
+      }
+      .padding(.horizontal, -AppTheme.Layout.tabPaddingH)
+    }
   }
 
   private func startDashboardUsesCompactLayout(_ shelf: ABSStartShelfSection) -> Bool {
@@ -1241,179 +991,10 @@ private struct StartDashboardView: View {
 
   private var startDashboardOfflineOnlyEmptyState: some View {
     ContentUnavailableView(
-      "Keine Downloads",
+      "No Downloads",
       systemImage: "arrow.down.circle",
-      description: Text("Zum Aktualisieren nach unten ziehen, sobald der Server wieder erreichbar ist.")
+      description: Text("Pull to refresh once the server is reachable again.")
     )
-  }
-}
-
-// MARK: - Settings tab
-
-private struct AppSettingsRootView: View {
-  @EnvironmentObject private var model: AppModel
-  @State private var coverCacheByteCount: Int64 = 0
-
-  private var booksLibraryPickerSelection: Binding<String> {
-    Binding(
-      get: {
-        if model.booksLibraryPreferenceIsNone { return AppModel.libraryPickerNoneTag }
-        return model.selectedBooksLibrary?.id ?? AppModel.libraryPickerNoneTag
-      },
-      set: { newId in
-        if newId == AppModel.libraryPickerNoneTag {
-          model.clearBooksLibrarySelection()
-        } else if let lib = model.sortedBookLibraries.first(where: { $0.id == newId }) {
-          model.selectBooksLibrary(lib, navigateToCatalog: true)
-          Task { await model.reloadLibrary(reset: true) }
-        }
-      })
-  }
-
-  private var podcastsLibraryPickerSelection: Binding<String> {
-    Binding(
-      get: {
-        if model.podcastsLibraryPreferenceIsNone { return AppModel.libraryPickerNoneTag }
-        return model.selectedPodcastLibrary?.id ?? AppModel.libraryPickerNoneTag
-      },
-      set: { newId in
-        if newId == AppModel.libraryPickerNoneTag {
-          model.clearPodcastLibrarySelection()
-        } else if let lib = model.sortedPodcastLibraries.first(where: { $0.id == newId }) {
-          model.selectPodcastLibrary(lib, navigateToCatalog: true)
-          Task { await model.reloadPodcastLibrary(reset: true) }
-        }
-      })
-  }
-
-  private var coverCacheSizeLabel: String {
-    guard model.coverImageCacheAccountDirectory() != nil else {
-      return "Cover art is cached after you sign in."
-    }
-    if coverCacheByteCount == 0 {
-      return "No cover cache in use."
-    }
-    return ByteCountFormatter.string(fromByteCount: coverCacheByteCount, countStyle: .file)
-  }
-
-  private func refreshCoverCacheByteCount() {
-    coverCacheByteCount = model.coverImageCacheByteCount()
-  }
-
-  var body: some View {
-    Form {
-      Section {
-        if model.sortedBookLibraries.isEmpty {
-          Text("No book libraries on this server.")
-            .foregroundStyle(.secondary)
-        } else {
-          Picker("Library", selection: booksLibraryPickerSelection) {
-            Text("None").tag(AppModel.libraryPickerNoneTag)
-            ForEach(model.sortedBookLibraries) { lib in
-              Text(lib.name).tag(lib.id)
-            }
-          }
-        }
-        Toggle("eBook tab", isOn: $model.ebooksTabEnabled)
-      } header: {
-        Text("Books library")
-      } footer: {
-        Text("Shows a separate tab for eBooks attached to your audiobook library.")
-      }
-      .disabled(model.offlineHomeUIActive)
-
-      Section("Podcasts library") {
-        if model.sortedPodcastLibraries.isEmpty {
-          Text("No podcast libraries on this server.")
-            .foregroundStyle(.secondary)
-        } else {
-          Picker("Library", selection: podcastsLibraryPickerSelection) {
-            Text("None").tag(AppModel.libraryPickerNoneTag)
-            ForEach(model.sortedPodcastLibraries) { lib in
-              Text(lib.name).tag(lib.id)
-            }
-          }
-        }
-      }
-      .disabled(model.offlineHomeUIActive)
-
-      Section {
-        Toggle("Offline-Modus", isOn: $model.offlineHomeMode)
-      }
-
-      Section {
-        Toggle("Auto Download", isOn: $model.smartDownloadOnWiFi)
-        Toggle("Remove Download when finished", isOn: $model.smartDownloadRemoveWhenFinished)
-      }
-      .disabled(model.offlineHomeUIActive)
-
-      Section("Home shelves") {
-        ForEach(model.startSettingsCategoryList, id: \.category) { row in
-          VStack(alignment: .leading, spacing: 8) {
-            Toggle(
-              row.label,
-              isOn: Binding(
-                get: { model.isStartCategoryEnabled(row.category) },
-                set: { model.setStartCategoryEnabled(row.category, enabled: $0) }
-              )
-            )
-            if model.isStartCategoryEnabled(row.category),
-              model.supportsStartShelfBookLayoutSetting(row.category)
-            {
-              Picker(
-                "Layout",
-                selection: Binding(
-                  get: { model.startShelfBookLayout(for: row.category) },
-                  set: { model.setStartShelfBookLayout(row.category, layout: $0) }
-                )
-              ) {
-                ForEach(StartShelfBookLayout.allCases) { layout in
-                  Text(layout.label).tag(layout)
-                }
-              }
-              .pickerStyle(.segmented)
-            }
-          }
-          .padding(.vertical, 2)
-        }
-      }
-
-      Section("Cover") {
-        Button {
-          model.clearCoverImageCache()
-          refreshCoverCacheByteCount()
-        } label: {
-          LabeledContent {
-            Image(systemName: "trash")
-              .foregroundStyle(.secondary)
-          } label: {
-            VStack(alignment: .leading, spacing: 4) {
-              Text("Clear cover cache")
-              Text(coverCacheSizeLabel)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-          }
-        }
-        .disabled(model.coverImageCacheAccountDirectory() == nil)
-      }
-
-      Section("Account") {
-        Button("Log out", role: .destructive) {
-          model.logout()
-        }
-      }
-    }
-    .scrollContentBackground(.hidden)
-    .background(AppTheme.background.ignoresSafeArea())
-    .tint(AppTheme.accent)
-    .onAppear {
-      refreshCoverCacheByteCount()
-    }
-    .onChange(of: model.coverImageCacheRevision) { _, _ in
-      refreshCoverCacheByteCount()
-    }
   }
 }
 
@@ -1425,7 +1006,16 @@ private struct SearchTabView: View {
   var body: some View {
     let q = model.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     ScrollView {
-      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+        if q.isEmpty {
+          ContentUnavailableView(
+            "Search",
+            systemImage: "magnifyingglass",
+            description: Text("Enter at least two characters to search your libraries.")
+          )
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 48)
+        }
         if model.isLoadingLibrary, q.count >= 2 {
           ProgressView()
             .frame(maxWidth: .infinity)
@@ -1452,7 +1042,7 @@ private struct SearchTabView: View {
 
         searchSection(title: "Books", isEmpty: model.searchBooks.isEmpty) {
           ForEach(model.searchBooks) { book in
-            BookRowCard(book: book)
+            BookRowCard(book: book, model: model)
           }
         }
         searchSection(title: "Authors", isEmpty: model.searchAuthors.isEmpty) {
@@ -1516,11 +1106,12 @@ private struct SearchTabView: View {
           }
         }
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.horizontal, AppTheme.Layout.tabPaddingH)
       .padding(
         .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
-    .scrollContentBackground(.hidden)
+    .abstandScrollScreenBackground()
     .refreshable {
       await model.refreshBooksSearchResults()
     }
@@ -1534,7 +1125,7 @@ private struct SearchTabView: View {
   ) -> some View {
     if !isEmpty {
       VStack(alignment: .leading, spacing: 10) {
-        tabContentSectionTitle(title)
+        TabContentSectionTitle(title:title)
         content()
       }
     }
@@ -1566,38 +1157,25 @@ private extension SearchTabView {
 
 // MARK: - Books tab sort (eigenes Toolbar-Item, Reload entkoppelt)
 
-private struct BooksCatalogSortToolbarMenu: View {
-  @EnvironmentObject private var model: AppModel
+struct BooksCatalogSortToolbarMenu: View, Equatable {
+  var sortField: CatalogSortField
+  var sortDescending: Bool
+  var onSortFieldChange: (CatalogSortField) -> Void
+  var onSortDescendingChange: (Bool) -> Void
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.sortField == rhs.sortField && lhs.sortDescending == rhs.sortDescending
+  }
 
   var body: some View {
     Menu {
-      Picker(
-        "Sort by",
-        selection: Binding(
-          get: { model.catalogSortField },
-          set: { newValue in
-            guard model.catalogSortField != newValue else { return }
-            model.catalogSortField = newValue
-            model.scheduleBooksToolbarSortReload(.mainCatalog)
-          }
-        )
-      ) {
+      Picker("Sort by", selection: sortFieldBinding) {
         ForEach(CatalogSortField.allCases) { f in
           Text(f.menuTitle).tag(f)
         }
       }
-      if model.catalogSortField != .random {
-        Picker(
-          "Order",
-          selection: Binding(
-            get: { model.catalogSortDescending },
-            set: { newValue in
-              guard model.catalogSortDescending != newValue else { return }
-              model.catalogSortDescending = newValue
-              model.scheduleBooksToolbarSortReload(.mainCatalog)
-            }
-          )
-        ) {
+      if sortField != .random {
+        Picker("Order", selection: sortDescendingBinding) {
           Label("Ascending", systemImage: "arrow.up").tag(false)
           Label("Descending", systemImage: "arrow.down").tag(true)
         }
@@ -1606,39 +1184,34 @@ private struct BooksCatalogSortToolbarMenu: View {
       Label("Sort", systemImage: "arrow.up.arrow.down")
     }
   }
+
+  private var sortFieldBinding: Binding<CatalogSortField> {
+    Binding(get: { sortField }, set: onSortFieldChange)
+  }
+
+  private var sortDescendingBinding: Binding<Bool> {
+    Binding(get: { sortDescending }, set: onSortDescendingChange)
+  }
 }
 
-private struct BrowseAuthorsSortToolbarMenu: View {
-  @EnvironmentObject private var model: AppModel
+struct BrowseAuthorsSortToolbarMenu: View, Equatable {
+  var sortField: BooksBrowseAuthorsSortField
+  var sortDescending: Bool
+  var onSortFieldChange: (BooksBrowseAuthorsSortField) -> Void
+  var onSortDescendingChange: (Bool) -> Void
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.sortField == rhs.sortField && lhs.sortDescending == rhs.sortDescending
+  }
 
   var body: some View {
     Menu {
-      Picker(
-        "Sort by",
-        selection: Binding(
-          get: { model.browseAuthorsSortField },
-          set: { newValue in
-            guard model.browseAuthorsSortField != newValue else { return }
-            model.browseAuthorsSortField = newValue
-            model.scheduleBooksToolbarSortReload(.browseAuthors)
-          }
-        )
-      ) {
+      Picker("Sort by", selection: sortFieldBinding) {
         ForEach(BooksBrowseAuthorsSortField.allCases) { f in
           Text(f.menuTitle).tag(f)
         }
       }
-      Picker(
-        "Order",
-        selection: Binding(
-          get: { model.browseAuthorsSortDescending },
-          set: { newValue in
-            guard model.browseAuthorsSortDescending != newValue else { return }
-            model.browseAuthorsSortDescending = newValue
-            model.scheduleBooksToolbarSortReload(.browseAuthors)
-          }
-        )
-      ) {
+      Picker("Order", selection: sortDescendingBinding) {
         Label("Ascending", systemImage: "arrow.up").tag(false)
         Label("Descending", systemImage: "arrow.down").tag(true)
       }
@@ -1646,39 +1219,34 @@ private struct BrowseAuthorsSortToolbarMenu: View {
       Label("Sort", systemImage: "arrow.up.arrow.down")
     }
   }
+
+  private var sortFieldBinding: Binding<BooksBrowseAuthorsSortField> {
+    Binding(get: { sortField }, set: onSortFieldChange)
+  }
+
+  private var sortDescendingBinding: Binding<Bool> {
+    Binding(get: { sortDescending }, set: onSortDescendingChange)
+  }
 }
 
-private struct BrowseNarratorsSortToolbarMenu: View {
-  @EnvironmentObject private var model: AppModel
+struct BrowseNarratorsSortToolbarMenu: View, Equatable {
+  var sortField: BooksBrowseNarratorsSortField
+  var sortDescending: Bool
+  var onSortFieldChange: (BooksBrowseNarratorsSortField) -> Void
+  var onSortDescendingChange: (Bool) -> Void
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.sortField == rhs.sortField && lhs.sortDescending == rhs.sortDescending
+  }
 
   var body: some View {
     Menu {
-      Picker(
-        "Sort by",
-        selection: Binding(
-          get: { model.browseNarratorsSortField },
-          set: { newValue in
-            guard model.browseNarratorsSortField != newValue else { return }
-            model.browseNarratorsSortField = newValue
-            model.resortBrowseNarratorsDisplay()
-          }
-        )
-      ) {
+      Picker("Sort by", selection: sortFieldBinding) {
         ForEach(BooksBrowseNarratorsSortField.allCases) { f in
           Text(f.menuTitle).tag(f)
         }
       }
-      Picker(
-        "Order",
-        selection: Binding(
-          get: { model.browseNarratorsSortDescending },
-          set: { newValue in
-            guard model.browseNarratorsSortDescending != newValue else { return }
-            model.browseNarratorsSortDescending = newValue
-            model.resortBrowseNarratorsDisplay()
-          }
-        )
-      ) {
+      Picker("Order", selection: sortDescendingBinding) {
         Label("Ascending", systemImage: "arrow.up").tag(false)
         Label("Descending", systemImage: "arrow.down").tag(true)
       }
@@ -1686,40 +1254,35 @@ private struct BrowseNarratorsSortToolbarMenu: View {
       Label("Sort", systemImage: "arrow.up.arrow.down")
     }
   }
+
+  private var sortFieldBinding: Binding<BooksBrowseNarratorsSortField> {
+    Binding(get: { sortField }, set: onSortFieldChange)
+  }
+
+  private var sortDescendingBinding: Binding<Bool> {
+    Binding(get: { sortDescending }, set: onSortDescendingChange)
+  }
 }
 
-private struct BrowseSeriesSortToolbarMenu: View {
-  @EnvironmentObject private var model: AppModel
+struct BrowseSeriesSortToolbarMenu: View, Equatable {
+  var sortField: BooksBrowseSeriesSortField
+  var sortDescending: Bool
+  var onSortFieldChange: (BooksBrowseSeriesSortField) -> Void
+  var onSortDescendingChange: (Bool) -> Void
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.sortField == rhs.sortField && lhs.sortDescending == rhs.sortDescending
+  }
 
   var body: some View {
     Menu {
-      Picker(
-        "Sort by",
-        selection: Binding(
-          get: { model.browseSeriesSortField },
-          set: { newValue in
-            guard model.browseSeriesSortField != newValue else { return }
-            model.browseSeriesSortField = newValue
-            model.scheduleBooksToolbarSortReload(.browseSeries)
-          }
-        )
-      ) {
+      Picker("Sort by", selection: sortFieldBinding) {
         ForEach(BooksBrowseSeriesSortField.allCases) { f in
           Text(f.menuTitle).tag(f)
         }
       }
-      if model.browseSeriesSortField != .random {
-        Picker(
-          "Order",
-          selection: Binding(
-            get: { model.browseSeriesSortDescending },
-            set: { newValue in
-              guard model.browseSeriesSortDescending != newValue else { return }
-              model.browseSeriesSortDescending = newValue
-              model.scheduleBooksToolbarSortReload(.browseSeries)
-            }
-          )
-        ) {
+      if sortField != .random {
+        Picker("Order", selection: sortDescendingBinding) {
           Label("Ascending", systemImage: "arrow.up").tag(false)
           Label("Descending", systemImage: "arrow.down").tag(true)
         }
@@ -1728,82 +1291,72 @@ private struct BrowseSeriesSortToolbarMenu: View {
       Label("Sort", systemImage: "arrow.up.arrow.down")
     }
   }
+
+  private var sortFieldBinding: Binding<BooksBrowseSeriesSortField> {
+    Binding(get: { sortField }, set: onSortFieldChange)
+  }
+
+  private var sortDescendingBinding: Binding<Bool> {
+    Binding(get: { sortDescending }, set: onSortDescendingChange)
+  }
 }
 
-private struct BrowseCollectionsSortToolbarMenu: View {
-  @EnvironmentObject private var model: AppModel
+struct BrowseCollectionsSortToolbarMenu: View, Equatable {
+  var sortField: BooksBrowseCollectionsSortField
+  var sortDescending: Bool
+  var onSortFieldChange: (BooksBrowseCollectionsSortField) -> Void
+  var onSortDescendingChange: (Bool) -> Void
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.sortField == rhs.sortField && lhs.sortDescending == rhs.sortDescending
+  }
 
   var body: some View {
     Menu {
-      Picker(
-        "Sort by",
-        selection: Binding(
-          get: { model.browseCollectionsSortField },
-          set: { newValue in
-            guard model.browseCollectionsSortField != newValue else { return }
-            model.browseCollectionsSortField = newValue
-            model.resortBrowseCollectionsDisplay()
-          }
-        )
-      ) {
+      Picker("Sort by", selection: sortFieldBinding) {
         ForEach(BooksBrowseCollectionsSortField.allCases) { f in
           Text(f.menuTitle).tag(f)
         }
       }
-      Picker(
-        "Order",
-        selection: Binding(
-          get: { model.browseCollectionsSortDescending },
-          set: { newValue in
-            guard model.browseCollectionsSortDescending != newValue else { return }
-            model.browseCollectionsSortDescending = newValue
-            model.resortBrowseCollectionsDisplay()
-          }
-        )
-      ) {
+      Picker("Order", selection: sortDescendingBinding) {
         Label("Ascending", systemImage: "arrow.up").tag(false)
         Label("Descending", systemImage: "arrow.down").tag(true)
       }
     } label: {
       Label("Sort", systemImage: "arrow.up.arrow.down")
     }
+  }
+
+  private var sortFieldBinding: Binding<BooksBrowseCollectionsSortField> {
+    Binding(get: { sortField }, set: onSortFieldChange)
+  }
+
+  private var sortDescendingBinding: Binding<Bool> {
+    Binding(get: { sortDescending }, set: onSortDescendingChange)
   }
 }
 
 // MARK: - Podcast catalog sort (eigenes Toolbar-Item, Reload entkoppelt)
 
-private struct PodcastCatalogSortToolbarMenu: View {
-  @EnvironmentObject private var model: AppModel
+struct PodcastCatalogSortToolbarMenu: View, Equatable {
+  var sortField: PodcastCatalogSortField
+  var sortDescending: Bool
+  var onSortFieldChange: (PodcastCatalogSortField) -> Void
+  var onSortDescendingChange: (Bool) -> Void
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.sortField == rhs.sortField && lhs.sortDescending == rhs.sortDescending
+  }
 
   var body: some View {
     Menu {
-      Picker(
-        "Sort by",
-        selection: Binding(
-          get: { model.podcastCatalogSortField },
-          set: { newValue in
-            guard model.podcastCatalogSortField != newValue else { return }
-            model.podcastCatalogSortField = newValue
-            model.schedulePodcastCatalogSortReload()
-          }
-        )
-      ) {
+      Picker("Sort by", selection: sortFieldBinding) {
         ForEach(PodcastCatalogSortField.allCases) { f in
           Text(f.menuTitle).tag(f)
         }
       }
-      if model.podcastCatalogSortField != .random {
-        Picker(
-          "Order",
-          selection: Binding(
-            get: { model.podcastCatalogSortDescending },
-            set: { newValue in
-              guard model.podcastCatalogSortDescending != newValue else { return }
-              model.podcastCatalogSortDescending = newValue
-              model.schedulePodcastCatalogSortReload()
-            }
-          )
-        ) {
+      if sortField != .random {
+        Picker("Order", selection: sortDescendingBinding) {
           Label("Ascending", systemImage: "arrow.up").tag(false)
           Label("Descending", systemImage: "arrow.down").tag(true)
         }
@@ -1812,11 +1365,19 @@ private struct PodcastCatalogSortToolbarMenu: View {
       Label("Sort", systemImage: "arrow.up.arrow.down")
     }
   }
+
+  private var sortFieldBinding: Binding<PodcastCatalogSortField> {
+    Binding(get: { sortField }, set: onSortFieldChange)
+  }
+
+  private var sortDescendingBinding: Binding<Bool> {
+    Binding(get: { sortDescending }, set: onSortDescendingChange)
+  }
 }
 
 // MARK: - Podcast show settings sheet
 
-private struct PodcastShowSettingsSheet: View {
+struct PodcastShowSettingsSheet: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.dismiss) private var dismiss
   let showId: String
@@ -1830,6 +1391,27 @@ private struct PodcastShowSettingsSheet: View {
           PodcastShowAutoDownloadSettingsContent(showId: showId)
         }
 
+        if model.isServerAdmin {
+          Section {
+            Button {
+              Task { await model.checkAndDownloadNewPodcastEpisodes(showId: showId) }
+            } label: {
+              HStack {
+                Text("Check & download new episodes")
+                Spacer()
+                if model.podcastCheckNewInProgressShowId == showId {
+                  ProgressView()
+                    .controlSize(.small)
+                    .tint(AppTheme.accent)
+                }
+              }
+            }
+            .disabled(
+              !model.isNetworkReachable || model.podcastCheckNewInProgressShowId == showId
+            )
+          }
+        }
+
         Section {
           Button("Unsubscribe", role: .destructive) {
             dismiss()
@@ -1838,8 +1420,7 @@ private struct PodcastShowSettingsSheet: View {
           .disabled(!model.isNetworkReachable)
         }
       }
-      .scrollContentBackground(.hidden)
-      .background(AppTheme.background.ignoresSafeArea())
+      .abstandScrollScreenBackground(ignoreSafeArea: true)
       .navigationTitle(showTitle)
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -1854,7 +1435,7 @@ private struct PodcastShowSettingsSheet: View {
   }
 }
 
-private struct PodcastShowAutoDownloadSettingsContent: View {
+struct PodcastShowAutoDownloadSettingsContent: View {
   @EnvironmentObject private var model: AppModel
   let showId: String
 
@@ -1868,14 +1449,34 @@ private struct PodcastShowAutoDownloadSettingsContent: View {
     )
   }
 
+  private var episodesToKeepBinding: Binding<Int> {
+    Binding(
+      get: { model.podcastMaxEpisodesToKeep },
+      set: { value in
+        model.podcastMaxEpisodesToKeep = value
+        Task { await model.savePodcastAutoDownloadSettings(showId: showId) }
+      }
+    )
+  }
+
+  private var newEpisodesPerCheckBinding: Binding<Int> {
+    Binding(
+      get: { model.podcastMaxNewEpisodesToDownload },
+      set: { value in
+        model.podcastMaxNewEpisodesToDownload = value
+        Task { await model.savePodcastAutoDownloadSettings(showId: showId) }
+      }
+    )
+  }
+
   var body: some View {
     Group {
-      if model.podcastAutoDownloadSettingsLoading
-        && model.podcastAutoDownloadSettingsShowId != showId
-      {
+      if model.podcastAutoDownloadSettingsShowId != showId {
         ProgressView()
           .controlSize(.small)
           .tint(AppTheme.accent)
+          .frame(maxWidth: .infinity, alignment: .center)
+          .padding(.vertical, 8)
       } else {
         Toggle(
           "Download new episodes automatically",
@@ -1904,6 +1505,57 @@ private struct PodcastShowAutoDownloadSettingsContent: View {
             .controlSize(.small)
             .tint(AppTheme.accent)
         }
+
+        PodcastEpisodeLimitStepperRow(
+          title: "Max. episodes to keep",
+          valueLabel: PodcastAutoDownloadLimitInfo.episodesToKeepLabel(model.podcastMaxEpisodesToKeep),
+          value: episodesToKeepBinding,
+          range: 0 ... 500
+        )
+        .disabled(!model.isNetworkReachable || model.podcastAutoDownloadSettingsSaving)
+
+        PodcastEpisodeLimitStepperRow(
+          title: "Max. new episodes per check",
+          valueLabel: PodcastAutoDownloadLimitInfo.newEpisodesPerCheckLabel(
+            model.podcastMaxNewEpisodesToDownload),
+          value: newEpisodesPerCheckBinding,
+          range: 0 ... 100
+        )
+        .disabled(!model.isNetworkReachable || model.podcastAutoDownloadSettingsSaving)
+      }
+    }
+    .task(id: showId) {
+      if model.podcastAutoDownloadSettingsShowId != showId {
+        await model.loadPodcastAutoDownloadSettings(showId: showId)
+      }
+    }
+  }
+}
+
+private enum PodcastAutoDownloadLimitInfo {
+  static func episodesToKeepLabel(_ value: Int) -> String {
+    value == 0 ? "All episodes" : "\(value)"
+  }
+
+  static func newEpisodesPerCheckLabel(_ value: Int) -> String {
+    value == 0 ? "No limit" : "\(value)"
+  }
+}
+
+private struct PodcastEpisodeLimitStepperRow: View {
+  let title: String
+  let valueLabel: String
+  @Binding var value: Int
+  let range: ClosedRange<Int>
+
+  var body: some View {
+    Stepper(value: $value, in: range) {
+      HStack {
+        Text(title)
+        Spacer()
+        Text(valueLabel)
+          .foregroundStyle(.secondary)
+          .monospacedDigit()
       }
     }
   }
@@ -1911,11 +1563,21 @@ private struct PodcastShowAutoDownloadSettingsContent: View {
 
 // MARK: - Podcast RSS feed rows (same layout as library rows; download only)
 
-private struct PodcastRssFeedDraftRow: View {
+struct PodcastRssFeedDraftRow: View {
   @EnvironmentObject private var model: AppModel
   let draft: ABSPodcastRssFeedEpisodeDraft
+  /// Optional: Admin-Show-Detail (sonst `podcastSelectedShowId`).
+  var podcastLibraryItemId: String?
+  /// Admin-Feed: Mülltonne statt „In library“, wenn die Folge schon in der Bibliothek ist.
+  var showsDeleteWhenInLibrary = false
 
-  private var showId: String? { model.podcastSelectedShowId }
+  @State private var deleteEpisodeConfirmation: ABSPodcastEpisodeListItem?
+
+  private var showId: String? {
+    let explicit = podcastLibraryItemId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !explicit.isEmpty { return explicit }
+    return model.podcastSelectedShowId
+  }
 
   private var showTitle: String {
     guard let sid = showId else { return "—" }
@@ -1934,33 +1596,35 @@ private struct PodcastRssFeedDraftRow: View {
     return d.formatted(date: .abbreviated, time: .omitted)
   }
 
-  private var inLibrary: Bool {
-    guard let sid = showId else { return false }
-    guard sid == model.podcastRssFeedPreviewForShowId else { return false }
-    return model.podcastFilteredEpisodes.contains { draft.matchesLibraryEpisode($0) }
+  private var matchingLibraryEpisode: ABSPodcastEpisodeListItem? {
+    guard let sid = showId, model.podcastSelectedShowId == sid else { return nil }
+    return model.podcastFilteredEpisodes.first { draft.matchesLibraryEpisode($0) }
   }
+
+  private var inLibrary: Bool { matchingLibraryEpisode != nil }
 
   var body: some View {
     let sid = (showId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     VStack(alignment: .leading, spacing: 0) {
-      HStack(alignment: .top, spacing: 10) {
-        CoverImageView(
-          url: model.coverURL(for: sid),
-          token: model.token,
-          itemId: sid,
-          cacheAccount: model.coverImageCacheAccountDirectory(),
-          cacheRevision: model.coverImageCacheRevision
-        )
-        .frame(width: AppTheme.Layout.libraryRowCoverSide, height: AppTheme.Layout.libraryRowCoverSide)
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
+      HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
+        LibraryRowLayout.coverSlot {
+          CoverImageView(
+            url: model.coverURL(for: sid),
+            token: model.token,
+            itemId: sid,
+            cacheAccount: model.coverImageCacheAccountDirectory(),
+            cacheRevision: model.coverImageCacheRevision
+          )
+        }
         .accessibilityHidden(true)
 
-        ZStack(alignment: .topLeading) {
+        LibraryRowLayout.metadataColumn(showsProgressBar: false) {
           VStack(alignment: .leading, spacing: 2) {
             Text(draft.title)
               .font(.headline.weight(.semibold))
               .foregroundStyle(AppTheme.textPrimary)
-              .lineLimit(2)
+              .lineLimit(1)
+              .truncationMode(.tail)
               .minimumScaleFactor(0.85)
               .fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -1974,11 +1638,7 @@ private struct PodcastRssFeedDraftRow: View {
                 .minimumScaleFactor(0.88)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-          }
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-          .padding(.trailing, 4)
-
-          VStack(alignment: .leading, spacing: 4) {
+            Spacer(minLength: 0)
             HStack(spacing: 8) {
               Text(publishedCaption)
                 .font(.subheadline.monospacedDigit())
@@ -1987,24 +1647,53 @@ private struct PodcastRssFeedDraftRow: View {
               rssTrailingControl
             }
           }
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+          .padding(.trailing, 4)
         }
-        .frame(minHeight: AppTheme.Layout.libraryRowCoverSide)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("RSS episode, not in library yet")
       }
-      .padding(.horizontal, AppTheme.Layout.libraryRowCardInset)
-      .padding(.top, AppTheme.Layout.libraryRowCardInset)
-      .padding(.bottom, AppTheme.Layout.libraryRowCardInset)
+      .padding(.leading, 0)
     }
     .background(AppTheme.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.libraryRowCornerRadius, style: .continuous))
+    .clipShape(LibraryRowLayout.cardShape)
+    .alert(
+      "Delete episode?",
+      isPresented: Binding(
+        get: { deleteEpisodeConfirmation != nil },
+        set: { if !$0 { deleteEpisodeConfirmation = nil } }
+      )
+    ) {
+      Button("Delete", role: .destructive) {
+        if let episode = deleteEpisodeConfirmation, let sid = showId {
+          Task { await model.deletePodcastEpisodeFromLibrary(showLibraryItemId: sid, episode: episode) }
+        }
+        deleteEpisodeConfirmation = nil
+      }
+      Button("Cancel", role: .cancel) {
+        deleteEpisodeConfirmation = nil
+      }
+    } message: {
+      if let episode = deleteEpisodeConfirmation {
+        Text("\"\(episode.episodeTitle)\" will be removed from the server library.")
+      }
+    }
   }
 
   @ViewBuilder
   private var rssTrailingControl: some View {
-    if inLibrary {
+    if inLibrary, showsDeleteWhenInLibrary, let episode = matchingLibraryEpisode {
+      Button {
+        deleteEpisodeConfirmation = episode
+      } label: {
+        Image(systemName: "trash")
+          .font(.title3)
+          .foregroundStyle(AppTheme.danger)
+      }
+      .buttonStyle(.plain)
+      .frame(minWidth: 88, alignment: .trailing)
+      .disabled(!model.isNetworkReachable)
+      .accessibilityLabel("Delete episode from library")
+    } else if inLibrary {
       HStack(spacing: 4) {
         Image(systemName: "checkmark.circle.fill")
           .foregroundStyle(AppTheme.success)
@@ -2054,9 +1743,17 @@ private struct PodcastRssFeedDraftRow: View {
 
 private struct BookCollapsedAuthorLine: View {
   let book: ABSBook
+  var authorOverride: String?
 
   var body: some View {
-    let line = book.displayAuthorsCardLine.trimmingCharacters(in: .whitespacesAndNewlines)
+    let line: String = {
+      if let authorOverride {
+        let t = authorOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !t.isEmpty, t != "—" { return t }
+      }
+      return book.displayAuthorsCardLine
+    }()
+    .trimmingCharacters(in: .whitespacesAndNewlines)
     LibraryRowCollapsedMetaLine(label: "Author", value: line.isEmpty || line == "—" ? "—" : line)
   }
 }
@@ -2185,6 +1882,31 @@ private struct ContinueListeningHeroTextBlock<Pill: View>: View {
   }
 }
 
+/// Oben links auf Continue-Hero-Cover: Medientyp-Pill (Buch oder Podcast).
+private struct ContinueListeningHeroTypePill: View {
+  enum MediaType {
+    case audiobook, podcast
+    var systemImage: String {
+      switch self {
+      case .audiobook: return "book.fill"
+      case .podcast: return "mic.fill"
+      }
+    }
+  }
+  let type: MediaType
+
+  var body: some View {
+    Image(systemName: type.systemImage)
+      .font(.system(size: 11, weight: .semibold))
+      .foregroundStyle(.white)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 5)
+      .background(.black.opacity(0.48), in: Capsule(style: .continuous))
+      .padding(10)
+      .allowsHitTesting(false)
+  }
+}
+
 /// Oben rechts auf Continue-Hero-Cover: fertiger Download oder laufender Download (kein Tap — Cover-Tap bleibt).
 private struct ContinueListeningHeroOfflineBadge: View {
   @EnvironmentObject private var model: AppModel
@@ -2215,12 +1937,26 @@ private struct ContinueListeningHeroOfflineBadge: View {
 
 // MARK: - Podcast episode row
 
-private struct PodcastEpisodeRowCard: View {
-  @EnvironmentObject private var model: AppModel
+struct PodcastEpisodeRowCard: View {
   let episode: ABSPodcastEpisodeListItem
+  let model: AppModel
+
+  @StateObject private var live: LibraryPodcastEpisodeRowLiveState
   @State private var showDetail = false
 
-  private var prog: ABSUserMediaProgress? { model.progressByItemId[episode.progressLookupKey] }
+  init(episode: ABSPodcastEpisodeListItem, model: AppModel) {
+    self.episode = episode
+    self.model = model
+    _live = StateObject(
+      wrappedValue: LibraryPodcastEpisodeRowLiveState(
+        progressLookupKey: episode.progressLookupKey,
+        offlineStorageId: model.podcastEpisodeOfflineStorageId(episode),
+        model: model
+      )
+    )
+  }
+
+  private var prog: ABSUserMediaProgress? { live.progress }
 
   /// `recentEpisode` in „items-in-progress" liefert oft keine Länge; die kommt dann aus `mediaProgress`.
   private var resolvedTotalDurationSeconds: Double {
@@ -2234,17 +1970,24 @@ private struct PodcastEpisodeRowCard: View {
     return max(p.duration, resolvedTotalDurationSeconds) > 0
   }
 
-  private var offlinePodcastEpisodeStorageId: String {
-    model.podcastEpisodeOfflineStorageId(episode)
+  private var bottomProgressValue: Double {
+    guard showsBottomProgressBar, let p = prog, max(p.duration, resolvedTotalDurationSeconds) > 0 else {
+      return 0
+    }
+    return min(1, max(0, p.progress))
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      HStack(alignment: .top, spacing: 10) {
+    LibraryRowLayout.libraryRowCardChrome(
+      showsBottomProgressBar: showsBottomProgressBar,
+      progressValue: bottomProgressValue,
+      openDetails: { showDetail = true }
+    ) {
+      HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
         Button {
           Task { await model.playPodcastEpisode(episode) }
         } label: {
-          ZStack(alignment: .bottomTrailing) {
+          LibraryRowLayout.coverSlot {
             CoverImageView(
               url: model.coverURL(for: episode.libraryItemId),
               token: model.token,
@@ -2252,8 +1995,7 @@ private struct PodcastEpisodeRowCard: View {
               cacheAccount: model.coverImageCacheAccountDirectory(),
               cacheRevision: model.coverImageCacheRevision
             )
-            .frame(width: AppTheme.Layout.libraryRowCoverSide, height: AppTheme.Layout.libraryRowCoverSide)
-            .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
+          } overlay: {
             Image(systemName: "play.fill")
               .font(.system(size: 7, weight: .semibold))
               .foregroundStyle(.white)
@@ -2263,30 +2005,22 @@ private struct PodcastEpisodeRowCard: View {
               .padding(4)
               .accessibilityHidden(true)
           }
-          .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Play")
         .accessibilityHint("Starts playback of this episode.")
 
-        ZStack(alignment: .topLeading) {
+        LibraryRowLayout.metadataColumn(showsProgressBar: showsBottomProgressBar) {
           VStack(alignment: .leading, spacing: 2) {
             Text(episode.episodeTitle)
               .font(.headline.weight(.semibold))
               .foregroundStyle(AppTheme.textPrimary)
-              .lineLimit(2)
+              .lineLimit(1)
+              .truncationMode(.tail)
               .minimumScaleFactor(0.85)
               .fixedSize(horizontal: false, vertical: true)
-              .contentShape(Rectangle())
-              .onTapGesture {
-                showDetail = true
-              }
             PodcastEpisodeCollapsedShowLine(episode: episode)
-          }
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-          .padding(.trailing, 4)
-
-          VStack(alignment: .leading, spacing: 4) {
+            Spacer(minLength: 0)
             HStack(spacing: 8) {
               Text(formatPlaybackTime(resolvedTotalDurationSeconds))
                 .font(.subheadline.monospacedDigit())
@@ -2300,33 +2034,12 @@ private struct PodcastEpisodeRowCard: View {
               Spacer(minLength: 0)
             }
           }
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-          .contentShape(Rectangle())
-          .onTapGesture {
-            showDetail = true
-          }
+          .padding(.trailing, 4)
         }
-        .frame(minHeight: AppTheme.Layout.libraryRowCoverSide)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Show details")
-      }
-      .padding(.horizontal, AppTheme.Layout.libraryRowCardInset)
-      .padding(.top, AppTheme.Layout.libraryRowCardInset)
-      .padding(
-        .bottom, showsBottomProgressBar ? 8 : AppTheme.Layout.libraryRowCardInset)
-
-      if showsBottomProgressBar, let p = prog, max(p.duration, resolvedTotalDurationSeconds) > 0 {
-        ProgressView(value: min(1, max(0, p.progress)))
-          .progressViewStyle(.linear)
-          .labelsHidden()
-          .tint(AppTheme.accent)
-          .frame(maxWidth: .infinity)
-          .frame(height: AppTheme.Layout.libraryRowBottomProgressHeight)
       }
     }
-    .background(AppTheme.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.libraryRowCornerRadius, style: .continuous))
+    .accessibilityElement(children: .contain)
+    .accessibilityHint("Opens episode details. Play button starts playback.")
     .navigationDestination(isPresented: $showDetail) {
       PodcastEpisodeDetailView(episode: episode)
     }
@@ -2334,14 +2047,13 @@ private struct PodcastEpisodeRowCard: View {
 
   @ViewBuilder
   private var podcastDownloadStatusIcon: some View {
-    let sid = offlinePodcastEpisodeStorageId
-    if model.downloadedItemIds.contains(sid) {
+    if live.isDownloaded {
       Image(systemName: "arrow.down.circle.fill")
         .foregroundStyle(AppTheme.accent)
         .font(.caption)
         .accessibilityLabel("Saved offline")
-    } else if model.downloads.activeItemId == sid {
-      ProgressView(value: model.downloads.progress)
+    } else if live.isDownloading {
+      ProgressView(value: live.downloadProgress)
         .frame(width: 36)
         .tint(AppTheme.accent)
         .accessibilityLabel("Downloading")
@@ -2376,16 +2088,15 @@ private struct PodcastEpisodeRowCard: View {
   }
 
   private func podcastEpisodeExpandedActionRow(episode: ABSPodcastEpisodeListItem) -> some View {
-    let rowProgress = model.progressByItemId[episode.progressLookupKey]
+    let rowProgress = live.progress
     let isFinished = rowProgress?.isFinished == true
-    let sid = model.podcastEpisodeOfflineStorageId(episode)
     return HStack(spacing: 8) {
       Group {
-        if model.downloads.activeItemId == sid {
+        if live.isDownloading {
           ZStack {
             RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
               .stroke(AppTheme.accent.opacity(0.45), lineWidth: 1)
-            ProgressView(value: model.downloads.progress)
+            ProgressView(value: live.downloadProgress)
               .tint(AppTheme.accent)
               .scaleEffect(x: 1, y: 1.1, anchor: .center)
               .padding(.horizontal, 8)
@@ -2393,9 +2104,9 @@ private struct PodcastEpisodeRowCard: View {
           .frame(maxWidth: .infinity)
           .frame(height: MiniPlayerMetrics.controlMinHeight)
           .accessibilityLabel("Download in progress")
-        } else if model.downloadedItemIds.contains(sid) {
+        } else if live.isDownloaded {
           Button {
-            model.removeLocalDownload(bookId: sid)
+            model.removeLocalDownload(bookId: model.podcastEpisodeOfflineStorageId(episode))
           } label: {
             Image(systemName: "arrow.down.circle.badge.xmark")
               .font(.callout)
@@ -2550,48 +2261,17 @@ private struct ContinueHeroSquareEdgeProgress: View {
 
 // MARK: - Home „Recently added“ (horizontal cover strip)
 
-/// Home-Mini-Karte: Cover-Fläche und Kartenrand in Cover-Tönung (wie Continue Listening).
-private struct StartShelfTintedCoverCard<Cover: View>: View {
-  @EnvironmentObject private var model: AppModel
-  let tintItemId: String
-  let coverURL: URL?
+/// Home-Mini-Cover: 82×82 pt, ohne Padding/Hintergrund (wie Library-Cover-Spalte).
+private struct StartShelfMiniCover<Cover: View>: View {
   @ViewBuilder let cover: () -> Cover
 
-  @State private var tint: Color = AppTheme.card
-
   private let side = AppTheme.Layout.libraryRowCoverSide
-  private var coverShape: RoundedRectangle {
-    RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous)
-  }
-  private var cardShape: RoundedRectangle {
-    RoundedRectangle(cornerRadius: AppTheme.Layout.libraryRowCornerRadius, style: .continuous)
-  }
 
   var body: some View {
-    ZStack {
-      tint
-      cover()
-        .frame(width: side, height: side)
-        .clipShape(coverShape)
-    }
-    .frame(width: side, height: side)
-    .padding(AppTheme.Layout.libraryRowCardInset)
-    .background(tint)
-    .clipShape(cardShape)
-    .task(id: tintItemId) {
-      let account = model.coverImageCacheAccountDirectory()
-      if let c = CoverDerivedTintLoader.colorFromDiskOrCoverCache(account: account, itemId: tintItemId) {
-        tint = c
-      }
-      if let c = await CoverDerivedTintLoader.colorFromNetwork(
-        account: account,
-        itemId: tintItemId,
-        coverURL: coverURL,
-        token: model.token
-      ) {
-        tint = c
-      }
-    }
+    cover()
+      .frame(width: side, height: side)
+      .clipShape(
+        RoundedRectangle(cornerRadius: AppTheme.Layout.libraryRowCornerRadius, style: .continuous))
   }
 }
 
@@ -2621,10 +2301,7 @@ private struct StartShelfCoverTile: View {
     Button {
       showDetail = true
     } label: {
-      StartShelfTintedCoverCard(
-        tintItemId: book.id,
-        coverURL: model.coverURL(for: book.id)
-      ) {
+      StartShelfMiniCover {
         CoverImageView(
           url: model.coverURL(for: book.id),
           token: model.token,
@@ -2690,10 +2367,7 @@ private struct StartShelfSeriesCoverTile: View {
         displayName: series.name,
         numBooks: series.books?.count)
     } label: {
-      StartShelfTintedCoverCard(
-        tintItemId: cacheId,
-        coverURL: bookId.flatMap { model.coverURL(for: $0) }
-      ) {
+      StartShelfMiniCover {
         CoverImageView(
           url: bookId.flatMap { model.coverURL(for: $0) },
           token: model.token,
@@ -2719,10 +2393,7 @@ private struct StartShelfAuthorCoverTile: View {
       model.openAuthorDetail(
         authorId: author.id, displayName: author.name, numBooks: author.numBooks)
     } label: {
-      StartShelfTintedCoverCard(
-        tintItemId: cacheId,
-        coverURL: author.hasAuthorImage ? model.authorImageURL(authorId: author.id) : nil
-      ) {
+      StartShelfMiniCover {
         CoverImageView(
           url: author.hasAuthorImage ? model.authorImageURL(authorId: author.id) : nil,
           token: model.token,
@@ -2835,6 +2506,9 @@ private struct ContinueListeningHeroBookCard: View {
               .frame(height: barH)
           }
         }
+      }
+      .overlay(alignment: .topLeading) {
+        ContinueListeningHeroTypePill(type: .audiobook)
       }
       .overlay(alignment: .topTrailing) {
         ContinueListeningHeroOfflineBadge(storageId: book.id)
@@ -3006,6 +2680,9 @@ private struct ContinueListeningHeroPodcastCard: View {
           }
         }
       }
+      .overlay(alignment: .topLeading) {
+        ContinueListeningHeroTypePill(type: .podcast)
+      }
       .overlay(alignment: .topTrailing) {
         ContinueListeningHeroOfflineBadge(storageId: model.podcastEpisodeOfflineStorageId(episode))
       }
@@ -3079,7 +2756,7 @@ private func browseEntityBooksCountLine(count: Int?) -> String? {
   return "\(c)"
 }
 
-/// Gleiches Kartenlayout wie `BookRowCard`: Cover 76×76, Titel oben am Cover ausgerichtet.
+/// Gleiches Kartenlayout wie `BookRowCard`: Cover 82×82, Titel oben am Cover ausgerichtet.
 struct BrowseEntityRowCard: View {
   @EnvironmentObject private var model: AppModel
   let title: String
@@ -3089,47 +2766,258 @@ struct BrowseEntityRowCard: View {
   let coverURL: URL?
 
   var body: some View {
-    HStack(alignment: .top, spacing: 10) {
-      CoverImageView(
-        url: coverURL,
-        token: model.token,
-        itemId: cacheItemId,
-        cacheAccount: model.coverImageCacheAccountDirectory(),
-        cacheRevision: model.coverImageCacheRevision
-      )
-      .frame(width: AppTheme.Layout.libraryRowCoverSide, height: AppTheme.Layout.libraryRowCoverSide)
-      .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
-
-      VStack(alignment: .leading, spacing: 2) {
-        Text(title)
-          .font(.headline.weight(.semibold))
-          .foregroundStyle(AppTheme.textPrimary)
-          .lineLimit(2)
-          .minimumScaleFactor(0.85)
-          .fixedSize(horizontal: false, vertical: true)
-        LibraryRowCollapsedMetaLine(label: detailLabel, value: detailValue)
+    HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
+      LibraryRowLayout.coverSlot {
+        CoverImageView(
+          url: coverURL,
+          token: model.token,
+          itemId: cacheItemId,
+          cacheAccount: model.coverImageCacheAccountDirectory(),
+          cacheRevision: model.coverImageCacheRevision
+        )
       }
-      .frame(
-        maxWidth: .infinity, minHeight: AppTheme.Layout.libraryRowCoverSide, alignment: .topLeading)
+
+      LibraryRowLayout.metadataColumn(showsProgressBar: false) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(title)
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(AppTheme.textPrimary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .minimumScaleFactor(0.85)
+            .fixedSize(horizontal: false, vertical: true)
+          Spacer(minLength: 0)
+          LibraryRowCollapsedMetaLine(label: detailLabel, value: detailValue)
+        }
+      }
     }
-    .padding(.horizontal, AppTheme.Layout.libraryRowCardInset)
-    .padding(.vertical, AppTheme.Layout.libraryRowCardInset)
+    .padding(.leading, 0)
     .background(AppTheme.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.libraryRowCornerRadius, style: .continuous))
+    .clipShape(LibraryRowLayout.cardShape)
+  }
+}
+
+// MARK: - Podcast show row
+
+/// Podcast-Sendung in Listen — gleiches Layout wie `BookRowCard` (ohne Play-Badge).
+struct PodcastShowRowCard: View {
+  @EnvironmentObject private var model: AppModel
+  let show: ABSBook
+  var showsDownloadStatus = true
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
+        LibraryRowLayout.coverSlot {
+          CoverImageView(
+            url: model.coverURL(for: show.id),
+            token: model.token,
+            itemId: show.id,
+            cacheAccount: model.coverImageCacheAccountDirectory(),
+            cacheRevision: model.coverImageCacheRevision
+          )
+          .accessibilityHidden(true)
+        }
+
+        LibraryRowLayout.metadataColumn(showsProgressBar: false) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(show.displayTitle)
+              .font(.headline.weight(.semibold))
+              .foregroundStyle(AppTheme.textPrimary)
+              .lineLimit(1)
+              .truncationMode(.tail)
+              .minimumScaleFactor(0.85)
+              .fixedSize(horizontal: false, vertical: true)
+            BookCollapsedAuthorLine(book: show)
+            Spacer(minLength: 0)
+            HStack(spacing: 8) {
+              if let episodes = show.media.numTracks, episodes > 0 {
+                Text("\(episodes) episodes")
+                  .font(.subheadline.monospacedDigit())
+                  .foregroundStyle(AppTheme.textSecondary)
+              } else if show.totalDuration > 0 {
+                Text(formatPlaybackTime(show.totalDuration))
+                  .font(.subheadline.monospacedDigit())
+                  .foregroundStyle(AppTheme.textSecondary)
+              }
+              downloadIcon
+              Spacer(minLength: 0)
+            }
+          }
+        }
+      }
+      .padding(.leading, 0)
+    }
+    .background(AppTheme.card)
+    .clipShape(LibraryRowLayout.cardShape)
+  }
+
+  @ViewBuilder
+  private var downloadIcon: some View {
+    if !showsDownloadStatus {
+      EmptyView()
+    } else if model.downloadedItemIds.contains(show.id) {
+      Image(systemName: "arrow.down.circle.fill")
+        .foregroundStyle(AppTheme.accent)
+        .font(.caption)
+        .accessibilityLabel("Saved offline")
+    } else if model.downloads.activeItemId == show.id {
+      ProgressView(value: model.downloads.progress)
+        .frame(width: 36)
+        .tint(AppTheme.accent)
+        .accessibilityLabel("Downloading")
+    }
+  }
+}
+
+// MARK: - Library row layout (Cover bündig links/oben/unten)
+
+private enum LibraryRowLayout {
+  static let coverSide = AppTheme.Layout.libraryRowCoverSide
+  static let cornerRadius = AppTheme.Layout.libraryRowCornerRadius
+  static let cardInset = AppTheme.Layout.libraryRowCardInset
+  static let textInset = AppTheme.Layout.libraryRowTextInset
+
+  static var cardShape: RoundedRectangle {
+    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+  }
+
+  static func bodyBottomInset(showsProgressBar: Bool) -> CGFloat {
+    showsProgressBar
+      ? textInset + AppTheme.Layout.libraryRowBottomProgressHeight
+      : textInset
+  }
+
+  /// Textspalte: feste Höhe neben dem Cover, Titel oben / Meta unten.
+  @ViewBuilder
+  static func metadataColumn<Content: View>(
+    showsProgressBar: Bool,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    content()
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+      .frame(height: metadataMinHeight(showsProgressBar: showsProgressBar))
+      .padding(.top, textInset)
+      .padding(.trailing, textInset)
+      .padding(.bottom, bodyBottomInset(showsProgressBar: showsProgressBar))
+  }
+
+  @ViewBuilder
+  static func bottomProgressOverlay(value: Double, visible: Bool) -> some View {
+    if visible {
+      ContinueHeroSquareEdgeProgress(
+        value: value,
+        height: AppTheme.Layout.libraryRowBottomProgressHeight,
+        trackColor: Color.white.opacity(0.14),
+        fillColor: AppTheme.accent
+      )
+      .frame(maxWidth: .infinity)
+      .accessibilityLabel("Playback progress")
+      .accessibilityValue("\(Int(min(100, max(0, value * 100)))) percent")
+    }
+  }
+
+  /// Text-Inhalt innerhalb der Zeile; mit `textInset` oben/unten = `coverSide`.
+  static func metadataMinHeight(showsProgressBar: Bool) -> CGFloat {
+    coverSide - textInset - bodyBottomInset(showsProgressBar: showsProgressBar)
+  }
+
+  /// Kartenhülle: volle Fläche (inkl. Leerzonen) öffnet Details; Play bleibt eigener Button.
+  @ViewBuilder
+  static func libraryRowCardChrome<Content: View>(
+    showsBottomProgressBar: Bool,
+    progressValue: Double,
+    openDetails: @escaping () -> Void,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      content()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: coverSide, alignment: .top)
+        .padding(.leading, 0)
+    }
+    .overlay(alignment: .bottom) {
+      bottomProgressOverlay(value: progressValue, visible: showsBottomProgressBar)
+        .allowsHitTesting(false)
+    }
+    .background(AppTheme.card)
+    .clipShape(cardShape)
+    .contentShape(cardShape)
+    .onTapGesture(perform: openDetails)
+  }
+
+  static var coverClipShape: UnevenRoundedRectangle {
+    UnevenRoundedRectangle(
+      topLeadingRadius: cornerRadius,
+      bottomLeadingRadius: cornerRadius,
+      bottomTrailingRadius: 0,
+      topTrailingRadius: 0,
+      style: .continuous
+    )
+  }
+
+  @ViewBuilder
+  static func coverSlot<Cover: View, Overlay: View>(
+    @ViewBuilder cover: () -> Cover,
+    @ViewBuilder overlay: () -> Overlay = { EmptyView() }
+  ) -> some View {
+    cover()
+      .frame(width: coverSide, height: coverSide)
+      .clipShape(coverClipShape)
+      .overlay(alignment: .bottomTrailing) {
+        overlay()
+      }
   }
 }
 
 // MARK: - Book row
 
 struct BookRowCard: View {
-  @EnvironmentObject private var model: AppModel
   let book: ABSBook
+  let model: AppModel
   /// In der eBooks-Liste immer das Buch-Badge zeigen (Server-Filter, minified ohne Metadaten).
   var showEbookBadge = false
   /// Cover-Tap öffnet den E-Book-Reader statt Audiobook-Wiedergabe.
   var opensEbookOnCover = false
+  /// Fortschritt aus anderem Kontext (z. B. Server-User-Detail), nicht `progressByItemId`.
+  var progressOverride: ABSUserMediaProgress?
+  /// Autor-Zeile unabhängig vom Stub (z. B. angereicherter Server-User-Fortschritt).
+  var authorLineOverride: String?
+  var showsPlaybackControls = true
+  var showsDownloadStatus = true
+
+  @StateObject private var live: LibraryBookRowLiveState
   @State private var showDetail = false
-  private var prog: ABSUserMediaProgress? { model.progressByItemId[book.id] }
+
+  init(
+    book: ABSBook,
+    model: AppModel,
+    showEbookBadge: Bool = false,
+    opensEbookOnCover: Bool = false,
+    progressOverride: ABSUserMediaProgress? = nil,
+    authorLineOverride: String? = nil,
+    showsPlaybackControls: Bool = true,
+    showsDownloadStatus: Bool = true
+  ) {
+    self.book = book
+    self.model = model
+    self.showEbookBadge = showEbookBadge
+    self.opensEbookOnCover = opensEbookOnCover
+    self.progressOverride = progressOverride
+    self.authorLineOverride = authorLineOverride
+    self.showsPlaybackControls = showsPlaybackControls
+    self.showsDownloadStatus = showsDownloadStatus
+    _live = StateObject(
+      wrappedValue: LibraryBookRowLiveState(
+        bookId: book.id,
+        model: model,
+        observesProgress: progressOverride == nil,
+        observesDownload: showsDownloadStatus
+      )
+    )
+  }
+
+  private var prog: ABSUserMediaProgress? { progressOverride ?? live.progress }
 
   private var ebookProgress: Double? {
     opensEbookOnCover ? book.ebookReadProgressFraction() : nil
@@ -3155,150 +3043,165 @@ struct BookRowCard: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      HStack(alignment: .top, spacing: 10) {
-        Button {
-          if opensEbookOnCover {
-            Task { await model.openAttachedEbook(for: book) }
-          } else {
-            Task { await model.play(book: book) }
-          }
-        } label: {
-          ZStack(alignment: .bottomTrailing) {
-            CoverImageView(
-              url: model.coverURL(for: book.id),
-              token: model.token,
-              itemId: book.id,
-              cacheAccount: model.coverImageCacheAccountDirectory(),
-              cacheRevision: model.coverImageCacheRevision
-            )
-              .frame(width: AppTheme.Layout.libraryRowCoverSide, height: AppTheme.Layout.libraryRowCoverSide)
-              .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
-            if opensEbookOnCover, model.isPreparingEbook {
-              ProgressView()
-                .controlSize(.small)
-                .tint(.white)
-                .frame(width: 18, height: 18)
-                .background(Color(white: 0.38, opacity: 0.88))
-                .clipShape(Circle())
-                .padding(4)
-            } else {
-              Image(systemName: opensEbookOnCover ? "book.closed.fill" : "play.fill")
-                .font(.system(size: 7, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 18, height: 18)
-                .background(Color(white: 0.38, opacity: 0.88))
-                .clipShape(Circle())
-                .padding(4)
-                .accessibilityHidden(true)
-            }
-          }
-          .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .disabled(opensEbookOnCover && model.isPreparingEbook)
-        .accessibilityLabel(
-          opensEbookOnCover
-            ? (ebookPages?.metadataLabel ?? book.ebookOpenPillCaption)
-            : "Play"
-        )
-        .accessibilityHint(
-          opensEbookOnCover
-            ? "Opens the eBook in the reader."
-            : "Starts playback of this audiobook."
-        )
-
-        ZStack(alignment: .topLeading) {
-          VStack(alignment: .leading, spacing: 2) {
-            Text(book.displayTitle)
-              .font(.headline.weight(.semibold))
-              .foregroundStyle(AppTheme.textPrimary)
-              .lineLimit(2)
-              .minimumScaleFactor(0.85)
-              .fixedSize(horizontal: false, vertical: true)
-              .contentShape(Rectangle())
-              .onTapGesture {
-                showDetail = true
-              }
-            BookCollapsedAuthorLine(book: book)
-          }
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-          .padding(.trailing, 4)
-
-          VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+    LibraryRowLayout.libraryRowCardChrome(
+      showsBottomProgressBar: showsBottomProgressBar,
+      progressValue: bottomProgressValue,
+      openDetails: { showDetail = true }
+    ) {
+      HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
+        Group {
+          if showsPlaybackControls {
+            Button {
               if opensEbookOnCover {
-                if let f = ebookProgress, f >= 0.995 {
-                  Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(AppTheme.success)
-                    .font(.caption)
-                } else if let pages = ebookPages {
-                  Text(pages.metadataLabel)
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                }
+                Task { await model.openAttachedEbook(for: book) }
               } else {
-                Text(formatPlaybackTime(book.media.duration ?? 0))
-                  .font(.subheadline.monospacedDigit())
-                  .foregroundStyle(AppTheme.textSecondary)
-                if prog?.isFinished == true {
-                  Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(AppTheme.success)
-                    .font(.caption)
-                }
+                Task { await model.play(book: book) }
               }
-              if !opensEbookOnCover,
-                showEbookBadge || book.hasAttachedEbook || book.hasSupplementalEpub
-              {
-                EpubAvailableBadge()
-              }
-              downloadIcon
-              Spacer(minLength: 0)
+            } label: {
+              libraryRowCoverWithPlayBadge
             }
-          }
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-          .contentShape(Rectangle())
-          .onTapGesture {
-            showDetail = true
+            .buttonStyle(.plain)
+            .disabled(opensEbookOnCover && live.isPreparingEbook)
+            .accessibilityLabel(
+              opensEbookOnCover
+                ? (ebookPages?.metadataLabel ?? book.ebookOpenPillCaption)
+                : "Play"
+            )
+            .accessibilityHint(
+              opensEbookOnCover
+                ? "Opens the eBook in the reader."
+                : "Starts playback of this audiobook."
+            )
+          } else {
+            libraryRowCoverWithPlayBadge
           }
         }
-        .frame(minHeight: AppTheme.Layout.libraryRowCoverSide)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Show details")
-      }
-      .padding(.horizontal, AppTheme.Layout.libraryRowCardInset)
-      .padding(.top, AppTheme.Layout.libraryRowCardInset)
-      .padding(
-        .bottom, showsBottomProgressBar ? 8 : AppTheme.Layout.libraryRowCardInset)
 
-      if showsBottomProgressBar {
-        ProgressView(value: bottomProgressValue)
-          .progressViewStyle(.linear)
-          .labelsHidden()
-          .tint(AppTheme.accent)
-          .frame(maxWidth: .infinity)
-          .frame(height: AppTheme.Layout.libraryRowBottomProgressHeight)
+        LibraryRowLayout.metadataColumn(showsProgressBar: showsBottomProgressBar) {
+          if showsPlaybackControls {
+            libraryRowInteractiveMetadataBlock
+          } else {
+            libraryRowStaticMetadataBlock
+          }
+        }
       }
     }
-    .background(AppTheme.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.libraryRowCornerRadius, style: .continuous))
+    .accessibilityElement(children: .contain)
+    .accessibilityHint("Opens book details. Play button starts playback.")
     .navigationDestination(isPresented: $showDetail) {
       BookDetailView(bookId: book.id)
     }
   }
 
+  private var libraryRowCoverWithPlayBadge: some View {
+    LibraryRowLayout.coverSlot {
+      CoverImageView(
+        url: model.coverURL(for: book.id),
+        token: model.token,
+        itemId: book.id,
+        cacheAccount: model.coverImageCacheAccountDirectory(),
+        cacheRevision: model.coverImageCacheRevision
+      )
+    } overlay: {
+      if showsPlaybackControls {
+        if opensEbookOnCover, live.isPreparingEbook {
+          ProgressView()
+            .controlSize(.small)
+            .tint(.white)
+            .frame(width: 18, height: 18)
+            .background(Color(white: 0.38, opacity: 0.88))
+            .clipShape(Circle())
+            .padding(4)
+        } else {
+          Image(systemName: opensEbookOnCover ? "book.closed.fill" : "play.fill")
+            .font(.system(size: 7, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 18, height: 18)
+            .background(Color(white: 0.38, opacity: 0.88))
+            .clipShape(Circle())
+            .padding(4)
+            .accessibilityHidden(true)
+        }
+      }
+    }
+  }
+
+  private var libraryRowTitleText: some View {
+    Text(book.displayTitle)
+      .font(.headline.weight(.semibold))
+      .foregroundStyle(AppTheme.textPrimary)
+      .lineLimit(1)
+      .truncationMode(.tail)
+      .minimumScaleFactor(0.85)
+      .fixedSize(horizontal: false, vertical: true)
+  }
+
+  private var libraryRowInteractiveMetadataBlock: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      libraryRowTitleText
+      BookCollapsedAuthorLine(book: book, authorOverride: authorLineOverride)
+      Spacer(minLength: 0)
+      libraryRowMetaFooter
+    }
+    .padding(.trailing, 4)
+  }
+
+  private var libraryRowStaticMetadataBlock: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      libraryRowTitleText
+      BookCollapsedAuthorLine(book: book, authorOverride: authorLineOverride)
+      Spacer(minLength: 0)
+      libraryRowMetaFooter
+    }
+    .padding(.trailing, 4)
+  }
+
+  @ViewBuilder
+  private var libraryRowMetaFooter: some View {
+    HStack(spacing: 8) {
+      if opensEbookOnCover {
+        if let f = ebookProgress, f >= 0.995 {
+          Image(systemName: "checkmark.circle.fill")
+            .foregroundStyle(AppTheme.success)
+            .font(.caption)
+        } else if let pages = ebookPages {
+          Text(pages.metadataLabel)
+            .font(.subheadline.monospacedDigit())
+            .foregroundStyle(AppTheme.textSecondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+        }
+      } else {
+        Text(formatPlaybackTime(book.media.duration ?? 0))
+          .font(.subheadline.monospacedDigit())
+          .foregroundStyle(AppTheme.textSecondary)
+        if prog?.isFinished == true {
+          Image(systemName: "checkmark.circle.fill")
+            .foregroundStyle(AppTheme.success)
+            .font(.caption)
+        }
+      }
+      if !opensEbookOnCover,
+        showEbookBadge || book.hasAttachedEbook || book.hasSupplementalEpub
+      {
+        EpubAvailableBadge()
+      }
+      downloadIcon
+      Spacer(minLength: 0)
+    }
+  }
+
   @ViewBuilder
   private var downloadIcon: some View {
-    if model.downloadedItemIds.contains(book.id) {
+    if !showsDownloadStatus {
+      EmptyView()
+    } else if live.isDownloaded {
       Image(systemName: "arrow.down.circle.fill")
         .foregroundStyle(AppTheme.accent)
         .font(.caption)
         .accessibilityLabel("Saved offline")
-    } else if model.downloads.activeItemId == book.id {
-      ProgressView(value: model.downloads.progress)
+    } else if live.isDownloading {
+      ProgressView(value: live.downloadProgress)
         .frame(width: 36)
         .tint(AppTheme.accent)
         .accessibilityLabel("Downloading")
@@ -3308,8 +3211,11 @@ struct BookRowCard: View {
   @ViewBuilder
   private func expandedBlock(_ d: ABSBook) -> some View {
     let m = d.media.metadata
-    let rowProgress = model.progressByItemId[d.id]
+    let rowProgress = d.id == book.id ? (progressOverride ?? live.progress) : model.progressByItemId[d.id]
     let isFinished = rowProgress?.isFinished == true
+    let isDownloaded = d.id == book.id ? live.isDownloaded : model.downloadedItemIds.contains(d.id)
+    let isDownloading = d.id == book.id ? live.isDownloading : model.downloads.activeItemId == d.id
+    let downloadProgress = d.id == book.id ? live.downloadProgress : model.downloads.progress
 
     VStack(alignment: .leading, spacing: 8) {
       Divider().background(AppTheme.textSecondary.opacity(0.2))
@@ -3325,11 +3231,11 @@ struct BookRowCard: View {
 
       HStack(spacing: 8) {
         Group {
-          if model.downloads.activeItemId == d.id {
+          if isDownloading {
             ZStack {
               RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
                 .stroke(AppTheme.accent.opacity(0.45), lineWidth: 1)
-              ProgressView(value: model.downloads.progress)
+              ProgressView(value: downloadProgress)
                 .tint(AppTheme.accent)
                 .scaleEffect(x: 1, y: 1.1, anchor: .center)
                 .padding(.horizontal, 8)
@@ -3337,7 +3243,7 @@ struct BookRowCard: View {
             .frame(maxWidth: .infinity)
             .frame(height: MiniPlayerMetrics.controlMinHeight)
             .accessibilityLabel("Download in progress")
-          } else if model.downloadedItemIds.contains(d.id) {
+          } else if isDownloaded {
             Button {
               model.removeLocalDownload(bookId: d.id)
             } label: {
@@ -4677,7 +4583,7 @@ private struct BooksEntityDetailView: View {
             entityDetailSectionHeading(section.name)
             LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
               ForEach(section.books) { book in
-                BookRowCard(book: book)
+                BookRowCard(book: book, model: model)
               }
             }
           }
@@ -4687,7 +4593,7 @@ private struct BooksEntityDetailView: View {
             entityDetailSectionHeading(seriesSections.isEmpty ? "Books" : "Other books")
             LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
               ForEach(standalone) { book in
-                BookRowCard(book: book)
+                BookRowCard(book: book, model: model)
               }
             }
           }
@@ -4715,7 +4621,7 @@ private struct BooksEntityDetailView: View {
       } else {
         LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
           ForEach(model.entityDetailBooks) { book in
-            BookRowCard(book: book)
+            BookRowCard(book: book, model: model)
               .task(id: book.id) {
                 await model.loadMoreEntityDetailIfNeeded(nav: nav, currentItemId: book.id)
               }

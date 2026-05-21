@@ -15,6 +15,8 @@ struct CoverImageView: View {
   /// `model.coverImageCacheAccountDirectory()`; ohne Wert kein Persistenz-Cache.
   let cacheAccount: URL?
   var cacheRevision: Int = 0
+  /// `false` für externe URLs (z. B. Apple Podcasts Directory) ohne Bearer-Token.
+  var requiresAuthorization: Bool = true
   var contentMode: CoverImageContentMode = .fill
 
   @State private var image: UIImage?
@@ -28,8 +30,8 @@ struct CoverImageView: View {
     token: String,
     itemId: String,
     cacheAccount: URL?,
-    
     cacheRevision: Int = 0,
+    requiresAuthorization: Bool = true,
     contentMode: CoverImageContentMode = .fill
   ) {
     self.url = url
@@ -37,6 +39,7 @@ struct CoverImageView: View {
     self.itemId = itemId
     self.cacheAccount = cacheAccount
     self.cacheRevision = cacheRevision
+    self.requiresAuthorization = requiresAuthorization
     self.contentMode = contentMode
     _image = State(
       initialValue: CoverImageCache.syncUIImage(itemId: itemId, account: cacheAccount))
@@ -74,6 +77,7 @@ struct CoverImageView: View {
         Image(uiImage: image)
           .resizable()
           .scaledToFit()
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     } else {
       ZStack {
@@ -132,7 +136,9 @@ struct CoverImageView: View {
     }
 
     var req = URLRequest(url: url)
-    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    if requiresAuthorization, !token.isEmpty {
+      req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    }
     do {
       let (data, resp) = try await URLSession.shared.data(for: req)
       try Task.checkCancellation()

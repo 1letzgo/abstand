@@ -80,13 +80,27 @@ final class ReadiumReaderService {
     }
   }
 
-  private func makeEPUBNavigator(publication: Publication, locator: Locator?) throws -> UIViewController {
-    let theme = EpubReaderSettings.loadTheme()
-    let prefs = EPUBPreferences(
+  private func makeEPUBPreferences() -> EPUBPreferences {
+    EPUBPreferences(
       fontSize: EpubReaderSettings.loadFontSize(),
       publisherStyles: false,
-      theme: readiumTheme(from: theme)
+      scroll: EpubReaderSettings.loadContinuousScroll(),
+      theme: readiumTheme(from: EpubReaderSettings.loadTheme())
     )
+  }
+
+  private func makePDFPreferences() -> PDFPreferences {
+    let theme = readiumTheme(from: EpubReaderSettings.loadTheme())
+    let continuous = EpubReaderSettings.loadContinuousScroll()
+    return PDFPreferences(
+      backgroundColor: theme.backgroundColor,
+      scroll: continuous,
+      scrollAxis: continuous ? .vertical : nil
+    )
+  }
+
+  private func makeEPUBNavigator(publication: Publication, locator: Locator?) throws -> UIViewController {
+    let prefs = makeEPUBPreferences()
     var epubConfig = EPUBNavigatorViewController.Configuration(preferences: prefs)
     epubConfig.contentInset = [
       .compact: (top: 0, bottom: 0),
@@ -99,21 +113,29 @@ final class ReadiumReaderService {
       config: epubConfig
     )
     navigator.delegate = ReadiumReaderDelegate.shared
-    bindEdgeTapNavigation(to: navigator)
+    updateDirectionalNavigation(for: navigator, scrollEnabled: EpubReaderSettings.loadContinuousScroll())
     return navigator
   }
 
   private func makePDFNavigator(publication: Publication, locator: Locator?) throws -> UIViewController {
-    let theme = readiumTheme(from: EpubReaderSettings.loadTheme())
-    let prefs = PDFPreferences(backgroundColor: theme.backgroundColor)
+    let prefs = makePDFPreferences()
     let navigator = try PDFNavigatorViewController(
       publication: publication,
       initialLocation: locator,
       config: PDFNavigatorViewController.Configuration(preferences: prefs)
     )
     navigator.delegate = ReadiumReaderDelegate.shared
-    bindEdgeTapNavigation(to: navigator)
+    updateDirectionalNavigation(for: navigator, scrollEnabled: EpubReaderSettings.loadContinuousScroll())
     return navigator
+  }
+
+  private func updateDirectionalNavigation(for navigator: VisualNavigator, scrollEnabled: Bool) {
+    if scrollEnabled {
+      directionalNavigationAdapter?.unbind()
+      directionalNavigationAdapter = nil
+    } else {
+      bindEdgeTapNavigation(to: navigator)
+    }
   }
 
   /// Links/rechts am Bildrand tippen → Seite zurück/vor (LTR: links=zurück, rechts=weiter).
@@ -132,20 +154,14 @@ final class ReadiumReaderService {
   }
 
   func applyPDFPreferences(to navigator: PDFNavigatorViewController) {
-    let theme = readiumTheme(from: EpubReaderSettings.loadTheme())
-    navigator.submitPreferences(PDFPreferences(backgroundColor: theme.backgroundColor))
+    navigator.submitPreferences(makePDFPreferences())
+    updateDirectionalNavigation(for: navigator, scrollEnabled: EpubReaderSettings.loadContinuousScroll())
   }
 
   func applyEPUBPreferences(to navigator: EPUBNavigatorViewController) {
     ReadiumReaderDelegate.shared.invalidateChapterPageCache()
-    let theme = EpubReaderSettings.loadTheme()
-    navigator.submitPreferences(
-      EPUBPreferences(
-        fontSize: EpubReaderSettings.loadFontSize(),
-        publisherStyles: false,
-        theme: readiumTheme(from: theme)
-      )
-    )
+    navigator.submitPreferences(makeEPUBPreferences())
+    updateDirectionalNavigation(for: navigator, scrollEnabled: EpubReaderSettings.loadContinuousScroll())
     Task { await refreshEpubProgressDisplay(epub: navigator) }
   }
 

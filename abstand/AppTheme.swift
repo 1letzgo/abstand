@@ -9,6 +9,8 @@ enum AppTheme {
   static let textSecondary = Color(red: 176 / 255, green: 176 / 255, blue: 176 / 255)
   static let danger = Color(red: 0.92, green: 0.32, blue: 0.32)
   static let success = Color(red: 0.35, green: 0.82, blue: 0.55)
+  /// Verbindungs-Ampel „prüft …“ (gelb).
+  static let warning = Color(red: 0.98, green: 0.78, blue: 0.22)
 
   /// Raster für Tabs, Listen und Karten (Home / Books / …).
   enum Layout {
@@ -32,16 +34,20 @@ enum AppTheme {
 
     /// Horizontale Cover-Leiste: Podcast „Shows“ und Books „Browse“ (gleiche Maße).
     static let horizontalBrowseStripTile: CGFloat = 68
-    static let horizontalBrowseStripLabelWidthExtra: CGFloat = 0
-    static let horizontalBrowseStripInterTileSpacing: CGFloat = withinSectionSpacing
+    /// Caption breiter als Kachel (`captionW = tile + labelWidthExtra`); pro Spalte bleibt
+    /// `labelWidthExtra` Luft rechts der Kachel — wird vom HStack-Abstand abgezogen, damit der
+    /// sichtbare Abstand zwischen Kacheln wie `withinSectionSpacing` bei Library-Zeilen wirkt.
+    static let horizontalBrowseStripLabelWidthExtra: CGFloat = 12
+    static let horizontalBrowseStripInterTileSpacing: CGFloat = max(
+      0, withinSectionSpacing - horizontalBrowseStripLabelWidthExtra)
     static let horizontalBrowseStripTileLabelSpacing: CGFloat = 6
     static let horizontalBrowseStripVerticalPadding: CGFloat = 4
 
     /// „Continue listening“-Karten (horizontal scrollbar, einheitliche Höhe).
     static let continueHeroCardCornerRadius: CGFloat = 16
-    static let continueHeroCardWidth: CGFloat = 216
+    static let continueHeroCardWidth: CGFloat = 176
     /// Quadrat wie die Kartenbreite: typisches Cover vollständig sichtbar (`scaledToFit`).
-    static let continueHeroCoverMaxHeight: CGFloat = 216
+    static let continueHeroCoverMaxHeight: CGFloat = 176
     /// Abstand Titel ↔ Unterzeile im Hero-Metablock.
     static let continueHeroMetadataTitleDetailSpacing: CGFloat = 4
     static let continueHeroMetadataVerticalPadding: CGFloat = 8
@@ -69,15 +75,60 @@ enum AppTheme {
     static let continueHeroCardHeight: CGFloat = continueHeroCardTotalHeight
 
     static let cardCornerRadius: CGFloat = 14
-    static let libraryRowCornerRadius: CGFloat = 16
+    /// Library-Zeilen — gleiche Abrundung wie Browse-/Podcast-Icon-Kacheln.
+    static let libraryRowCornerRadius: CGFloat = podcastShelfCoverCorner
     static let coverCornerRadius: CGFloat = 11
 
-    /// Cover in `BookRowCard` / `PodcastEpisodeRowCard` (Library-Zeilen).
-    static let libraryRowCoverSide: CGFloat = 76
-    /// Einheitliches Inset um Cover + Text in Library-Zeilen.
+    /// Quadratisches Cover in Library-Zeilen (bündig links/oben/unten, `scaledToFill`).
+    static let libraryRowCoverSide: CGFloat = 82
+    /// Abstand Cover ↔ Textspalte in Library-Zeilen.
     static let libraryRowCardInset: CGFloat = 10
+    /// Titel oben / Laufzeit unten (minimal zum Kartenrand).
+    static let libraryRowTextInset: CGFloat = 6
     /// Höhe des Fortschrittsstreifens am unteren Kartenrand (Library-Zeilen).
     static let libraryRowBottomProgressHeight: CGFloat = 4
+  }
+}
+
+private struct AbstandScrollBackgroundModifier: ViewModifier {
+  var ignoreSafeArea = false
+
+  func body(content: Content) -> some View {
+    content
+      .scrollContentBackground(.hidden)
+      .background {
+        if ignoreSafeArea {
+          AppTheme.background.ignoresSafeArea()
+        } else {
+          AppTheme.background
+        }
+      }
+  }
+}
+
+extension View {
+  /// System-Scrollmaterial ausblenden, App-Hintergrund (#121212) — für `ScrollView` und `List`.
+  func abstandScrollScreenBackground(ignoreSafeArea: Bool = false) -> some View {
+    modifier(AbstandScrollBackgroundModifier(ignoreSafeArea: ignoreSafeArea))
+  }
+
+  /// Volle Tab-Fläche inkl. Bereich unter der Navigationsleiste.
+  func abstandTabScreenChrome() -> some View {
+    frame(maxWidth: .infinity, maxHeight: .infinity)
+      .background(AppTheme.background)
+  }
+}
+
+/// Kategoriezeile über Browse-Strips und Listen (Home, Library, Podcasts, Settings).
+struct TabContentSectionTitle: View {
+  let title: String
+
+  var body: some View {
+    Text(title)
+      .font(.title3)
+      .bold()
+      .foregroundStyle(AppTheme.textPrimary)
+      .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 

@@ -16,11 +16,27 @@ struct abstandApp: App {
 private struct AppRootContainer: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.scenePhase) private var scenePhase
+  @State private var nowPlayingSheetPresented = false
 
   var body: some View {
     Group {
       if model.isLoggedIn {
-        MainRootView()
+        MainTabShellView(
+          gate: model.floatingChrome.gate,
+          chrome: model.floatingChrome,
+          nowPlayingSheetPresented: $nowPlayingSheetPresented
+        ) {
+          MainRootView(nowPlayingSheetPresented: $nowPlayingSheetPresented)
+        }
+        .sheet(isPresented: $nowPlayingSheetPresented) {
+          NowPlayingDetailView()
+            .environmentObject(model)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .onChange(of: model.nowPlayingSheetPresentationCounter) { _, _ in
+          nowPlayingSheetPresented = true
+        }
       } else {
         LoginView()
       }

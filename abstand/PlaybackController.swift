@@ -87,6 +87,11 @@ final class PlaybackController: NSObject, ObservableObject {
   var onPlaybackTick: (() -> Void)?
   /// Letzter Track eines Hörbuchs zu Ende (keine Podcast-Folge).
   var onAudiobookPlaybackCompleted: (() -> Void)?
+  /// Lokale Download-Wiedergabe ohne aktive Play-Session: PATCH / Offline-Hörzeit (vgl. Absorb).
+  var onLocalPlaybackWithoutSessionSync: ((Int, Double, Double) async -> Void)?
+
+  /// Wie Absorb `_playFromLocal`: Session starten wenn online (nicht im Offline-Home-Modus).
+  private var attemptServerPlaySessionForLocal = true
 
   private var nowPlayingArtwork: MPMediaItemArtwork?
   private var coverLoadTask: Task<Void, Never>?
@@ -355,7 +360,8 @@ final class PlaybackController: NSObject, ObservableObject {
     resumeAt resumeHint: Double,
     localDownloadRoot: URL?,
     episodeId: String? = nil,
-    autoPlay: Bool = true
+    autoPlay: Bool = true,
+    attemptServerPlaySession: Bool = true
   ) async throws {
     tearDownPlayer()
     ensureAudioSessionForPlayback()
@@ -366,9 +372,11 @@ final class PlaybackController: NSObject, ObservableObject {
     let resolvedEpisodeId: String? = trimmedEp.isEmpty ? nil : trimmedEp
     activePlaybackEpisodeId = resolvedEpisodeId
     localRoot = localDownloadRoot
+    attemptServerPlaySessionForLocal = attemptServerPlaySession
 
     if let root = localDownloadRoot, Self.allTracksPresent(root: root, book: book) {
-      try await startLocalPlayback(book: book, root: root, resumeAt: resumeHint)
+      try await startLocalPlayback(
+        client: client, book: book, root: root, resumeAt: resumeHint)
     } else {
       try await startRemotePlayback(
         client: client, book: book, resumeAt: resumeHint, episodeId: resolvedEpisodeId)
@@ -468,7 +476,61 @@ final class PlaybackController: NSObject, ObservableObject {
     return trackStarts[trackIndex] + localSeconds
   }
 
-  private func startLocalPlayback(book: ABSBook, root: URL, resumeAt: Double) async throws {
+  /// Play-Session für lokale Dateien (Absorb: max. 5s Timeout, sonst Offline-Modus mit PATCH/Flush).
+  private func startPlaySessionWithTimeout(
+    client: ABSAPIClient,
+    itemId: String,
+    episodeId: String?,
+    timeoutSeconds: UInt64 = 5
+  ) async -> ABSPlaySession? {
+    await withTaskGroup(of: ABSPlaySession?.self) { group in
+      group.addTask {
+        try? await client.startPlaySession(
+          itemId: itemId,
+          episodeId: episodeId,
+          deviceId: Self.stableDeviceId(),
+          appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+        )
+      }
+      group.addTask {
+        try? await Task.sleep(nanoseconds: timeoutSeconds * 1_000_000_000)
+        return nil
+      }
+      let first = await group.next() ?? nil
+      group.cancelAll()
+      return first
+    }
+  }
+
+  private func startLocalPlayback(
+    client: ABSAPIClient,
+    book: ABSBook,
+    root: URL,
+    resumeAt resumeHint: Double
+  ) async throws {
+    playSessionId = nil
+    var resumeAt = resumeHint
+
+    if attemptServerPlaySessionForLocal {
+      if let session = await startPlaySessionWithTimeout(
+        client: client,
+        itemId: book.id,
+        episodeId: activePlaybackEpisodeId
+      ) {
+        playSessionId = session.id
+        let uiBook = session.bookForPlayerUI()
+        activeBook = uiBook
+        applyChapters(
+          from: uiBook,
+          sessionChapters: session.chapters,
+          libraryItemFallback: session.libraryItem
+        )
+        let serverResume = max(session.currentTime, resumeAt)
+        let cap = session.duration > 0 ? session.duration : serverResume
+        resumeAt = min(serverResume, cap)
+      }
+    }
+
     let manifest = ABSDownloadManifest.load(from: root)
     let fromManifest: [ABSAudioTrack]? = manifest.flatMap { m in
       guard !m.tracks.isEmpty else { return nil }
@@ -517,7 +579,6 @@ final class PlaybackController: NSObject, ObservableObject {
         MainActor.assumeIsolated {
           self.globalPosition = resumeSnapshot
           self.updateChapterUI(global: resumeSnapshot)
-          self.playSessionId = nil
           self.updateNowPlaying()
           if self.shouldAutoPlayAfterLoad {
             self.applyPlayingRate()
@@ -618,11 +679,10 @@ final class PlaybackController: NSObject, ObservableObject {
     }
 
     statusObserver = p.currentItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
-      let buffering = item.status == .unknown
       DispatchQueue.main.async { [weak self] in
         guard let self else { return }
         MainActor.assumeIsolated {
-          self.isBuffering = buffering
+          self.updateBufferingState(for: item)
         }
       }
     }
@@ -631,9 +691,23 @@ final class PlaybackController: NSObject, ObservableObject {
     playbackEngineStateObserver = p.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
       guard let self else { return }
       Task { @MainActor [weak self] in
-        self?.syncPlayingStateFromPlayerIfNeeded()
+        guard let self else { return }
+        if let item = self.player?.currentItem {
+          self.updateBufferingState(for: item)
+        }
+        self.syncPlayingStateFromPlayerIfNeeded()
       }
     }
+    if let item = p.currentItem {
+      updateBufferingState(for: item)
+    }
+  }
+
+  private func updateBufferingState(for item: AVPlayerItem) {
+    let waiting =
+      player?.timeControlStatus == .waitingToPlayAtSpecifiedRate
+      && item.status != .failed
+    isBuffering = item.status == .unknown || waiting
   }
 
   private func tick() {
@@ -790,10 +864,29 @@ final class PlaybackController: NSObject, ObservableObject {
 
   func play() {
     ensureAudioSessionForPlayback()
+    if localRoot != nil, playSessionId == nil, attemptServerPlaySessionForLocal {
+      Task { await recreatePlaySessionForLocalPlaybackIfNeeded() }
+    }
     applyPlayingRate()
     isPlaying = true
     lastListenTick = Date()
     updateNowPlaying()
+  }
+
+  /// Absorb `_resumeServerSync`: Session nach Pause/Offline erneut anlegen.
+  private func recreatePlaySessionForLocalPlaybackIfNeeded() async {
+    guard playSessionId == nil,
+      let client = apiClient,
+      let book = activeBook,
+      attemptServerPlaySessionForLocal
+    else { return }
+    if let session = await startPlaySessionWithTimeout(
+      client: client,
+      itemId: book.id,
+      episodeId: activePlaybackEpisodeId
+    ) {
+      playSessionId = session.id
+    }
   }
 
   func pause() {
@@ -924,16 +1017,86 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   private func flushSync(force: Bool) async {
-    guard let sid = playSessionId, let client = apiClient else { return }
     accumulateListenTime()
     let raw = pendingListenSeconds
     let tl = Int(floor(raw))
-    if !force, tl < 1 { return }
+    if !force, tl < 1, playSessionId != nil { return }
+
+    if let sid = playSessionId, let client = apiClient {
+      if tl < 1, !force { return }
+      pendingListenSeconds = max(0, raw - Double(tl))
+      do {
+        try await client.syncPlaySession(
+          sessionId: sid, timeListened: max(0, tl), currentTime: globalPosition)
+      } catch {
+        pendingListenSeconds += Double(tl)
+        if Self.isTransientNetworkError(error) { return }
+        await recoverPlaySessionAfterSyncFailure(lostTimeListened: tl)
+      }
+      return
+    }
+
+    guard localRoot != nil, tl > 0 || force else { return }
     pendingListenSeconds = max(0, raw - Double(tl))
+    let listen = max(0, tl)
+    await onLocalPlaybackWithoutSessionSync?(listen, globalPosition, totalDuration)
+  }
+
+  /// Keine neue Play-Session bei Netzwerkfehler — sonst wirkt die alte Server-Session „gelöscht“.
+  private static func isTransientNetworkError(_ error: Error) -> Bool {
+    let ns = error as NSError
+    if ns.domain == NSURLErrorDomain {
+      switch ns.code {
+      case NSURLErrorNotConnectedToInternet,
+        NSURLErrorNetworkConnectionLost,
+        NSURLErrorCannotConnectToHost,
+        NSURLErrorCannotFindHost,
+        NSURLErrorTimedOut,
+        NSURLErrorDNSLookupFailed,
+        NSURLErrorInternationalRoamingOff,
+        NSURLErrorDataNotAllowed:
+        return true
+      default:
+        break
+      }
+    }
+    if let urlError = error as? URLError {
+      switch urlError.code {
+      case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost, .timedOut,
+        .cannotFindHost, .dnsLookupFailed, .internationalRoamingOff, .dataNotAllowed:
+        return true
+      default:
+        break
+      }
+    }
+    return false
+  }
+
+  /// Absorb: bei ungültiger Session neue starten und verlorene Hörzeit nachsyncen.
+  private func recoverPlaySessionAfterSyncFailure(lostTimeListened: Int) async {
+    guard let client = apiClient, let book = activeBook else { return }
+    let resumeAt = globalPosition
+    let ep = activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let episodeId = (ep?.isEmpty == false) ? ep : nil
     do {
-      try await client.syncPlaySession(sessionId: sid, timeListened: max(0, tl), currentTime: globalPosition)
+      let session = try await client.startPlaySession(
+        itemId: book.id,
+        episodeId: episodeId,
+        deviceId: Self.stableDeviceId(),
+        appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+      )
+      playSessionId = session.id
+      if lostTimeListened > 0 {
+        try await client.syncPlaySession(
+          sessionId: session.id,
+          timeListened: max(0, lostTimeListened),
+          currentTime: resumeAt
+        )
+      }
     } catch {
-      pendingListenSeconds += Double(tl)
+      if !Self.isTransientNetworkError(error) {
+        playSessionId = nil
+      }
     }
   }
 
@@ -1048,6 +1211,17 @@ final class PlaybackController: NSObject, ObservableObject {
     return renderer.image { _ in
       image.draw(in: CGRect(origin: .zero, size: CGSize(width: nw, height: nh)))
     }
+  }
+
+  /// Offline-Modus: keine weiteren Play-Session- oder Cover-Requests.
+  /// Vorher `flushPendingPlaySessionSync()` aufrufen — Session absichtlich offen lassen (kein `closePlaySession`).
+  func suspendServerNetworkingForOfflineMode() {
+    syncTask?.cancel()
+    syncTask = nil
+    coverLoadTask?.cancel()
+    coverLoadTask = nil
+    playSessionId = nil
+    apiClient = nil
   }
 
   func closeSessionIfNeeded() async {

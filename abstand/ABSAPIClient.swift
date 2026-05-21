@@ -188,10 +188,64 @@ actor ABSAPIClient {
     return try await send(req)
   }
 
+  // MARK: - Server admin (root)
+
+  func serverUsers() async throws -> [ABSAdminUserSummary] {
+    let req = try authorizedRequest(path: "api/users")
+    let res: ABSUsersListResponse = try await send(req)
+    return res.users
+  }
+
+  func serverOnlineUserIds() async throws -> Set<String> {
+    let req = try authorizedRequest(path: "api/users/online")
+    let res: ABSUsersOnlineResponse = try await send(req)
+    return Set((res.usersOnline ?? []).map(\.id))
+  }
+
+  func serverUserDetailData(userId: String) async throws -> Data {
+    let req = try authorizedRequest(path: "api/users/\(userId)")
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    return data
+  }
+
+  func serverUserListeningSessions(
+    userId: String,
+    itemsPerPage: Int = 50,
+    page: Int = 0
+  ) async throws -> ABSListeningSessionsPayload {
+    let req = try authorizedRequest(
+      path: "api/users/\(userId)/listening-sessions",
+      query: [
+        "itemsPerPage": "\(max(1, min(itemsPerPage, 100)))",
+        "page": "\(max(0, page))",
+      ]
+    )
+    return try await sendListeningSessionsPayload(req)
+  }
+
+  func serverLibraryStats(libraryId: String) async throws -> ABSLibraryStatsResponse {
+    let req = try authorizedRequest(path: "api/libraries/\(libraryId)/stats")
+    return try await send(req)
+  }
+
+  func scanServerLibrary(libraryId: String) async throws {
+    let req = try authorizedRequest(path: "api/libraries/\(libraryId)/scan", method: "POST", timeout: 300)
+    try await sendData(req)
+  }
+
   func libraries() async throws -> [ABSLibrary] {
     let req = try authorizedRequest(path: "api/libraries")
     let res: ABSLibrariesResponse = try await send(req)
     return res.libraries
+  }
+
+  func libraryFilterData(libraryId: String) async throws -> ABSLibraryFilterData {
+    let req = try authorizedRequest(path: "api/libraries/\(libraryId)/filterdata")
+    return try await send(req)
   }
 
   func libraryItems(
@@ -285,22 +339,51 @@ actor ABSAPIClient {
     try await sendData(req)
   }
 
+  /// RSS prüfen und neue Folgen auf dem Server laden (`GET /api/podcasts/:id/checknew`).
+  @discardableResult
+  func checkNewPodcastEpisodes(podcastLibraryItemId: String, limit: Int?) async throws -> ABSPodcastCheckNewResponse {
+    var query: [String: String] = [:]
+    if let limit {
+      query["limit"] = "\(limit)"
+    }
+    let req = try authorizedRequest(
+      path: "api/podcasts/\(podcastLibraryItemId)/checknew",
+      query: query,
+      timeout: 180
+    )
+    return try await send(req)
+  }
+
   func item(id: String, expanded: Bool = true) async throws -> ABSBook {
+    let data = try await itemResponseData(id: id, expanded: expanded)
+    return try decoder.decode(ABSBook.self, from: data)
+  }
+
+  func itemResponseData(id: String, expanded: Bool = true) async throws -> Data {
     let q = ["expanded": expanded ? "1" : "0"]
     let req = try authorizedRequest(path: "api/items/\(id)", query: q)
-    return try await send(req)
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    return data
   }
 
   /// Podcast: Auto-Download und Cron-Zeitplan (`PATCH /api/items/:id/media`).
   func patchPodcastMediaAutoDownload(
     itemId: String,
     autoDownloadEpisodes: Bool,
-    autoDownloadSchedule: String
+    autoDownloadSchedule: String,
+    maxEpisodesToKeep: Int,
+    maxNewEpisodesToDownload: Int
   ) async throws {
     let body = try encoder.encode(
       ABSPodcastMediaAutoDownloadPatch(
         autoDownloadEpisodes: autoDownloadEpisodes,
-        autoDownloadSchedule: autoDownloadSchedule
+        autoDownloadSchedule: autoDownloadSchedule,
+        maxEpisodesToKeep: maxEpisodesToKeep,
+        maxNewEpisodesToDownload: maxNewEpisodesToDownload
       ))
     let req = try authorizedRequest(path: "api/items/\(itemId)/media", method: "PATCH", body: body)
     try await sendData(req)
@@ -595,6 +678,15 @@ actor ABSAPIClient {
 
   func deleteLibraryItem(id: String) async throws {
     let req = try authorizedRequest(path: "api/items/\(id)", method: "DELETE")
+    try await sendData(req)
+  }
+
+  /// Podcast-Folge von der Bibliothek entfernen (`DELETE /api/podcasts/:id/episode/:episodeId`).
+  func deletePodcastEpisode(podcastLibraryItemId: String, episodeId: String) async throws {
+    let req = try authorizedRequest(
+      path: "api/podcasts/\(podcastLibraryItemId)/episode/\(episodeId)",
+      method: "DELETE"
+    )
     try await sendData(req)
   }
 

@@ -141,8 +141,7 @@ struct AddBookmarkTitleSheet: View {
           Text("Position: \(formatPlaybackTime(Double(timeSeconds)))")
         }
       }
-      .scrollContentBackground(.hidden)
-      .background(AppTheme.background)
+      .abstandScrollScreenBackground()
       .navigationTitle("Bookmark")
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(AppTheme.background, for: .navigationBar)

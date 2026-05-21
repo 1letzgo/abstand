@@ -31,6 +31,7 @@ enum EpubReaderSettings {
   private static let fontScaleKey = "abstand_epub_font_scale"
   private static let legacyFontSizeKey = "abstand_epub_font_size"
   private static let themeKey = "abstand_epub_reader_theme"
+  private static let continuousScrollKey = "abstand_epub_continuous_scroll"
 
   static let defaultFontSize: Double = 1.0
   static let minFontSize: Double = 0.7
@@ -69,6 +70,15 @@ enum EpubReaderSettings {
   static func resetFontSizeToDefault() {
     UserDefaults.standard.set(defaultFontSize, forKey: fontScaleKey)
     UserDefaults.standard.removeObject(forKey: legacyFontSizeKey)
+  }
+
+  /// Dauerscroll statt Seitenweise-Umblättern (Readium `scroll`).
+  static func loadContinuousScroll() -> Bool {
+    UserDefaults.standard.bool(forKey: continuousScrollKey)
+  }
+
+  static func saveContinuousScroll(_ enabled: Bool) {
+    UserDefaults.standard.set(enabled, forKey: continuousScrollKey)
   }
 }
 

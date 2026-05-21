@@ -24,7 +24,8 @@ Alle `.swift`-Dateien flach in `abstand/` — keine Unterordner.
 |---|---|
 | `abstandApp.swift` | Einstieg: `@main`, inject `AppModel` als `@EnvironmentObject` |
 | `AppModel.swift` | God `@MainActor ObservableObject`: API-Client, Playback, Downloads, gesamter UI-State |
-| `MainRootView.swift` | `TabView` mit Home/Books/Podcasts/Search/Settings, alle NavigationStacks |
+| `MainRootView.swift` | `TabView` mit Home/Library/Podcasts/Search/Settings (Hub), alle NavigationStacks |
+| `ServerAdminViews.swift` | `SettingsHubRootView` (User + Server für Root), Server-Admin-Unterseiten |
 | `ABSAPIClient.swift` | `actor` — sämtliche Audiobookshelf-API-Aufrufe |
 | `PlaybackController.swift` | `@MainActor ObservableObject` um `AVPlayer` |
 | `DownloadManager.swift` | `@MainActor ObservableObject`, sequentielles Track-Download |

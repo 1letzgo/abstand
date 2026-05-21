@@ -6,6 +6,7 @@ import UIKit
 struct EbookReaderPresentation: Identifiable {
   let id = UUID()
   let title: String
+  let author: String
   let libraryItemId: String
   let localFileURL: URL
   let format: ABSEbookFormat
@@ -13,12 +14,14 @@ struct EbookReaderPresentation: Identifiable {
 
 struct ReadiumReaderView: View {
   let title: String
+  let author: String
   let libraryItemId: String
   let localFileURL: URL
   let format: ABSEbookFormat
   @Environment(\.dismiss) private var dismiss
   @State private var readerTheme = EpubReaderSettings.loadTheme()
   @State private var fontSize = EpubReaderSettings.defaultFontSize
+  @State private var continuousScroll = EpubReaderSettings.loadContinuousScroll()
   @State private var navigatorController: UIViewController?
   @State private var epubNavigator: EPUBNavigatorViewController?
   @State private var pdfNavigator: PDFNavigatorViewController?
@@ -91,6 +94,7 @@ struct ReadiumReaderView: View {
     }
     .task(id: localFileURL.path) {
       fontSize = EpubReaderSettings.loadFontSize()
+      continuousScroll = EpubReaderSettings.loadContinuousScroll()
       await loadNavigator()
     }
     .alert("Reset reading position?", isPresented: $confirmResetReadingPosition) {
@@ -123,20 +127,28 @@ struct ReadiumReaderView: View {
           Image(systemName: "xmark.circle.fill")
             .font(.title2)
             .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(readerChromeForeground)
         }
         .accessibilityLabel("Close")
 
-        Text(title)
-          .font(.subheadline.weight(.semibold))
-          .lineLimit(1)
-          .foregroundStyle(readerChromeForeground)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(title)
+            .font(.title3.weight(.semibold))
+            .lineLimit(1)
+            .foregroundStyle(readerChromeForeground)
+
+          Text(author)
+            .font(.caption)
+            .lineLimit(1)
+            .foregroundStyle(readerChromeSecondary)
+        }
 
         Spacer(minLength: 0)
       }
 
       HStack(spacing: 0) {
         if format == .epub {
-          HStack(spacing: 20) {
+          HStack(spacing: 24) {
             Button {
               fontSize = max(EpubReaderSettings.minFontSize, fontSize - EpubReaderSettings.fontSizeStep)
               EpubReaderSettings.saveFontSize(fontSize)
@@ -161,33 +173,51 @@ struct ReadiumReaderView: View {
           }
         }
 
-        Spacer(minLength: 16)
+        Spacer(minLength: 20)
 
-        Button {
-          confirmResetReadingPosition = true
-        } label: {
-          Image(systemName: "arrow.counterclockwise")
-            .font(.body)
-            .frame(width: 36, height: 36)
-        }
-        .disabled(readerActionInProgress)
-        .accessibilityLabel("Reset position")
-
-        Button {
-          readerTheme = readerTheme.next()
-          EpubReaderSettings.saveTheme(readerTheme)
-          if format == .epub {
-            applyEPUBPrefs()
-          } else {
-            applyPDFPrefs()
+        HStack(spacing: 20) {
+          Button {
+            continuousScroll.toggle()
+            EpubReaderSettings.saveContinuousScroll(continuousScroll)
+            if format == .epub {
+              applyEPUBPrefs()
+            } else {
+              applyPDFPrefs()
+            }
+          } label: {
+            Image(systemName: continuousScroll ? "scroll" : "book.pages")
+              .font(.body)
+              .frame(width: 36, height: 36)
           }
-        } label: {
-          Image(systemName: readerTheme.nextThemeToolbarIcon)
-            .font(.body)
-            .frame(width: 36, height: 36)
+          .accessibilityLabel("Continuous scroll")
+          .accessibilityValue(continuousScroll ? "On" : "Off")
+
+          Button {
+            readerTheme = readerTheme.next()
+            EpubReaderSettings.saveTheme(readerTheme)
+            if format == .epub {
+              applyEPUBPrefs()
+            } else {
+              applyPDFPrefs()
+            }
+          } label: {
+            Image(systemName: readerTheme.nextThemeToolbarIcon)
+              .font(.body)
+              .frame(width: 36, height: 36)
+          }
+          .accessibilityLabel("Reading theme")
+          .accessibilityValue(readerTheme.rawValue.capitalized)
+
+          Button {
+            confirmResetReadingPosition = true
+          } label: {
+            Image(systemName: "arrow.counterclockwise")
+              .font(.body)
+              .frame(width: 36, height: 36)
+          }
+          .disabled(readerActionInProgress)
+          .accessibilityLabel("Reset position")
         }
-        .accessibilityLabel("Reading theme")
-        .accessibilityValue(readerTheme.rawValue.capitalized)
       }
       .foregroundStyle(readerChromeForeground)
 

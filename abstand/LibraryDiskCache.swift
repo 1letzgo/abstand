@@ -106,6 +106,18 @@ enum LibraryDiskCache {
     return try? Data(contentsOf: u)
   }
 
+  static func saveFilterData(account: URL, libraryId: String, data: Data) throws {
+    let dir = account.appendingPathComponent("filterdata", isDirectory: true)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    try data.write(to: dir.appendingPathComponent("\(libraryId).json"), options: .atomic)
+  }
+
+  static func loadFilterData(account: URL, libraryId: String) -> Data? {
+    let u = account.appendingPathComponent("filterdata", isDirectory: true).appendingPathComponent("\(libraryId).json")
+    guard fm.fileExists(atPath: u.path) else { return nil }
+    return try? Data(contentsOf: u)
+  }
+
   static func saveProgress(account: URL, list: [ABSUserMediaProgress]) throws {
     let enc = JSONEncoder()
     enc.outputFormatting = [.sortedKeys]
