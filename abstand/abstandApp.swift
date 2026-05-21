@@ -4,6 +4,10 @@ import SwiftUI
 struct abstandApp: App {
   @StateObject private var model = AppModel()
 
+  init() {
+    AppTheme.configureTabBarAppearance()
+  }
+
   var body: some Scene {
     WindowGroup {
       AppRootContainer()

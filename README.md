@@ -22,3 +22,6 @@ If you run ABS with separate book and podcast libraries, I’d love feedback —
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Dependencies
+Readium Swift Toolkit - EPUB and PDF ebook reader

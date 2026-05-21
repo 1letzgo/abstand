@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Zentrale Farben und Abstände für die gesamte App.
 enum AppTheme {
@@ -88,6 +89,29 @@ enum AppTheme {
     /// Höhe des Fortschrittsstreifens am unteren Kartenrand (Library-Zeilen).
     static let libraryRowBottomProgressHeight: CGFloat = 4
   }
+
+  /// Keine schwebende graue Tab-Bar-Kapsel (iOS 18+); Icons behalten Accent-Farben.
+  static func configureTabBarAppearance() {
+    let appearance = UITabBarAppearance()
+    appearance.configureWithTransparentBackground()
+    appearance.backgroundEffect = nil
+    appearance.backgroundColor = .clear
+    appearance.shadowColor = .clear
+
+    let item = UITabBarItemAppearance()
+    item.normal.iconColor = UIColor(white: 0.69, alpha: 1)
+    item.selected.iconColor = UIColor(red: 251 / 255, green: 192 / 255, blue: 45 / 255, alpha: 1)
+    appearance.stackedLayoutAppearance = item
+    appearance.inlineLayoutAppearance = item
+    appearance.compactInlineLayoutAppearance = item
+
+    let bar = UITabBar.appearance()
+    bar.standardAppearance = appearance
+    bar.scrollEdgeAppearance = appearance
+    bar.isTranslucent = true
+    bar.backgroundColor = .clear
+    bar.barTintColor = .clear
+  }
 }
 
 private struct AbstandScrollBackgroundModifier: ViewModifier {
@@ -106,6 +130,23 @@ private struct AbstandScrollBackgroundModifier: ViewModifier {
   }
 }
 
+/// Hintergrund unter ganzen Detail-Screen inkl. Tab-Bar — nicht nur ScrollView-Höhe.
+private struct AbstandDetailScreenBackgroundModifier: ViewModifier {
+  let tint: Color
+
+  func body(content: Content) -> some View {
+    ZStack {
+      ZStack {
+        AppTheme.background
+        tint
+      }
+      .ignoresSafeArea()
+      content
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+  }
+}
+
 extension View {
   /// System-Scrollmaterial ausblenden, App-Hintergrund (#121212) — für `ScrollView` und `List`.
   func abstandScrollScreenBackground(ignoreSafeArea: Bool = false) -> some View {
@@ -118,11 +159,16 @@ extension View {
       .background(AppTheme.background)
   }
 
-  /// Detail-Screens (Autor, Buch, Folge): nur oben unter die Nav-Leiste, Tab-Bar bleibt tippbar.
+  /// Detail-Screens (Autor/Serie/Buch/Folge): Tint + `#121212` bis unter die Tab-Bar (nicht am ScrollView abgeschnitten).
   func abstandDetailScrollBackground(_ color: Color) -> some View {
-    background {
-      color.ignoresSafeArea(edges: .top)
-    }
+    modifier(AbstandDetailScreenBackgroundModifier(tint: color))
+      .abstandPushedDetailTabBarChrome()
+  }
+
+  /// Auf gepushten Details: schwebende System-Tab-Bar-Platte ausblenden.
+  func abstandPushedDetailTabBarChrome() -> some View {
+    toolbarBackgroundVisibility(.hidden, for: .tabBar)
+      .toolbarBackground(.hidden, for: .tabBar)
   }
 }
 

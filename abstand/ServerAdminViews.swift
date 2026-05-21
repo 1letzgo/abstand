@@ -330,16 +330,6 @@ struct SettingsHubRootView: View {
       )
     }
     .abstandScrollScreenBackground(ignoreSafeArea: true)
-    .refreshable {
-      switch hubScope {
-      case .stats:
-        await model.loadListeningStats()
-      case .server:
-        await model.reloadSettingsTab()
-      case .user:
-        break
-      }
-    }
     .navigationTitle(AppModel.MainTab.settings.rawValue)
     .toolbarTitleDisplayMode(.inlineLarge)
     .tint(AppTheme.accent)
