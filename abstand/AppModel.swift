@@ -230,6 +230,7 @@ struct BooksEntityDetailNav: Hashable, Identifiable {
     case author
     case series
     case narrator
+    case collection
   }
 
   let kind: Kind
@@ -245,6 +246,7 @@ struct BooksEntityDetailNav: Hashable, Identifiable {
     case .author: return "authors.\(b64)"
     case .series: return "series.\(b64)"
     case .narrator: return "narrators.\(b64)"
+    case .collection: return "collections.\(b64)"
     }
   }
 
@@ -253,6 +255,7 @@ struct BooksEntityDetailNav: Hashable, Identifiable {
     case .author: return "Author"
     case .series: return "Series"
     case .narrator: return "Narrator"
+    case .collection: return "Collection"
     }
   }
 }
@@ -469,7 +472,10 @@ final class AppModel: ObservableObject {
   @Published private(set) var browseAuthorsTotal = 0
   @Published private(set) var browseCollectionsTotal = 0
   @Published private(set) var browseNarratorCoverItemIdByNarratorName: [String: String] = [:]
-  @Published var booksEntityDetailNav: BooksEntityDetailNav?
+  /// Pro Tab eigener Navigationszustand (sonst zeigt z. B. Settings den Library-Autor).
+  @Published var libraryEntityDetailNav: BooksEntityDetailNav?
+  @Published var homeEntityDetailNav: BooksEntityDetailNav?
+  @Published var searchEntityDetailNav: BooksEntityDetailNav?
   @Published private(set) var entityDetailBooks: [ABSBook] = []
   @Published private(set) var entityDetailLoading = false
   @Published private(set) var entityDetailTotal = 0
@@ -740,6 +746,8 @@ final class AppModel: ObservableObject {
   private let pathMonitorQueue = DispatchQueue(label: "de.letzgo.abstand.network")
 
   private static let smartDownloadWiFiListenThresholdSeconds: Double = 180
+  /// Nächste Katalog-Seite laden, sobald eine Zeile in den letzten N Einträgen per `.task` erscheint.
+  private static let catalogPrefetchItemsFromEnd = 12
   private var smartDlPlaybackKey: String?
   private var smartDlAccumulatedSeconds: Double = 0
   private var smartDlLastTickAt: Date?
@@ -2387,6 +2395,9 @@ final class AppModel: ObservableObject {
     isRestoringLaunchPlayback = false
     isPreparingPlayback = false
     LibraryDiskCache.clearEverything()
+    libraryEntityDetailNav = nil
+    homeEntityDetailNav = nil
+    searchEntityDetailNav = nil
   }
 
   func selectBooksLibrary(_ lib: ABSLibrary, navigateToCatalog: Bool = false) {
@@ -2690,23 +2701,30 @@ final class AppModel: ObservableObject {
     podcastRssFeedCacheByShowId[showId] ?? []
   }
 
-  /// Admin-Show-Detail: Bibliothek + Settings + RSS-Vorschau vorladen (Absorb: initState).
+  /// Admin-Show-Detail: Settings + RSS-Cache — ohne Podcast-Tab-Filter/„New“-Reload (Navigation bleibt snappy).
   func preloadPodcastShowAdminContext(showId: String) async {
     let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !sid.isEmpty else { return }
-    await selectPodcastShowFilter(sid)
     async let settings: Void = loadPodcastAutoDownloadSettings(showId: sid)
-    async let feed: Void = loadPodcastRssFeedIntoEpisodeList(podcastLibraryItemId: sid, forceReload: false)
+    async let feed: Void = loadPodcastRssFeedIntoEpisodeList(
+      podcastLibraryItemId: sid, forceReload: false, applyToTabPreview: false)
     _ = await (settings, feed)
   }
 
   /// RSS-Tab: nur laden wenn Cache leer (oder `forceReload`).
-  func ensurePodcastRssFeedLoaded(forShowId showId: String, forceReload: Bool = false) async {
+  func ensurePodcastRssFeedLoaded(
+    forShowId showId: String,
+    forceReload: Bool = false,
+    applyToTabPreview: Bool = true
+  ) async {
     guard podcastCanManageShowsOnServer, !showId.isEmpty else { return }
-    applyActivePodcastRssFeedPreview(showId: showId)
+    if applyToTabPreview {
+      applyActivePodcastRssFeedPreview(showId: showId)
+    }
     if !forceReload, podcastRssFeedUnavailableByShowId[showId] != nil { return }
     if !forceReload, !podcastRssFeedCachedDrafts(forShowId: showId).isEmpty { return }
-    await loadPodcastRssFeedIntoEpisodeList(podcastLibraryItemId: showId, forceReload: forceReload)
+    await loadPodcastRssFeedIntoEpisodeList(
+      podcastLibraryItemId: showId, forceReload: forceReload, applyToTabPreview: applyToTabPreview)
   }
 
   func activatePodcastRssFeedTab(forShowId showId: String) async {
@@ -2775,7 +2793,18 @@ final class AppModel: ObservableObject {
     } catch {}
   }
 
+  /// Sofort UI (Leiste + Filter); Netzwerk danach.
   func selectPodcastShowFilter(_ showId: String?) async {
+    applyPodcastShowFilterSelection(showId)
+    guard let showId else {
+      await reloadPodcastLibrary(reset: true)
+      return
+    }
+    await loadPodcastEpisodesForShowLibraryItem(showId)
+  }
+
+  @MainActor
+  func applyPodcastShowFilterSelection(_ showId: String?) {
     let newKey = showId ?? ""
     let previewKey = podcastRssFeedPreviewForShowId ?? ""
     if newKey != previewKey {
@@ -2785,17 +2814,10 @@ final class AppModel: ObservableObject {
       }
     }
     podcastSelectedShowId = showId
-    guard let showId else {
-      podcastFilteredEpisodes = []
-      await reloadPodcastLibrary(reset: true)
-      return
-    }
     podcastFilteredEpisodes = []
-    await reloadPodcastLibrary(reset: true)
-    await loadPodcastEpisodesForShowLibraryItem(showId)
   }
 
-  private func loadPodcastEpisodesForShowLibraryItem(_ showId: String) async {
+  func loadPodcastEpisodesForShowLibraryItem(_ showId: String) async {
     guard let c = client, let lib = selectedPodcastLibrary else {
       podcastFilteredEpisodes = []
       return
@@ -2845,11 +2867,24 @@ final class AppModel: ObservableObject {
     }
   }
 
+  private func shouldPrefetchNextCatalogPage<Item>(
+    currentItemId: String?,
+    in items: [Item],
+    id: (Item) -> String
+  ) -> Bool {
+    guard let currentItemId, !items.isEmpty else { return false }
+    guard let idx = items.firstIndex(where: { id($0) == currentItemId }) else { return false }
+    let threshold = max(0, items.count - Self.catalogPrefetchItemsFromEnd)
+    return idx >= threshold
+  }
+
   func loadMoreIfNeeded(currentItemId: String?) async {
     guard mainTab == .library, booksBrowseSection == .books, libraryCatalogQuickFilter != .downloaded else {
       return
     }
-    guard let id = currentItemId, let last = books.last?.id, id == last, books.count < libraryTotal else { return }
+    guard shouldPrefetchNextCatalogPage(currentItemId: currentItemId, in: books, id: \.id),
+      books.count < libraryTotal
+    else { return }
     await reloadLibrary(reset: false)
   }
 
@@ -2858,7 +2893,7 @@ final class AppModel: ObservableObject {
     guard podcastSelectedShowId == nil else { return }
     guard podcastEpisodesPagingFromRecentAPI else { return }
     guard
-      let id = currentItemId, let last = podcastEpisodes.last?.id, id == last,
+      shouldPrefetchNextCatalogPage(currentItemId: currentItemId, in: podcastEpisodes, id: \.id),
       podcastEpisodes.count < podcastLibraryTotal
     else { return }
     await reloadPodcastLibrary(reset: false)
@@ -3367,7 +3402,9 @@ final class AppModel: ObservableObject {
   func loadMoreBrowseAuthorsIfNeeded(currentItemId: String?) async {
     guard booksBrowseSection == .author else { return }
     guard browseAuthorsTotal > 0 else { return }
-    guard let id = currentItemId, let last = browseAuthors.last?.id, id == last else { return }
+    guard shouldPrefetchNextCatalogPage(currentItemId: currentItemId, in: browseAuthors, id: \.id) else {
+      return
+    }
     guard browseAuthors.count < browseAuthorsTotal else { return }
     await loadBrowseAuthorsPage(reset: false)
   }
@@ -3375,7 +3412,9 @@ final class AppModel: ObservableObject {
   func loadMoreBrowseSeriesIfNeeded(currentItemId: String?) async {
     guard booksBrowseSection == .series else { return }
     guard browseSeriesTotal > 0 else { return }
-    guard let id = currentItemId, let last = browseSeries.last?.id, id == last else { return }
+    guard shouldPrefetchNextCatalogPage(currentItemId: currentItemId, in: browseSeries, id: \.id) else {
+      return
+    }
     guard browseSeries.count < browseSeriesTotal else { return }
     await loadBrowseSeriesPage(reset: false)
   }
@@ -3486,19 +3525,20 @@ final class AppModel: ObservableObject {
   /// RSS-Feed parsen (`POST /api/podcasts/feed`) und pro Sendung cachen.
   func loadPodcastRssFeedIntoEpisodeList(
     podcastLibraryItemId: String,
-    forceReload: Bool = false
+    forceReload: Bool = false,
+    applyToTabPreview: Bool = true
   ) async {
     guard podcastCanManageShowsOnServer else { return }
     let sid = podcastLibraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !sid.isEmpty, let c = client else { return }
 
     if !forceReload, podcastRssFeedUnavailableByShowId[sid] != nil {
-      applyActivePodcastRssFeedPreview(showId: sid)
+      if applyToTabPreview { applyActivePodcastRssFeedPreview(showId: sid) }
       return
     }
 
     if !forceReload, let cached = podcastRssFeedCacheByShowId[sid], !cached.isEmpty {
-      applyActivePodcastRssFeedPreview(showId: sid)
+      if applyToTabPreview { applyActivePodcastRssFeedPreview(showId: sid) }
       return
     }
 
@@ -3515,7 +3555,7 @@ final class AppModel: ObservableObject {
         podcastRssFeedUnavailableByShowId[sid] =
           "This show has no RSS feed URL. It may have been added from a folder instead of a feed subscription."
         podcastRssFeedCacheByShowId[sid] = []
-        applyActivePodcastRssFeedPreview(showId: sid)
+        if applyToTabPreview { applyActivePodcastRssFeedPreview(showId: sid) }
         return
       }
       podcastRssFeedUnavailableByShowId.removeValue(forKey: sid)
@@ -3525,7 +3565,7 @@ final class AppModel: ObservableObject {
       if forceReload {
         podcastRssDraftCompletedIdsByShowId[sid] = []
       }
-      applyActivePodcastRssFeedPreview(showId: sid)
+      if applyToTabPreview { applyActivePodcastRssFeedPreview(showId: sid) }
       if drafts.isEmpty {
         errorMessage = "No episodes found in the feed."
       } else {
@@ -3637,14 +3677,16 @@ final class AppModel: ObservableObject {
     }
   }
 
+  /// `nil` = kein API-Limit („No limit“ in der UI = 0).
   private func podcastCheckNewDownloadLimit(forShowId sid: String) -> Int? {
-    if podcastAutoDownloadSettingsShowId == sid {
-      return podcastMaxNewEpisodesToDownload
-    }
-    if let n = podcastShows.first(where: { $0.id == sid })?.media.maxNewEpisodesToDownload {
-      return n
-    }
-    return nil
+    let raw: Int? = {
+      if podcastAutoDownloadSettingsShowId == sid {
+        return podcastMaxNewEpisodesToDownload
+      }
+      return podcastShows.first(where: { $0.id == sid })?.media.maxNewEpisodesToDownload
+    }()
+    guard let raw, raw > 0 else { return nil }
+    return raw
   }
 
   /// Podcast-Folge von der Server-Bibliothek löschen.
@@ -3971,7 +4013,15 @@ final class AppModel: ObservableObject {
       let rows = mergedLocalCatalogBooks().filter { bookMatchesNarrator($0, narratorName: nav.entityId) }
       entityDetailBooks = rows
       entityDetailTotal = rows.count
+    case .collection:
+      applyCollectionDetailBooks(collectionId: nav.entityId)
     }
+  }
+
+  private func applyCollectionDetailBooks(collectionId: String) {
+    let rows = (browseCollectionBooksById[collectionId] ?? []).filter(\.isUsableLibraryCatalogRow)
+    entityDetailBooks = rows
+    entityDetailTotal = rows.count
   }
 
   private func performSearch(query: String) async {
@@ -4015,33 +4065,61 @@ final class AppModel: ObservableObject {
 
   func openAuthorDetail(authorId: String, displayName: String? = nil, numBooks: Int? = nil) {
     let name = (displayName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    booksEntityDetailNav = BooksEntityDetailNav(
-      kind: .author,
-      entityId: authorId,
-      title: name.isEmpty ? "Author" : name,
-      numBooks: numBooks
-    )
+    presentEntityDetailNav(
+      BooksEntityDetailNav(
+        kind: .author,
+        entityId: authorId,
+        title: name.isEmpty ? "Author" : name,
+        numBooks: numBooks
+      ))
   }
 
   func openSeriesDetail(seriesId: String, displayName: String? = nil, numBooks: Int? = nil) {
     let name = (displayName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    booksEntityDetailNav = BooksEntityDetailNav(
-      kind: .series,
-      entityId: seriesId,
-      title: name.isEmpty ? "Series" : name,
-      numBooks: numBooks
-    )
+    presentEntityDetailNav(
+      BooksEntityDetailNav(
+        kind: .series,
+        entityId: seriesId,
+        title: name.isEmpty ? "Series" : name,
+        numBooks: numBooks
+      ))
   }
 
   func openNarratorDetail(narratorName: String, numBooks: Int? = nil) {
     let name = narratorName.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty else { return }
-    booksEntityDetailNav = BooksEntityDetailNav(
-      kind: .narrator,
-      entityId: name,
-      title: name,
-      numBooks: numBooks
-    )
+    presentEntityDetailNav(
+      BooksEntityDetailNav(
+        kind: .narrator,
+        entityId: name,
+        title: name,
+        numBooks: numBooks
+      ))
+  }
+
+  func openCollectionDetail(collectionId: String, displayName: String? = nil, numBooks: Int? = nil) {
+    let name = (displayName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    presentEntityDetailNav(
+      BooksEntityDetailNav(
+        kind: .collection,
+        entityId: collectionId,
+        title: name.isEmpty ? "Collection" : name,
+        numBooks: numBooks
+      ))
+  }
+
+  /// Entity-Detail nur im aktuellen Tab pushen — Tabs bleiben unabhängig.
+  private func presentEntityDetailNav(_ nav: BooksEntityDetailNav) {
+    switch mainTab {
+    case .start:
+      homeEntityDetailNav = nav
+    case .library:
+      libraryEntityDetailNav = nav
+    case .search:
+      searchEntityDetailNav = nav
+    case .podcasts, .settings, .stats:
+      break
+    }
   }
 
   func applyAuthorFilter(authorId: String, displayName: String? = nil) {
@@ -4134,6 +4212,16 @@ final class AppModel: ObservableObject {
         entityDetailDescription = nil
         entityDetailUsesLibraryItemFilter = true
         try await reloadEntityDetailBooksViaLibraryFilter(for: nav, reset: true, key: key)
+      case .collection:
+        entityDetailDescription = nil
+        entityDetailUsesLibraryItemFilter = false
+        if !isNetworkReachable {
+          applyCollectionDetailBooks(collectionId: nav.entityId)
+        } else {
+          await loadBrowseCollections(force: true)
+          guard entityDetailNavKey == key else { return }
+          applyCollectionDetailBooks(collectionId: nav.entityId)
+        }
       }
     } catch {
       guard entityDetailNavKey == key else { return }
@@ -4223,7 +4311,9 @@ final class AppModel: ObservableObject {
   func loadMoreEntityDetailIfNeeded(nav: BooksEntityDetailNav, currentItemId: String?) async {
     guard entityDetailUsesLibraryItemFilter else { return }
     guard nav.id == entityDetailNavKey else { return }
-    guard let id = currentItemId, let last = entityDetailBooks.last?.id, id == last else { return }
+    guard shouldPrefetchNextCatalogPage(currentItemId: currentItemId, in: entityDetailBooks, id: \.id) else {
+      return
+    }
     guard entityDetailBooks.count < entityDetailTotal else { return }
     let key = nav.id
     entityDetailLoading = true
@@ -4252,6 +4342,11 @@ final class AppModel: ObservableObject {
     case .series:
       if let first = entityDetailBooks.first {
         return coverURL(for: first.id)
+      }
+      return nil
+    case .collection:
+      if let bookId = browseRepresentativeBookItemId(from: browseCollectionBooksById[nav.entityId]) {
+        return coverURL(for: bookId)
       }
       return nil
     }

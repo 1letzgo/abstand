@@ -7,7 +7,6 @@ struct MainRootView: View {
   @Binding var nowPlayingSheetPresented: Bool
   @StateObject private var booksLibraryToolbarState = BooksLibraryToolbarState()
   @StateObject private var podcastCatalogToolbarState = PodcastCatalogToolbarState()
-  @State private var booksBrowseCollectionNav: BooksBrowseCollectionNav?
 
   var body: some View {
     tabViewBody
@@ -132,7 +131,7 @@ struct MainRootView: View {
         .task {
           await model.probeServerConnectionIfNeeded()
         }
-        .booksEntityDetailNavigation()
+        .booksEntityDetailNavigation(for: .start)
     }
   }
 
@@ -142,7 +141,6 @@ struct MainRootView: View {
     NavigationStack {
       SettingsHubRootView()
         .abstandTabScreenChrome()
-        .booksEntityDetailNavigation()
     }
     .tint(AppTheme.accent)
   }
@@ -152,14 +150,9 @@ struct MainRootView: View {
   private var libraryTabRoot: some View {
     BooksLibraryTabShell(
       toolbarState: booksLibraryToolbarState,
-      collectionNav: $booksBrowseCollectionNav,
-      catalog: { booksCatalogScrollView },
-      collectionDetail: { nav in
-        AnyView(booksBrowseCollectionDetailView(nav: nav))
-      }
+      catalog: { booksCatalogScrollView }
     )
     .id("books-library-tab")
-    .booksEntityDetailNavigation()
     .onAppear { booksLibraryToolbarState.attach(model) }
     .onDisappear { booksLibraryToolbarState.detach() }
   }
@@ -386,7 +379,10 @@ struct MainRootView: View {
       } else {
         ForEach(model.browseCollections) { collection in
           Button {
-            booksBrowseCollectionNav = BooksBrowseCollectionNav(id: collection.id, title: collection.name)
+            model.openCollectionDetail(
+              collectionId: collection.id,
+              displayName: collection.name,
+              numBooks: collection.books?.count)
           } label: {
             browseCollectionRow(collection)
           }
@@ -432,30 +428,6 @@ struct MainRootView: View {
     )
   }
 
-  private func booksBrowseCollectionDetailView(nav: BooksBrowseCollectionNav) -> some View {
-    let books = model.booksInBrowseCollection(id: nav.id)
-    return ScrollView {
-      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-        if books.isEmpty {
-          Text("No books in this collection.")
-            .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
-            .padding(.vertical, 8)
-        } else {
-          ForEach(books) { book in
-            BookRowCard(book: book, model: model)
-          }
-        }
-      }
-      .padding(.top, AppTheme.Layout.withinSectionSpacing)
-      .padding(
-        .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
-    }
-    .abstandScrollScreenBackground()
-    .navigationTitle(nav.title)
-    .toolbarTitleDisplayMode(.inline)
-  }
-
   // MARK: - Search tab
 
   private var searchTabRoot: some View {
@@ -467,7 +439,7 @@ struct MainRootView: View {
         .searchable(text: $model.searchText, prompt: "Title, author, series…")
         .onChange(of: model.searchText) { _, _ in model.scheduleSearch() }
         .onSubmit(of: .search) { model.scheduleSearch() }
-        .booksEntityDetailNavigation()
+        .booksEntityDetailNavigation(for: .search)
     }
   }
 
@@ -497,15 +469,12 @@ struct MainRootView: View {
       podcastCatalogScrollView
     }
     .id("podcast-catalog-tab")
-    .booksEntityDetailNavigation()
     .onAppear { podcastCatalogToolbarState.attach(model) }
     .onDisappear { podcastCatalogToolbarState.detach() }
   }
 
   private var podcastCatalogBodyIdentity: String {
-    let show = model.podcastSelectedShowId ?? "new"
-    let rss = model.podcastRssFeedPreviewForShowId ?? "off"
-    return "\(show)-\(rss)"
+    model.podcastSelectedShowId ?? "new"
   }
 
   private var podcastCatalogScrollView: some View {
@@ -525,9 +494,6 @@ struct MainRootView: View {
       .abstandScrollScreenBackground()
       .refreshable {
         await model.refreshPodcastsTab()
-      }
-      .onChange(of: model.podcastRssFeedPreviewForShowId) { _, _ in
-        scrollPodcastCatalogToTop(proxy: proxy, animated: true)
       }
     }
   }
@@ -594,7 +560,8 @@ struct MainRootView: View {
 
         ForEach(model.podcastShows) { show in
           Button {
-            Task { await model.selectPodcastShowFilter(show.id) }
+            model.applyPodcastShowFilterSelection(show.id)
+            Task { await model.loadPodcastEpisodesForShowLibraryItem(show.id) }
           } label: {
             VStack(spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
               CoverImageView(
@@ -631,21 +598,8 @@ struct MainRootView: View {
   }
 
   private var podcastPodcastsTabEpisodesContent: some View {
-    let sel = model.podcastSelectedShowId
-    let rssConsolidated =
-      sel != nil && sel == model.podcastRssFeedPreviewForShowId
-    let rssDrafts =
-      sel.flatMap { model.podcastRssFeedCachedDrafts(forShowId: $0) }
-      ?? model.podcastRssFeedPreviewEpisodes
     let episodes = model.podcastEpisodesForPodcastsTab
-
-    let rssListLoading: Bool = {
-      guard rssConsolidated, let sid = sel else { return false }
-      return rssDrafts.isEmpty && model.podcastRssFeedLoadInProgressShowIds.contains(sid)
-    }()
-
     let listLoading: Bool = {
-      if rssConsolidated { return rssListLoading }
       if model.podcastSelectedShowId != nil {
         return model.isLoadingPodcastShowEpisodes && episodes.isEmpty
       }
@@ -661,46 +615,33 @@ struct MainRootView: View {
           .frame(maxWidth: .infinity)
       }
 
-      if rssConsolidated {
-        if !listLoading && rssDrafts.isEmpty && !model.isLoadingPodcastShowEpisodes {
-          Text("No episodes found in the feed.")
+      if episodes.isEmpty,
+        !model.isLoadingPodcasts,
+        !model.isLoadingPodcastShowEpisodes
+      {
+        if model.podcastSelectedShowId != nil {
+          Text("No episodes in the library for this show.")
             .font(.subheadline)
             .foregroundStyle(AppTheme.textSecondary)
             .padding(.vertical, 8)
-        }
-        ForEach(rssDrafts) { draft in
-          PodcastRssFeedDraftRow(draft: draft)
-        }
-      } else {
-        if episodes.isEmpty,
-          !model.isLoadingPodcasts,
-          !model.isLoadingPodcastShowEpisodes
-        {
-          if model.podcastSelectedShowId != nil {
-            Text("No episodes in the library for this show.")
-              .font(.subheadline)
-              .foregroundStyle(AppTheme.textSecondary)
-              .padding(.vertical, 8)
-          } else {
-            Text(
-              "No episodes in the list. Pull to refresh or check your network."
-            )
-            .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
-            .padding(.vertical, 8)
-          }
-        }
-
-        ForEach(episodes, id: \.progressLookupKey) { episode in
-          PodcastEpisodeRowCard(episode: episode, model: model)
-            .task(id: episode.progressLookupKey) {
-              await model.loadMorePodcastsIfNeeded(currentItemId: episode.id)
-            }
+        } else {
+          Text(
+            "No episodes in the list. Pull to refresh or check your network."
+          )
+          .font(.subheadline)
+          .foregroundStyle(AppTheme.textSecondary)
+          .padding(.vertical, 8)
         }
       }
 
-      if !rssConsolidated,
-        model.podcastSelectedShowId != nil,
+      ForEach(episodes, id: \.progressLookupKey) { episode in
+        PodcastEpisodeRowCard(episode: episode, model: model)
+          .task(id: episode.progressLookupKey) {
+            await model.loadMorePodcastsIfNeeded(currentItemId: episode.id)
+          }
+      }
+
+      if model.podcastSelectedShowId != nil,
         model.isLoadingPodcastShowEpisodes,
         !episodes.isEmpty
       {
@@ -1372,66 +1313,6 @@ struct PodcastCatalogSortToolbarMenu: View, Equatable {
 
   private var sortDescendingBinding: Binding<Bool> {
     Binding(get: { sortDescending }, set: onSortDescendingChange)
-  }
-}
-
-// MARK: - Podcast show settings sheet
-
-struct PodcastShowSettingsSheet: View {
-  @EnvironmentObject private var model: AppModel
-  @Environment(\.dismiss) private var dismiss
-  let showId: String
-  let showTitle: String
-  let onRemove: () -> Void
-
-  var body: some View {
-    NavigationStack {
-      Form {
-        Section("Auto download") {
-          PodcastShowAutoDownloadSettingsContent(showId: showId)
-        }
-
-        if model.isServerAdmin {
-          Section {
-            Button {
-              Task { await model.checkAndDownloadNewPodcastEpisodes(showId: showId) }
-            } label: {
-              HStack {
-                Text("Check & download new episodes")
-                Spacer()
-                if model.podcastCheckNewInProgressShowId == showId {
-                  ProgressView()
-                    .controlSize(.small)
-                    .tint(AppTheme.accent)
-                }
-              }
-            }
-            .disabled(
-              !model.isNetworkReachable || model.podcastCheckNewInProgressShowId == showId
-            )
-          }
-        }
-
-        Section {
-          Button("Unsubscribe", role: .destructive) {
-            dismiss()
-            onRemove()
-          }
-          .disabled(!model.isNetworkReachable)
-        }
-      }
-      .abstandScrollScreenBackground(ignoreSafeArea: true)
-      .navigationTitle(showTitle)
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Done") { dismiss() }
-        }
-      }
-    }
-    .tint(AppTheme.accent)
-    .presentationDetents([.medium, .large])
-    .presentationDragIndicator(.visible)
   }
 }
 
@@ -3673,7 +3554,7 @@ private struct BookDetailView: View {
         .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
     .scrollContentBackground(.hidden)
-    .background(coverTintColor.ignoresSafeArea())
+    .abstandDetailScrollBackground(coverTintColor)
     .task {
       let loaded = await model.loadBookDetail(id: bookId)
       detail = loaded
@@ -4119,7 +4000,7 @@ private struct PodcastEpisodeDetailView: View {
         .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
     .scrollContentBackground(.hidden)
-    .background(coverTintColor.ignoresSafeArea())
+    .abstandDetailScrollBackground(coverTintColor)
     .task {
       async let d = model.loadPodcastEpisodeDetail(episode)
       let showMid =
@@ -4395,19 +4276,42 @@ private struct PodcastEpisodeDetailView: View {
 
 // MARK: - Entity detail (author / series / narrator)
 
-private struct BooksEntityDetailNavigationModifier: ViewModifier {
+struct BooksEntityDetailNavigationModifier: ViewModifier {
   @EnvironmentObject private var model: AppModel
+  let tab: AppModel.MainTab
+
+  private var navBinding: Binding<BooksEntityDetailNav?> {
+    switch tab {
+    case .library:
+      Binding(
+        get: { model.libraryEntityDetailNav },
+        set: { model.libraryEntityDetailNav = $0 }
+      )
+    case .start:
+      Binding(
+        get: { model.homeEntityDetailNav },
+        set: { model.homeEntityDetailNav = $0 }
+      )
+    case .search:
+      Binding(
+        get: { model.searchEntityDetailNav },
+        set: { model.searchEntityDetailNav = $0 }
+      )
+    case .podcasts, .settings, .stats:
+      Binding.constant(nil)
+    }
+  }
 
   func body(content: Content) -> some View {
-    content.navigationDestination(item: $model.booksEntityDetailNav) { nav in
+    content.navigationDestination(item: navBinding) { nav in
       BooksEntityDetailView(nav: nav)
     }
   }
 }
 
-private extension View {
-  func booksEntityDetailNavigation() -> some View {
-    modifier(BooksEntityDetailNavigationModifier())
+extension View {
+  func booksEntityDetailNavigation(for tab: AppModel.MainTab) -> some View {
+    modifier(BooksEntityDetailNavigationModifier(tab: tab))
   }
 }
 
@@ -4441,7 +4345,7 @@ private struct BooksEntityDetailView: View {
         .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
     .scrollContentBackground(.hidden)
-    .background(headerTintColor.ignoresSafeArea())
+    .abstandDetailScrollBackground(headerTintColor)
     .navigationTitle(nav.title)
     .navigationBarTitleDisplayMode(.inline)
     .task(id: nav.id) {
@@ -4523,6 +4427,7 @@ private struct BooksEntityDetailView: View {
     case .author: return "author:\(nav.entityId)"
     case .series: return "series:\(nav.entityId)"
     case .narrator: return "narrator:\(nav.entityId)"
+    case .collection: return "collection:\(nav.entityId)"
     }
   }
 
@@ -4531,6 +4436,7 @@ private struct BooksEntityDetailView: View {
     case .author: return "person.crop.circle"
     case .series: return "books.vertical"
     case .narrator: return "waveform"
+    case .collection: return "folder"
     }
   }
 

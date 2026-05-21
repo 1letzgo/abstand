@@ -1,11 +1,6 @@
 import Combine
 import SwiftUI
 
-struct BooksBrowseCollectionNav: Hashable, Identifiable {
-  let id: String
-  let title: String
-}
-
 // MARK: - Bücher-Tab: Toolbar nur bei Sort/Filter-Änderungen (nicht bei Playback-Ticks)
 
 @MainActor
@@ -323,9 +318,7 @@ struct BooksLibraryToolbarContent: ToolbarContent {
 /// Navigation + Toolbar; Katalog kommt als `let model`-Child (ohne `@EnvironmentObject` am Shell).
 struct BooksLibraryTabShell<Catalog: View>: View {
   @ObservedObject var toolbarState: BooksLibraryToolbarState
-  @Binding var collectionNav: BooksBrowseCollectionNav?
   @ViewBuilder var catalog: () -> Catalog
-  var collectionDetail: (BooksBrowseCollectionNav) -> AnyView
 
   var body: some View {
     NavigationStack {
@@ -336,9 +329,7 @@ struct BooksLibraryTabShell<Catalog: View>: View {
         .toolbar {
           BooksLibraryToolbarContent(toolbarState: toolbarState)
         }
-        .navigationDestination(item: $collectionNav) { nav in
-          collectionDetail(nav)
-        }
+        .booksEntityDetailNavigation(for: .library)
     }
   }
 }

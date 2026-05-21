@@ -1162,7 +1162,10 @@ struct ServerAdminPodcastShowView: View {
       if selectedTab == .feed {
         ToolbarItem(placement: .topBarTrailing) {
           Button {
-            Task { await model.ensurePodcastRssFeedLoaded(forShowId: showId, forceReload: true) }
+            Task {
+              await model.ensurePodcastRssFeedLoaded(
+                forShowId: showId, forceReload: true, applyToTabPreview: false)
+            }
           } label: {
             Image(systemName: "arrow.clockwise")
           }
@@ -1216,7 +1219,8 @@ struct ServerAdminPodcastShowView: View {
       Task {
         switch tab {
         case .feed:
-          await model.ensurePodcastRssFeedLoaded(forShowId: showId, forceReload: false)
+          await model.ensurePodcastRssFeedLoaded(
+            forShowId: showId, forceReload: false, applyToTabPreview: false)
         case .settings:
           await model.preparePodcastShowSettingsSheet(showId: showId)
         }

@@ -117,6 +117,13 @@ extension View {
     frame(maxWidth: .infinity, maxHeight: .infinity)
       .background(AppTheme.background)
   }
+
+  /// Detail-Screens (Autor, Buch, Folge): nur oben unter die Nav-Leiste, Tab-Bar bleibt tippbar.
+  func abstandDetailScrollBackground(_ color: Color) -> some View {
+    background {
+      color.ignoresSafeArea(edges: .top)
+    }
+  }
 }
 
 /// Kategoriezeile über Browse-Strips und Listen (Home, Library, Podcasts, Settings).

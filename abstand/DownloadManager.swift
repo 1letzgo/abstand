@@ -209,7 +209,7 @@ final class DownloadManager: ObservableObject {
           let suggested = folder.appendingPathComponent(PlaybackController.trackFilename(index: tr.index))
           let finalURL: URL
           if let ino = tr.ino, !ino.isEmpty {
-            let fileURL = try await client.itemFileDownloadURL(itemId: id, ino: ino)
+            let fileURL = try await client.itemFileDownloadURL(itemId: book.id, ino: ino)
             finalURL = try await client.downloadAuthenticatedFile(
               from: fileURL,
               to: suggested,
