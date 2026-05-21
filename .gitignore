@@ -1,0 +1,57 @@
+# --- AI / IDE (local only) ---
+AGENTS.md
+CLAUDE.md
+*.original.md
+.agent/
+.cursor/
+.codex/
+.continue/
+
+# Markdown docs for agents/tools — public README stays in the repo
+*.md
+!README.md
+
+# --- Secrets & credentials ---
+.env
+.env.*
+*.pem
+*.p12
+*.mobileprovision
+*.provisionprofile
+Secrets/
+secrets/
+credentials.json
+**/GoogleService-Info.plist
+
+# --- Xcode / build ---
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.ipa
+*.dSYM
+*.dSYM.zip
+timeline.xctimeline
+playground/
+
+# --- SwiftPM (local) ---
+.swiftpm/
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# --- Logs & temp ---
+*.log
+*.tmp
+*~
+
+# --- Fastlane (if used later) ---
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
