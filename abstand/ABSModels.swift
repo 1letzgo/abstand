@@ -3090,6 +3090,11 @@ extension ABSListeningStatsResponse {
     days.values.filter { $0 > 0 }.count
   }
 
+  /// Tage mit Hörzeit im rollierenden Jahr (Heatmap-Zähler, unabhängig von sichtbaren Wochen).
+  var daysListenedInLastYear: Int {
+    yearListeningHeatmap(weeksToShow: 52).daysListenedInLastYear
+  }
+
   /// Tagesdurchschnitt über Tage mit Aktivität (wie typische Statistik-Übersichten).
   var dailyAverageSeconds: Int {
     let d = max(daysActive, 1)
@@ -3163,6 +3168,45 @@ extension ABSListeningStatsResponse {
     return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
   }
 
+  /// Erste Spalte jedes Kalendermonats; `labelEveryNthMonth` 1 = alle, 2 = jeden zweiten.
+  private static func monthLabelsForHeatmapColumns(
+    columnCount: Int,
+    cells: [ABSListeningYearHeatmap.Cell],
+    calendar: Calendar,
+    locale: Locale,
+    labelEveryNthMonth: Int
+  ) -> [ABSListeningYearHeatmap.MonthLabel] {
+    let stride = max(1, labelEveryNthMonth)
+    let monthFormatter = DateFormatter()
+    monthFormatter.locale = locale
+    monthFormatter.setLocalizedDateFormatFromTemplate("MMM")
+
+    var labels: [ABSListeningYearHeatmap.MonthLabel] = []
+    var lastMonthKey: String?
+    var monthIndex = 0
+    for col in 0 ..< columnCount {
+      let anchor =
+        cells.first { $0.column == col && $0.row == 0 }
+        ?? cells.filter { $0.column == col }.min(by: { $0.row < $1.row })
+      guard let anchor, let date = parseDayKey(anchor.id, calendar: calendar) else { continue }
+      let y = calendar.component(.year, from: date)
+      let m = calendar.component(.month, from: date)
+      let key = "\(y)-\(m)"
+      guard key != lastMonthKey else { continue }
+      lastMonthKey = key
+      if monthIndex % stride == 0 {
+        labels.append(
+          ABSListeningYearHeatmap.MonthLabel(
+            id: "\(anchor.id)-month",
+            column: col,
+            label: monthFormatter.string(from: date)
+          ))
+      }
+      monthIndex += 1
+    }
+    return labels
+  }
+
   private static func parseDayKey(_ key: String, calendar: Calendar) -> Date? {
     let p = key.trimmingCharacters(in: .whitespacesAndNewlines)
     let parts = p.split(separator: "-").compactMap { Int($0) }
@@ -3172,6 +3216,139 @@ extension ABSListeningStatsResponse {
     comp.month = parts[1]
     comp.day = parts[2]
     return calendar.date(from: comp)
+  }
+
+  /// GitHub-ähnliche Heatmap (vgl. Audiobookshelf `Heatmap.vue` / Server-UI Stats).
+  func yearListeningHeatmap(
+    weeksToShow: Int = 52,
+    calendar: Calendar = .current,
+    now: Date = Date(),
+    locale: Locale = .current
+  ) -> ABSListeningYearHeatmap {
+    var cal = calendar
+    cal.locale = locale
+    let todayStart = cal.startOfDay(for: now)
+    let rawWeekday = cal.component(.weekday, from: now) // 1=Sun … 7=Sat
+    let dayOfWeekToday = (rawWeekday - cal.firstWeekday + 7) % 7
+    let cappedWeeks = min(52, max(1, weeksToShow))
+    let daysToShow = cappedWeeks * 7 + dayOfWeekToday
+    let numDaysInLastYear = 52 * 7 + dayOfWeekToday
+
+    guard let firstDay = cal.date(byAdding: .day, value: -numDaysInLastYear, to: todayStart) else {
+      return .empty
+    }
+
+    let monthFormatter = DateFormatter()
+    monthFormatter.locale = locale
+    monthFormatter.setLocalizedDateFormatFromTemplate("MMM")
+    let prettyFormatter = DateFormatter()
+    prettyFormatter.locale = locale
+    prettyFormatter.dateStyle = .medium
+    prettyFormatter.timeStyle = .none
+
+    var daysListenedInLastYear = 0
+    var staged: [(col: Int, row: Int, key: String, date: Date, seconds: Int)] = []
+    var maxValue = 0
+    var minValue = 0
+
+    for i in 0 ... numDaysInLastYear {
+      guard let date = cal.date(byAdding: .day, value: i, to: firstDay) else { continue }
+      let key = Self.dayKey(date, calendar: cal)
+      let seconds = days[key, default: 0]
+      if seconds > 0 {
+        daysListenedInLastYear += 1
+      }
+
+      let visibleDayIndex = i - (numDaysInLastYear - daysToShow)
+      if visibleDayIndex < 0 { continue }
+
+      let col = visibleDayIndex / 7
+      let row = visibleDayIndex % 7
+      staged.append((col, row, key, date, seconds))
+
+      if seconds > 0 {
+        maxValue = max(maxValue, seconds)
+        minValue = minValue == 0 ? seconds : min(minValue, seconds)
+      }
+    }
+
+    let range = Double(max(maxValue - minValue, 0)) + 0.01
+    var cells: [ABSListeningYearHeatmap.Cell] = []
+    cells.reserveCapacity(staged.count)
+    for item in staged {
+      let level: Int
+      if item.seconds <= 0 {
+        level = 0
+      } else if maxValue == minValue {
+        level = 4
+      } else {
+        let pct = Double(item.seconds - minValue) / range
+        level = min(4, Int(pct * 4.0) + 1)
+      }
+      let pretty = prettyFormatter.string(from: item.date)
+      let a11y =
+        item.seconds > 0
+        ? "\(pretty), \(formatPlaybackDurationShortHuman(Double(item.seconds)))"
+        : "\(pretty), no listening"
+      cells.append(
+        ABSListeningYearHeatmap.Cell(
+          id: item.key,
+          column: item.col,
+          row: item.row,
+          seconds: item.seconds,
+          colorLevel: level,
+          accessibilityLabel: a11y
+        ))
+    }
+
+    let columnCount = (cells.map(\.column).max() ?? 0) + 1
+    let monthLabels = Self.monthLabelsForHeatmapColumns(
+      columnCount: columnCount,
+      cells: cells,
+      calendar: cal,
+      locale: locale,
+      labelEveryNthMonth: columnCount > 44 ? 2 : 1
+    )
+    return ABSListeningYearHeatmap(
+      daysListenedInLastYear: daysListenedInLastYear,
+      cells: cells,
+      monthLabels: monthLabels,
+      columnCount: columnCount
+    )
+  }
+}
+
+/// Jahres-Heatmap aus `days` (`yyyy-MM-dd` → Sekunden).
+struct ABSListeningYearHeatmap: Equatable {
+  struct Cell: Identifiable, Equatable {
+    let id: String
+    let column: Int
+    let row: Int
+    let seconds: Int
+    let colorLevel: Int
+    let accessibilityLabel: String
+  }
+
+  struct MonthLabel: Identifiable, Equatable {
+    let id: String
+    let column: Int
+    let label: String
+  }
+
+  let daysListenedInLastYear: Int
+  let cells: [Cell]
+  let monthLabels: [MonthLabel]
+  let columnCount: Int
+
+  static let empty = ABSListeningYearHeatmap(
+    daysListenedInLastYear: 0,
+    cells: [],
+    monthLabels: [],
+    columnCount: 0
+  )
+
+  func cell(column: Int, row: Int) -> Cell? {
+    cells.first { $0.column == column && $0.row == row }
   }
 }
 

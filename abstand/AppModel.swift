@@ -640,7 +640,7 @@ final class AppModel: ObservableObject {
       return
     }
     guard isNetworkReachable,
-      let url = ABSAPIClient.normalizeServerURL(serverURL),
+      ABSAPIClient.normalizeServerURL(serverURL) != nil,
       !token.isEmpty
     else {
       isServerReachable = false
@@ -5481,7 +5481,6 @@ final class AppModel: ObservableObject {
         continue
       }
       let pos = max(0, p.currentTime)
-      let dur = max(p.duration, 0)
       do {
         let session = try await c.startPlaySession(
           itemId: p.libraryItemId,

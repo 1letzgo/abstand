@@ -10,6 +10,13 @@ struct StatsTabView: View {
 
   private static let statsLocale = Locale(identifier: "en_US")
 
+  private static let statsCalendar: Calendar = {
+    var cal = Calendar(identifier: .gregorian)
+    cal.firstWeekday = 2 // Montag
+    cal.locale = statsLocale
+    return cal
+  }()
+
   private static let cacheDateFormatter: DateFormatter = {
     let f = DateFormatter()
     f.locale = statsLocale
@@ -109,12 +116,24 @@ struct StatsTabView: View {
 
     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title: "Activity")
+      ListeningYearHeatmapCard(stats: stats, locale: Self.statsLocale, calendar: Self.statsCalendar)
+        .background(AppTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+        .clipped()
+      activityStatRow([
+        ActivityStatTile(
+          id: "year-listened",
+          icon: "calendar.badge.clock",
+          tint: AppTheme.success,
+          value: "\(stats.daysListenedInLastYear)",
+          label: "Days listened in the last year"),
+      ])
       activityGrid(stats: stats)
     }
 
     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title: "Last 7 days")
-      chartCard(bars: bars)
+      weekLineChartCard(bars: bars)
     }
   }
 
@@ -238,18 +257,27 @@ struct StatsTabView: View {
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
   }
 
-  private func chartCard(bars: [(id: String, label: String, seconds: Int)]) -> some View {
+  private func weekLineChartCard(bars: [(id: String, label: String, seconds: Int)]) -> some View {
     let maxSec = max(bars.map(\.seconds).max() ?? 0, 1)
+    let maxHours = max(Double(maxSec) / 3600.0, 0.25)
     return Chart {
       ForEach(bars, id: \.id) { row in
-        BarMark(
+        let hours = Double(row.seconds) / 3600.0
+        LineMark(
           x: .value("Day", row.label),
-          y: .value("Hours", Double(row.seconds) / 3600.0)
+          y: .value("Hours", hours)
         )
-        .foregroundStyle(AppTheme.accent.opacity(0.9))
+        .foregroundStyle(AppTheme.accent)
+        .interpolationMethod(.catmullRom)
+        PointMark(
+          x: .value("Day", row.label),
+          y: .value("Hours", hours)
+        )
+        .foregroundStyle(AppTheme.accent)
+        .symbolSize(36)
       }
     }
-    .chartYScale(domain: 0 ... max(Double(maxSec) / 3600.0, 0.25))
+    .chartYScale(domain: 0 ... maxHours)
     .chartYAxis {
       AxisMarks(position: .leading)
     }
