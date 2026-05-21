@@ -24,4 +24,4 @@ If you run ABS with separate book and podcast libraries, I’d love feedback —
 MIT — see [LICENSE](LICENSE).
 
 ## Dependencies
-Readium Swift Toolkit - EPUB and PDF ebook reader
+- [Readium Swift Toolkit](https://github.com/readium/swift-toolkit) - EPUB and PDF ebook reader
