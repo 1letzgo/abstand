@@ -521,6 +521,49 @@ struct ABSPodcastEpisodeListItem: Identifiable, Hashable, Codable {
 
   var progressLookupKey: String { "\(libraryItemId)-\(episodeId)" }
 
+  /// Stabiler Schlüssel für Deduplizierung (Cache, Manifest, Fortschritt).
+  var canonicalDedupeKey: String {
+    let lid = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    let eid = episodeId.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !lid.isEmpty, !eid.isEmpty { return "\(lid)|\(eid)" }
+    return progressLookupKey
+  }
+
+  /// Höher = vollständigere Anzeige (Titel, Sendung, Datum).
+  var metadataRichnessScore: Int {
+    var score = 0
+    let et = episodeTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !et.isEmpty, et != "Episode" { score += 4 }
+    let st = showTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !st.isEmpty, st != "—" { score += 3 }
+    let al = authorLine.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !al.isEmpty, al != "—", al != st { score += 1 }
+    if let ms = publishedAt, ms > 0 { score += 1 }
+    if duration > 0 { score += 1 }
+    return score
+  }
+
+  func preferringRicherMetadata(than other: ABSPodcastEpisodeListItem) -> ABSPodcastEpisodeListItem {
+    metadataRichnessScore >= other.metadataRichnessScore ? self : other
+  }
+
+  /// Gleiche Folge nur einmal; Zeile mit mehr Metadaten gewinnt (Offline: Cache + Manifest).
+  static func dedupeRows(_ items: [ABSPodcastEpisodeListItem]) -> [ABSPodcastEpisodeListItem] {
+    var byKey: [String: ABSPodcastEpisodeListItem] = [:]
+    var order: [String] = []
+    order.reserveCapacity(items.count)
+    for item in items {
+      let key = item.canonicalDedupeKey
+      if let existing = byKey[key] {
+        byKey[key] = item.preferringRicherMetadata(than: existing)
+      } else {
+        byKey[key] = item
+        order.append(key)
+      }
+    }
+    return order.compactMap { byKey[$0] }
+  }
+
   static func fromDTO(
     _ e: ABSRecentPodcastEpisodeDTO,
     fallbackShow: ABSBook? = nil,
@@ -1487,8 +1530,9 @@ enum ABSStartShelfMergedRow: Identifiable {
     for b in books where seenBookIds.insert(b.id).inserted {
       uniqueBooks.append(b)
     }
+    let uniqueEpisodes = ABSPodcastEpisodeListItem.dedupeRows(podcastEpisodes)
     var rows: [ABSStartShelfMergedRow] = uniqueBooks.map { .book($0) }
-    rows.append(contentsOf: podcastEpisodes.map { .podcastEpisode($0) })
+    rows.append(contentsOf: uniqueEpisodes.map { .podcastEpisode($0) })
     rows.sort {
       let t0 = $0.progressTimestamp(progress)
       let t1 = $1.progressTimestamp(progress)

@@ -4,6 +4,38 @@ import Foundation
 enum ABSPodcastCharts {
   static let defaultLimit = 50
 
+  /// `genreId == nil` → Top-Charts gesamt („All“).
+  struct ChartCategory: Identifiable, Hashable {
+    let genreId: Int?
+    let title: String
+
+    var id: String { genreId.map(String.init) ?? "all" }
+  }
+
+  /// Apple-Podcast-Kategorien (iTunes-Genre-IDs für `…/rss/toppodcasts/…/genre=…/json`).
+  static let chartCategories: [ChartCategory] = [
+    ChartCategory(genreId: nil, title: "All"),
+    ChartCategory(genreId: 1301, title: "Arts"),
+    ChartCategory(genreId: 1321, title: "Business"),
+    ChartCategory(genreId: 1303, title: "Comedy"),
+    ChartCategory(genreId: 1304, title: "Education"),
+    ChartCategory(genreId: 1483, title: "Fiction"),
+    ChartCategory(genreId: 1323, title: "Government"),
+    ChartCategory(genreId: 1325, title: "Health"),
+    ChartCategory(genreId: 1307, title: "History"),
+    ChartCategory(genreId: 1305, title: "Kids"),
+    ChartCategory(genreId: 1502, title: "Leisure"),
+    ChartCategory(genreId: 1310, title: "Music"),
+    ChartCategory(genreId: 1311, title: "News"),
+    ChartCategory(genreId: 1314, title: "Religion"),
+    ChartCategory(genreId: 1315, title: "Science"),
+    ChartCategory(genreId: 1324, title: "Society"),
+    ChartCategory(genreId: 1316, title: "Sports"),
+    ChartCategory(genreId: 1318, title: "Technology"),
+    ChartCategory(genreId: 1488, title: "True Crime"),
+    ChartCategory(genreId: 1309, title: "TV & Film"),
+  ]
+
   /// Storefront für `itunes.apple.com/{country}/rss/...` — bevorzugt ABS-Server-Sprache.
   static func countryCode(serverLanguage: String?, locale: Locale = .current) -> String {
     let raw = serverLanguage?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
@@ -30,22 +62,162 @@ enum ABSPodcastCharts {
     return locale.region?.identifier.lowercased() ?? "us"
   }
 
-  static func topPodcastsFeedURL(country: String, limit: Int = defaultLimit) -> URL? {
-    let c = country.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    guard !c.isEmpty else { return nil }
-    return URL(string: "https://itunes.apple.com/\(c)/rss/toppodcasts/limit=\(limit)/json")
+  /// Unterstützte iTunes-Storefronts (Ländermenü in Add-Podcast-View).
+  static let directoryStorefrontCountryCodes: [String] = [
+    "de", "at", "ch", "us", "gb", "fr", "es", "it", "nl", "be", "ie", "ca", "au", "nz",
+    "jp", "se", "no", "dk", "fi", "pl", "pt", "br", "mx",
+  ]
+
+  static func directoryStorefrontDisplayName(for code: String, locale: Locale = .current) -> String {
+    let c = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    guard c.count == 2 else { return code.uppercased() }
+    return locale.localizedString(forRegionCode: c) ?? c
   }
 
-  static func fetchTopPodcasts(country: String, limit: Int = defaultLimit) async throws -> [ABSPodcastDirectorySearchHit] {
-    guard let url = topPodcastsFeedURL(country: country, limit: limit) else { return [] }
+  /// Vorauswahl zuerst (Auto-Logik), Rest alphabetisch nach Anzeigenamen.
+  static func directoryStorefrontMenuCodes(defaultCode: String, locale: Locale = .current) -> [String] {
+    let known = Set(directoryStorefrontCountryCodes)
+    let raw = defaultCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let primary = known.contains(raw) ? raw : "us"
+    var ordered: [String] = [primary]
+    let rest =
+      known
+      .subtracting([primary])
+      .sorted {
+        directoryStorefrontDisplayName(for: $0, locale: locale)
+          .localizedCaseInsensitiveCompare(directoryStorefrontDisplayName(for: $1, locale: locale))
+          == .orderedAscending
+      }
+    ordered.append(contentsOf: rest)
+    return ordered
+  }
+
+  /// Größerer Pool für Kategorien, bei denen Apple `genre=` ignoriert (z. B. Sports).
+  private static let categoryFallbackPoolLimit = 200
+
+  static func chartFeedURL(country: String, genreId: Int?, limit: Int = defaultLimit) -> URL? {
+    let c = country.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !c.isEmpty else { return nil }
+    if let genreId {
+      return URL(
+        string:
+          "https://itunes.apple.com/\(c)/rss/toppodcasts/limit=\(limit)/genre=\(genreId)/explicit=true/json"
+      )
+    }
+    return URL(string: "https://itunes.apple.com/\(c)/rss/toppodcasts/limit=\(limit)/explicit=true/json")
+  }
+
+  static func fetchChart(
+    country: String,
+    genreId: Int?,
+    limit: Int = defaultLimit
+  ) async throws -> [ABSPodcastDirectorySearchHit] {
+    guard genreId != nil else {
+      let partial = try await fetchChartFeed(country: country, genreId: nil, limit: limit)
+      return try await enrichWithLookup(partial)
+    }
+
+    let gid = genreId!
+    let partial = try await fetchChartFeed(country: country, genreId: gid, limit: limit)
+    let allPeek = try await fetchChartFeed(country: country, genreId: nil, limit: 8)
+    if chartMatchesOverallTop(genreHits: partial, overallHits: allPeek) {
+      let pool = try await fetchChartFeed(
+        country: country, genreId: nil, limit: categoryFallbackPoolLimit)
+      let filtered = filterHitsByRssCategory(pool, genreId: gid, limit: limit)
+      return try await enrichWithLookup(filtered)
+    }
+    return try await enrichWithLookup(partial)
+  }
+
+  private static func fetchChartFeed(
+    country: String,
+    genreId: Int?,
+    limit: Int
+  ) async throws -> [ABSPodcastDirectorySearchHit] {
+    guard let url = chartFeedURL(country: country, genreId: genreId, limit: limit) else { return [] }
     var req = URLRequest(url: url, timeoutInterval: 30)
     req.setValue("application/json", forHTTPHeaderField: "Accept")
     let (data, resp) = try await URLSession.shared.data(for: req)
     guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
       throw ABSAPIError.httpStatus((resp as? HTTPURLResponse)?.statusCode ?? -1, nil)
     }
-    let partial = try parseChartFeedJSON(data)
-    return try await enrichWithLookup(partial)
+    return try parseChartFeedJSON(data)
+  }
+
+  /// Apple liefert für einige Genre-IDs dieselbe Liste wie „All“ (z. B. 1316 Sports).
+  private static func chartMatchesOverallTop(
+    genreHits: [ABSPodcastDirectorySearchHit],
+    overallHits: [ABSPodcastDirectorySearchHit]
+  ) -> Bool {
+    let genreIds = genreHits.prefix(5).map(\.id)
+    let overallIds = overallHits.prefix(5).map(\.id)
+    guard genreIds.count >= 3, genreIds == overallIds else { return false }
+    return true
+  }
+
+  private static func filterHitsByRssCategory(
+    _ hits: [ABSPodcastDirectorySearchHit],
+    genreId: Int,
+    limit: Int
+  ) -> [ABSPodcastDirectorySearchHit] {
+    let labels = rssCategoryLabels(forGenreId: genreId)
+    guard !labels.isEmpty else { return Array(hits.prefix(limit)) }
+    var out: [ABSPodcastDirectorySearchHit] = []
+    out.reserveCapacity(limit)
+    for hit in hits {
+      guard let tag = hit.genres?.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !tag.isEmpty
+      else { continue }
+      if labels.contains(where: { rssCategoryLabel($0, matches: tag) }) {
+        out.append(hit)
+        if out.count >= limit { break }
+      }
+    }
+    return out
+  }
+
+  private static func rssCategoryLabel(_ pattern: String, matches tag: String) -> Bool {
+    let p = pattern.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let t = tag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !p.isEmpty, !t.isEmpty else { return false }
+    if p == t { return true }
+    if t.contains(p) || p.contains(t) { return true }
+    return false
+  }
+
+  /// RSS-`category`-Labels (EN/DE) pro iTunes-Genre — Fallback wenn `genre=` ignoriert wird.
+  private static func rssCategoryLabels(forGenreId genreId: Int) -> [String] {
+    switch genreId {
+    case 1301: return ["Arts", "Kunst", "Books", "Bücher", "Design", "Performing Arts", "Visual Arts"]
+    case 1321: return ["Business", "Wirtschaft", "Geldanlage", "Unternehmertum", "Karriere", "Management"]
+    case 1303: return ["Comedy", "Komödie"]
+    case 1304: return ["Education", "Bildung", "Kurse", "Sprachen lernen", "Training"]
+    case 1483: return ["Fiction", "Fiktion", "Drama", "Literatur"]
+    case 1323: return ["Government", "Regierung", "Politik"]
+    case 1325: return ["Health", "Gesundheit", "Fitness", "Ernährung", "Medizin", "Mentale Gesundheit"]
+    case 1307: return ["History", "Geschichte"]
+    case 1305: return ["Kids", "Kinder", "Familie", "Kids & Family"]
+    case 1502: return ["Leisure", "Freizeit", "Hobbys", "Games", "Spiele"]
+    case 1310: return ["Music", "Musik"]
+    case 1311: return ["News", "Nachrichten", "Nachrichten des Tages", "Tagesnachrichten", "Politik"]
+    case 1314: return ["Religion", "Religion & Spirituality", "Spiritualität"]
+    case 1315: return ["Science", "Wissenschaft", "Naturwissenschaften", "Social Sciences"]
+    case 1324: return ["Society", "Culture", "Gesellschaft", "Gesellschaft und Kultur", "Philosophie", "Beziehungen"]
+    case 1316:
+      return [
+        "Sport", "Sports", "Fußball", "Soccer", "Football", "Basketball", "Baseball", "Hockey",
+        "Tennis", "Golf", "Rugby", "Cricket", "American Football", "Fantasy Sports", "Outdoor",
+        "Wilderness", "Running",
+      ]
+    case 1318: return ["Technology", "Technologie", "Tech"]
+    case 1488: return ["True Crime", "Wahre Kriminalfälle", "Krimi"]
+    case 1309: return ["TV", "Film", "Fernsehen", "Nachgesprochen", "Filmgeschichte", "TV & Film"]
+    default: return []
+    }
+  }
+
+  static func fetchTopPodcasts(country: String, limit: Int = defaultLimit) async throws -> [ABSPodcastDirectorySearchHit] {
+    try await fetchChart(country: country, genreId: nil, limit: limit)
   }
 
   // MARK: - RSS parse

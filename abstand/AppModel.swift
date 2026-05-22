@@ -395,6 +395,13 @@ final class AppModel: ObservableObject {
   @Published private(set) var podcastDirectorySearchLoading = false
   @Published private(set) var podcastChartsHits: [ABSPodcastDirectorySearchHit] = []
   @Published private(set) var podcastChartsLoading = false
+  /// `nil` = Top-Charts gesamt („All“).
+  @Published var podcastChartsSelectedGenreId: Int?
+  /// Nur Add-Podcast-View: manuelles Storefront; `nil` = Auto (Server-Sprache / Gerät).
+  @Published var podcastDirectoryCountryOverride: String?
+  @Published private(set) var podcastDirectoryEffectiveCountry: String = "us"
+  private var podcastChartsLoadedCountry: String?
+  private var podcastChartsLoadedGenreId: Int?
   @Published private(set) var podcastSubscribeInProgressDirectoryHitId: String?
   /// `nil` = „New“-Ansicht (recent-Feed); gesetzt = nur diese Sendung (`podcastFilteredEpisodes`).
   @Published var podcastSelectedShowId: String?
@@ -1795,8 +1802,8 @@ final class AppModel: ObservableObject {
       let shelf = shelves[idx]
       let existingBookIds = Set(shelf.books.map(\.id))
       let booksToAdd = books.filter { !existingBookIds.contains($0.id) }
-      let existingEpKeys = Set(shelf.podcastEpisodes.map(\.progressLookupKey))
-      let epsToAdd = eps.filter { !existingEpKeys.contains($0.progressLookupKey) }
+      let existingEpKeys = Set(shelf.podcastEpisodes.map(\.canonicalDedupeKey))
+      let epsToAdd = eps.filter { !existingEpKeys.contains($0.canonicalDedupeKey) }
       let mergedBooks = dedupeContinueListeningBooks(shelf.books + booksToAdd)
       let mergedEps = dedupePodcastEpisodesForHomeContinueList(shelf.podcastEpisodes + epsToAdd)
       let booksChanged = mergedBooks.map(\.id) != shelf.books.map(\.id)
@@ -1861,9 +1868,9 @@ final class AppModel: ObservableObject {
       var shelves = startShelves
       let shelf = shelves[idx]
       let existingBookIds = Set(shelf.books.map(\.id))
-      let existingEpKeys = Set(shelf.podcastEpisodes.map(\.progressLookupKey))
+      let existingEpKeys = Set(shelf.podcastEpisodes.map(\.canonicalDedupeKey))
       let booksToAdd = validBooks.filter { !existingBookIds.contains($0.id) }
-      let epsToAdd = validEps.filter { !existingEpKeys.contains($0.progressLookupKey) }
+      let epsToAdd = validEps.filter { !existingEpKeys.contains($0.canonicalDedupeKey) }
       guard !booksToAdd.isEmpty || !epsToAdd.isEmpty else { return }
       shelves[idx] = makeContinueListeningShelf(
         id: shelf.id,
@@ -1909,22 +1916,13 @@ final class AppModel: ObservableObject {
     recomputeStartBooksUnion(from: newShelves)
   }
 
-  /// Eine Folge pro `episodeId` (neuester Fortschritt gewinnt). Behebt Doppelzeilen, wenn z. B. `libraryItemId` je API-Pfad abweicht.
+  /// Eine Folge pro Sendung+Folge; Zeile mit mehr Metadaten gewinnt (Cache vs. Manifest).
   private func dedupePodcastEpisodesForHomeContinueList(_ items: [ABSPodcastEpisodeListItem]) -> [ABSPodcastEpisodeListItem] {
     let sorted = items.sorted {
       (progressByItemId[$0.progressLookupKey]?.lastUpdate ?? 0)
         > (progressByItemId[$1.progressLookupKey]?.lastUpdate ?? 0)
     }
-    var seen = Set<String>()
-    var out: [ABSPodcastEpisodeListItem] = []
-    out.reserveCapacity(sorted.count)
-    for e in sorted {
-      let eid = e.episodeId.trimmingCharacters(in: .whitespacesAndNewlines)
-      let key = eid.isEmpty ? e.progressLookupKey : eid
-      guard seen.insert(key).inserted else { continue }
-      out.append(e)
-    }
-    return out
+    return ABSPodcastEpisodeListItem.dedupeRows(sorted)
   }
 
   private func mergeServerPodcastEpisodesIntoContinueShelves(_ payload: ABSItemsInProgressPayload) {
@@ -1935,8 +1933,8 @@ final class AppModel: ObservableObject {
     if let idx = preferredHomeContinueShelfIndex() {
       var shelves = startShelves
       let shelf = shelves[idx]
-      let existingKeys = Set(shelf.podcastEpisodes.map(\.progressLookupKey))
-      let toAdd = episodes.filter { !existingKeys.contains($0.progressLookupKey) }
+      let existingKeys = Set(shelf.podcastEpisodes.map(\.canonicalDedupeKey))
+      let toAdd = episodes.filter { !existingKeys.contains($0.canonicalDedupeKey) }
       guard !toAdd.isEmpty else { return }
       let merged = dedupePodcastEpisodesForHomeContinueList(shelf.podcastEpisodes + toAdd)
       shelves[idx] = ABSStartShelfSection(
@@ -2379,6 +2377,8 @@ final class AppModel: ObservableObject {
     clearPodcastSearchResults()
     clearPodcastDirectorySearch()
     clearPodcastCharts()
+    podcastDirectoryCountryOverride = nil
+    syncPodcastDirectoryEffectiveCountry()
     progressByItemId = [:]
     bookmarks = []
     ebookReaderSession = nil
@@ -2595,9 +2595,9 @@ final class AppModel: ObservableObject {
         }
 
         if reset {
-          podcastEpisodes = rows
+          podcastEpisodes = ABSPodcastEpisodeListItem.dedupeRows(rows)
         } else if !rows.isEmpty {
-          podcastEpisodes.append(contentsOf: rows)
+          podcastEpisodes = ABSPodcastEpisodeListItem.dedupeRows(podcastEpisodes + rows)
         }
         if rows.count >= 40 {
           podcastLibraryTotal = max(res.total, podcastEpisodes.count + 1)
@@ -2649,13 +2649,7 @@ final class AppModel: ObservableObject {
         if pa != pb { return pa > pb }
         return $0.episodeTitle.localizedCaseInsensitiveCompare($1.episodeTitle) == .orderedDescending
       }
-      var seen = Set<String>()
-      var deduped: [ABSPodcastEpisodeListItem] = []
-      deduped.reserveCapacity(collected.count)
-      for e in collected {
-        let k = e.progressLookupKey
-        if seen.insert(k).inserted { deduped.append(e) }
-      }
+      let deduped = ABSPodcastEpisodeListItem.dedupeRows(collected)
       return Array(deduped.prefix(80))
     } catch {
       return []
@@ -2665,7 +2659,23 @@ final class AppModel: ObservableObject {
   /// Folgenliste auf dem Podcast-Tab (recent „New“ oder eine Sendung), inkl. abgeschlossener Folgen.
   /// Abgeschlossene Zeilen: gleiche Kennzeichnung wie bei Büchern (`checkmark.circle.fill` in `PodcastEpisodeRowCard`).
   var podcastEpisodesForPodcastsTab: [ABSPodcastEpisodeListItem] {
-    podcastSelectedShowId != nil ? podcastFilteredEpisodes : podcastEpisodes
+    let offlineList = !mayUseServerNetwork || !isNetworkReachable
+    var pool: [ABSPodcastEpisodeListItem]
+    if let sid = podcastSelectedShowId?.trimmingCharacters(in: .whitespacesAndNewlines), !sid.isEmpty {
+      pool = podcastFilteredEpisodes
+      if offlineList, pool.isEmpty {
+        pool = podcastEpisodes.filter { $0.libraryItemId == sid }
+      }
+      if offlineList {
+        pool += podcastEpisodesFromLocalDownloadManifests(showId: sid)
+      }
+    } else {
+      pool = podcastEpisodes
+      if offlineList {
+        pool += podcastEpisodesFromLocalDownloadManifests(showId: nil)
+      }
+    }
+    return Self.sortPodcastEpisodesNewestFirst(ABSPodcastEpisodeListItem.dedupeRows(pool))
   }
 
   /// Server-Admin: Sendung abonnieren, RSS-Feed, Show-Einstellungen auf dem Server.
@@ -2701,14 +2711,27 @@ final class AppModel: ObservableObject {
     podcastRssFeedCacheByShowId[showId] ?? []
   }
 
-  /// Admin-Show-Detail: Settings + RSS-Cache — ohne Podcast-Tab-Filter/„New“-Reload (Navigation bleibt snappy).
+  /// Admin-Show-Detail: Bibliotheks-Folgen + RSS + Settings (ohne Podcast-Tab-„New“-Reload).
   func preloadPodcastShowAdminContext(showId: String) async {
     let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !sid.isEmpty else { return }
+    applyPodcastShowFilterSelection(sid)
+    podcastRssDraftDownloadCompletedIds = podcastRssDraftCompletedIdsByShowId[sid] ?? []
+    async let episodes: Void = loadPodcastEpisodesForShowLibraryItem(sid)
     async let settings: Void = loadPodcastAutoDownloadSettings(showId: sid)
     async let feed: Void = loadPodcastRssFeedIntoEpisodeList(
       podcastLibraryItemId: sid, forceReload: false, applyToTabPreview: false)
-    _ = await (settings, feed)
+    _ = await (episodes, settings, feed)
+  }
+
+  /// Bibliotheks-Folge zu einem RSS-Entwurf (Titel + Veröffentlichungsdatum).
+  func libraryEpisodeMatchingPodcastRssDraft(
+    _ draft: ABSPodcastRssFeedEpisodeDraft,
+    showId: String
+  ) -> ABSPodcastEpisodeListItem? {
+    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !sid.isEmpty, podcastSelectedShowId == sid else { return nil }
+    return podcastFilteredEpisodes.first { draft.matchesLibraryEpisode($0) }
   }
 
   /// RSS-Tab: nur laden wenn Cache leer (oder `forceReload`).
@@ -2818,7 +2841,24 @@ final class AppModel: ObservableObject {
   }
 
   func loadPodcastEpisodesForShowLibraryItem(_ showId: String) async {
-    guard let c = client, let lib = selectedPodcastLibrary else {
+    guard let lib = selectedPodcastLibrary else {
+      podcastFilteredEpisodes = []
+      return
+    }
+    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !sid.isEmpty else {
+      podcastFilteredEpisodes = []
+      return
+    }
+    if !mayUseServerNetwork || !isNetworkReachable {
+      guard podcastSelectedShowId == sid else { return }
+      var pool = podcastEpisodes.filter { $0.libraryItemId == sid }
+      pool += podcastEpisodesFromLocalDownloadManifests(showId: sid)
+      podcastFilteredEpisodes = Self.sortPodcastEpisodesNewestFirst(
+        ABSPodcastEpisodeListItem.dedupeRows(pool))
+      return
+    }
+    guard let c = client else {
       podcastFilteredEpisodes = []
       return
     }
@@ -2848,14 +2888,69 @@ final class AppModel: ObservableObject {
         ABSPodcastEpisodeListItem.fromDTO(
           $0, fallbackShow: full, libraryId: lib.id, forceLibraryItemId: full.id)
       }
-      var seen = Set<String>()
-      let deduped = rows.filter { seen.insert($0.progressLookupKey).inserted }
-      guard serial == podcastShowEpisodesLoadSerial, podcastSelectedShowId == showId else { return }
-      podcastFilteredEpisodes = Self.sortPodcastEpisodesNewestFirst(deduped)
+      guard serial == podcastShowEpisodesLoadSerial, podcastSelectedShowId == sid else { return }
+      podcastFilteredEpisodes = Self.sortPodcastEpisodesNewestFirst(ABSPodcastEpisodeListItem.dedupeRows(rows))
     } catch {
       guard serial == podcastShowEpisodesLoadSerial, podcastSelectedShowId == showId else { return }
       errorMessage = error.localizedDescription
     }
+  }
+
+  /// Offline: Folgen aus `download.json` (ohne Server-Metadaten), für Podcast-Tab und Sendungsfilter.
+  private func podcastEpisodesFromLocalDownloadManifests(showId: String?) -> [ABSPodcastEpisodeListItem] {
+    let filterShow = showId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let libId = selectedPodcastLibrary?.id.trimmingCharacters(in: .whitespacesAndNewlines)
+    var out: [ABSPodcastEpisodeListItem] = []
+    out.reserveCapacity(downloadedItemIds.count)
+    for storageId in downloadedItemIds {
+      guard let root = try? downloads.downloadFolder(for: storageId),
+        let manifest = ABSDownloadManifest.load(from: root),
+        let row = Self.podcastEpisodeListItem(from: manifest, libraryId: libId)
+      else { continue }
+      if !filterShow.isEmpty, row.libraryItemId != filterShow { continue }
+      if let libId, !libId.isEmpty, let rowLib = row.libraryId?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !rowLib.isEmpty, rowLib != libId
+      {
+        continue
+      }
+      out.append(row)
+    }
+    return out
+  }
+
+  private static func podcastEpisodeListItem(
+    from manifest: ABSDownloadManifest,
+    libraryId: String?
+  ) -> ABSPodcastEpisodeListItem? {
+    let eid = manifest.episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !eid.isEmpty else { return nil }
+    let lid = manifest.libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !lid.isEmpty else { return nil }
+    let titleRaw = manifest.displayTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let episodeTitle = titleRaw.isEmpty ? "Episode" : titleRaw
+    let authorRaw = manifest.displayAuthor?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let showTitle: String
+    let authorLine: String
+    if authorRaw.isEmpty || authorRaw == "—" {
+      showTitle = "—"
+      authorLine = "—"
+    } else {
+      showTitle = authorRaw
+      authorLine = authorRaw
+    }
+    let libRaw = (libraryId ?? manifest.libraryId)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let lib: String? = libRaw.isEmpty ? nil : libRaw
+    let dur = manifest.totalDuration ?? 0
+    return ABSPodcastEpisodeListItem(
+      libraryItemId: lid,
+      libraryId: lib,
+      episodeId: eid,
+      episodeTitle: episodeTitle,
+      showTitle: showTitle,
+      authorLine: authorLine,
+      duration: dur,
+      publishedAt: nil
+    )
   }
 
   private static func sortPodcastEpisodesNewestFirst(_ rows: [ABSPodcastEpisodeListItem]) -> [ABSPodcastEpisodeListItem] {
@@ -3435,10 +3530,14 @@ final class AppModel: ObservableObject {
 
   /// Folgen der gewählten Sendung neu laden (nach RSS ein-/ausblenden; ohne „New“-Feed-Reload).
   func reloadPodcastShowEpisodeListForCurrentShow(_ showId: String) async {
-    guard podcastSelectedShowId == showId else { return }
+    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !sid.isEmpty else { return }
+    if podcastSelectedShowId != sid {
+      applyPodcastShowFilterSelection(sid)
+    }
     await refreshProgressFromServer()
     await reloadPodcastShowsCatalog()
-    await loadPodcastEpisodesForShowLibraryItem(showId)
+    await loadPodcastEpisodesForShowLibraryItem(sid)
   }
 
   private func clearActivePodcastRssFeedPreview() {
@@ -3725,14 +3824,21 @@ final class AppModel: ObservableObject {
   func downloadPodcastRssEpisodeDraft(_ draft: ABSPodcastRssFeedEpisodeDraft, podcastLibraryItemId: String) async {
     guard podcastCanManageShowsOnServer else { return }
     guard let c = client else { return }
+    let sid = podcastLibraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !sid.isEmpty else { return }
     guard isNetworkReachable else {
       errorMessage = "No network connection."
       return
     }
-    guard podcastSelectedShowId == podcastLibraryItemId else { return }
+    if podcastSelectedShowId != sid {
+      applyPodcastShowFilterSelection(sid)
+    }
+    if podcastFilteredEpisodes.isEmpty {
+      await loadPodcastEpisodesForShowLibraryItem(sid)
+    }
     guard !podcastRssEpisodeDownloadInProgressDraftIds.contains(draft.id) else { return }
     guard !podcastRssDraftDownloadCompletedIds.contains(draft.id) else { return }
-    if podcastFilteredEpisodes.contains(where: { draft.matchesLibraryEpisode($0) }) { return }
+    if libraryEpisodeMatchingPodcastRssDraft(draft, showId: sid) != nil { return }
 
     podcastRssEpisodeDownloadInProgressDraftIds.insert(draft.id)
     defer { podcastRssEpisodeDownloadInProgressDraftIds.remove(draft.id) }
@@ -3741,15 +3847,15 @@ final class AppModel: ObservableObject {
       let obj = try JSONSerialization.jsonObject(with: draft.episodePayloadJSON, options: [.fragmentsAllowed])
       let body = try JSONSerialization.data(withJSONObject: [obj])
       try await c.downloadPodcastEpisodesToLibrary(
-        podcastLibraryItemId: podcastLibraryItemId,
+        podcastLibraryItemId: sid,
         episodesJsonArray: body
       )
-      var done = podcastRssDraftCompletedIdsByShowId[podcastLibraryItemId] ?? []
+      var done = podcastRssDraftCompletedIdsByShowId[sid] ?? []
       done.insert(draftId)
-      podcastRssDraftCompletedIdsByShowId[podcastLibraryItemId] = done
+      podcastRssDraftCompletedIdsByShowId[sid] = done
       podcastRssDraftDownloadCompletedIds = done
       await refreshProgressFromServer()
-      await mergeNewPodcastLibraryEpisodesFromExpandedItem(showLibraryItemId: podcastLibraryItemId)
+      await mergeNewPodcastLibraryEpisodesFromExpandedItem(showLibraryItemId: sid)
       errorMessage = nil
       await loadStartDashboard()
     } catch {
@@ -3799,11 +3905,15 @@ final class AppModel: ObservableObject {
   /// Nach `download-episodes`: nur neue `episodeId`s an `podcastFilteredEpisodes` anhängen (kein kompletter Listenersatz).
   private func mergeNewPodcastLibraryEpisodesFromExpandedItem(showLibraryItemId: String) async {
     guard let c = client, let lib = selectedPodcastLibrary else { return }
-    guard podcastSelectedShowId == showLibraryItemId else { return }
+    let sid = showLibraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !sid.isEmpty else { return }
+    if podcastSelectedShowId != sid {
+      applyPodcastShowFilterSelection(sid)
+    }
 
     func attemptMerge() async throws -> Int {
-      let full = try await c.item(id: showLibraryItemId, expanded: true)
-      guard podcastSelectedShowId == showLibraryItemId else { return 0 }
+      let full = try await c.item(id: sid, expanded: true)
+      guard podcastSelectedShowId == sid else { return 0 }
       guard let eps = full.media.podcastEpisodes, !eps.isEmpty else { return 0 }
       let rows: [ABSPodcastEpisodeListItem] = eps.compactMap {
         ABSPodcastEpisodeListItem.fromDTO(
@@ -3812,14 +3922,15 @@ final class AppModel: ObservableObject {
       var seenKeys = Set(podcastFilteredEpisodes.map(\.progressLookupKey))
       var merged = podcastFilteredEpisodes
       var added = 0
-      for row in rows {
+      for row in rows where row.libraryItemId == sid {
         let k = row.progressLookupKey
         guard seenKeys.insert(k).inserted else { continue }
         merged.append(row)
         added += 1
       }
       guard added > 0 else { return 0 }
-      podcastFilteredEpisodes = Self.sortPodcastEpisodesNewestFirst(merged)
+      podcastFilteredEpisodes = Self.sortPodcastEpisodesNewestFirst(
+        ABSPodcastEpisodeListItem.dedupeRows(merged))
       return added
     }
 
@@ -5324,26 +5435,34 @@ final class AppModel: ObservableObject {
 
   func startDownloadPodcastEpisode(_ episode: ABSPodcastEpisodeListItem) {
     guard let c = client else { return }
-    let stub = episode.playbackStubBook(libraryId: selectedPodcastLibrary?.id)
     let sid = podcastEpisodeOfflineStorageId(episode)
     beginDownloadBackgroundExecution()
     let reuse = player.playSessionIdForReuseWhenDownloadingSameItem(
-      libraryItemId: stub.id,
+      libraryItemId: episode.libraryItemId,
       episodeId: episode.episodeId
     )
-    downloads.startDownload(
-      client: c,
-      book: stub,
-      episodeId: episode.episodeId,
-      storageItemId: sid,
-      reusePlaySessionId: reuse
-    ) { [weak self] ok in
-      Task { @MainActor [weak self] in
-        self?.endDownloadBackgroundExecution()
-        guard let model = self, ok else { return }
-        model.downloadedItemIds.insert(sid)
-        model.persistDownloads()
-        await model.applyLocalPlaybackIfDownloadMatchesCurrent(storageId: sid)
+    Task { @MainActor in
+      var bookToDownload = episode.playbackStubBook(libraryId: selectedPodcastLibrary?.id)
+      if (bookToDownload.media.tracks == nil || (bookToDownload.media.tracks?.isEmpty ?? true)),
+        isNetworkReachable,
+        let expanded = try? await c.item(id: episode.libraryItemId, expanded: true)
+      {
+        bookToDownload = expanded
+      }
+      downloads.startDownload(
+        client: c,
+        book: bookToDownload,
+        episodeId: episode.episodeId,
+        storageItemId: sid,
+        reusePlaySessionId: reuse
+      ) { [weak self] ok in
+        Task { @MainActor [weak self] in
+          self?.endDownloadBackgroundExecution()
+          guard let model = self, ok else { return }
+          model.downloadedItemIds.insert(sid)
+          model.persistDownloads()
+          await model.applyLocalPlaybackIfDownloadMatchesCurrent(storageId: sid)
+        }
       }
     }
   }
@@ -5384,7 +5503,9 @@ final class AppModel: ObservableObject {
     )
     Task { @MainActor in
       var bookToDownload = book
-      if (book.media.chapters ?? []).isEmpty, isNetworkReachable,
+      let tracksMissing = book.media.tracks == nil || (book.media.tracks?.isEmpty ?? true)
+      let chaptersMissing = (book.media.chapters ?? []).isEmpty
+      if (tracksMissing || chaptersMissing), isNetworkReachable,
         let expanded = try? await c.item(id: book.id, expanded: true)
       {
         bookToDownload = expanded
@@ -5782,15 +5903,15 @@ final class AppModel: ObservableObject {
       libraryIdForRows: lid,
       decoder: dec
     ), !merged.episodes.isEmpty {
-      podcastEpisodes = merged.episodes
-      podcastLibraryTotal = max(merged.total, merged.episodes.count)
+      podcastEpisodes = ABSPodcastEpisodeListItem.dedupeRows(merged.episodes)
+      podcastLibraryTotal = max(merged.total, podcastEpisodes.count)
       podcastLibraryPage = merged.nextPageIndex
       podcastEpisodesPagingFromRecentAPI = true
       return
     }
     if let fb = LibraryDiskCache.loadPodcastFallback(account: account, libraryId: lid), !fb.isEmpty {
-      podcastEpisodes = fb
-      podcastLibraryTotal = fb.count
+      podcastEpisodes = ABSPodcastEpisodeListItem.dedupeRows(fb)
+      podcastLibraryTotal = podcastEpisodes.count
       podcastLibraryPage = 1
       podcastEpisodesPagingFromRecentAPI = false
     }
@@ -6551,14 +6672,60 @@ final class AppModel: ObservableObject {
     podcastDirectorySearchLoading = false
   }
 
-  /// iTunes-Storefront: ABS-Server-Sprache, sonst Geräte-Region.
-  func podcastDirectoryCountryCode() -> String {
+  /// Auto-Storefront: ABS-Server-Sprache, sonst Geräte-Region.
+  func defaultPodcastDirectoryCountryCode() -> String {
     ABSPodcastCharts.countryCode(serverLanguage: serverSettings?.language)
+  }
+
+  func podcastDirectoryCountryCode() -> String {
+    let raw =
+      podcastDirectoryCountryOverride?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased() ?? ""
+    if !raw.isEmpty { return raw }
+    return defaultPodcastDirectoryCountryCode()
+  }
+
+  func syncPodcastDirectoryEffectiveCountry() {
+    let code = podcastDirectoryCountryCode()
+    guard podcastDirectoryEffectiveCountry != code else { return }
+    podcastDirectoryEffectiveCountry = code
+  }
+
+  func setPodcastDirectoryCountryOverride(_ code: String) {
+    let c = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !c.isEmpty else { return }
+    let changed = podcastDirectoryCountryOverride != c
+    podcastDirectoryCountryOverride = c
+    syncPodcastDirectoryEffectiveCountry()
+    guard changed else { return }
+    podcastChartsHits = []
+    podcastChartsLoadedCountry = nil
+    podcastChartsLoadedGenreId = nil
+  }
+
+  func clearPodcastDirectoryCountryOverride() {
+    guard podcastDirectoryCountryOverride != nil else { return }
+    podcastDirectoryCountryOverride = nil
+    syncPodcastDirectoryEffectiveCountry()
+    podcastChartsHits = []
+    podcastChartsLoadedCountry = nil
+    podcastChartsLoadedGenreId = nil
   }
 
   func clearPodcastCharts() {
     podcastChartsHits = []
     podcastChartsLoading = false
+    podcastChartsSelectedGenreId = nil
+    podcastChartsLoadedCountry = nil
+    podcastChartsLoadedGenreId = nil
+  }
+
+  func selectPodcastChartsCategory(genreId: Int?) {
+    guard podcastChartsSelectedGenreId != genreId else { return }
+    podcastChartsSelectedGenreId = genreId
+    podcastChartsHits = []
+    Task { await loadPodcastCharts(force: true) }
   }
 
   func loadPodcastCharts(force: Bool = false) async {
@@ -6567,17 +6734,31 @@ final class AppModel: ObservableObject {
       return
     }
     if podcastChartsLoading { return }
-    if !force, !podcastChartsHits.isEmpty { return }
+    let country = podcastDirectoryCountryCode()
+    let genreId = podcastChartsSelectedGenreId
+    if !force,
+      !podcastChartsHits.isEmpty,
+      podcastChartsLoadedCountry == country,
+      podcastChartsLoadedGenreId == genreId
+    {
+      return
+    }
     podcastChartsLoading = true
     defer { podcastChartsLoading = false }
     do {
-      let country = podcastDirectoryCountryCode()
-      podcastChartsHits = try await ABSPodcastCharts.fetchTopPodcasts(country: country)
+      podcastChartsHits = try await ABSPodcastCharts.fetchChart(
+        country: country,
+        genreId: genreId
+      )
+      podcastChartsLoadedCountry = country
+      podcastChartsLoadedGenreId = genreId
       errorMessage = nil
     } catch {
       if Task.isCancelled || Self.isBenignCancellationError(error) { return }
       errorMessage = error.localizedDescription
       podcastChartsHits = []
+      podcastChartsLoadedCountry = nil
+      podcastChartsLoadedGenreId = nil
     }
   }
 

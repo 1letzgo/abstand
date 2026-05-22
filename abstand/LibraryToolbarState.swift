@@ -157,6 +157,11 @@ final class BooksLibraryToolbarState: ObservableObject {
 final class PodcastCatalogToolbarState: ObservableObject {
   @Published var sortField: PodcastCatalogSortField = .addedAt
   @Published var sortDescending: Bool = true
+  @Published private(set) var isServerRoot = false
+  @Published private(set) var isNetworkReachable = true
+  @Published private(set) var hasPodcastLibrary = false
+  @Published private(set) var selectedShowId: String?
+  @Published private(set) var selectedShowTitle = ""
 
   private weak var model: AppModel?
   private var cancellables = Set<AnyCancellable>()
@@ -168,7 +173,12 @@ final class PodcastCatalogToolbarState: ObservableObject {
 
     Publishers.MergeMany(
       model.$podcastCatalogSortField.map { _ in () }.eraseToAnyPublisher(),
-      model.$podcastCatalogSortDescending.map { _ in () }.eraseToAnyPublisher()
+      model.$podcastCatalogSortDescending.map { _ in () }.eraseToAnyPublisher(),
+      model.$isServerRoot.map { _ in () }.eraseToAnyPublisher(),
+      model.$isNetworkReachable.map { _ in () }.eraseToAnyPublisher(),
+      model.$selectedPodcastLibrary.map { _ in () }.eraseToAnyPublisher(),
+      model.$podcastSelectedShowId.map { _ in () }.eraseToAnyPublisher(),
+      model.$podcastShows.map { _ in () }.eraseToAnyPublisher()
     )
     .receive(on: RunLoop.main)
     .sink { [weak self] in
@@ -188,6 +198,18 @@ final class PodcastCatalogToolbarState: ObservableObject {
     if sortDescending != model.podcastCatalogSortDescending {
       sortDescending = model.podcastCatalogSortDescending
     }
+    if isServerRoot != model.isServerRoot { isServerRoot = model.isServerRoot }
+    if isNetworkReachable != model.isNetworkReachable { isNetworkReachable = model.isNetworkReachable }
+    let hasLib = model.selectedPodcastLibrary != nil
+    if hasPodcastLibrary != hasLib { hasPodcastLibrary = hasLib }
+    let sid = model.podcastSelectedShowId
+    if selectedShowId != sid { selectedShowId = sid }
+    let title: String = {
+      guard let sid else { return "" }
+      return model.podcastShows.first(where: { $0.id == sid })?.displayTitle
+        ?? ""
+    }()
+    if selectedShowTitle != title { selectedShowTitle = title }
   }
 
   func applySortField(_ field: PodcastCatalogSortField) {
@@ -334,21 +356,102 @@ struct BooksLibraryTabShell<Catalog: View>: View {
   }
 }
 
+struct PodcastCatalogToolbarSnapshot: Equatable {
+  var sortField: PodcastCatalogSortField
+  var sortDescending: Bool
+  var isServerRoot: Bool
+  var isNetworkReachable: Bool
+  var hasPodcastLibrary: Bool
+  var selectedShowId: String?
+  var selectedShowTitle: String
+
+  /// `nil` / leer = „New“-Ansicht (keine Sendung gewählt).
+  var isPodcastNewView: Bool {
+    let sid = selectedShowId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return sid.isEmpty
+  }
+
+  @MainActor
+  init(_ state: PodcastCatalogToolbarState) {
+    sortField = state.sortField
+    sortDescending = state.sortDescending
+    isServerRoot = state.isServerRoot
+    isNetworkReachable = state.isNetworkReachable
+    hasPodcastLibrary = state.hasPodcastLibrary
+    selectedShowId = state.selectedShowId
+    selectedShowTitle = state.selectedShowTitle
+  }
+}
+
+enum PodcastCatalogNavigation: Hashable {
+  case addPodcast
+}
+
+struct PodcastCatalogToolbarContent: ToolbarContent {
+  let snapshot: PodcastCatalogToolbarSnapshot
+  let toolbarState: PodcastCatalogToolbarState
+
+  @MainActor
+  init(toolbarState: PodcastCatalogToolbarState) {
+    self.toolbarState = toolbarState
+    snapshot = PodcastCatalogToolbarSnapshot(toolbarState)
+  }
+
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .topBarTrailing) {
+      if snapshot.isServerRoot, snapshot.isPodcastNewView {
+        NavigationLink(value: PodcastCatalogNavigation.addPodcast) {
+          Image(systemName: "plus.circle.fill")
+            .foregroundStyle(AppTheme.accent)
+        }
+        .disabled(!snapshot.hasPodcastLibrary || !snapshot.isNetworkReachable)
+        .accessibilityLabel("Add podcast")
+      }
+
+      if snapshot.isServerRoot,
+        let showId = snapshot.selectedShowId?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !showId.isEmpty
+      {
+        let title = snapshot.selectedShowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        NavigationLink {
+          ServerAdminPodcastShowView(
+            showId: showId,
+            showTitle: title.isEmpty ? "Podcast" : title
+          )
+        } label: {
+          Image(systemName: "gearshape.fill")
+            .foregroundStyle(AppTheme.accent)
+        }
+        .accessibilityLabel("Show settings")
+      }
+
+      PodcastCatalogSortToolbarSnapshot(toolbarState: toolbarState)
+        .equatable()
+    }
+  }
+}
+
 struct PodcastCatalogTabShell<Catalog: View>: View {
   @ObservedObject var toolbarState: PodcastCatalogToolbarState
+  @State private var navigationPath = NavigationPath()
   @ViewBuilder var catalog: () -> Catalog
 
   var body: some View {
-    NavigationStack {
+    NavigationStack(path: $navigationPath) {
       catalog()
         .abstandTabScreenChrome()
         .navigationTitle(AppModel.MainTab.podcasts.rawValue)
         .toolbarTitleDisplayMode(.inlineLarge)
-        .toolbar {
-          ToolbarItem(id: "podcastCatalogSort", placement: .topBarTrailing) {
-            PodcastCatalogSortToolbarSnapshot(toolbarState: toolbarState)
-              .equatable()
+        .navigationDestination(for: PodcastCatalogNavigation.self) { destination in
+          switch destination {
+          case .addPodcast:
+            PodcastAddFromSearchView()
+              .navigationTitle("Add podcast")
+              .toolbarTitleDisplayMode(.inline)
           }
+        }
+        .toolbar {
+          PodcastCatalogToolbarContent(toolbarState: toolbarState)
         }
     }
   }

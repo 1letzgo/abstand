@@ -197,7 +197,7 @@ private enum SettingsHubScope: String, CaseIterable, Identifiable {
   }
 
   static func visibleCases(isServerRoot: Bool) -> [SettingsHubScope] {
-    isServerRoot ? [.user, .stats, .server] : [.user, .stats]
+    isServerRoot ? [.user, .server, .stats] : [.user, .stats]
   }
 }
 

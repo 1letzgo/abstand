@@ -109,12 +109,18 @@ final class DownloadManager: ObservableObject {
     reusePlaySessionId: String? = nil,
     completion: ((Bool) -> Void)? = nil
   ) {
-    cancel()
+    let id = storageItemId ?? book.id
+    // Erneuter Tap während laufendem Download: alten Request nicht abbrechen (sonst ABS „write EPIPE“).
+    if activeItemId == id, task != nil, !(task?.isCancelled ?? true) {
+      return
+    }
+    if activeItemId != id {
+      cancel()
+    }
     downloadRunId += 1
     let runId = downloadRunId
     let trimmedEp = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let resolvedEp: String? = trimmedEp.isEmpty ? nil : trimmedEp
-    let id = storageItemId ?? book.id
     activeItemId = id
     progress = 0
     let reuseSid: String? = {
@@ -156,10 +162,18 @@ final class DownloadManager: ObservableObject {
           return
         }
 
-        if let reuse = reuseSid,
-          let tracksFromBook = book.media.tracks,
-          !tracksFromBook.isEmpty
-        {
+        let bookTracks = (book.media.tracks ?? []).sorted { $0.index < $1.index }
+        guard !bookTracks.isEmpty else { throw ABSPlaybackError.noTracks }
+
+        let canUseDirectFileDownload = bookTracks.allSatisfy {
+          !($0.ino ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        var sorted = bookTracks
+        if canUseDirectFileDownload {
+          streamSessionId = reuseSid ?? ""
+          ownsPlaySession = false
+        } else if let reuse = reuseSid {
           streamSessionId = reuse
           ownsPlaySession = false
         } else {
@@ -172,13 +186,9 @@ final class DownloadManager: ObservableObject {
           serverSession = session
           streamSessionId = session.id
           ownsPlaySession = true
+          let sessionTracks = (session.audioTracks ?? []).sorted { $0.index < $1.index }
+          if !sessionTracks.isEmpty { sorted = sessionTracks }
         }
-
-        let serverTracks =
-          (serverSession?.audioTracks ?? book.media.tracks ?? [])
-          .sorted { $0.index < $1.index }
-        guard !serverTracks.isEmpty else { throw ABSPlaybackError.noTracks }
-        let sorted = serverTracks
 
         let weights: [Double] = sorted.map { tr in
           let d = tr.duration

@@ -1478,8 +1478,8 @@ struct PodcastRssFeedDraftRow: View {
   }
 
   private var matchingLibraryEpisode: ABSPodcastEpisodeListItem? {
-    guard let sid = showId, model.podcastSelectedShowId == sid else { return nil }
-    return model.podcastFilteredEpisodes.first { draft.matchesLibraryEpisode($0) }
+    guard let sid = showId else { return nil }
+    return model.libraryEpisodeMatchingPodcastRssDraft(draft, showId: sid)
   }
 
   private var inLibrary: Bool { matchingLibraryEpisode != nil }

@@ -734,6 +734,7 @@ actor ABSAPIClient {
       } catch {
         lastError = error
         if error is CancellationError { throw error }
+        if let urlErr = error as? URLError, urlErr.code == .cancelled { throw error }
         if attempt < maxAttempts - 1 {
           let delay = min(8.0, 0.6 * Double(attempt + 1))
           try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))

@@ -1,5 +1,34 @@
 import SwiftUI
 
+// MARK: - Apple Podcasts storefront (Add-Podcast-View)
+
+struct PodcastDirectoryCountryMenuItems: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    let defaultCode = model.defaultPodcastDirectoryCountryCode()
+    let effective = model.podcastDirectoryCountryCode()
+    ForEach(ABSPodcastCharts.directoryStorefrontMenuCodes(defaultCode: defaultCode), id: \.self) { code in
+      Button {
+        model.setPodcastDirectoryCountryOverride(code)
+      } label: {
+        countryMenuLabel(code: code, effective: effective)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func countryMenuLabel(code: String, effective: String) -> some View {
+    let title =
+      "\(ABSPodcastCharts.directoryStorefrontDisplayName(for: code)) (\(code.uppercased()))"
+    if code == effective {
+      Label(title, systemImage: "checkmark")
+    } else {
+      Text(title)
+    }
+  }
+}
+
 // MARK: - Add podcast (directory search + iTunes charts)
 
 private enum PodcastAddSource: String, CaseIterable, Identifiable {
@@ -60,14 +89,39 @@ struct PodcastAddFromSearchView: View {
       }
     }
     .onAppear {
+      model.syncPodcastDirectoryEffectiveCountry()
       if source == .charts {
         Task { await model.loadPodcastCharts() }
+      }
+    }
+    .onChange(of: model.podcastDirectoryEffectiveCountry) { _, _ in
+      switch source {
+      case .charts:
+        Task { await model.loadPodcastCharts(force: true) }
+      case .search:
+        let t = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.count >= 2 {
+          model.schedulePodcastDirectorySearch(term: t)
+        }
+      }
+    }
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Menu {
+          PodcastDirectoryCountryMenuItems()
+        } label: {
+          Text(model.podcastDirectoryCountryCode().uppercased())
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(AppTheme.accent)
+        }
+        .accessibilityLabel("Podcast store region")
       }
     }
     .onDisappear {
       query = ""
       model.clearPodcastDirectorySearch()
       model.clearPodcastCharts()
+      model.clearPodcastDirectoryCountryOverride()
     }
   }
 
@@ -125,30 +179,32 @@ struct PodcastAddFromSearchView: View {
 
   @ViewBuilder
   private var chartsBody: some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      Text("Apple Podcasts Top Charts · \(model.podcastDirectoryCountryCode().uppercased())")
-        .font(.caption)
-        .foregroundStyle(AppTheme.textSecondary)
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
+    VStack(spacing: 0) {
+      PodcastChartsCategoryPillStrip(
+        categories: ABSPodcastCharts.chartCategories,
+        selectedGenreId: model.podcastChartsSelectedGenreId,
+        onSelect: { model.selectPodcastChartsCategory(genreId: $0) }
+      )
+      .padding(.bottom, 10)
 
-      if model.podcastChartsLoading, model.podcastChartsHits.isEmpty {
-        ProgressView()
-          .controlSize(.large)
-          .tint(AppTheme.accent)
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-          .padding(.vertical, 48)
-      } else if model.podcastChartsHits.isEmpty {
-        ContentUnavailableView(
-          "Charts unavailable",
-          systemImage: "chart.bar",
-          description: Text("Pull to refresh or check your network connection.")
-        )
-      } else {
-        podcastHitsList(model.podcastChartsHits)
+      Group {
+        if model.podcastChartsLoading, model.podcastChartsHits.isEmpty {
+          ProgressView()
+            .controlSize(.large)
+            .tint(AppTheme.accent)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.vertical, 48)
+        } else if model.podcastChartsHits.isEmpty {
+          ContentUnavailableView(
+            "Charts unavailable",
+            systemImage: "chart.bar",
+            description: Text("Check your network connection or try another category.")
+          )
+        } else {
+          podcastHitsList(model.podcastChartsHits)
+        }
       }
-    }
-    .refreshable {
-      await model.loadPodcastCharts(force: true)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
   }
 
@@ -163,6 +219,41 @@ struct PodcastAddFromSearchView: View {
     }
     .listStyle(.plain)
     .abstandScrollScreenBackground()
+  }
+}
+
+private struct PodcastChartsCategoryPillStrip: View {
+  let categories: [ABSPodcastCharts.ChartCategory]
+  let selectedGenreId: Int?
+  let onSelect: (Int?) -> Void
+
+  var body: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 8) {
+        ForEach(categories) { category in
+          let selected = selectedGenreId == category.genreId
+          Button {
+            onSelect(category.genreId)
+          } label: {
+            Text(category.title)
+              .font(.subheadline.weight(.medium))
+              .foregroundStyle(selected ? AppTheme.accent : AppTheme.textPrimary)
+              .lineLimit(1)
+              .padding(.horizontal, 14)
+              .padding(.vertical, 8)
+              .background(AppTheme.card, in: Capsule(style: .continuous))
+              .overlay {
+                Capsule(style: .continuous)
+                  .strokeBorder(selected ? AppTheme.accent : Color.clear, lineWidth: 2)
+              }
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
+    }
+    .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    .fixedSize(horizontal: false, vertical: true)
   }
 }
 
