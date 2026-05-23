@@ -861,7 +861,22 @@ actor ABSAPIClient {
     }
   }
 
-  /// Serie inkl. Beschreibung (`GET /api/series/:id`).
+  /// Sammlung inkl. Beschreibung (`GET /api/collections/:id`).
+  func collectionDetail(collectionId: String) async throws -> ABSLibraryCollectionListItem {
+    let req = try authorizedRequest(path: "api/collections/\(collectionId)")
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    do {
+      return try decoder.decode(ABSLibraryCollectionListItem.self, from: data)
+    } catch {
+      throw ABSAPIError.decoding(error)
+    }
+  }
+
+  /// Serie (`GET /api/series/:id`) — ohne nutzerbeschreibbares Description-Feld in der UI.
   func seriesDetail(seriesId: String) async throws -> ABSSeriesDetail {
     let req = try authorizedRequest(path: "api/series/\(seriesId)")
     let (data, resp) = try await urlSession.data(for: req)

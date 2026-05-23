@@ -105,18 +105,47 @@ enum ABSEbookFormat: String, Codable, CaseIterable {
 }
 
 extension EbookLocalStore {
-  private static func knownFormatKey(libraryItemId: String) -> String {
-    "abstand_ebook_fmt_\(libraryItemId)"
+  private static let legacyProgressMigratedFlag = "abstand_ebook_legacy_progress_migrated_v1"
+
+  private static var knownFormatsByItemId: [String: String] = [:]
+  private static var knownFormatsLoadedForSessionKey: String?
+
+  private static func knownFormatsFileURL(account: URL, userId: String) -> URL {
+    readingProgressDir(account: account, userId: userId)
+      .appendingPathComponent("known_formats.json", isDirectory: false)
+  }
+
+  private static func loadKnownFormatsIfNeeded(account: URL, userId: String) {
+    let sessionKey = "\(account.lastPathComponent)|\(userId)"
+    if knownFormatsLoadedForSessionKey == sessionKey { return }
+    knownFormatsLoadedForSessionKey = sessionKey
+    let url = knownFormatsFileURL(account: account, userId: userId)
+    guard let data = try? Data(contentsOf: url),
+      let dict = try? JSONDecoder().decode([String: String].self, from: data)
+    else {
+      knownFormatsByItemId = [:]
+      return
+    }
+    knownFormatsByItemId = dict
+  }
+
+  private static func persistKnownFormats(account: URL, userId: String) {
+    let url = knownFormatsFileURL(account: account, userId: userId)
+    guard let data = try? JSONEncoder().encode(knownFormatsByItemId) else { return }
+    try? data.write(to: url, options: .atomic)
   }
 
   static func rememberKnownFormat(_ format: ABSEbookFormat, libraryItemId: String) {
-    UserDefaults.standard.set(format.rawValue, forKey: knownFormatKey(libraryItemId: libraryItemId))
+    guard let session = requireSession() else { return }
+    loadKnownFormatsIfNeeded(account: session.account, userId: session.userId)
+    knownFormatsByItemId[libraryItemId] = format.rawValue
+    persistKnownFormats(account: session.account, userId: session.userId)
   }
 
   static func knownFormat(libraryItemId: String) -> ABSEbookFormat? {
-    guard let raw = UserDefaults.standard.string(forKey: knownFormatKey(libraryItemId: libraryItemId)) else {
-      return nil
-    }
+    guard let session = requireSession() else { return nil }
+    loadKnownFormatsIfNeeded(account: session.account, userId: session.userId)
+    guard let raw = knownFormatsByItemId[libraryItemId] else { return nil }
     return ABSEbookFormat(rawValue: raw)
   }
 
@@ -153,9 +182,118 @@ struct EbookDownloadMeta: Codable {
   let title: String?
 }
 
-/// Lokale E-Book-Dateien (EPUB/PDF) pro Account.
+/// Lokale E-Book-Dateien (EPUB/PDF) pro Account; Lesestand pro angemeldetem User.
 enum EbookLocalStore {
   private static let fm = FileManager.default
+  private static var activeAccount: URL?
+  private static var activeUserId: String?
+
+  /// Nach Login / `applyAuthorizeUser` setzen; bei Logout `nil`.
+  static func updateActiveSession(account: URL?, userId: String?) {
+    let uid = userId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    activeAccount = account
+    activeUserId = uid.isEmpty ? nil : uid
+    knownFormatsLoadedForSessionKey = nil
+    knownFormatsByItemId = [:]
+    if let account, let activeUserId {
+      migrateLegacyGlobalReadingProgressIfNeeded(account: account, userId: activeUserId)
+    }
+  }
+
+  private static func requireSession() -> (account: URL, userId: String)? {
+    guard let activeAccount, let activeUserId else { return nil }
+    return (activeAccount, activeUserId)
+  }
+
+  private static func readingProgressDir(account: URL, userId: String) -> URL {
+    let u = account
+      .appendingPathComponent("ebooks", isDirectory: true)
+      .appendingPathComponent("reading", isDirectory: true)
+      .appendingPathComponent(userId, isDirectory: true)
+    try? fm.createDirectory(at: u, withIntermediateDirectories: true)
+    return u
+  }
+
+  private static func locatorFileURL(
+    account: URL, userId: String, libraryItemId: String, format: ABSEbookFormat
+  ) -> URL {
+    readingProgressDir(account: account, userId: userId)
+      .appendingPathComponent("\(libraryItemId).\(format.rawValue).locator.json", isDirectory: false)
+  }
+
+  private static func pageProgressFileURL(
+    account: URL, userId: String, libraryItemId: String, format: ABSEbookFormat
+  ) -> URL {
+    readingProgressDir(account: account, userId: userId)
+      .appendingPathComponent("\(libraryItemId).\(format.rawValue).pages.json", isDirectory: false)
+  }
+
+  private static func migrateLegacyGlobalReadingProgressIfNeeded(account: URL, userId: String) {
+    let flagKey = "\(legacyProgressMigratedFlag)_\(account.lastPathComponent)_\(userId)"
+    guard !UserDefaults.standard.bool(forKey: flagKey) else { return }
+    let ud = UserDefaults.standard
+    var migratedAny = false
+
+    for key in ud.dictionaryRepresentation().keys {
+      if key.hasPrefix("abstand_readium_loc_") {
+        let suffix = String(key.dropFirst("abstand_readium_loc_".count))
+        guard let parsed = parseLegacyLibraryItemSuffix(suffix),
+          let json = ud.string(forKey: key)
+        else { continue }
+        let url = locatorFileURL(
+          account: account, userId: userId, libraryItemId: parsed.itemId, format: parsed.format)
+        if !fm.fileExists(atPath: url.path) {
+          try? json.data(using: .utf8)?.write(to: url, options: .atomic)
+          migratedAny = true
+        }
+        ud.removeObject(forKey: key)
+      } else if key.hasPrefix("abstand_readium_pages_") {
+        let suffix = String(key.dropFirst("abstand_readium_pages_".count))
+        guard let parsed = parseLegacyLibraryItemSuffix(suffix),
+          let dict = ud.dictionary(forKey: key) as? [String: Int],
+          let total = dict["total"], total > 0,
+          let current = dict["current"]
+        else { continue }
+        let url = pageProgressFileURL(
+          account: account, userId: userId, libraryItemId: parsed.itemId, format: parsed.format)
+        if !fm.fileExists(atPath: url.path) {
+          let payload: [String: Int] = ["current": current, "total": total]
+          if let data = try? JSONSerialization.data(withJSONObject: payload) {
+            try? data.write(to: url, options: .atomic)
+            migratedAny = true
+          }
+        }
+        ud.removeObject(forKey: key)
+      } else if key.hasPrefix("abstand_ebook_fmt_") {
+        let itemId = String(key.dropFirst("abstand_ebook_fmt_".count))
+        guard !itemId.isEmpty, let raw = ud.string(forKey: key) else { continue }
+        loadKnownFormatsIfNeeded(account: account, userId: userId)
+        if knownFormatsByItemId[itemId] == nil {
+          knownFormatsByItemId[itemId] = raw
+          migratedAny = true
+        }
+        ud.removeObject(forKey: key)
+      }
+    }
+
+    if migratedAny {
+      persistKnownFormats(account: account, userId: userId)
+    }
+    UserDefaults.standard.set(true, forKey: flagKey)
+  }
+
+  private static func parseLegacyLibraryItemSuffix(_ suffix: String) -> (
+    format: ABSEbookFormat, itemId: String
+  )? {
+    for fmt in ABSEbookFormat.allCases {
+      let mid = "\(fmt.rawValue)_"
+      guard suffix.hasPrefix(mid) else { continue }
+      let itemId = String(suffix.dropFirst(mid.count))
+      guard !itemId.isEmpty else { return nil }
+      return (fmt, itemId)
+    }
+    return nil
+  }
 
   private static func metaURL(account: URL, libraryItemId: String, format: ABSEbookFormat) -> URL {
     account
@@ -204,44 +342,53 @@ enum EbookLocalStore {
       withIntermediateDirectories: true)
   }
 
-  private static func locatorKey(libraryItemId: String, format: ABSEbookFormat) -> String {
-    "abstand_readium_loc_\(format.rawValue)_\(libraryItemId)"
-  }
-
   static func loadReadiumLocator(libraryItemId: String, format: ABSEbookFormat) -> Locator? {
-    guard let json = UserDefaults.standard.string(forKey: locatorKey(libraryItemId: libraryItemId, format: format)) else {
-      return nil
-    }
+    guard let session = requireSession() else { return nil }
+    let url = locatorFileURL(
+      account: session.account, userId: session.userId, libraryItemId: libraryItemId, format: format)
+    guard let data = try? Data(contentsOf: url),
+      let json = String(data: data, encoding: .utf8)
+    else { return nil }
     return try? Locator(jsonString: json)
   }
 
   static func saveReadiumLocator(_ locator: Locator, libraryItemId: String, format: ABSEbookFormat) {
-    guard let json = try? locator.jsonString() else { return }
-    UserDefaults.standard.set(json, forKey: locatorKey(libraryItemId: libraryItemId, format: format))
+    guard let session = requireSession(),
+      let json = try? locator.jsonString(),
+      let data = json.data(using: .utf8)
+    else { return }
+    let url = locatorFileURL(
+      account: session.account, userId: session.userId, libraryItemId: libraryItemId, format: format)
+    try? data.write(to: url, options: .atomic)
   }
 
   static func clearReadiumLocator(libraryItemId: String, format: ABSEbookFormat) {
-    UserDefaults.standard.removeObject(forKey: locatorKey(libraryItemId: libraryItemId, format: format))
+    guard let session = requireSession() else { return }
+    let locatorURL = locatorFileURL(
+      account: session.account, userId: session.userId, libraryItemId: libraryItemId, format: format)
+    try? fm.removeItem(at: locatorURL)
     clearPageProgress(libraryItemId: libraryItemId, format: format)
-  }
-
-  private static func pageProgressKey(libraryItemId: String, format: ABSEbookFormat) -> String {
-    "abstand_readium_pages_\(format.rawValue)_\(libraryItemId)"
   }
 
   static func savePageProgress(
     current: Int, total: Int, libraryItemId: String, format: ABSEbookFormat
   ) {
+    guard let session = requireSession() else { return }
     let totalClamped = max(1, total)
     let currentClamped = min(totalClamped, max(1, current))
     let payload: [String: Int] = ["current": currentClamped, "total": totalClamped]
-    UserDefaults.standard.set(payload, forKey: pageProgressKey(libraryItemId: libraryItemId, format: format))
+    guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+    let url = pageProgressFileURL(
+      account: session.account, userId: session.userId, libraryItemId: libraryItemId, format: format)
+    try? data.write(to: url, options: .atomic)
   }
 
   static func loadPageProgress(libraryItemId: String, format: ABSEbookFormat) -> (current: Int, total: Int)? {
-    guard let dict = UserDefaults.standard.dictionary(
-      forKey: pageProgressKey(libraryItemId: libraryItemId, format: format)
-    ) as? [String: Int],
+    guard let session = requireSession() else { return nil }
+    let url = pageProgressFileURL(
+      account: session.account, userId: session.userId, libraryItemId: libraryItemId, format: format)
+    guard let data = try? Data(contentsOf: url),
+      let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Int],
       let total = dict["total"], total > 0,
       let current = dict["current"]
     else { return nil }
@@ -249,7 +396,10 @@ enum EbookLocalStore {
   }
 
   static func clearPageProgress(libraryItemId: String, format: ABSEbookFormat) {
-    UserDefaults.standard.removeObject(forKey: pageProgressKey(libraryItemId: libraryItemId, format: format))
+    guard let session = requireSession() else { return }
+    let url = pageProgressFileURL(
+      account: session.account, userId: session.userId, libraryItemId: libraryItemId, format: format)
+    try? fm.removeItem(at: url)
   }
 
   /// Lesefortschritt 0…1, nil wenn kein Locator oder noch am Anfang.
@@ -265,20 +415,23 @@ enum EbookLocalStore {
     return f < 0.995
   }
 
-  /// Alle lokal gespeicherten, nicht abgeschlossenen Lesezeichen (unabhängig vom Katalog-Cache).
+  /// Alle lokal gespeicherten, nicht abgeschlossenen Lesezeichen des aktiven Users.
   static func inProgressReadingRefs() -> [(libraryItemId: String, format: ABSEbookFormat)] {
-    let prefix = "abstand_readium_loc_"
+    guard let session = requireSession() else { return [] }
+    let dir = readingProgressDir(account: session.account, userId: session.userId)
+    let urls = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
     var refs: [(String, ABSEbookFormat)] = []
-    for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
-      let suffix = String(key.dropFirst(prefix.count))
-      for fmt in ABSEbookFormat.allCases {
-        let mid = "\(fmt.rawValue)_"
-        guard suffix.hasPrefix(mid) else { continue }
-        let itemId = String(suffix.dropFirst(mid.count))
-        guard !itemId.isEmpty, isInProgressReading(libraryItemId: itemId, format: fmt) else { continue }
-        refs.append((itemId, fmt))
-        break
-      }
+    var seen = Set<String>()
+    for url in urls where url.lastPathComponent.hasSuffix(".locator.json") {
+      let name = url.lastPathComponent.replacingOccurrences(of: ".locator.json", with: "")
+      let stem = name
+      guard let dot = stem.lastIndex(of: ".") else { continue }
+      let itemId = String(stem[..<dot])
+      let ext = String(stem[stem.index(after: dot)...])
+      guard let fmt = ABSEbookFormat(rawValue: ext), !itemId.isEmpty else { continue }
+      let key = "\(itemId)|\(fmt.rawValue)"
+      guard seen.insert(key).inserted, isInProgressReading(libraryItemId: itemId, format: fmt) else { continue }
+      refs.append((itemId, fmt))
     }
     return refs
   }

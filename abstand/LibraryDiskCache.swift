@@ -118,6 +118,42 @@ enum LibraryDiskCache {
     return try? Data(contentsOf: u)
   }
 
+  static func saveBrowseGenreStats(account: URL, libraryId: String, genres: [ABSLibraryGenreStat]) throws {
+    let dir = account.appendingPathComponent("browseGenres", isDirectory: true)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let data = try ABSJSON.encoder().encode(genres)
+    try data.write(to: dir.appendingPathComponent("\(libraryId).json"), options: .atomic)
+  }
+
+  static func loadBrowseGenreStats(
+    account: URL, libraryId: String, decoder: JSONDecoder
+  ) -> [ABSLibraryGenreStat]? {
+    let u =
+      account
+      .appendingPathComponent("browseGenres", isDirectory: true)
+      .appendingPathComponent("\(libraryId).json")
+    guard fm.fileExists(atPath: u.path), let data = try? Data(contentsOf: u) else { return nil }
+    return try? decoder.decode([ABSLibraryGenreStat].self, from: data)
+  }
+
+  static func saveBrowseTagStats(account: URL, libraryId: String, tags: [ABSLibraryTagStat]) throws {
+    let dir = account.appendingPathComponent("browseTags", isDirectory: true)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let data = try ABSJSON.encoder().encode(tags)
+    try data.write(to: dir.appendingPathComponent("\(libraryId).json"), options: .atomic)
+  }
+
+  static func loadBrowseTagStats(
+    account: URL, libraryId: String, decoder: JSONDecoder
+  ) -> [ABSLibraryTagStat]? {
+    let u =
+      account
+      .appendingPathComponent("browseTags", isDirectory: true)
+      .appendingPathComponent("\(libraryId).json")
+    guard fm.fileExists(atPath: u.path), let data = try? Data(contentsOf: u) else { return nil }
+    return try? decoder.decode([ABSLibraryTagStat].self, from: data)
+  }
+
   static func saveProgress(account: URL, list: [ABSUserMediaProgress]) throws {
     let enc = JSONEncoder()
     enc.outputFormatting = [.sortedKeys]

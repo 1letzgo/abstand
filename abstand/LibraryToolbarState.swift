@@ -19,6 +19,10 @@ final class BooksLibraryToolbarState: ObservableObject {
   @Published var browseSeriesSortDescending: Bool = true
   @Published var browseCollectionsSortField: BooksBrowseCollectionsSortField = .name
   @Published var browseCollectionsSortDescending: Bool = true
+  @Published var browseGenresSortField: BooksBrowseFacetSortField = .name
+  @Published var browseGenresSortDescending: Bool = true
+  @Published var browseTagsSortField: BooksBrowseFacetSortField = .name
+  @Published var browseTagsSortDescending: Bool = true
 
   private weak var model: AppModel?
   private var cancellables = Set<AnyCancellable>()
@@ -42,6 +46,10 @@ final class BooksLibraryToolbarState: ObservableObject {
       model.$browseSeriesSortDescending.map { _ in () }.eraseToAnyPublisher(),
       model.$browseCollectionsSortField.map { _ in () }.eraseToAnyPublisher(),
       model.$browseCollectionsSortDescending.map { _ in () }.eraseToAnyPublisher(),
+      model.$browseGenresSortField.map { _ in () }.eraseToAnyPublisher(),
+      model.$browseGenresSortDescending.map { _ in () }.eraseToAnyPublisher(),
+      model.$browseTagsSortField.map { _ in () }.eraseToAnyPublisher(),
+      model.$browseTagsSortDescending.map { _ in () }.eraseToAnyPublisher(),
     ]
 
     Publishers.MergeMany(publishers)
@@ -76,6 +84,10 @@ final class BooksLibraryToolbarState: ObservableObject {
     setIfChanged(\.browseSeriesSortDescending, model.browseSeriesSortDescending)
     setIfChanged(\.browseCollectionsSortField, model.browseCollectionsSortField)
     setIfChanged(\.browseCollectionsSortDescending, model.browseCollectionsSortDescending)
+    setIfChanged(\.browseGenresSortField, model.browseGenresSortField)
+    setIfChanged(\.browseGenresSortDescending, model.browseGenresSortDescending)
+    setIfChanged(\.browseTagsSortField, model.browseTagsSortField)
+    setIfChanged(\.browseTagsSortDescending, model.browseTagsSortDescending)
   }
 
   private func setIfChanged<T: Equatable>(_ keyPath: ReferenceWritableKeyPath<BooksLibraryToolbarState, T>, _ value: T) {
@@ -150,6 +162,30 @@ final class BooksLibraryToolbarState: ObservableObject {
     guard let model, model.browseCollectionsSortDescending != descending else { return }
     model.browseCollectionsSortDescending = descending
     model.resortBrowseCollectionsDisplay()
+  }
+
+  func applyBrowseGenresSortField(_ field: BooksBrowseFacetSortField) {
+    guard let model, model.browseGenresSortField != field else { return }
+    model.browseGenresSortField = field
+    model.resortBrowseGenresDisplay()
+  }
+
+  func applyBrowseGenresSortDescending(_ descending: Bool) {
+    guard let model, model.browseGenresSortDescending != descending else { return }
+    model.browseGenresSortDescending = descending
+    model.resortBrowseGenresDisplay()
+  }
+
+  func applyBrowseTagsSortField(_ field: BooksBrowseFacetSortField) {
+    guard let model, model.browseTagsSortField != field else { return }
+    model.browseTagsSortField = field
+    model.resortBrowseTagsDisplay()
+  }
+
+  func applyBrowseTagsSortDescending(_ descending: Bool) {
+    guard let model, model.browseTagsSortDescending != descending else { return }
+    model.browseTagsSortDescending = descending
+    model.resortBrowseTagsDisplay()
   }
 }
 
@@ -243,6 +279,10 @@ struct BooksLibraryToolbarSnapshot: Equatable {
   var browseSeriesSortDescending: Bool
   var browseCollectionsSortField: BooksBrowseCollectionsSortField
   var browseCollectionsSortDescending: Bool
+  var browseGenresSortField: BooksBrowseFacetSortField
+  var browseGenresSortDescending: Bool
+  var browseTagsSortField: BooksBrowseFacetSortField
+  var browseTagsSortDescending: Bool
 
   @MainActor
   init(_ state: BooksLibraryToolbarState) {
@@ -260,6 +300,10 @@ struct BooksLibraryToolbarSnapshot: Equatable {
     browseSeriesSortDescending = state.browseSeriesSortDescending
     browseCollectionsSortField = state.browseCollectionsSortField
     browseCollectionsSortDescending = state.browseCollectionsSortDescending
+    browseGenresSortField = state.browseGenresSortField
+    browseGenresSortDescending = state.browseGenresSortDescending
+    browseTagsSortField = state.browseTagsSortField
+    browseTagsSortDescending = state.browseTagsSortDescending
   }
 }
 
@@ -275,81 +319,185 @@ struct BooksLibraryToolbarContent: ToolbarContent {
 
   var body: some ToolbarContent {
     switch snapshot.booksBrowseSection {
+    case .genres:
+      BrowseGenresSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
+    case .tags:
+      BrowseTagsSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
+  default:
+      BooksLibraryToolbarBodyStandard(snapshot: snapshot, toolbarState: toolbarState)
+    }
+  }
+}
+
+private struct BooksLibraryToolbarBodyStandard: ToolbarContent {
+  let snapshot: BooksLibraryToolbarSnapshot
+  let toolbarState: BooksLibraryToolbarState
+
+  var body: some ToolbarContent {
+    switch snapshot.booksBrowseSection {
     case .books:
-      ToolbarItemGroup(placement: .topBarTrailing) {
-        BooksCatalogFilterToolbarMenu(
-          isActive: snapshot.isLibraryCatalogFiltered,
-          libraryCatalogQuickFilter: snapshot.libraryCatalogQuickFilter,
-          isAllFilterActive: snapshot.isAllFilterActive,
-          onClear: { toolbarState.clearCatalogFilter() },
-          onSelect: { toolbarState.applyLibraryCatalogQuickFilter($0) }
-        )
-        .equatable()
-        BooksCatalogSortToolbarMenu(
-          sortField: snapshot.catalogSortField,
-          sortDescending: snapshot.catalogSortDescending,
-          onSortFieldChange: { toolbarState.applyCatalogSortField($0) },
-          onSortDescendingChange: { toolbarState.applyCatalogSortDescending($0) }
-        )
-        .equatable()
-      }
+      BrowseBooksCatalogToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
     case .author:
-      ToolbarItemGroup(placement: .topBarTrailing) {
-        BrowseAuthorsSortToolbarMenu(
-          sortField: snapshot.browseAuthorsSortField,
-          sortDescending: snapshot.browseAuthorsSortDescending,
-          onSortFieldChange: { toolbarState.applyBrowseAuthorsSortField($0) },
-          onSortDescendingChange: { toolbarState.applyBrowseAuthorsSortDescending($0) }
-        )
-        .equatable()
-      }
+      BrowseAuthorsSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
     case .narrators:
-      ToolbarItemGroup(placement: .topBarTrailing) {
-        BrowseNarratorsSortToolbarMenu(
-          sortField: snapshot.browseNarratorsSortField,
-          sortDescending: snapshot.browseNarratorsSortDescending,
-          onSortFieldChange: { toolbarState.applyBrowseNarratorsSortField($0) },
-          onSortDescendingChange: { toolbarState.applyBrowseNarratorsSortDescending($0) }
-        )
-        .equatable()
-      }
+      BrowseNarratorsSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
     case .series:
-      ToolbarItemGroup(placement: .topBarTrailing) {
-        BrowseSeriesSortToolbarMenu(
-          sortField: snapshot.browseSeriesSortField,
-          sortDescending: snapshot.browseSeriesSortDescending,
-          onSortFieldChange: { toolbarState.applyBrowseSeriesSortField($0) },
-          onSortDescendingChange: { toolbarState.applyBrowseSeriesSortDescending($0) }
-        )
-        .equatable()
-      }
+      BrowseSeriesSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
     case .collections:
-      ToolbarItemGroup(placement: .topBarTrailing) {
-        BrowseCollectionsSortToolbarMenu(
-          sortField: snapshot.browseCollectionsSortField,
-          sortDescending: snapshot.browseCollectionsSortDescending,
-          onSortFieldChange: { toolbarState.applyBrowseCollectionsSortField($0) },
-          onSortDescendingChange: { toolbarState.applyBrowseCollectionsSortDescending($0) }
-        )
-        .equatable()
-      }
+      BrowseCollectionsSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
+    default:
+      ToolbarItem(placement: .topBarTrailing) { EmptyView() }
+    }
+  }
+}
+
+private struct BrowseGenresSortToolbarContent: ToolbarContent {
+  let snapshot: BooksLibraryToolbarSnapshot
+  let toolbarState: BooksLibraryToolbarState
+
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .topBarTrailing) {
+      BrowseFacetSortToolbarMenu(
+        sortField: snapshot.browseGenresSortField,
+        sortDescending: snapshot.browseGenresSortDescending,
+        onSortFieldChange: { toolbarState.applyBrowseGenresSortField($0) },
+        onSortDescendingChange: { toolbarState.applyBrowseGenresSortDescending($0) }
+      )
+      .equatable()
+    }
+  }
+}
+
+private struct BrowseTagsSortToolbarContent: ToolbarContent {
+  let snapshot: BooksLibraryToolbarSnapshot
+  let toolbarState: BooksLibraryToolbarState
+
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .topBarTrailing) {
+      BrowseFacetSortToolbarMenu(
+        sortField: snapshot.browseTagsSortField,
+        sortDescending: snapshot.browseTagsSortDescending,
+        onSortFieldChange: { toolbarState.applyBrowseTagsSortField($0) },
+        onSortDescendingChange: { toolbarState.applyBrowseTagsSortDescending($0) }
+      )
+      .equatable()
+    }
+  }
+}
+
+private struct BrowseBooksCatalogToolbarContent: ToolbarContent {
+  let snapshot: BooksLibraryToolbarSnapshot
+  let toolbarState: BooksLibraryToolbarState
+
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .topBarTrailing) {
+      BooksCatalogFilterToolbarMenu(
+        isActive: snapshot.isLibraryCatalogFiltered,
+        libraryCatalogQuickFilter: snapshot.libraryCatalogQuickFilter,
+        isAllFilterActive: snapshot.isAllFilterActive,
+        onClear: { toolbarState.clearCatalogFilter() },
+        onSelect: { toolbarState.applyLibraryCatalogQuickFilter($0) }
+      )
+      .equatable()
+      BooksCatalogSortToolbarMenu(
+        sortField: snapshot.catalogSortField,
+        sortDescending: snapshot.catalogSortDescending,
+        onSortFieldChange: { toolbarState.applyCatalogSortField($0) },
+        onSortDescendingChange: { toolbarState.applyCatalogSortDescending($0) }
+      )
+      .equatable()
+    }
+  }
+}
+
+private struct BrowseAuthorsSortToolbarContent: ToolbarContent {
+  let snapshot: BooksLibraryToolbarSnapshot
+  let toolbarState: BooksLibraryToolbarState
+
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .topBarTrailing) {
+      BrowseAuthorsSortToolbarMenu(
+        sortField: snapshot.browseAuthorsSortField,
+        sortDescending: snapshot.browseAuthorsSortDescending,
+        onSortFieldChange: { toolbarState.applyBrowseAuthorsSortField($0) },
+        onSortDescendingChange: { toolbarState.applyBrowseAuthorsSortDescending($0) }
+      )
+      .equatable()
+    }
+  }
+}
+
+private struct BrowseNarratorsSortToolbarContent: ToolbarContent {
+  let snapshot: BooksLibraryToolbarSnapshot
+  let toolbarState: BooksLibraryToolbarState
+
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .topBarTrailing) {
+      BrowseNarratorsSortToolbarMenu(
+        sortField: snapshot.browseNarratorsSortField,
+        sortDescending: snapshot.browseNarratorsSortDescending,
+        onSortFieldChange: { toolbarState.applyBrowseNarratorsSortField($0) },
+        onSortDescendingChange: { toolbarState.applyBrowseNarratorsSortDescending($0) }
+      )
+      .equatable()
+    }
+  }
+}
+
+private struct BrowseSeriesSortToolbarContent: ToolbarContent {
+  let snapshot: BooksLibraryToolbarSnapshot
+  let toolbarState: BooksLibraryToolbarState
+
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .topBarTrailing) {
+      BrowseSeriesSortToolbarMenu(
+        sortField: snapshot.browseSeriesSortField,
+        sortDescending: snapshot.browseSeriesSortDescending,
+        onSortFieldChange: { toolbarState.applyBrowseSeriesSortField($0) },
+        onSortDescendingChange: { toolbarState.applyBrowseSeriesSortDescending($0) }
+      )
+      .equatable()
+    }
+  }
+}
+
+private struct BrowseCollectionsSortToolbarContent: ToolbarContent {
+  let snapshot: BooksLibraryToolbarSnapshot
+  let toolbarState: BooksLibraryToolbarState
+
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .topBarTrailing) {
+      BrowseCollectionsSortToolbarMenu(
+        sortField: snapshot.browseCollectionsSortField,
+        sortDescending: snapshot.browseCollectionsSortDescending,
+        onSortFieldChange: { toolbarState.applyBrowseCollectionsSortField($0) },
+        onSortDescendingChange: { toolbarState.applyBrowseCollectionsSortDescending($0) }
+      )
+      .equatable()
     }
   }
 }
 
 /// Navigation + Toolbar; Katalog kommt als `let model`-Child (ohne `@EnvironmentObject` am Shell).
 struct BooksLibraryTabShell<Catalog: View>: View {
+  @EnvironmentObject private var model: AppModel
   @ObservedObject var toolbarState: BooksLibraryToolbarState
   @ViewBuilder var catalog: () -> Catalog
 
   var body: some View {
+    navigationRoot
+  }
+
+  private var navigationRoot: some View {
     NavigationStack {
       catalog()
         .abstandTabScreenChrome()
         .navigationTitle(AppModel.MainTab.library.rawValue)
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
-          BooksLibraryToolbarContent(toolbarState: toolbarState)
+          if model.booksBrowseSection != .search {
+            BooksLibraryToolbarContent(toolbarState: toolbarState)
+          }
         }
         .booksEntityDetailNavigation(for: .library)
     }

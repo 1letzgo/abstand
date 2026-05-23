@@ -182,7 +182,6 @@ private func startShelfSettingsIcon(category: String) -> String {
 // MARK: - Settings hub (Tab)
 
 private enum SettingsHubScope: String, CaseIterable, Identifiable {
-  case stats = "Stats"
   case user = "User"
   case server = "Server"
 
@@ -190,14 +189,13 @@ private enum SettingsHubScope: String, CaseIterable, Identifiable {
 
   var icon: String {
     switch self {
-    case .stats: return "chart.bar.fill"
     case .user: return "person.crop.circle"
     case .server: return "server.rack"
     }
   }
 
   static func visibleCases(isServerRoot: Bool) -> [SettingsHubScope] {
-    isServerRoot ? [.user, .server, .stats] : [.user, .stats]
+    isServerRoot ? [.user, .server] : [.user]
   }
 }
 
@@ -310,11 +308,11 @@ struct SettingsHubRootView: View {
   var body: some View {
     ScrollView {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-        SettingsScopeStrip(scopes: visibleHubScopes, selection: $hubScope)
+        if visibleHubScopes.count > 1 {
+          SettingsScopeStrip(scopes: visibleHubScopes, selection: $hubScope)
+        }
 
         switch hubScope {
-        case .stats:
-          StatsTabView(embeddedInParentScroll: true)
         case .user:
           userSettingsSections
           logoutSection
@@ -344,20 +342,13 @@ struct SettingsHubRootView: View {
       clampHubScopeIfNeeded()
     }
     .onChange(of: hubScope) { _, scope in
-      if scope == .stats {
-        Task { await model.loadListeningStats() }
-      } else if scope == .user, !model.offlineHomeUIActive {
+      if scope == .user, !model.offlineHomeUIActive {
         Task { await model.reloadSettingsTab() }
       }
     }
     .onChange(of: model.offlineHomeUIActive) { _, offline in
       if !offline, hubScope == .user {
         Task { await model.reloadSettingsTab() }
-      }
-    }
-    .task {
-      if hubScope == .stats {
-        await model.loadListeningStats()
       }
     }
   }
@@ -404,6 +395,31 @@ struct SettingsHubRootView: View {
       }
     }
 
+    ServerAdminSection(title: "Home") {
+      NavigationLink {
+        SettingsHomeShelvesView()
+      } label: {
+        ServerAdminCard {
+          ServerAdminNavRow(
+            icon: "house.fill",
+            title: "Home shelves",
+            subtitle: "Show or hide shelves on Home"
+          )
+        }
+      }
+      .buttonStyle(.plain)
+    }
+
+    ServerAdminSection(title: "Playback") {
+      ServerAdminCard {
+        SettingsCardToggleRow(
+          icon: "play.circle",
+          title: "Open player when start playing",
+          isOn: $model.openPlayerWhenStartPlaying
+        )
+      }
+    }
+
     ServerAdminSection(title: "Downloads") {
       ServerAdminCard {
         VStack(alignment: .leading, spacing: 12) {
@@ -432,21 +448,6 @@ struct SettingsHubRootView: View {
       }
     }
     .disabled(model.offlineHomeUIActive)
-
-    ServerAdminSection(title: "Home") {
-      NavigationLink {
-        SettingsHomeShelvesView()
-      } label: {
-        ServerAdminCard {
-          ServerAdminNavRow(
-            icon: "house.fill",
-            title: "Home shelves",
-            subtitle: "Show or hide shelves on Home"
-          )
-        }
-      }
-      .buttonStyle(.plain)
-    }
   }
 
   @ViewBuilder

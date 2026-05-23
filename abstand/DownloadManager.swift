@@ -8,6 +8,15 @@ private struct DownloadWIP: Codable {
   var completedTrackIndexes: [Int]
 }
 
+/// Aufgelöste Tracks + Session für einen Download-Lauf (einheitlich Bücher & Podcast-Folgen).
+private struct DownloadTrackResolution {
+  var book: ABSBook
+  var tracks: [ABSAudioTrack]
+  var streamSessionId: String
+  var ownsPlaySession: Bool
+  var serverSession: ABSPlaySession?
+}
+
 @MainActor
 final class DownloadManager: ObservableObject {
   @Published private(set) var activeItemId: String?
@@ -101,12 +110,111 @@ final class DownloadManager: ObservableObject {
     completion?(true)
   }
 
+  private static func sortedCatalogTracks(from book: ABSBook) -> [ABSAudioTrack] {
+    (book.media.tracks ?? []).sorted { $0.index < $1.index }
+  }
+
+  private static func allTracksHaveDirectIno(_ tracks: [ABSAudioTrack]) -> Bool {
+    !tracks.isEmpty
+      && tracks.allSatisfy {
+        !($0.ino ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      }
+  }
+
+  /// Einheitliche Track-Quelle (vgl. Absorb: Play-Session; Bücher optional direkt per `ino`).
+  private func resolveDownloadTracks(
+    client: ABSAPIClient,
+    book: ABSBook,
+    episodeId: String?,
+    reusePlaySessionId: String?,
+    reusePlaySessionTracks: [ABSAudioTrack]?
+  ) async throws -> DownloadTrackResolution {
+    let trimmedEp = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let resolvedEp: String? = trimmedEp.isEmpty ? nil : trimmedEp
+    let isPodcastEpisode = resolvedEp != nil
+
+    var workingBook = book
+    var sorted = Self.sortedCatalogTracks(from: workingBook)
+
+    let reuseSid = reusePlaySessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let hasReuse = !(reuseSid ?? "").isEmpty
+
+    if hasReuse {
+      let reused = (reusePlaySessionTracks ?? []).sorted { $0.index < $1.index }
+      if !reused.isEmpty {
+        return DownloadTrackResolution(
+          book: workingBook,
+          tracks: reused,
+          streamSessionId: reuseSid!,
+          ownsPlaySession: false,
+          serverSession: nil
+        )
+      }
+      // Parallele Session ohne Track-Liste: bei Podcast kein zweites `POST …/play`.
+      if isPodcastEpisode {
+        throw ABSPlaybackError.noTracks
+      }
+    }
+
+    if !isPodcastEpisode, sorted.isEmpty {
+      let expanded = try await client.item(id: workingBook.id, expanded: true)
+      workingBook = expanded
+      sorted = Self.sortedCatalogTracks(from: workingBook)
+    }
+
+    if isPodcastEpisode {
+      let session = try await client.startPlaySession(
+        itemId: workingBook.id,
+        episodeId: resolvedEp,
+        deviceId: PlaybackController.stableDeviceId(),
+        appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+      )
+      let sessionTracks = (session.audioTracks ?? []).sorted { $0.index < $1.index }
+      guard !sessionTracks.isEmpty else { throw ABSPlaybackError.noTracks }
+      return DownloadTrackResolution(
+        book: workingBook,
+        tracks: sessionTracks,
+        streamSessionId: session.id,
+        ownsPlaySession: true,
+        serverSession: session
+      )
+    }
+
+    if Self.allTracksHaveDirectIno(sorted) {
+      return DownloadTrackResolution(
+        book: workingBook,
+        tracks: sorted,
+        streamSessionId: "",
+        ownsPlaySession: false,
+        serverSession: nil
+      )
+    }
+
+    let session = try await client.startPlaySession(
+      itemId: workingBook.id,
+      episodeId: nil,
+      deviceId: PlaybackController.stableDeviceId(),
+      appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    )
+    let sessionTracks = (session.audioTracks ?? []).sorted { $0.index < $1.index }
+    let tracks = !sessionTracks.isEmpty ? sessionTracks : sorted
+    guard !tracks.isEmpty else { throw ABSPlaybackError.noTracks }
+    return DownloadTrackResolution(
+      book: workingBook,
+      tracks: tracks,
+      streamSessionId: session.id,
+      ownsPlaySession: true,
+      serverSession: session
+    )
+  }
+
   func startDownload(
     client: ABSAPIClient,
     book: ABSBook,
     episodeId: String? = nil,
     storageItemId: String? = nil,
     reusePlaySessionId: String? = nil,
+    reusePlaySessionTracks: [ABSAudioTrack]? = nil,
     completion: ((Bool) -> Void)? = nil
   ) {
     let id = storageItemId ?? book.id
@@ -133,7 +241,6 @@ final class DownloadManager: ObservableObject {
     task = Task { @MainActor in
       var ownsPlaySession = false
       var streamSessionId = ""
-      var serverSession: ABSPlaySession?
       do {
         let folder: URL
         var resumeCompleted = Set<Int>()
@@ -162,33 +269,18 @@ final class DownloadManager: ObservableObject {
           return
         }
 
-        let bookTracks = (book.media.tracks ?? []).sorted { $0.index < $1.index }
-        guard !bookTracks.isEmpty else { throw ABSPlaybackError.noTracks }
-
-        let canUseDirectFileDownload = bookTracks.allSatisfy {
-          !($0.ino ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-
-        var sorted = bookTracks
-        if canUseDirectFileDownload {
-          streamSessionId = reuseSid ?? ""
-          ownsPlaySession = false
-        } else if let reuse = reuseSid {
-          streamSessionId = reuse
-          ownsPlaySession = false
-        } else {
-          let session = try await client.startPlaySession(
-            itemId: book.id,
-            episodeId: resolvedEp,
-            deviceId: PlaybackController.stableDeviceId(),
-            appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-          )
-          serverSession = session
-          streamSessionId = session.id
-          ownsPlaySession = true
-          let sessionTracks = (session.audioTracks ?? []).sorted { $0.index < $1.index }
-          if !sessionTracks.isEmpty { sorted = sessionTracks }
-        }
+        let resolved = try await resolveDownloadTracks(
+          client: client,
+          book: book,
+          episodeId: resolvedEp,
+          reusePlaySessionId: reuseSid,
+          reusePlaySessionTracks: reusePlaySessionTracks
+        )
+        let downloadBook = resolved.book
+        let sorted = resolved.tracks
+        streamSessionId = resolved.streamSessionId
+        ownsPlaySession = resolved.ownsPlaySession
+        let serverSession = resolved.serverSession
 
         let weights: [Double] = sorted.map { tr in
           let d = tr.duration
@@ -204,7 +296,7 @@ final class DownloadManager: ObservableObject {
         var savedAudioExtension: String?
         var wip = DownloadWIP(
           storageItemId: id,
-          libraryItemId: book.id,
+          libraryItemId: downloadBook.id,
           episodeId: resolvedEp,
           completedTrackIndexes: Array(resumeCompleted).sorted()
         )
@@ -219,13 +311,14 @@ final class DownloadManager: ObservableObject {
           let suggested = folder.appendingPathComponent(PlaybackController.trackFilename(index: tr.index))
           let finalURL: URL
           if let ino = tr.ino, !ino.isEmpty {
-            let fileURL = try await client.itemFileDownloadURL(itemId: book.id, ino: ino)
+            let fileURL = try await client.itemFileDownloadURL(itemId: downloadBook.id, ino: ino)
             finalURL = try await client.downloadAuthenticatedFile(
               from: fileURL,
               to: suggested,
               maxAttempts: Self.trackDownloadMaxAttempts
             )
           } else {
+            guard !streamSessionId.isEmpty else { throw ABSPlaybackError.noTracks }
             let stream = try await client.publicStreamURL(sessionId: streamSessionId, trackIndex: tr.index)
             finalURL = try await client.downloadAuthenticatedFile(
               from: stream,
@@ -253,24 +346,24 @@ final class DownloadManager: ObservableObject {
         let totalDur: Double?
         if let s = serverSession, s.duration > 0 {
           totalDur = s.duration
-        } else if let d = book.media.duration, d > 0 {
+        } else if let d = downloadBook.media.duration, d > 0 {
           totalDur = d
         } else {
           totalDur = nil
         }
         let chapterSource: [ABSChapter]? = {
-          if let ch = book.media.chapters, !ch.isEmpty { return ch }
+          if let ch = downloadBook.media.chapters, !ch.isEmpty { return ch }
           if let ch = serverSession?.chapters, !ch.isEmpty { return ch }
           if let ch = serverSession?.libraryItem.media.chapters, !ch.isEmpty { return ch }
           return nil
         }()
         let manifest = ABSDownloadManifest(
           format: 1,
-          libraryItemId: book.id,
+          libraryItemId: downloadBook.id,
           episodeId: resolvedEp,
-          libraryId: book.libraryId,
-          displayTitle: book.displayTitle,
-          displayAuthor: book.displayAuthors,
+          libraryId: downloadBook.libraryId,
+          displayTitle: downloadBook.displayTitle,
+          displayAuthor: downloadBook.displayAuthors,
           playSessionId: streamSessionId,
           savedAtEpoch: Date().timeIntervalSince1970,
           audioFileExtension: savedAudioExtension,

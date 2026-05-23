@@ -197,14 +197,15 @@ func formatPlaybackTime(_ seconds: Double) -> String {
   return String(format: "%d:%02d", m, r)
 }
 
-/// Gesamtdauer für Pill-Buttons („12 Std. 4 Min.“).
+/// Compact duration for pills and stats (e.g. „2 hrs 15 min“).
 func formatPlaybackDurationShortHuman(_ seconds: Double) -> String {
-  guard seconds.isFinite, seconds >= 0 else { return "0 Min." }
+  guard seconds.isFinite, seconds >= 0 else { return "< 1 min" }
   let s = Int(seconds.rounded())
   let h = s / 3600
   let m = (s % 3600) / 60
-  if h > 0, m > 0 { return "\(h) Std. \(m) Min." }
-  if h > 0 { return m > 0 ? "\(h) Std. \(m) Min." : "\(h) Std." }
-  if m > 0 { return "\(m) Min." }
-  return "unter 1 Min."
+  if h == 0, m == 0 { return "< 1 min" }
+  var parts: [String] = []
+  if h > 0 { parts.append(h == 1 ? "1 hr" : "\(h) hrs") }
+  if m > 0 { parts.append(m == 1 ? "1 min" : "\(m) min") }
+  return parts.joined(separator: " ")
 }

@@ -70,6 +70,12 @@ final class PlaybackController: NSObject, ObservableObject {
     return sid
   }
 
+  /// Tracks der aktiven Remote-Session — für parallele Downloads ohne zweites `POST …/play` (Absorb-Muster).
+  func audioTracksForActiveSessionReuse() -> [ABSAudioTrack] {
+    guard isRemotePlaySessionActive, !tracks.isEmpty else { return [] }
+    return tracks
+  }
+
   private var tracks: [ABSAudioTrack] = []
   private var trackStarts: [Double] = []
   private var currentTrackIndex: Int = 0

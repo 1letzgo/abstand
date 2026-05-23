@@ -997,8 +997,11 @@ struct ABSBookMedia: Decodable {
   /// Katalog/minified: Format-Hinweis ohne vollständiges `ebookFile`.
   let ebookFormat: String?
 
+  /// ABS: Tags am Medien-Objekt (`media.tags`), nicht in `metadata`.
+  let tags: [String]?
+
   enum CodingKeys: String, CodingKey {
-    case metadata, duration, size, numTracks, chapters, tracks, audioFiles
+    case metadata, duration, size, numTracks, chapters, tracks, audioFiles, tags
     case podcastEpisodes = "episodes"
     case autoDownloadEpisodes, autoDownloadSchedule
     case maxEpisodesToKeep, maxNewEpisodesToDownload
@@ -1008,6 +1011,7 @@ struct ABSBookMedia: Decodable {
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     metadata = try c.decode(ABSBookMediaMetadata.self, forKey: .metadata)
+    tags = try c.decodeIfPresent([String].self, forKey: .tags)
     duration = try c.decodeIfPresent(Double.self, forKey: .duration)
     size = try c.decodeIfPresent(Int64.self, forKey: .size)
     numTracks = try c.decodeIfPresent(Int.self, forKey: .numTracks)
@@ -1226,7 +1230,8 @@ extension ABSBookMedia {
     maxEpisodesToKeep: Int? = nil,
     maxNewEpisodesToDownload: Int? = nil,
     ebookFile: ABSEbookFile? = nil,
-    ebookFormat: String? = nil
+    ebookFormat: String? = nil,
+    tags: [String]? = nil
   ) {
     self.metadata = metadata
     self.duration = duration
@@ -1241,6 +1246,7 @@ extension ABSBookMedia {
     self.maxNewEpisodesToDownload = maxNewEpisodesToDownload
     self.ebookFile = ebookFile
     self.ebookFormat = ebookFormat
+    self.tags = tags
   }
 }
 
@@ -1413,7 +1419,8 @@ extension ABSBook {
       tracks: lm.tracks ?? media.tracks,
       podcastEpisodes: media.podcastEpisodes ?? lm.podcastEpisodes,
       ebookFile: media.ebookFile ?? lm.ebookFile,
-      ebookFormat: media.ebookFormat ?? lm.ebookFormat
+      ebookFormat: media.ebookFormat ?? lm.ebookFormat,
+      tags: media.tags ?? lm.tags
     )
     return ABSBook(
       id: id,
@@ -1734,18 +1741,20 @@ struct ABSLibrarySeriesListItem: Decodable, Identifiable {
 struct ABSLibraryCollectionListItem: Decodable, Identifiable {
   let id: String
   let name: String
+  let description: String?
   let books: [ABSBook]?
   let createdAt: TimeInterval?
   let lastUpdate: TimeInterval?
 
   enum CodingKeys: String, CodingKey {
-    case id, name, books, createdAt, lastUpdate
+    case id, name, description, books, createdAt, lastUpdate
   }
 
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     id = try c.decode(String.self, forKey: .id)
     name = try c.decode(String.self, forKey: .name)
+    description = try c.decodeIfPresent(String.self, forKey: .description)
     books = try c.decodeIfPresent([ABSBook].self, forKey: .books)
     createdAt = Self.decodeOptionalMillis(c, key: .createdAt)
     lastUpdate = Self.decodeOptionalMillis(c, key: .lastUpdate)
@@ -1856,6 +1865,102 @@ struct ABSLibraryFilterData: Codable {
   let publishers: [String]?
   let publishedDecades: [String]?
   let genres: [String]?
+}
+
+/// Genre-Zeile in der Library-Browse-Liste (`genresWithCount` aus `GET …/stats`).
+struct BooksBrowseGenreListItem: Identifiable, Hashable {
+  let name: String
+  let numBooks: Int?
+  var id: String { name }
+}
+
+/// Tag-Zeile in der Library-Browse-Liste (Namen aus `filterdata`, Zähler per Filter-API).
+struct BooksBrowseTagListItem: Identifiable, Hashable {
+  let name: String
+  let numBooks: Int?
+  var id: String { name }
+}
+
+/// Persistenz für Tag-Browse (`browseTags/<libraryId>.json`).
+struct ABSLibraryTagStat: Codable, Hashable {
+  let tag: String
+  let count: Int
+
+  enum CodingKeys: String, CodingKey {
+    case tag
+    case count
+    case numItems
+  }
+
+  init(tag: String, count: Int) {
+    self.tag = tag
+    self.count = count
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    tag = try c.decode(String.self, forKey: .tag)
+    count = Self.decodeCount(c)
+  }
+
+  private static func decodeCount(_ c: KeyedDecodingContainer<CodingKeys>) -> Int {
+    if let n = try? c.decode(Int.self, forKey: .count) { return n }
+    if let n = try? c.decode(Int.self, forKey: .numItems) { return n }
+    if let n = try? c.decode(Int64.self, forKey: .count) { return Int(n) }
+    if let n = try? c.decode(Int64.self, forKey: .numItems) { return Int(n) }
+    if let s = try? c.decode(String.self, forKey: .count), let n = Int(s) { return n }
+    if let s = try? c.decode(String.self, forKey: .numItems), let n = Int(s) { return n }
+    if let d = try? c.decode(Double.self, forKey: .count) { return Int(d) }
+    if let d = try? c.decode(Double.self, forKey: .numItems) { return Int(d) }
+    return 0
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(tag, forKey: .tag)
+    try c.encode(count, forKey: .count)
+  }
+}
+
+/// `GET /api/libraries/:id/stats` → `genresWithCount`.
+struct ABSLibraryGenreStat: Codable, Hashable {
+  let genre: String
+  let count: Int
+
+  enum CodingKeys: String, CodingKey {
+    case genre
+    case count
+    case numItems
+  }
+
+  init(genre: String, count: Int) {
+    self.genre = genre
+    self.count = count
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    genre = try c.decode(String.self, forKey: .genre)
+    count = Self.decodeCount(c)
+  }
+
+  private static func decodeCount(_ c: KeyedDecodingContainer<CodingKeys>) -> Int {
+    if let n = try? c.decode(Int.self, forKey: .count) { return n }
+    if let n = try? c.decode(Int.self, forKey: .numItems) { return n }
+    if let n = try? c.decode(Int64.self, forKey: .count) { return Int(n) }
+    if let n = try? c.decode(Int64.self, forKey: .numItems) { return Int(n) }
+    if let s = try? c.decode(String.self, forKey: .count), let n = Int(s) { return n }
+    if let s = try? c.decode(String.self, forKey: .numItems), let n = Int(s) { return n }
+    if let d = try? c.decode(Double.self, forKey: .count) { return Int(d) }
+    if let d = try? c.decode(Double.self, forKey: .numItems) { return Int(d) }
+    return 0
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(genre, forKey: .genre)
+    try c.encode(count, forKey: .count)
+  }
 }
 
 struct ABSSearchResponse: Decodable {
@@ -2318,6 +2423,7 @@ struct ABSAdminUserDetail {
     guard let ms = lastSeen, ms > 0 else { return "Never signed in" }
     let d = Date(timeIntervalSince1970: TimeInterval(ms) / 1000)
     let rel = RelativeDateTimeFormatter()
+    rel.locale = Locale(identifier: "en_US")
     rel.unitsStyle = .short
     return "● Last seen \(rel.localizedString(for: d, relativeTo: Date()))"
   }
@@ -2768,9 +2874,11 @@ struct ABSLibraryStatsResponse: Decodable {
   let totalDuration: Double
   let totalSize: Int64
   let numAudioTrack: Int
+  let genresWithCount: [ABSLibraryGenreStat]
 
   enum CodingKeys: String, CodingKey {
     case totalItems, totalAuthors, totalGenres, totalDuration, totalSize, numAudioTrack
+    case genresWithCount
   }
 
   init(from decoder: Decoder) throws {
@@ -2793,7 +2901,30 @@ struct ABSLibraryStatsResponse: Decodable {
       totalSize = 0
     }
     numAudioTrack = try c.decodeIfPresent(Int.self, forKey: .numAudioTrack) ?? 0
+    genresWithCount = Self.decodeGenresWithCount(c)
   }
+
+  private static func decodeGenresWithCount(_ c: KeyedDecodingContainer<CodingKeys>) -> [ABSLibraryGenreStat] {
+    if let rows = try? c.decode([ABSLibraryGenreStat].self, forKey: .genresWithCount) {
+      return rows
+    }
+    guard let loose = try? c.decode([ABSLibraryGenreStatLoose].self, forKey: .genresWithCount) else {
+      return []
+    }
+    return loose.compactMap { row in
+      let name = row.genre?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      guard !name.isEmpty else { return nil }
+      let count = row.count ?? row.numItems ?? 0
+      return ABSLibraryGenreStat(genre: name, count: count)
+    }
+  }
+}
+
+/// Fallback-Decoding falls einzelne `genresWithCount`-Zeilen abweichende Keys haben.
+private struct ABSLibraryGenreStatLoose: Decodable {
+  let genre: String?
+  let count: Int?
+  let numItems: Int?
 }
 
 struct ABSServerSettings: Codable, Equatable {
@@ -2996,20 +3127,61 @@ struct ABSListeningStatsMetadata: Decodable {
   let title: String?
   let author: String?
   let authorName: String?
+  let authors: [ABSAuthor]?
   let feedUrl: String?
   let type: String?
+
+  enum CodingKeys: String, CodingKey {
+    case title, author, authorName, authors, feedUrl, type
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    title = try c.decodeIfPresent(String.self, forKey: .title)
+    author = try c.decodeIfPresent(String.self, forKey: .author)
+    authorName = try c.decodeIfPresent(String.self, forKey: .authorName)
+    authors = Self.decodeAuthorsLenient(c)
+    feedUrl = try c.decodeIfPresent(String.self, forKey: .feedUrl)
+    type = try c.decodeIfPresent(String.self, forKey: .type)
+  }
+
+  private static func decodeAuthorsLenient(
+    _ c: KeyedDecodingContainer<CodingKeys>
+  ) -> [ABSAuthor]? {
+    if let list = try? c.decode([ABSAuthor].self, forKey: .authors), !list.isEmpty {
+      return list
+    }
+    if let names = try? c.decode([String].self, forKey: .authors) {
+      let mapped = names
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+        .enumerated()
+        .map { ABSAuthor(id: "stats-author-\($0.offset)", name: $0.element) }
+      return mapped.isEmpty ? nil : mapped
+    }
+    return nil
+  }
 
   var displayTitle: String {
     let t = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     return t.isEmpty ? "—" : t
   }
 
-  var displaySubtitle: String {
+  /// Autorzeile für Stats-Karten (Bücher: `authorName` / `authors`; Podcasts: oft `author`).
+  var displayAuthorLine: String {
+    if let authors, !authors.isEmpty {
+      let joined = authors.map(\.name).joined(separator: ", ")
+      let t = joined.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !t.isEmpty { return t }
+    }
     let a = author?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     if !a.isEmpty { return a }
     let an = authorName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return an.isEmpty ? "—" : an
   }
+
+  /// Alias für ältere Aufrufer.
+  var displaySubtitle: String { displayAuthorLine }
 
   /// Heuristik Buch vs. Podcast-Show (Server liefert unterschiedliche Metadaten).
   var isPodcastLike: Bool {
@@ -3017,6 +3189,23 @@ struct ABSListeningStatsMetadata: Decodable {
     let t = type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
     if t == "episodic" || t == "serial" { return true }
     return false
+  }
+
+  /// Minimaler Katalog-Stub für Stats-Navigation, wenn das Item nicht im lokalen Cache liegt.
+  func stubBook(libraryItemId: String) -> ABSBook {
+    ABSBook(
+      id: libraryItemId,
+      libraryId: nil,
+      media: ABSBookMedia(
+        metadata: ABSBookMediaMetadata(offlineTitle: displayTitle, authorLine: displayAuthorLine),
+        duration: nil,
+        numTracks: nil,
+        chapters: nil,
+        tracks: nil
+      ),
+      addedAt: nil,
+      updatedAt: nil
+    )
   }
 }
 
@@ -3058,6 +3247,17 @@ struct ABSListeningStatsRecentSession: Decodable, Identifiable {
       startedAt = 0
     }
   }
+
+  /// Podcast-Folge (nicht Hörbuch) — `episodeId` und/oder `mediaType == podcast`.
+  var isPodcastEpisodeSession: Bool {
+    let mt = mediaType?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    if mt == "podcast" {
+      let eid = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      return !eid.isEmpty
+    }
+    let eid = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return !eid.isEmpty
+  }
 }
 
 extension ABSListeningStatsResponse {
@@ -3087,6 +3287,32 @@ extension ABSListeningStatsResponse {
       sum += days[k, default: 0]
     }
     return sum
+  }
+
+  /// Wochentage Mo–So für Balkendiagramm (`dayOfWeek`: Server oft `0` = Sonntag).
+  func dayOfWeekBars(calendar: Calendar = .current, locale: Locale = .current)
+    -> [(id: String, label: String, seconds: Int)]
+  {
+    guard !dayOfWeek.isEmpty else { return [] }
+    var cal = calendar
+    cal.firstWeekday = 2
+    cal.locale = locale
+    let labelFormatter = DateFormatter()
+    labelFormatter.locale = locale
+    labelFormatter.setLocalizedDateFormatFromTemplate("EEE")
+    guard let monday = cal.date(from: DateComponents(year: 2024, month: 1, day: 1)) else { return [] }
+    var rows: [(String, String, Int)] = []
+    for offset in 0 ..< 7 {
+      guard let d = cal.date(byAdding: .day, value: offset, to: monday) else { continue }
+      let weekday = cal.component(.weekday, from: d)
+      let jsDow = weekday - 1
+      let sec =
+        dayOfWeek[String(jsDow)]
+        ?? dayOfWeek[String(weekday)]
+        ?? 0
+      rows.append((String(offset), labelFormatter.string(from: d), sec))
+    }
+    return rows
   }
 
   /// Letzte 7 Tage (ältester Tag zuerst) für Diagramme — Schlüssel `id` = `yyyy-MM-dd`.

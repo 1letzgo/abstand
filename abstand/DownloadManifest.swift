@@ -130,4 +130,13 @@ struct ABSDownloadManifest: Codable {
     let data = try enc.encode(self)
     try data.write(to: url, options: .atomic)
   }
+
+  /// Ordnername unter `Documents/Downloads` (bei Podcast-Folgen ≠ `libraryItemId`).
+  var offlineStorageItemId: String {
+    let lid = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    let eid = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !lid.isEmpty else { return libraryItemId }
+    guard !eid.isEmpty else { return lid }
+    return "\(lid)-\(eid)".replacingOccurrences(of: "/", with: "_")
+  }
 }

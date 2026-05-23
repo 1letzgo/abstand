@@ -46,8 +46,8 @@ final class LibraryBookRowLiveState: ObservableObject {
       progress = model.progressByItemId[bookId]
     }
     if observesDownload {
-      isDownloaded = model.downloadedItemIds.contains(bookId)
-      syncDownloadState(activeItemId: model.downloads.activeItemId, progress: model.downloads.progress)
+      isDownloaded = model.isLibraryItemDownloaded(libraryItemId: bookId)
+      syncDownloadState(model: model)
     }
     isPreparingEbook = model.isPreparingEbook
     bind(model)
@@ -65,7 +65,7 @@ final class LibraryBookRowLiveState: ObservableObject {
 
     if observesDownload {
       model.$downloadedItemIds
-        .map { [bookId] in $0.contains(bookId) }
+        .map { [bookId] _ in model.isLibraryItemDownloaded(libraryItemId: bookId) }
         .removeDuplicates()
         .receive(on: RunLoop.main)
         .sink { [weak self] in self?.isDownloaded = $0 }
@@ -77,7 +77,8 @@ final class LibraryBookRowLiveState: ObservableObject {
       )
       .receive(on: RunLoop.main)
       .sink { [weak self] activeId, progress in
-        self?.syncDownloadState(activeItemId: activeId, progress: progress)
+        guard let self else { return }
+        self.syncDownloadState(model: model, activeItemId: activeId, progress: progress)
       }
       .store(in: &cancellables)
     }
@@ -89,10 +90,17 @@ final class LibraryBookRowLiveState: ObservableObject {
       .store(in: &cancellables)
   }
 
-  private func syncDownloadState(activeItemId: String?, progress: Double) {
-    let active = activeItemId == self.bookId
-    isDownloading = active
-    downloadProgress = active ? progress : 0
+  private func syncDownloadState(model: AppModel, activeItemId: String? = nil, progress: Double = 0) {
+    let activeId = (activeItemId ?? model.downloads.activeItemId)?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !activeId.isEmpty else {
+      isDownloading = false
+      downloadProgress = 0
+      return
+    }
+    let storageId = model.downloadStorageIdForLibraryItem(bookId) ?? bookId
+    isDownloading = activeId == bookId || activeId == storageId
+    downloadProgress = isDownloading ? progress : 0
   }
 }
 
