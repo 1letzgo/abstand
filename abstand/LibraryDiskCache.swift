@@ -610,4 +610,45 @@ enum LibraryDiskCache {
     guard fm.fileExists(atPath: u.path) else { return nil }
     return try? fm.attributesOfItem(atPath: u.path)[.modificationDate] as? Date
   }
+
+  private static let listeningAchievementsSnapshotFile = "listeningAchievements.snapshot.json"
+
+  static func saveListeningAchievementsSnapshot(account: URL, snapshot: ListeningAchievementsSnapshot) throws {
+    let data = try ABSJSON.encoder().encode(snapshot)
+    try data.write(
+      to: account.appendingPathComponent(listeningAchievementsSnapshotFile),
+      options: .atomic
+    )
+  }
+
+  static func loadListeningAchievementsSnapshot(
+    account: URL,
+    decoder: JSONDecoder = ABSJSON.decoder()
+  ) -> ListeningAchievementsSnapshot? {
+    let u = account.appendingPathComponent(listeningAchievementsSnapshotFile)
+    guard fm.fileExists(atPath: u.path), let data = try? Data(contentsOf: u) else { return nil }
+    return try? decoder.decode(ListeningAchievementsSnapshot.self, from: data)
+  }
+
+  private static let listeningOneTimeAchievementsSnapshotFile = "listeningOneTimeAchievements.snapshot.json"
+
+  static func saveListeningOneTimeAchievementsSnapshot(
+    account: URL,
+    snapshot: ListeningOneTimeAchievementsSnapshot
+  ) throws {
+    let data = try ABSJSON.encoder().encode(snapshot)
+    try data.write(
+      to: account.appendingPathComponent(listeningOneTimeAchievementsSnapshotFile),
+      options: .atomic
+    )
+  }
+
+  static func loadListeningOneTimeAchievementsSnapshot(
+    account: URL,
+    decoder: JSONDecoder = ABSJSON.decoder()
+  ) -> ListeningOneTimeAchievementsSnapshot? {
+    let u = account.appendingPathComponent(listeningOneTimeAchievementsSnapshotFile)
+    guard fm.fileExists(atPath: u.path), let data = try? Data(contentsOf: u) else { return nil }
+    return try? decoder.decode(ListeningOneTimeAchievementsSnapshot.self, from: data)
+  }
 }

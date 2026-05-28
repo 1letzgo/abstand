@@ -112,7 +112,7 @@ struct PodcastAddFromSearchView: View {
         } label: {
           Text(model.podcastDirectoryCountryCode().uppercased())
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(AppTheme.accent)
+            .foregroundStyle(Color.accentColor)
         }
         .accessibilityLabel("Podcast store region")
       }
@@ -163,7 +163,7 @@ struct PodcastAddFromSearchView: View {
     } else if model.podcastDirectorySearchLoading {
       ProgressView()
         .controlSize(.large)
-        .tint(AppTheme.accent)
+        .tint(Color.accentColor)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.vertical, 48)
     } else if model.podcastDirectorySearchHits.isEmpty {
@@ -191,7 +191,7 @@ struct PodcastAddFromSearchView: View {
         if model.podcastChartsLoading, model.podcastChartsHits.isEmpty {
           ProgressView()
             .controlSize(.large)
-            .tint(AppTheme.accent)
+            .tint(Color.accentColor)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.vertical, 48)
         } else if model.podcastChartsHits.isEmpty {
@@ -237,14 +237,14 @@ private struct PodcastChartsCategoryPillStrip: View {
           } label: {
             Text(category.title)
               .font(.subheadline.weight(.medium))
-              .foregroundStyle(selected ? AppTheme.accent : AppTheme.textPrimary)
+              .foregroundStyle(selected ? Color.accentColor : AppTheme.textPrimary)
               .lineLimit(1)
               .padding(.horizontal, 14)
               .padding(.vertical, 8)
               .background(AppTheme.card, in: Capsule(style: .continuous))
               .overlay {
                 Capsule(style: .continuous)
-                  .strokeBorder(selected ? AppTheme.accent : Color.clear, lineWidth: 2)
+                  .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 2)
               }
           }
           .buttonStyle(.plain)
@@ -310,7 +310,7 @@ private struct PodcastDirectoryHitRow: View {
           }
         }
         .buttonStyle(.borderedProminent)
-        .tint(AppTheme.accent)
+        .tint(Color.accentColor)
         .disabled(
           (hit.feedUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
             || !model.isNetworkReachable)

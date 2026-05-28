@@ -550,7 +550,7 @@ struct PodcastCatalogToolbarContent: ToolbarContent {
       if snapshot.isServerRoot, snapshot.isPodcastNewView {
         NavigationLink(value: PodcastCatalogNavigation.addPodcast) {
           Image(systemName: "plus.circle.fill")
-            .foregroundStyle(AppTheme.accent)
+            .foregroundStyle(Color.accentColor)
         }
         .disabled(!snapshot.hasPodcastLibrary || !snapshot.isNetworkReachable)
         .accessibilityLabel("Add podcast")
@@ -568,7 +568,7 @@ struct PodcastCatalogToolbarContent: ToolbarContent {
           )
         } label: {
           Image(systemName: "gearshape.fill")
-            .foregroundStyle(AppTheme.accent)
+            .foregroundStyle(Color.accentColor)
         }
         .accessibilityLabel("Show settings")
       }

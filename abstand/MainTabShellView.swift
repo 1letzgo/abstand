@@ -20,15 +20,14 @@ struct MainTabShellView<Content: View>: View {
         content()
       } else {
         content()
-          .tabViewBottomAccessory {
-            FloatingAccessoryLayer(
+          .modifier(
+            FloatingTabBottomAccessoryModifier(
               gate: gate,
               chrome: chrome,
               sheetPresented: nowPlayingSheetPresented,
               keyboardVisible: keyboardVisible
             )
-            .id("abstand-floating-player")
-          }
+          )
       }
     }
       .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -37,5 +36,29 @@ struct MainTabShellView<Content: View>: View {
       .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
         keyboardVisible = false
       }
+  }
+}
+
+/// `tabViewBottomAccessory` nur bei geladenem Titel — sonst leere System-Leiste.
+private struct FloatingTabBottomAccessoryModifier: ViewModifier {
+  @ObservedObject var gate: FloatingAccessoryGate
+  let chrome: FloatingPlayerChromeController
+  let sheetPresented: Bool
+  let keyboardVisible: Bool
+
+  func body(content: Content) -> some View {
+    if gate.chromeVisible {
+      content.tabViewBottomAccessory {
+        FloatingAccessoryLayer(
+          gate: gate,
+          chrome: chrome,
+          sheetPresented: sheetPresented,
+          keyboardVisible: keyboardVisible
+        )
+        .id("abstand-floating-player")
+      }
+    } else {
+      content
+    }
   }
 }

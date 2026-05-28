@@ -15,6 +15,13 @@ enum ABSPlaybackError: LocalizedError {
   }
 }
 
+/// Aktive Sleep-Timer-Konfiguration (für Popover-Anzeige).
+enum SleepTimerMode: Equatable {
+  case off
+  case minutes(Int)
+  case chapters(Int)
+}
+
 /// `AVPlayer`/`NotificationCenter`-Callbacks sind `@Sendable`; Zustandsänderungen laufen über Main-Queue + `MainActor.assumeIsolated`.
 @MainActor
 final class PlaybackController: NSObject, ObservableObject {
@@ -28,6 +35,7 @@ final class PlaybackController: NSObject, ObservableObject {
   @Published private(set) var totalDuration: Double = 0
   @Published private(set) var isBuffering = false
   @Published var sleepEndDate: Date?
+  @Published var sleepTimerMode: SleepTimerMode = .off
   /// Leere Mini-Player-Leiste („Nothing playing“) ohne aktives Medium.
   @Published private(set) var showMiniPlayerPlaceholder = false
   /// Hintergrundfarbe der Mini-Player-Karte, abgeleitet vom Cover (sonst `AppTheme.card`).
@@ -44,6 +52,42 @@ final class PlaybackController: NSObject, ObservableObject {
 
   static let playbackRatePresets: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
   private static let playbackRateDefaultsKey = "abstand_playback_rate"
+
+  /// Skip-Intervalle für Zurück/Vor (Player, Mini-Player, Sperrbildschirm).
+  /// Nur Werte mit SF-Symbolen (`gobackward.N` / `goforward.N`).
+  static let skipIntervalOptions: [Int] = [5, 10, 15, 30, 45, 60]
+  static let defaultSkipBackwardSeconds = 15
+  static let defaultSkipForwardSeconds = 30
+  private static let skipBackwardDefaultsKey = "abstand_skip_backward_seconds"
+  private static let skipForwardDefaultsKey = "abstand_skip_forward_seconds"
+
+  @Published var skipBackwardSeconds: Int = defaultSkipBackwardSeconds {
+    didSet {
+      let clamped = Self.clampedSkipSeconds(
+        skipBackwardSeconds, fallback: Self.defaultSkipBackwardSeconds)
+      if clamped != skipBackwardSeconds {
+        skipBackwardSeconds = clamped
+        return
+      }
+      guard clamped != oldValue else { return }
+      UserDefaults.standard.set(clamped, forKey: Self.skipBackwardDefaultsKey)
+      updateRemoteSkipIntervals()
+    }
+  }
+
+  @Published var skipForwardSeconds: Int = defaultSkipForwardSeconds {
+    didSet {
+      let clamped = Self.clampedSkipSeconds(
+        skipForwardSeconds, fallback: Self.defaultSkipForwardSeconds)
+      if clamped != skipForwardSeconds {
+        skipForwardSeconds = clamped
+        return
+      }
+      guard clamped != oldValue else { return }
+      UserDefaults.standard.set(clamped, forKey: Self.skipForwardDefaultsKey)
+      updateRemoteSkipIntervals()
+    }
+  }
 
   private var player: AVPlayer?
   private var timeObserver: Any?
@@ -110,6 +154,8 @@ final class PlaybackController: NSObject, ObservableObject {
   override init() {
     super.init()
     playbackRate = Self.loadSavedPlaybackRate()
+    skipBackwardSeconds = Self.loadSkipBackwardSeconds()
+    skipForwardSeconds = Self.loadSkipForwardSeconds()
     ensureAudioSessionForPlayback()
     configureRemoteCommands()
     interruptionObserver = NotificationCenter.default.addObserver(
@@ -141,6 +187,9 @@ final class PlaybackController: NSObject, ObservableObject {
     }
     $sleepEndDate
       .sink { [weak self] end in
+        if end == nil {
+          self?.sleepTimerMode = .off
+        }
         self?.rescheduleSleepWake(for: end)
       }
       .store(in: &cancellables)
@@ -268,6 +317,42 @@ final class PlaybackController: NSObject, ObservableObject {
     }
   }
 
+  private func updateRemoteSkipIntervals() {
+    let center = MPRemoteCommandCenter.shared()
+    center.skipBackwardCommand.preferredIntervals = [NSNumber(value: skipBackwardSeconds)]
+    center.skipForwardCommand.preferredIntervals = [NSNumber(value: skipForwardSeconds)]
+  }
+
+  static func gobackwardSystemImage(seconds: Int) -> String {
+    guard skipIntervalOptions.contains(seconds) else { return "gobackward.\(defaultSkipBackwardSeconds)" }
+    return "gobackward.\(seconds)"
+  }
+
+  static func goforwardSystemImage(seconds: Int) -> String {
+    guard skipIntervalOptions.contains(seconds) else { return "goforward.\(defaultSkipForwardSeconds)" }
+    return "goforward.\(seconds)"
+  }
+
+  static func skipAccessibilityLabel(backward: Bool, seconds: Int) -> String {
+    backward ? "Back \(seconds) seconds" : "Forward \(seconds) seconds"
+  }
+
+  private static func clampedSkipSeconds(_ value: Int, fallback: Int) -> Int {
+    skipIntervalOptions.contains(value) ? value : fallback
+  }
+
+  private static func loadSkipBackwardSeconds() -> Int {
+    let d = UserDefaults.standard
+    guard d.object(forKey: skipBackwardDefaultsKey) != nil else { return defaultSkipBackwardSeconds }
+    return clampedSkipSeconds(d.integer(forKey: skipBackwardDefaultsKey), fallback: defaultSkipBackwardSeconds)
+  }
+
+  private static func loadSkipForwardSeconds() -> Int {
+    let d = UserDefaults.standard
+    guard d.object(forKey: skipForwardDefaultsKey) != nil else { return defaultSkipForwardSeconds }
+    return clampedSkipSeconds(d.integer(forKey: skipForwardDefaultsKey), fallback: defaultSkipForwardSeconds)
+  }
+
   private func configureRemoteCommands() {
     let center = MPRemoteCommandCenter.shared()
     center.playCommand.addTarget { [weak self] _ in
@@ -285,18 +370,21 @@ final class PlaybackController: NSObject, ObservableObject {
       MainActor.assumeIsolated { self.togglePlayPause() }
       return .success
     }
-    center.skipBackwardCommand.preferredIntervals = [15]
     center.skipBackwardCommand.addTarget { [weak self] _ in
       guard let self else { return .commandFailed }
-      MainActor.assumeIsolated { self.skip(seconds: -15) }
+      MainActor.assumeIsolated {
+        self.skip(seconds: -Double(self.skipBackwardSeconds))
+      }
       return .success
     }
-    center.skipForwardCommand.preferredIntervals = [30]
     center.skipForwardCommand.addTarget { [weak self] _ in
       guard let self else { return .commandFailed }
-      MainActor.assumeIsolated { self.skip(seconds: 30) }
+      MainActor.assumeIsolated {
+        self.skip(seconds: Double(self.skipForwardSeconds))
+      }
       return .success
     }
+    updateRemoteSkipIntervals()
     center.changePlaybackPositionCommand.addTarget { [weak self] event in
       guard let e = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
       let t = e.positionTime
@@ -516,6 +604,8 @@ final class PlaybackController: NSObject, ObservableObject {
   ) async throws {
     playSessionId = nil
     var resumeAt = resumeHint
+    let manifest = ABSDownloadManifest.load(from: root)
+    let manifestChapters = manifest?.chapters?.map { ABSChapter(manifest: $0) }
 
     if attemptServerPlaySessionForLocal {
       if let session = await startPlaySessionWithTimeout(
@@ -527,9 +617,10 @@ final class PlaybackController: NSObject, ObservableObject {
         let uiBook = session.bookForPlayerUI()
         activeBook = uiBook
         applyChapters(
-          from: uiBook,
+          from: book,
           sessionChapters: session.chapters,
-          libraryItemFallback: session.libraryItem
+          libraryItemFallback: session.libraryItem,
+          manifestChapters: manifestChapters
         )
         let serverResume = max(session.currentTime, resumeAt)
         let cap = session.duration > 0 ? session.duration : serverResume
@@ -537,7 +628,6 @@ final class PlaybackController: NSObject, ObservableObject {
       }
     }
 
-    let manifest = ABSDownloadManifest.load(from: root)
     let fromManifest: [ABSAudioTrack]? = manifest.flatMap { m in
       guard !m.tracks.isEmpty else { return nil }
       return m.tracks.map { row in
@@ -560,7 +650,14 @@ final class PlaybackController: NSObject, ObservableObject {
       manifestDur
       ?? book.media.duration
       ?? (trackStarts.last! + tracks.last!.duration)
-    applyChapters(from: book, sessionChapters: nil)
+    if sortedChapters.isEmpty {
+      applyChapters(
+        from: book,
+        sessionChapters: nil,
+        libraryItemFallback: activeBook,
+        manifestChapters: manifestChapters
+      )
+    }
 
     currentTrackIndex = trackIndex(forGlobal: resumeAt)
     let offsetInTrack = max(0, resumeAt - trackStarts[currentTrackIndex])
@@ -620,7 +717,10 @@ final class PlaybackController: NSObject, ObservableObject {
     tracks = serverTracks.sorted { $0.index < $1.index }
     rebuildTrackStarts()
     applyChapters(
-      from: uiBook, sessionChapters: session.chapters, libraryItemFallback: session.libraryItem)
+      from: book,
+      sessionChapters: session.chapters,
+      libraryItemFallback: session.libraryItem
+    )
 
     let serverResume = max(session.currentTime, resumeAt)
     let safeResume = min(serverResume, session.duration > 0 ? session.duration : serverResume)
@@ -940,6 +1040,60 @@ final class PlaybackController: NSObject, ObservableObject {
     return idx + 1 < sortedChapters.count
   }
 
+  /// Aktuelle Abspielposition (frisch vom Player, falls möglich).
+  func playbackGlobalPosition() -> Double {
+    if let p = player, p.currentItem != nil {
+      let local = p.currentTime().seconds
+      if local.isFinite {
+        let g = globalTime(trackIndex: currentTrackIndex, localSeconds: local)
+        if g.isFinite, g >= 0 {
+          globalPosition = g
+          return g
+        }
+      }
+    }
+    return globalPosition
+  }
+
+  /// Index des laufenden Kapitels (0-basiert); laufendes Kapitel zählt als 1.
+  func currentChapterIndex() -> Int? {
+    guard !sortedChapters.isEmpty else { return nil }
+    return chapterIndex(for: playbackGlobalPosition())
+  }
+
+  /// Verbleibende Sekunden bis Kapitelende; `count == 1` = laufendes Kapitel, `2` = +1 weiteres usw.
+  func secondsUntilEndOfChapters(count: Int) -> Double? {
+    guard count >= 1, let idx = currentChapterIndex() else { return nil }
+    let pos = playbackGlobalPosition()
+    let targetIndex = idx + count - 1
+    guard targetIndex < sortedChapters.count else { return nil }
+    let end = chapterEndTime(at: targetIndex)
+    let remaining = end - pos
+    return remaining > 0.25 ? remaining : nil
+  }
+
+  /// Relative Kapitelgrenzen (0…1) für Markierungen im Fortschrittsbalken; ohne Start bei 0.
+  var chapterMarkerFractions: [Double] {
+    guard totalDuration > 0, sortedChapters.count > 1 else { return [] }
+    let minGap = max(2.0, totalDuration * 0.005)
+    return sortedChapters.dropFirst()
+      .map(\.start)
+      .filter { $0 >= minGap && $0 <= totalDuration - minGap }
+      .map { min(1, max(0, $0 / totalDuration)) }
+  }
+
+  /// Wie viele Kapitel wählbar (laufendes = 1, bis zum letzten Kapitel).
+  func maxSleepChapterCount() -> Int {
+    _ = playbackGlobalPosition()
+    if let idx = currentChapterIndex() {
+      return max(1, sortedChapters.count - idx)
+    }
+    if chapterCount > 0, currentChapterOrdinal > 0 {
+      return max(1, chapterCount - currentChapterOrdinal + 1)
+    }
+    return chapterCount > 0 ? chapterCount : 0
+  }
+
   func seek(global: Double) {
     let g = min(max(0, global), max(totalDuration - 0.25, 0))
     let idx = trackIndex(forGlobal: g)
@@ -971,15 +1125,19 @@ final class PlaybackController: NSObject, ObservableObject {
   private func applyChapters(
     from book: ABSBook,
     sessionChapters: [ABSChapter]?,
-    libraryItemFallback: ABSBook? = nil
+    libraryItemFallback: ABSBook? = nil,
+    manifestChapters: [ABSChapter]? = nil
   ) {
     // Play session often returns `chapters: []`; `??` alone would discard embedded item chapters.
     let fromSession = sessionChapters ?? []
+    let fromManifest = manifestChapters ?? []
     let fromBook = book.media.chapters ?? []
     let fromFallback = libraryItemFallback?.media.chapters ?? []
     let raw: [ABSChapter]
     if !fromSession.isEmpty {
       raw = fromSession
+    } else if !fromManifest.isEmpty {
+      raw = fromManifest
     } else if !fromBook.isEmpty {
       raw = fromBook
     } else {
@@ -997,6 +1155,23 @@ final class PlaybackController: NSObject, ObservableObject {
       if global >= ch.start { idx = i }
     }
     return idx
+  }
+
+  /// Kapitelende: Start des nächsten Kapitels (nicht `chapter.end`, falls der die Buchlänge trägt).
+  private func chapterEndTime(at index: Int) -> Double {
+    let ch = sortedChapters[index]
+    if index + 1 < sortedChapters.count {
+      let nextStart = sortedChapters[index + 1].start
+      if ch.end > ch.start + 0.5, ch.end <= nextStart + 0.5 {
+        return ch.end
+      }
+      return nextStart
+    }
+    let bookEnd = totalDuration > 0 ? totalDuration : ch.end
+    if ch.end > ch.start + 0.5, ch.end <= bookEnd + 0.5 {
+      return ch.end
+    }
+    return max(bookEnd, ch.start + 1)
   }
 
   private func updateChapterUI(global: Double) {

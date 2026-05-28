@@ -63,7 +63,7 @@ struct BookmarksDisclosure: View {
         .textCase(.uppercase)
         .tracking(0.6)
     }
-    .tint(AppTheme.accent)
+    .tint(Color.accentColor)
     .alert(
       "Delete bookmark?",
       isPresented: Binding(

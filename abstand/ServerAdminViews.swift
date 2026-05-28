@@ -47,13 +47,40 @@ private struct ServerAdminCard<Content: View>: View {
   var body: some View {
     content()
       .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(14)
+      .padding(.horizontal, AppTheme.Layout.settingsCardInsetHPadding)
+      .padding(.vertical, AppTheme.Layout.settingsCardInsetVPadding)
       .background(AppTheme.card)
       .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
   }
 }
 
+/// Einzelne Info-/Nav-Zeile ohne zusätzliche Kartenhöhe (z. B. Account).
+private struct ServerAdminCompactCard<Content: View>: View {
+  @ViewBuilder let content: () -> Content
+
+  var body: some View {
+    content()
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, AppTheme.Layout.settingsCardInsetHPadding)
+      .background(AppTheme.card)
+      .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+  }
+}
+
+private extension View {
+  /// Interaktive Zeile (Toggle, Picker, Secure Field).
+  func settingsCardRowFrame(alignment: Alignment = .leading) -> some View {
+    abstandCardListRowFrame(alignment: alignment)
+  }
+
+  /// Kompakte Nur-Lese- oder Nav-Zeile.
+  func settingsCardCompactRowFrame(alignment: Alignment = .center) -> some View {
+    abstandCardListRowFrame(alignment: alignment)
+  }
+}
+
 private struct ServerAdminNavRow: View {
+  @EnvironmentObject private var model: AppModel
   let icon: String
   let title: String
   let subtitle: String?
@@ -62,7 +89,7 @@ private struct ServerAdminNavRow: View {
     HStack(spacing: 12) {
       Image(systemName: icon)
         .font(.body.weight(.semibold))
-        .foregroundStyle(AppTheme.accent)
+        .foregroundStyle(model.appearanceAccentColor)
         .frame(width: 28, alignment: .center)
       VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 4) {
         Text(title)
@@ -79,24 +106,27 @@ private struct ServerAdminNavRow: View {
         .font(.caption.weight(.semibold))
         .foregroundStyle(AppTheme.textSecondary)
     }
+    .settingsCardCompactRowFrame(alignment: .leading)
   }
 }
 
 // MARK: - Settings card rows
 
 private struct SettingsCardIcon: View {
+  @EnvironmentObject private var model: AppModel
   let systemName: String
-  var tint: Color = AppTheme.accent
+  var tint: Color?
 
   var body: some View {
     Image(systemName: systemName)
       .font(.body.weight(.semibold))
-      .foregroundStyle(tint)
+      .foregroundStyle(tint ?? model.appearanceAccentColor)
       .frame(width: 28, alignment: .center)
   }
 }
 
 private struct SettingsCardToggleRow: View {
+  @EnvironmentObject private var model: AppModel
   let icon: String
   let title: String
   @Binding var isOn: Bool
@@ -109,12 +139,35 @@ private struct SettingsCardToggleRow: View {
           .font(.body)
           .foregroundStyle(AppTheme.textPrimary)
       }
-      .tint(AppTheme.accent)
+      .tint(model.appearanceAccentColor)
     }
+    .settingsCardRowFrame()
+  }
+}
+
+private struct SettingsCardColorPickerRow: View {
+  @EnvironmentObject private var model: AppModel
+  let icon: String
+  let title: String
+  @Binding var color: Color
+
+  var body: some View {
+    HStack(spacing: 12) {
+      SettingsCardIcon(systemName: icon)
+      Text(title)
+        .font(.body)
+        .foregroundStyle(AppTheme.textPrimary)
+      Spacer(minLength: 8)
+      ColorPicker("", selection: $color, supportsOpacity: false)
+        .labelsHidden()
+        .tint(model.appearanceAccentColor)
+    }
+    .settingsCardRowFrame()
   }
 }
 
 private struct SettingsCardPickerRow: View {
+  @EnvironmentObject private var model: AppModel
   let icon: String
   let title: String
   @Binding var selection: String
@@ -132,9 +185,122 @@ private struct SettingsCardPickerRow: View {
           Text(opt.label).tag(opt.id)
         }
       }
+      .pickerStyle(.menu)
       .labelsHidden()
-      .tint(AppTheme.accent)
+      .tint(model.appearanceAccentColor)
     }
+    .settingsCardRowFrame()
+  }
+}
+
+private struct SettingsSkipSecondsPickerRow: View {
+  @EnvironmentObject private var model: AppModel
+  let title: String
+  let backward: Bool
+  @Binding var seconds: Int
+
+  private var rowIcon: String {
+    backward
+      ? PlaybackController.gobackwardSystemImage(seconds: seconds)
+      : PlaybackController.goforwardSystemImage(seconds: seconds)
+  }
+
+  var body: some View {
+    HStack(spacing: 12) {
+      SettingsCardIcon(systemName: rowIcon)
+      Text(title)
+        .font(.body)
+        .foregroundStyle(AppTheme.textPrimary)
+      Spacer(minLength: 8)
+      Picker(title, selection: $seconds) {
+        ForEach(PlaybackController.skipIntervalOptions, id: \.self) { value in
+          Text("\(value) s").tag(value)
+        }
+      }
+      .pickerStyle(.menu)
+      .labelsHidden()
+      .tint(model.appearanceAccentColor)
+    }
+    .settingsCardRowFrame()
+  }
+}
+
+/// Kompakte Info-Karte (Titel oben, Wert unten) — wie Streak-Kacheln in Stats.
+private struct SettingsMetricCard: View {
+  @EnvironmentObject private var model: AppModel
+  let icon: String
+  var tint: Color?
+  let title: String
+  let value: String
+
+  private var resolvedTint: Color { tint ?? model.appearanceAccentColor }
+
+  var body: some View {
+    let textColumn = VStack(alignment: .leading, spacing: 4) {
+      Text(title)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(AppTheme.textSecondary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.85)
+      Text(value.isEmpty ? "—" : value)
+        .font(.headline.weight(.bold))
+        .foregroundStyle(AppTheme.textPrimary)
+        .minimumScaleFactor(0.7)
+        .lineLimit(1)
+    }
+
+    HStack(alignment: .center, spacing: 12) {
+      Image(systemName: icon)
+        .font(.title3)
+        .foregroundStyle(resolvedTint)
+        .frame(width: 26, alignment: .center)
+      textColumn
+      Spacer(minLength: 0)
+    }
+    .abstandCardListRowFrame()
+    .padding(.horizontal, AppTheme.Layout.settingsCardInsetHPadding)
+    .padding(.vertical, AppTheme.Layout.settingsCardInsetVPadding)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(AppTheme.card)
+    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+  }
+}
+
+/// Passwortzeile wie Picker-Zeilen: Titel links, Eingabe rechts (ohne doppeltes Label/Placeholder).
+private struct SettingsCardSecureFieldRow: View {
+  let icon: String
+  let title: String
+  @Binding var text: String
+  var placeholder: String = "••••••••"
+
+  var body: some View {
+    HStack(spacing: 12) {
+      SettingsCardIcon(systemName: icon)
+      Text(title)
+        .font(.body)
+        .foregroundStyle(AppTheme.textPrimary)
+      Spacer(minLength: 8)
+      SecureField(
+        "",
+        text: $text,
+        prompt: Text(placeholder).foregroundStyle(AppTheme.textSecondary.opacity(0.55))
+      )
+      .font(.body)
+      .foregroundStyle(AppTheme.textPrimary)
+      .multilineTextAlignment(.trailing)
+      .textInputAutocapitalization(.never)
+      .autocorrectionDisabled()
+      .frame(maxWidth: 180)
+    }
+    .settingsCardRowFrame()
+  }
+}
+
+private struct SettingsCardDivider: View {
+  var body: some View {
+    Divider()
+      .overlay(AppTheme.textSecondary.opacity(0.25))
+      .padding(.vertical, AppTheme.Layout.settingsCardDividerSpacing)
   }
 }
 
@@ -181,114 +347,156 @@ private func startShelfSettingsIcon(category: String) -> String {
 
 // MARK: - Settings hub (Tab)
 
-private enum SettingsHubScope: String, CaseIterable, Identifiable {
-  case user = "User"
+private enum SettingsHubSection: String, CaseIterable, Identifiable, Hashable {
+  case appearance = "Appearance"
+  case playback = "Playback"
+  case downloads = "Downloads"
+  case account = "Account"
   case server = "Server"
 
   var id: String { rawValue }
 
   var icon: String {
     switch self {
-    case .user: return "person.crop.circle"
+    case .appearance: return "paintbrush.fill"
+    case .playback: return "play.circle"
+    case .downloads: return "arrow.down.circle"
+    case .account: return "person.crop.circle"
     case .server: return "server.rack"
     }
   }
 
-  static func visibleCases(isServerRoot: Bool) -> [SettingsHubScope] {
-    isServerRoot ? [.user, .server] : [.user]
+  static func stripOrder(isServerRoot: Bool, offlineHome: Bool) -> [SettingsHubSection] {
+    var sections: [SettingsHubSection] = [.account, .appearance, .playback]
+    if !offlineHome { sections.append(.downloads) }
+    if isServerRoot { sections.append(.server) }
+    return sections
   }
 }
 
-private struct SettingsScopeStrip: View {
-  let scopes: [SettingsHubScope]
-  @Binding var selection: SettingsHubScope
+private struct SettingsIconStrip<Section: Identifiable & Hashable>: View {
+  @EnvironmentObject private var model: AppModel
+  let sections: [Section]
+  @Binding var selection: Section
+  let icon: (Section) -> String
+  let title: (Section) -> String
+
+  private var accent: Color { model.appearanceAccentColor }
 
   var body: some View {
     let tile = AppTheme.Layout.horizontalBrowseStripTile
     let captionW = tile + AppTheme.Layout.horizontalBrowseStripLabelWidthExtra
-    ScrollView(.horizontal, showsIndicators: false) {
+    AbstandHorizontalBrowseStripScroll {
       HStack(alignment: .top, spacing: AppTheme.Layout.horizontalBrowseStripInterTileSpacing) {
-        ForEach(scopes) { scope in
+        ForEach(sections) { section in
           Button {
-            withAnimation(.easeOut(duration: 0.2)) {
-              selection = scope
-            }
+            selection = section
           } label: {
-            VStack(spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
+            VStack(alignment: .leading, spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
               ZStack {
                 RoundedRectangle(
                   cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous
                 )
                 .fill(AppTheme.card)
                 .frame(width: tile, height: tile)
-                Image(systemName: scope.icon)
+                Image(systemName: icon(section))
                   .font(.title2)
-                  .foregroundStyle(selection == scope ? AppTheme.accent : AppTheme.textSecondary)
+                  .foregroundStyle(
+                    selection == section ? accent : AppTheme.textSecondary)
               }
               .overlay {
                 RoundedRectangle(
                   cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous
                 )
                 .strokeBorder(
-                  selection == scope ? AppTheme.accent : Color.clear, lineWidth: 2.5)
+                  selection == section ? accent : Color.clear, lineWidth: 2.5)
               }
-              Text(scope.rawValue)
+              Text(title(section))
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(AppTheme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.center)
-                .frame(width: captionW)
+                .frame(width: tile, alignment: .center)
             }
+            .frame(width: captionW, alignment: .leading)
           }
           .buttonStyle(.plain)
         }
       }
-      .padding(.vertical, AppTheme.Layout.horizontalBrowseStripVerticalPadding)
     }
-    .scrollContentBackground(.hidden)
   }
 }
 
 struct SettingsHubRootView: View {
   @EnvironmentObject private var model: AppModel
+  @State private var hubSection: SettingsHubSection = .account
   @State private var coverCacheByteCount: Int64 = 0
-  @State private var hubScope: SettingsHubScope = .user
 
-  private var visibleHubScopes: [SettingsHubScope] {
-    SettingsHubScope.visibleCases(isServerRoot: model.isServerRoot)
+  private var hubSectionIDs: [SettingsHubSection] {
+    SettingsHubSection.stripOrder(
+      isServerRoot: model.isServerRoot,
+      offlineHome: model.offlineHomeUIActive
+    )
   }
 
-  private var booksLibraryPickerSelection: Binding<String> {
-    Binding(
-      get: {
-        if model.booksLibraryPreferenceIsNone { return AppModel.libraryPickerNoneTag }
-        return model.selectedBooksLibrary?.id ?? AppModel.libraryPickerNoneTag
-      },
-      set: { newId in
-        if newId == AppModel.libraryPickerNoneTag {
-          model.clearBooksLibrarySelection()
-        } else if let lib = model.sortedBookLibraries.first(where: { $0.id == newId }) {
-          model.selectBooksLibrary(lib, navigateToCatalog: true)
-          Task { await model.reloadLibrary(reset: true) }
-        }
-      })
+  private var scrollBottomInset: CGFloat {
+    AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset
   }
 
-  private var podcastsLibraryPickerSelection: Binding<String> {
-    Binding(
-      get: {
-        if model.podcastsLibraryPreferenceIsNone { return AppModel.libraryPickerNoneTag }
-        return model.selectedPodcastLibrary?.id ?? AppModel.libraryPickerNoneTag
-      },
-      set: { newId in
-        if newId == AppModel.libraryPickerNoneTag {
-          model.clearPodcastLibrarySelection()
-        } else if let lib = model.sortedPodcastLibraries.first(where: { $0.id == newId }) {
-          model.selectPodcastLibrary(lib, navigateToCatalog: true)
-          Task { await model.reloadPodcastLibrary(reset: true) }
-        }
-      })
+  var body: some View {
+    let sections = hubSectionIDs
+    AbstandFixedBrowseStripSectionsLayout(
+      retainOffscreenSections: false,
+      selection: hubSection,
+      sectionIDs: sections,
+      scrollBottomInset: scrollBottomInset,
+      onRefresh: {
+        guard hubSection == .account, !model.offlineHomeUIActive else { return }
+        await model.reloadSettingsTab(reloadCatalogs: false)
+      }
+    ) {
+      SettingsIconStrip(
+        sections: sections,
+        selection: $hubSection,
+        icon: \.icon,
+        title: { $0.rawValue }
+      )
+    } sectionBody: { section in
+      settingsHubSectionBody(section)
+    }
+    .task {
+      guard !model.offlineHomeUIActive else { return }
+      await model.reloadSettingsTab(reloadCatalogs: false)
+    }
+    .onAppear {
+      clampHubSectionIfNeeded()
+      refreshCoverCacheByteCount()
+    }
+    .onChange(of: model.isServerRoot) { _, _ in
+      clampHubSectionIfNeeded()
+    }
+    .onChange(of: model.offlineHomeUIActive) { _, offline in
+      clampHubSectionIfNeeded()
+      if !offline {
+        Task { await model.reloadSettingsTab(reloadCatalogs: false) }
+      }
+    }
+    .onChange(of: model.coverImageCacheRevision) { _, _ in
+      refreshCoverCacheByteCount()
+    }
+    .tint(model.appearanceAccentColor)
+  }
+
+  private func clampHubSectionIfNeeded() {
+    let visible = hubSectionIDs
+    if !visible.contains(hubSection), let first = visible.first {
+      hubSection = first
+    }
+  }
+
+  private func refreshCoverCacheByteCount() {
+    coverCacheByteCount = model.coverImageCacheByteCount()
   }
 
   private var coverCacheSizeLabel: String {
@@ -301,153 +509,57 @@ struct SettingsHubRootView: View {
     return ByteCountFormatter.string(fromByteCount: coverCacheByteCount, countStyle: .file)
   }
 
-  private func refreshCoverCacheByteCount() {
-    coverCacheByteCount = model.coverImageCacheByteCount()
-  }
-
-  var body: some View {
-    ScrollView {
-      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-        if visibleHubScopes.count > 1 {
-          SettingsScopeStrip(scopes: visibleHubScopes, selection: $hubScope)
-        }
-
-        switch hubScope {
-        case .user:
-          userSettingsSections
-          logoutSection
-        case .server:
-          serverSettingsMenuSections
-        }
-      }
-      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.top, AppTheme.Layout.withinSectionSpacing)
-      .padding(
-        .bottom,
-        AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset
-      )
-    }
-    .abstandScrollScreenBackground(ignoreSafeArea: true)
-    .navigationTitle(AppModel.MainTab.settings.rawValue)
-    .toolbarTitleDisplayMode(.inlineLarge)
-    .tint(AppTheme.accent)
-    .onAppear {
-      refreshCoverCacheByteCount()
-      clampHubScopeIfNeeded()
-    }
-    .onChange(of: model.coverImageCacheRevision) { _, _ in
-      refreshCoverCacheByteCount()
-    }
-    .onChange(of: model.isServerRoot) { _, _ in
-      clampHubScopeIfNeeded()
-    }
-    .onChange(of: hubScope) { _, scope in
-      if scope == .user, !model.offlineHomeUIActive {
-        Task { await model.reloadSettingsTab() }
-      }
-    }
-    .onChange(of: model.offlineHomeUIActive) { _, offline in
-      if !offline, hubScope == .user {
-        Task { await model.reloadSettingsTab() }
-      }
-    }
-  }
-
-  private func clampHubScopeIfNeeded() {
-    let visible = visibleHubScopes
-    if !visible.contains(hubScope), let first = visible.first {
-      hubScope = first
-    }
-  }
-
   @ViewBuilder
-  private var userSettingsSections: some View {
-    ServerAdminSection(title: "Libraries") {
-      ServerAdminCard {
-        VStack(alignment: .leading, spacing: 12) {
-          if model.sortedBookLibraries.isEmpty {
-            Text("No book libraries on this server.")
-              .font(.subheadline)
-              .foregroundStyle(AppTheme.textSecondary)
-          } else {
-            SettingsCardPickerRow(
-              icon: "books.vertical.fill",
-              title: "Books",
-              selection: booksLibraryPickerSelection,
-              options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
-                + model.sortedBookLibraries.map { (id: $0.id, label: $0.name) }
-            )
-          }
-          if model.sortedPodcastLibraries.isEmpty {
-            Text("No podcast libraries on this server.")
-              .font(.subheadline)
-              .foregroundStyle(AppTheme.textSecondary)
-          } else {
-            SettingsCardPickerRow(
-              icon: "mic.fill",
-              title: "Podcasts",
-              selection: podcastsLibraryPickerSelection,
-              options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
-                + model.sortedPodcastLibraries.map { (id: $0.id, label: $0.name) }
-            )
+  private func settingsHubSectionBody(_ section: SettingsHubSection) -> some View {
+    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      switch section {
+      case .appearance:
+        SettingsAppearanceView()
+      case .playback:
+        SettingsPlaybackView()
+      case .downloads:
+        ServerAdminSection(title: "Downloads") {
+          LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
+            ServerAdminCard {
+              SettingsCardToggleRow(
+                icon: "arrow.down.circle",
+                title: "Auto download on Wi‑Fi",
+                isOn: $model.smartDownloadOnWiFi
+              )
+            }
+            ServerAdminCard {
+              SettingsCardToggleRow(
+                icon: "checkmark.circle",
+                title: "Remove download when finished",
+                isOn: $model.smartDownloadRemoveWhenFinished
+              )
+            }
           }
         }
-      }
-    }
-
-    ServerAdminSection(title: "Home") {
-      NavigationLink {
-        SettingsHomeShelvesView()
-      } label: {
-        ServerAdminCard {
-          ServerAdminNavRow(
-            icon: "house.fill",
-            title: "Home shelves",
-            subtitle: "Show or hide shelves on Home"
-          )
-        }
-      }
-      .buttonStyle(.plain)
-    }
-
-    ServerAdminSection(title: "Playback") {
-      ServerAdminCard {
-        SettingsCardToggleRow(
-          icon: "play.circle",
-          title: "Open player when start playing",
-          isOn: $model.openPlayerWhenStartPlaying
-        )
-      }
-    }
-
-    ServerAdminSection(title: "Downloads") {
-      ServerAdminCard {
-        VStack(alignment: .leading, spacing: 12) {
-          SettingsCardToggleRow(icon: "arrow.down.circle", title: "Auto download", isOn: $model.smartDownloadOnWiFi)
-          Divider().overlay(AppTheme.textSecondary.opacity(0.25))
-          SettingsCardToggleRow(
-            icon: "checkmark.circle",
-            title: "Remove download when finished",
-            isOn: $model.smartDownloadRemoveWhenFinished)
-          Divider().overlay(AppTheme.textSecondary.opacity(0.25))
-          Button {
-            model.clearCoverImageCache()
-            refreshCoverCacheByteCount()
-          } label: {
-            SettingsCardActionRow(
-              icon: "photo.on.rectangle.angled",
-              title: "Clear cover cache",
-              subtitle: coverCacheSizeLabel,
-              trailingIcon: "trash",
-              isEnabled: model.coverImageCacheAccountDirectory() != nil
-            )
+        ServerAdminSection(title: "Cache") {
+          ServerAdminCard {
+            Button {
+              model.clearCoverImageCache()
+              refreshCoverCacheByteCount()
+            } label: {
+              SettingsCardActionRow(
+                icon: "photo.on.rectangle.angled",
+                title: "Clear cover cache",
+                subtitle: coverCacheSizeLabel,
+                trailingIcon: "trash",
+                isEnabled: model.coverImageCacheAccountDirectory() != nil
+              )
+            }
+            .buttonStyle(.plain)
+            .disabled(model.coverImageCacheAccountDirectory() == nil)
           }
-          .buttonStyle(.plain)
-          .disabled(model.coverImageCacheAccountDirectory() == nil)
         }
+      case .account:
+        SettingsAccountView()
+      case .server:
+        serverSettingsMenuSections
       }
     }
-    .disabled(model.offlineHomeUIActive)
   }
 
   @ViewBuilder
@@ -498,36 +610,328 @@ struct SettingsHubRootView: View {
 
     ServerAdminLibrariesSection()
   }
+}
 
-  private var logoutSection: some View {
+// MARK: - Account
+
+struct SettingsAccountView: View {
+  @EnvironmentObject private var model: AppModel
+
+  private var booksLibraryPickerSelection: Binding<String> {
+    Binding(
+      get: {
+        if model.booksLibraryPreferenceIsNone { return AppModel.libraryPickerNoneTag }
+        return model.selectedBooksLibrary?.id ?? AppModel.libraryPickerNoneTag
+      },
+      set: { newId in
+        if newId == AppModel.libraryPickerNoneTag {
+          model.clearBooksLibrarySelection()
+        } else if let lib = model.sortedBookLibraries.first(where: { $0.id == newId }) {
+          model.selectBooksLibrary(lib, navigateToCatalog: true)
+          Task { await model.reloadLibrary(reset: true) }
+        }
+      })
+  }
+
+  private var podcastsLibraryPickerSelection: Binding<String> {
+    Binding(
+      get: {
+        if model.podcastsLibraryPreferenceIsNone { return AppModel.libraryPickerNoneTag }
+        return model.selectedPodcastLibrary?.id ?? AppModel.libraryPickerNoneTag
+      },
+      set: { newId in
+        if newId == AppModel.libraryPickerNoneTag {
+          model.clearPodcastLibrarySelection()
+        } else if let lib = model.sortedPodcastLibraries.first(where: { $0.id == newId }) {
+          model.selectPodcastLibrary(lib, navigateToCatalog: true)
+          Task { await model.reloadPodcastLibrary(reset: true) }
+        }
+      })
+  }
+
+  var body: some View {
     ServerAdminSection(title: "Account") {
-      ServerAdminCard {
-        Button {
-          model.logout()
-        } label: {
-          HStack(spacing: 12) {
-            SettingsCardIcon(systemName: "rectangle.portrait.and.arrow.right", tint: AppTheme.danger)
-            Text("Log out")
-              .font(.body.weight(.medium))
-              .foregroundStyle(AppTheme.danger)
-            Spacer(minLength: 0)
+      LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
+        HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
+          SettingsMetricCard(
+            icon: "person.fill",
+            title: "Username",
+            value: model.sessionUsername
+          )
+          SettingsMetricCard(
+            icon: "person.badge.key.fill",
+            title: "Account Type",
+            value: model.sessionAccountTypeLabel
+          )
+        }
+
+        ServerAdminCard {
+          if model.sortedBookLibraries.isEmpty {
+            Text("No book libraries on this server.")
+              .font(.subheadline)
+              .foregroundStyle(AppTheme.textSecondary)
+              .settingsCardCompactRowFrame(alignment: .leading)
+          } else {
+            SettingsCardPickerRow(
+              icon: "books.vertical.fill",
+              title: "Books library",
+              selection: booksLibraryPickerSelection,
+              options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
+                + model.sortedBookLibraries.map { (id: $0.id, label: $0.name) }
+            )
           }
         }
-        .buttonStyle(.plain)
+
+        ServerAdminCard {
+          if model.sortedPodcastLibraries.isEmpty {
+            Text("No podcast libraries on this server.")
+              .font(.subheadline)
+              .foregroundStyle(AppTheme.textSecondary)
+              .settingsCardCompactRowFrame(alignment: .leading)
+          } else {
+            SettingsCardPickerRow(
+              icon: "mic.fill",
+              title: "Podcasts library",
+              selection: podcastsLibraryPickerSelection,
+              options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
+                + model.sortedPodcastLibraries.map { (id: $0.id, label: $0.name) }
+            )
+          }
+        }
+
+        if !model.isSessionGuest {
+          NavigationLink {
+            SettingsChangePasswordView()
+          } label: {
+            ServerAdminCompactCard {
+              ServerAdminNavRow(
+                icon: "lock.rotation",
+                title: "Change Password",
+                subtitle: model.mayUseServerNetwork
+                  ? nil
+                  : "Requires a server connection"
+              )
+            }
+          }
+          .buttonStyle(.plain)
+          .disabled(!model.mayUseServerNetwork)
+          .opacity(model.mayUseServerNetwork ? 1 : 0.45)
+        }
+
+        ServerAdminCompactCard {
+          Button {
+            model.logout()
+          } label: {
+            HStack(spacing: 12) {
+              SettingsCardIcon(
+                systemName: "rectangle.portrait.and.arrow.right", tint: AppTheme.danger)
+              Text("Log out")
+                .font(.body.weight(.medium))
+                .foregroundStyle(AppTheme.danger)
+              Spacer(minLength: 0)
+            }
+            .settingsCardCompactRowFrame()
+          }
+          .buttonStyle(.plain)
+        }
       }
     }
   }
 }
 
-// MARK: - Home shelves (user settings)
+struct SettingsChangePasswordView: View {
+  @EnvironmentObject private var model: AppModel
+  @State private var currentPassword = ""
+  @State private var newPassword = ""
+  @State private var confirmPassword = ""
+  @State private var busy = false
+  @State private var statusMessage: String?
+  @State private var statusIsError = false
 
-struct SettingsHomeShelvesView: View {
+  var body: some View {
+    ServerAdminScrollScreen {
+      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+        ServerAdminCard {
+          VStack(alignment: .leading, spacing: 0) {
+            SettingsCardSecureFieldRow(
+              icon: "lock.fill",
+              title: "Current password",
+              text: $currentPassword
+            )
+            SettingsCardDivider()
+            SettingsCardSecureFieldRow(
+              icon: "lock.open.fill",
+              title: "New password",
+              text: $newPassword,
+              placeholder: model.isServerRoot ? "Optional" : "Required"
+            )
+            SettingsCardDivider()
+            SettingsCardSecureFieldRow(
+              icon: "lock.fill",
+              title: "Confirm password",
+              text: $confirmPassword,
+              placeholder: model.isServerRoot ? "Optional" : "Required"
+            )
+          }
+        }
+
+        ServerAdminCard {
+          Button {
+            Task { await submit() }
+          } label: {
+            HStack {
+              if busy {
+                ProgressView()
+                  .tint(Color.black.opacity(0.85))
+              }
+              Text("Save password")
+                .font(.body.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .settingsCardRowFrame(alignment: .center)
+            .background(submitEnabled ? model.appearanceAccentColor : AppTheme.textSecondary.opacity(0.35))
+            .foregroundStyle(Color.black.opacity(0.85))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+          }
+          .buttonStyle(.plain)
+          .disabled(!submitEnabled)
+        }
+
+        if let statusMessage {
+          Text(statusMessage)
+            .font(.footnote)
+            .foregroundStyle(statusIsError ? AppTheme.danger : AppTheme.success)
+        }
+      }
+    }
+    .navigationTitle("Change Password")
+    .navigationBarTitleDisplayMode(.inline)
+    .tint(model.appearanceAccentColor)
+  }
+
+  private var submitEnabled: Bool {
+    !busy && model.mayUseServerNetwork
+  }
+
+  private func submit() async {
+    statusMessage = nil
+    busy = true
+    defer { busy = false }
+    if let err = await model.changeAccountPassword(
+      current: currentPassword,
+      new: newPassword,
+      confirm: confirmPassword
+    ) {
+      statusIsError = true
+      statusMessage = err
+      return
+    }
+    statusIsError = false
+    statusMessage = "Password updated."
+    currentPassword = ""
+    newPassword = ""
+    confirmPassword = ""
+  }
+}
+
+// MARK: - Playback
+
+struct SettingsPlaybackView: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    SettingsPlaybackContent(player: model.player)
+      .environmentObject(model)
+      .tint(model.appearanceAccentColor)
+  }
+}
+
+private struct SettingsPlaybackContent: View {
+  @ObservedObject var player: PlaybackController
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    ServerAdminSection(title: "Playback") {
+      LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
+        ServerAdminCard {
+          SettingsSkipSecondsPickerRow(
+            title: "Skip back",
+            backward: true,
+            seconds: $player.skipBackwardSeconds
+          )
+        }
+        ServerAdminCard {
+          SettingsSkipSecondsPickerRow(
+            title: "Skip forward",
+            backward: false,
+            seconds: $player.skipForwardSeconds
+          )
+        }
+        ServerAdminCard {
+          SettingsCardToggleRow(
+            icon: "play.circle",
+            title: "Open player when start playing",
+            isOn: $model.openPlayerWhenStartPlaying
+          )
+        }
+      }
+    }
+  }
+}
+
+// MARK: - Appearance
+
+struct SettingsAppearanceView: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    ServerAdminSection(title: "Theme") {
+      ServerAdminCard {
+        VStack(alignment: .leading, spacing: 0) {
+          SettingsCardColorPickerRow(
+            icon: "paintpalette.fill",
+            title: "Accent color",
+            color: $model.appearanceAccentColor
+          )
+          SettingsCardDivider()
+          Button {
+            model.resetAppearanceAccentToDefault()
+          } label: {
+            HStack(spacing: 12) {
+              SettingsCardIcon(systemName: "arrow.counterclockwise")
+              Text("Reset to default")
+                .font(.body.weight(.medium))
+                .foregroundStyle(AppTheme.textPrimary)
+              Spacer(minLength: 0)
+            }
+            .settingsCardRowFrame()
+          }
+          .buttonStyle(.plain)
+          .disabled(model.appearanceAccentMatchesDefault)
+          .opacity(model.appearanceAccentMatchesDefault ? 0.45 : 1)
+        }
+      }
+    }
+    ServerAdminSection(title: "Views") {
+      NavigationLink {
+        SettingsAppearanceHomeView()
+      } label: {
+        ServerAdminCard {
+          ServerAdminNavRow(icon: "house.fill", title: "Home", subtitle: nil)
+        }
+      }
+      .buttonStyle(.plain)
+    }
+  }
+}
+
+struct SettingsAppearanceHomeView: View {
   @EnvironmentObject private var model: AppModel
 
   var body: some View {
     ServerAdminScrollScreen {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-        ServerAdminSection(title: "Home shelves") {
+        ServerAdminSection(title: "Home") {
           ServerAdminCard {
             VStack(alignment: .leading, spacing: 12) {
               ForEach(Array(model.startSettingsCategoryList.enumerated()), id: \.element.category) {
@@ -567,9 +971,9 @@ struct SettingsHomeShelvesView: View {
         }
       }
     }
-    .navigationTitle("Home shelves")
+    .navigationTitle("Home")
     .toolbarTitleDisplayMode(.inlineLarge)
-    .tint(AppTheme.accent)
+    .tint(model.appearanceAccentColor)
   }
 }
 
@@ -586,7 +990,7 @@ struct ServerUsersListView: View {
     Group {
       if loading && users.isEmpty {
         ProgressView()
-          .tint(AppTheme.accent)
+          .tint(model.appearanceAccentColor)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if let loadError, users.isEmpty {
         ContentUnavailableView(
@@ -618,7 +1022,7 @@ struct ServerUsersListView: View {
     .background(AppTheme.background.ignoresSafeArea())
     .navigationTitle("Users")
     .toolbarTitleDisplayMode(.inlineLarge)
-    .tint(AppTheme.accent)
+    .tint(model.appearanceAccentColor)
     .refreshable { await reload() }
     .task { await reload() }
   }
@@ -639,6 +1043,7 @@ struct ServerUsersListView: View {
 }
 
 private struct ServerUserListRow: View {
+  @EnvironmentObject private var model: AppModel
   let user: ABSAdminUserSummary
   let isOnline: Bool
 
@@ -655,8 +1060,8 @@ private struct ServerUserListRow: View {
           .font(.caption2.weight(.semibold))
           .padding(.horizontal, 6)
           .padding(.vertical, 2)
-          .background(AppTheme.accent.opacity(0.2))
-          .foregroundStyle(AppTheme.accent)
+          .background(model.appearanceAccentColor.opacity(0.2))
+          .foregroundStyle(model.appearanceAccentColor)
           .clipShape(Capsule())
       } else if let type = user.typeLabel {
         Text(type)
@@ -700,7 +1105,7 @@ struct ServerUserDetailView: View {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         if loading && detail == nil {
           ProgressView()
-            .tint(AppTheme.accent)
+            .tint(model.appearanceAccentColor)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 40)
         } else if let loadError, detail == nil {
@@ -719,7 +1124,7 @@ struct ServerUserDetailView: View {
     }
     .navigationTitle(username)
     .toolbarTitleDisplayMode(.inlineLarge)
-    .tint(AppTheme.accent)
+    .tint(model.appearanceAccentColor)
     .navigationDestination(isPresented: $showSessions) {
       ServerUserListeningSessionsView(userId: userId, username: username)
     }
@@ -747,7 +1152,7 @@ struct ServerUserDetailView: View {
 
   private var summaryStrip: some View {
     HStack(spacing: 10) {
-      summaryCard(value: "\(inProgressCount)", label: "In Progress", color: AppTheme.accent)
+      summaryCard(value: "\(inProgressCount)", label: "In Progress", color: model.appearanceAccentColor)
       summaryCard(value: "\(finishedCount)", label: "Finished", color: AppTheme.success)
       summaryCard(value: "\(progressRows.count)", label: "Total", color: AppTheme.textPrimary)
     }
@@ -775,7 +1180,7 @@ struct ServerUserDetailView: View {
       ServerAdminCard {
         HStack {
           Image(systemName: "clock.arrow.circlepath")
-            .foregroundStyle(AppTheme.accent)
+            .foregroundStyle(model.appearanceAccentColor)
           Text("Recent Sessions")
             .fontWeight(.medium)
             .foregroundStyle(AppTheme.textPrimary)
@@ -832,7 +1237,7 @@ struct ServerUserListeningSessionsView: View {
     Group {
       if loading && sessions.isEmpty {
         ProgressView()
-          .tint(AppTheme.accent)
+          .tint(model.appearanceAccentColor)
       } else if let loadError, sessions.isEmpty {
         ContentUnavailableView(
           "No sessions",
@@ -865,7 +1270,7 @@ struct ServerUserListeningSessionsView: View {
     .background(AppTheme.background.ignoresSafeArea())
     .navigationTitle("Recent Sessions")
     .toolbarTitleDisplayMode(.inline)
-    .tint(AppTheme.accent)
+    .tint(model.appearanceAccentColor)
     .task { await reload() }
   }
 
@@ -917,7 +1322,7 @@ private struct ServerAdminLibrariesSection: View {
                 HStack(spacing: 12) {
                   Image(systemName: "books.vertical.fill")
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(AppTheme.accent)
+                    .foregroundStyle(model.appearanceAccentColor)
                     .frame(width: 28, alignment: .center)
                   VStack(alignment: .leading, spacing: 4) {
                     Text(lib.name)
@@ -978,7 +1383,7 @@ struct ServerLibraryDetailView: View {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         if loading && stats == nil {
           ProgressView()
-            .tint(AppTheme.accent)
+            .tint(model.appearanceAccentColor)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 40)
         } else if let loadError, stats == nil {
@@ -993,7 +1398,7 @@ struct ServerLibraryDetailView: View {
     }
     .navigationTitle(library.name)
     .toolbarTitleDisplayMode(.inline)
-    .tint(AppTheme.accent)
+    .tint(model.appearanceAccentColor)
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -1071,7 +1476,7 @@ struct ServerAdminPodcastShowsListView: View {
     Group {
       if model.podcastShowsLoading, model.podcastShows.isEmpty {
         ProgressView()
-          .tint(AppTheme.accent)
+          .tint(model.appearanceAccentColor)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if model.podcastShows.isEmpty {
         ContentUnavailableView(
@@ -1097,7 +1502,7 @@ struct ServerAdminPodcastShowsListView: View {
     .background(AppTheme.background.ignoresSafeArea())
     .navigationTitle("Shows")
     .toolbarTitleDisplayMode(.inline)
-    .tint(AppTheme.accent)
+    .tint(model.appearanceAccentColor)
     .refreshable { await model.refreshPodcastsTab() }
     .task {
       if model.podcastShows.isEmpty {
@@ -1220,7 +1625,7 @@ struct ServerAdminPodcastShowView: View {
     .onDisappear {
       Task { await model.selectPodcastShowFilter(nil) }
     }
-    .tint(AppTheme.accent)
+    .tint(model.appearanceAccentColor)
   }
 }
 
@@ -1247,7 +1652,7 @@ private struct ServerAdminPodcastRssSection: View {
         if loading, drafts.isEmpty, libraryOnly.isEmpty, unavailable == nil {
           ProgressView()
             .controlSize(.large)
-            .tint(AppTheme.accent)
+            .tint(model.appearanceAccentColor)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 32)
         } else if drafts.isEmpty, libraryOnly.isEmpty, unavailable == nil {
@@ -1369,7 +1774,7 @@ private struct ServerAdminPodcastSettingsSection: View {
               if model.podcastCheckNewInProgressShowId == showId {
                 ProgressView()
                   .controlSize(.small)
-                  .tint(AppTheme.accent)
+                  .tint(model.appearanceAccentColor)
               }
             }
           }

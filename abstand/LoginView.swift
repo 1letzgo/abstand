@@ -17,7 +17,7 @@ struct LoginView: View {
             .foregroundStyle(AppTheme.textPrimary)
           Text("Audiobookshelf")
             .font(.title3)
-            .foregroundStyle(AppTheme.accent)
+            .foregroundStyle(Color.accentColor)
           Text("Sign in with your Audiobookshelf account.")
             .font(.subheadline)
             .foregroundStyle(AppTheme.textSecondary)
@@ -51,7 +51,7 @@ struct LoginView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
-            .background(AppTheme.accent)
+            .background(Color.accentColor)
             .foregroundStyle(Color.black.opacity(0.85))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
           }

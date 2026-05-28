@@ -1,33 +1,75 @@
 import SwiftUI
 
-// MARK: - Jahres-Heatmap (volle Card, kein Scroll, Heatmap zentriert)
+// MARK: - Monats-Kalender-Heatmap
 
 private enum HeatmapMetrics {
   static let cardPaddingH: CGFloat = 14
   static let cardPaddingV: CGFloat = 12
-  static let labelSpacing: CGFloat = 4
-  static let monthRowHeight: CGFloat = 12
+  static let navRowHeight: CGFloat = 28
+  static let weekdayHeaderHeight: CGFloat = 16
   static let legendHeight: CGFloat = 14
-  static let minColumnGap: CGFloat = 1
-  static let rowGap: CGFloat = 2
-  static let weekdayColumnWidth: CGFloat = 14
+  /// Zusatzabstand über der „Less … More“-Legende.
+  static let legendTopPadding: CGFloat = 8
+  static let minColumnGap: CGFloat = 4
+  static let rowGap: CGFloat = 4
+  /// Anteil der berechneten Zellbreite für die Tag-Kreise (< 1 = kleinere Kreise, mehr Luft).
+  static let dayCellScale: CGFloat = 0.84
   static let bodySpacing: CGFloat = 8
+  static let summarySpacing: CGFloat = 4
 }
 
-struct ListeningYearHeatmapCard: View {
+struct ListeningMonthHeatmapCard: View {
+  @EnvironmentObject private var model: AppModel
   let stats: ABSListeningStatsResponse
   var locale: Locale = Locale(identifier: "en_US")
   var calendar: Calendar = .current
 
+  private var accent: Color { model.appearanceAccentColor }
+
+  @State private var monthsBack: Int = 0
   @State private var cardWidth: CGFloat = 0
+  @State private var selectedDayKey: String?
+
+  private var currentMonthStart: Date {
+    calendar.startOfMonth(for: Date())
+  }
+
+  private var visibleMonthStart: Date {
+    calendar.date(byAdding: .month, value: -monthsBack, to: currentMonthStart) ?? currentMonthStart
+  }
+
+  private var maxMonthsBack: Int {
+    guard let earliest = stats.earliestListeningMonthStart(calendar: calendar) else { return 0 }
+    let comps = calendar.dateComponents([.month], from: earliest, to: currentMonthStart)
+    return max(0, comps.month ?? 0)
+  }
+
+  private var canGoBack: Bool { monthsBack < maxMonthsBack }
+  private var canGoForward: Bool { monthsBack > 0 }
+  private var monthTitleLinksToCurrentMonth: Bool { monthsBack > 0 }
 
   var body: some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      calendarCard
+      listeningTimeCard
+    }
+    .onChange(of: monthsBack) { _, _ in
+      let heatmap = stats.monthListeningHeatmap(
+        forMonthContaining: visibleMonthStart,
+        calendar: calendar,
+        locale: locale
+      )
+      syncSelectedDay(for: heatmap)
+    }
+  }
+
+  private var calendarCard: some View {
     Group {
       if cardWidth > 1 {
-        heatmapContent(cardWidth: cardWidth)
+        calendarHeatmapContent(cardWidth: cardWidth)
       } else {
         Color.clear
-          .frame(height: HeatmapLayout.estimatedCardHeight(containerWidth: 320))
+          .frame(height: MonthHeatmapLayout.estimatedCalendarCardHeight(containerWidth: 320, rowCount: 6))
       }
     }
     .frame(maxWidth: .infinity)
@@ -37,98 +79,268 @@ struct ListeningYearHeatmapCard: View {
           .preference(key: HeatmapCardWidthKey.self, value: geo.size.width)
       }
     )
+    .background(AppTheme.card)
+    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
     .onPreferenceChange(HeatmapCardWidthKey.self) { cardWidth = $0 }
   }
 
+  private var listeningTimeCard: some View {
+    let heatmap = stats.monthListeningHeatmap(
+      forMonthContaining: visibleMonthStart,
+      calendar: calendar,
+      locale: locale
+    )
+    return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      Text("Listening time", comment: "Stats calendar: summary card title")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(AppTheme.textSecondary)
+      daySummary(heatmap: heatmap)
+    }
+    .padding(.horizontal, HeatmapMetrics.cardPaddingH)
+    .padding(.vertical, HeatmapMetrics.cardPaddingV)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(AppTheme.card)
+    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+  }
+
   @ViewBuilder
-  private func heatmapContent(cardWidth: CGFloat) -> some View {
-    let layout = HeatmapLayout.make(
-      stats: stats,
+  private func calendarHeatmapContent(cardWidth: CGFloat) -> some View {
+    let heatmap = stats.monthListeningHeatmap(
+      forMonthContaining: visibleMonthStart,
+      calendar: calendar,
+      locale: locale
+    )
+    let layout = MonthHeatmapLayout.make(
+      heatmap: heatmap,
       containerWidth: cardWidth,
       locale: locale,
       calendar: calendar
     )
 
     VStack(alignment: .center, spacing: HeatmapMetrics.bodySpacing) {
-      heatmapCluster(layout: layout)
+      monthNavigationRow(title: heatmap.monthTitle)
+      weekdayHeaderRow(layout: layout)
+      monthGrid(layout: layout, heatmap: heatmap)
         .frame(maxWidth: .infinity, alignment: .center)
-
       heatmapLegend(blockSize: layout.blockSize)
     }
     .padding(.horizontal, HeatmapMetrics.cardPaddingH)
     .padding(.vertical, HeatmapMetrics.cardPaddingV)
     .frame(maxWidth: .infinity)
-    .frame(height: layout.cardHeight, alignment: .center)
+    .frame(height: layout.calendarCardHeight, alignment: .top)
   }
 
-  private func heatmapCluster(layout: HeatmapLayout) -> some View {
-    VStack(alignment: .leading, spacing: 0) {
-      monthLabelRow(layout: layout)
-      heatmapGrid(layout: layout)
+  private func monthNavigationRow(title: String) -> some View {
+    HStack(spacing: 8) {
+      Button {
+        guard canGoBack else { return }
+        monthsBack += 1
+      } label: {
+        Image(systemName: "chevron.left")
+          .font(.body.weight(.semibold))
+          .foregroundStyle(canGoBack ? AppTheme.textPrimary : AppTheme.textSecondary.opacity(0.35))
+          .frame(width: 36, height: HeatmapMetrics.navRowHeight)
+      }
+      .buttonStyle(.plain)
+      .disabled(!canGoBack)
+      .accessibilityLabel("Previous month")
+
+      monthTitleLabel(title)
+        .frame(maxWidth: .infinity)
+
+      Button {
+        guard canGoForward else { return }
+        monthsBack -= 1
+      } label: {
+        Image(systemName: "chevron.right")
+          .font(.body.weight(.semibold))
+          .foregroundStyle(canGoForward ? AppTheme.textPrimary : AppTheme.textSecondary.opacity(0.35))
+          .frame(width: 36, height: HeatmapMetrics.navRowHeight)
+      }
+      .buttonStyle(.plain)
+      .disabled(!canGoForward)
+      .accessibilityLabel("Next month")
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .frame(height: HeatmapMetrics.navRowHeight)
   }
 
-  private func weekdayColumn(layout: HeatmapLayout) -> some View {
-    VStack(alignment: .trailing, spacing: layout.rowGap) {
-      ForEach(0 ..< 7, id: \.self) { row in
-        Text(layout.weekdayLabel(row: row))
-          .font(.system(size: 7, weight: .medium))
+  @ViewBuilder
+  private func monthTitleLabel(_ title: String) -> some View {
+    let label = Text(title)
+      .font(.headline.weight(.semibold))
+      .foregroundStyle(AppTheme.textPrimary)
+      .lineLimit(1)
+      .minimumScaleFactor(0.85)
+
+    if monthTitleLinksToCurrentMonth {
+      Button {
+        goToToday()
+      } label: {
+        label
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel(title)
+      .accessibilityHint("Shows the current month.")
+    } else {
+      label
+        .accessibilityAddTraits(.isHeader)
+    }
+  }
+
+  private func weekdayHeaderRow(layout: MonthHeatmapLayout) -> some View {
+    HStack(spacing: layout.columnGap) {
+      ForEach(0 ..< 7, id: \.self) { col in
+        Text(layout.weekdayLabel(column: col))
+          .font(.caption2.weight(.semibold))
           .foregroundStyle(AppTheme.textSecondary)
-          .frame(
-            width: HeatmapMetrics.weekdayColumnWidth,
-            height: layout.blockSize,
-            alignment: .trailing
-          )
+          .frame(width: layout.blockSize, height: HeatmapMetrics.weekdayHeaderHeight)
       }
     }
-    .padding(.top, HeatmapMetrics.monthRowHeight)
+    .frame(width: layout.gridWidth, alignment: .center)
   }
 
-  private func monthLabelRow(layout: HeatmapLayout) -> some View {
-    ZStack(alignment: .topLeading) {
-      ForEach(layout.heatmap.monthLabels) { label in
-        Text(label.label)
-          .font(.system(size: 7, weight: .medium))
-          .foregroundStyle(AppTheme.textSecondary)
-          .lineLimit(1)
-          .offset(x: layout.columnOffset(for: label.column))
-      }
-    }
-    .frame(width: layout.gridWidth, height: HeatmapMetrics.monthRowHeight, alignment: .topLeading)
-    .clipped()
-  }
-
-  private func heatmapGrid(layout: HeatmapLayout) -> some View {
-    heatmapColumns(layout: layout)
-      .frame(width: layout.actualGridWidth, height: layout.gridHeight, alignment: .leading)
-      .frame(width: layout.gridWidth, alignment: .center)
-  }
-
-  private func heatmapColumns(layout: HeatmapLayout) -> some View {
-    HStack(alignment: .top, spacing: layout.columnGap) {
-      ForEach(0 ..< layout.heatmap.columnCount, id: \.self) { column in
-        VStack(spacing: layout.rowGap) {
-          ForEach(0 ..< 7, id: \.self) { row in
-            heatmapBlock(
-              layout.heatmap.cell(column: column, row: row),
-              blockSize: layout.blockSize
+  private func monthGrid(layout: MonthHeatmapLayout, heatmap: ABSListeningMonthHeatmap) -> some View {
+    VStack(spacing: layout.rowGap) {
+      ForEach(0 ..< heatmap.rowCount, id: \.self) { row in
+        HStack(spacing: layout.columnGap) {
+          ForEach(0 ..< 7, id: \.self) { col in
+            let cell = heatmap.cell(column: col, row: row)
+            heatmapDayCell(
+              cell,
+              blockSize: layout.blockSize,
+              isSelected: cell?.id == selectedDayKey
             )
           }
         }
       }
     }
+    .frame(width: layout.gridWidth, alignment: .center)
   }
 
-  private func heatmapBlock(_ cell: ABSListeningYearHeatmap.Cell?, blockSize: CGFloat) -> some View {
-    Circle()
-      .fill(heatmapFill(level: cell?.colorLevel ?? 0))
-      .overlay {
+  private func heatmapDayCell(
+    _ cell: ABSListeningMonthHeatmap.Cell?,
+    blockSize: CGFloat,
+    isSelected: Bool
+  ) -> some View {
+    let level = cell?.colorLevel ?? 0
+    let inMonth = cell?.isInDisplayedMonth ?? false
+    let day = cell?.day ?? 0
+    let dayFont = max(8, blockSize * 0.38)
+
+    let dayContent = ZStack {
+      Circle()
+        .fill(heatmapFill(level: inMonth ? level : 0))
+        .overlay {
+          Circle()
+            .strokeBorder(
+              heatmapOutline(level: inMonth ? level : 0),
+              lineWidth: 0.5
+            )
+        }
+      if isSelected {
         Circle()
-          .strokeBorder(heatmapOutline(level: cell?.colorLevel ?? 0), lineWidth: 0.5)
+          .strokeBorder(accent, lineWidth: 2)
       }
-      .frame(width: blockSize, height: blockSize)
-      .accessibilityLabel(cell?.accessibilityLabel ?? "No data")
+      if day > 0 {
+        Text("\(day)")
+          .font(.system(size: dayFont, weight: .medium, design: .rounded))
+          .monospacedDigit()
+          .foregroundStyle(dayNumberColor(level: level, inMonth: inMonth, isSelected: isSelected))
+      }
+    }
+    .frame(width: blockSize, height: blockSize)
+    .opacity(inMonth ? 1 : 0.35)
+
+    return Group {
+      if inMonth, let cell {
+        Button {
+          if selectedDayKey == cell.id {
+            selectedDayKey = nil
+          } else {
+            selectedDayKey = cell.id
+          }
+        } label: {
+          dayContent
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(cell.accessibilityLabel)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+      } else {
+        dayContent
+          .accessibilityLabel(cell?.accessibilityLabel ?? "No data")
+      }
+    }
+  }
+
+  private func dayNumberColor(level: Int, inMonth: Bool, isSelected: Bool) -> Color {
+    guard inMonth else { return AppTheme.textSecondary.opacity(0.5) }
+    if isSelected { return accent }
+    return level >= 3 ? AppTheme.background : AppTheme.textSecondary
+  }
+
+  private func syncSelectedDay(for heatmap: ABSListeningMonthHeatmap) {
+    if let key = selectedDayKey,
+      heatmap.cells.contains(where: { $0.id == key && $0.isInDisplayedMonth })
+    {
+      return
+    }
+    selectedDayKey = nil
+  }
+
+  private func goToToday() {
+    monthsBack = 0
+    selectedDayKey = nil
+  }
+
+  private func daySummary(heatmap: ABSListeningMonthHeatmap) -> some View {
+    let seconds: Int
+    let accessibility: String
+    if let key = selectedDayKey,
+      let cell = heatmap.cells.first(where: { $0.id == key && $0.isInDisplayedMonth })
+    {
+      seconds = cell.seconds
+      accessibility = selectedDayAccessibilityLabel(key: key, seconds: cell.seconds)
+    } else {
+      seconds = heatmap.totalSecondsInMonth
+      accessibility =
+        "\(heatmap.monthTitle), \(heatmap.daysListenedInMonth) days, \(listeningTimeLabel(seconds: seconds))"
+    }
+
+    let tint = seconds > 0 ? accent : AppTheme.textSecondary
+    return HStack(alignment: .center, spacing: 12) {
+      Image(systemName: "headphones.circle.fill")
+        .font(.system(size: 32))
+        .foregroundStyle(tint)
+      Text(listeningTimeLabel(seconds: seconds))
+        .font(.system(size: 28, weight: .bold, design: .rounded))
+        .monospacedDigit()
+        .foregroundStyle(seconds > 0 ? AppTheme.textPrimary : AppTheme.textSecondary)
+        .minimumScaleFactor(0.7)
+        .lineLimit(1)
+    }
+    .frame(maxWidth: .infinity, alignment: .center)
+    .frame(minHeight: AppTheme.Layout.listRowMinHeight)
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(accessibility)
+    .animation(.easeInOut(duration: 0.15), value: selectedDayKey)
+  }
+
+  private func listeningTimeLabel(seconds: Int) -> String {
+    seconds > 0 ? formatPlaybackDurationShortHuman(Double(seconds)) : "No listening"
+  }
+
+  private func selectedDayAccessibilityLabel(key: String, seconds: Int) -> String {
+    let dateLabel: String
+    if let date = ABSListeningStatsResponse.parseDayKey(key, calendar: calendar) {
+      let f = DateFormatter()
+      f.locale = locale
+      f.dateStyle = .medium
+      f.timeStyle = .none
+      dateLabel = f.string(from: date)
+    } else {
+      dateLabel = key
+    }
+    return "\(dateLabel), \(listeningTimeLabel(seconds: seconds))"
   }
 
   private func heatmapFill(level: Int) -> Color {
@@ -148,7 +360,7 @@ struct ListeningYearHeatmapCard: View {
   }
 
   private func heatmapLegend(blockSize: CGFloat) -> some View {
-    let dot = min(9, max(5, blockSize))
+    let dot = min(9, max(5, blockSize * 0.45))
     return HStack(spacing: 3) {
       Text("Less", comment: "Heatmap legend low")
         .font(.caption2)
@@ -165,6 +377,7 @@ struct ListeningYearHeatmapCard: View {
         .font(.caption2)
         .foregroundStyle(AppTheme.textSecondary)
     }
+    .padding(.top, HeatmapMetrics.legendTopPadding)
     .frame(maxWidth: .infinity, alignment: .center)
   }
 }
@@ -179,47 +392,31 @@ private struct HeatmapCardWidthKey: PreferenceKey {
 
 // MARK: - Layout
 
-private struct HeatmapLayout {
-  let heatmap: ABSListeningYearHeatmap
+private struct MonthHeatmapLayout {
   let blockSize: CGFloat
   let columnGap: CGFloat
   let rowGap: CGFloat
-  /// Zielbreite des Raster-Bereichs (zentriert im Cluster).
   let gridWidth: CGFloat
-  /// Tatsächliche Breite der Kreis-Spalten (für Zentrierung im Raster-Rahmen).
-  let actualGridWidth: CGFloat
-  let gridHeight: CGFloat
   let weekdayLabels: [String]
-  let cardHeight: CGFloat
-  private let columnOffsets: [Int: CGFloat]
+  let calendarCardHeight: CGFloat
 
   static func make(
-    stats: ABSListeningStatsResponse,
+    heatmap: ABSListeningMonthHeatmap,
     containerWidth: CGFloat,
     locale: Locale,
-    calendar: Calendar = .current
-  ) -> HeatmapLayout {
+    calendar: Calendar
+  ) -> MonthHeatmapLayout {
     var cal = calendar
     cal.locale = locale
-    let heatmap = stats.yearListeningHeatmap(weeksToShow: 52, calendar: cal, locale: locale)
-    let columnCount = max(heatmap.columnCount, 1)
-    let n = CGFloat(columnCount)
-
     let contentWidth = max(0, containerWidth - 2 * HeatmapMetrics.cardPaddingH)
-    let gridArea = contentWidth
-
-    let minColGap = HeatmapMetrics.minColumnGap
-    let block = max(2, (gridArea - (n - 1) * minColGap) / n)
-    let usedBlocks = n * block
-    let columnGap = n > 1 ? max(minColGap, (gridArea - usedBlocks) / (n - 1)) : 0
-    let actualGridWidth = n * block + max(0, n - 1) * columnGap
+    let n = CGFloat(heatmap.columnCount)
+    let minGap = HeatmapMetrics.minColumnGap
+    let rawBlock = max(24, (contentWidth - (n - 1) * minGap) / n)
+    let block = floor(rawBlock * HeatmapMetrics.dayCellScale)
+    let used = n * block
+    let columnGap = n > 1 ? max(minGap, (contentWidth - used) / (n - 1)) : 0
     let rowGap = HeatmapMetrics.rowGap
-    let gridHeight = 7 * block + 6 * rowGap
-
-    var offsets: [Int: CGFloat] = [:]
-    for col in 0 ..< columnCount {
-      offsets[col] = CGFloat(col) * (block + columnGap)
-    }
+    let gridWidth = n * block + max(0, n - 1) * columnGap
 
     let allSymbols = cal.shortWeekdaySymbols.count == 7
       ? cal.shortWeekdaySymbols
@@ -227,41 +424,48 @@ private struct HeatmapLayout {
     let firstIdx = cal.firstWeekday - 1
     let weekdays = (0 ..< 7).map { allSymbols[(firstIdx + $0) % 7] }
 
-    return HeatmapLayout(
-      heatmap: heatmap,
+    return MonthHeatmapLayout(
       blockSize: block,
       columnGap: columnGap,
       rowGap: rowGap,
-      gridWidth: gridArea,
-      actualGridWidth: actualGridWidth,
-      gridHeight: gridHeight,
+      gridWidth: gridWidth,
       weekdayLabels: weekdays,
-      cardHeight: estimatedCardHeight(block: block, rowGap: rowGap),
-      columnOffsets: offsets
+      calendarCardHeight: estimatedCalendarCardHeight(
+        block: block, rowCount: max(heatmap.rowCount, 1), rowGap: rowGap)
     )
   }
 
-  static func estimatedCardHeight(containerWidth: CGFloat) -> CGFloat {
+  static func estimatedCalendarCardHeight(containerWidth: CGFloat, rowCount: Int) -> CGFloat {
     let contentWidth = max(0, containerWidth - 2 * HeatmapMetrics.cardPaddingH)
-    let gridArea = contentWidth
-    let n = CGFloat(53)
-    let block = max(2, (gridArea - (n - 1) * HeatmapMetrics.minColumnGap) / n)
-    return estimatedCardHeight(block: block, rowGap: HeatmapMetrics.rowGap)
+    let rawBlock = max(24, (contentWidth - 6 * HeatmapMetrics.minColumnGap) / 7)
+    let block = floor(rawBlock * HeatmapMetrics.dayCellScale)
+    return estimatedCalendarCardHeight(block: block, rowCount: rowCount, rowGap: HeatmapMetrics.rowGap)
   }
 
-  private static func estimatedCardHeight(block: CGFloat, rowGap: CGFloat) -> CGFloat {
-    let gridRows = 7 * block + 6 * rowGap
+  private static func estimatedCalendarCardHeight(block: CGFloat, rowCount: Int, rowGap: CGFloat) -> CGFloat {
+    let rows = CGFloat(rowCount)
+    let gridH = rows * block + max(0, rows - 1) * rowGap
     let verticalPad = 2 * HeatmapMetrics.cardPaddingV
-    return verticalPad + HeatmapMetrics.monthRowHeight + gridRows
-      + HeatmapMetrics.bodySpacing + HeatmapMetrics.legendHeight
+    return verticalPad
+      + HeatmapMetrics.navRowHeight
+      + HeatmapMetrics.bodySpacing
+      + HeatmapMetrics.weekdayHeaderHeight
+      + HeatmapMetrics.bodySpacing
+      + gridH
+      + HeatmapMetrics.bodySpacing
+      + HeatmapMetrics.legendTopPadding
+      + HeatmapMetrics.legendHeight
   }
 
-  func columnOffset(for column: Int) -> CGFloat {
-    columnOffsets[column] ?? 0
+  func weekdayLabel(column: Int) -> String {
+    guard column >= 0, column < weekdayLabels.count else { return "" }
+    return String(weekdayLabels[column].prefix(2))
   }
+}
 
-  func weekdayLabel(row: Int) -> String {
-    guard row >= 0, row < weekdayLabels.count else { return "" }
-    return String(weekdayLabels[row].prefix(1))
+private extension Calendar {
+  fileprivate func startOfMonth(for date: Date) -> Date {
+    let comps = dateComponents([.year, .month], from: date)
+    return self.date(from: comps) ?? date
   }
 }

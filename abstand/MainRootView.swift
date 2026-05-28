@@ -10,7 +10,7 @@ struct MainRootView: View {
 
   var body: some View {
     tabViewBody
-      .tint(AppTheme.accent)
+      .tint(model.appearanceAccentColor)
       .background(AppTheme.background.ignoresSafeArea())
     .fullScreenCover(item: $model.ebookReaderSession) { session in
       ReadiumReaderView(
@@ -150,7 +150,7 @@ struct MainRootView: View {
         .navigationTitle(AppModel.MainTab.stats.rawValue)
         .toolbarTitleDisplayMode(.inlineLarge)
     }
-    .tint(AppTheme.accent)
+    .tint(model.appearanceAccentColor)
   }
 
   // MARK: - Settings tab root
@@ -159,8 +159,10 @@ struct MainRootView: View {
     NavigationStack {
       SettingsHubRootView()
         .abstandTabScreenChrome()
+        .navigationTitle(AppModel.MainTab.settings.rawValue)
+        .toolbarTitleDisplayMode(.inlineLarge)
     }
-    .tint(AppTheme.accent)
+    .tint(model.appearanceAccentColor)
   }
 
   // MARK: - Library tab
@@ -176,35 +178,29 @@ struct MainRootView: View {
   }
 
   private var booksCatalogScrollView: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-        booksBrowseSectionStrip
-        if model.booksBrowseSection == .search {
-          booksSearchField
-        }
-        booksBrowseMainContent
-      }
-      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.top, AppTheme.Layout.withinSectionSpacing)
-      .padding(
-        .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
-    }
-    .abstandScrollScreenBackground()
-    .refreshable {
-      await model.refreshBooksCatalog()
+    AbstandFixedBrowseStripSectionsLayout(
+      selection: model.booksBrowseSection,
+      sectionIDs: BooksBrowseSection.stripOrder,
+      scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
+        + model.nowPlayingAccessoryScrollBottomInset,
+      onRefresh: { await model.refreshBooksCatalog() }
+    ) {
+      booksBrowseSectionStrip
+    } sectionBody: { section in
+      booksBrowseSectionScrollContent(for: section)
     }
   }
 
   private var booksBrowseSectionStrip: some View {
     let tile = AppTheme.Layout.horizontalBrowseStripTile
     let captionW = tile + AppTheme.Layout.horizontalBrowseStripLabelWidthExtra
-    return ScrollView(.horizontal, showsIndicators: false) {
+    return AbstandHorizontalBrowseStripScroll {
       HStack(alignment: .top, spacing: AppTheme.Layout.horizontalBrowseStripInterTileSpacing) {
         ForEach(BooksBrowseSection.stripOrder) { section in
           Button {
             model.selectBooksBrowseSection(section)
           } label: {
-            VStack(spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
+            VStack(alignment: .leading, spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
               ZStack {
                 RoundedRectangle(
                   cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous
@@ -214,14 +210,14 @@ struct MainRootView: View {
                 Image(systemName: section.systemImage)
                   .font(.title2)
                   .foregroundStyle(
-                    model.booksBrowseSection == section ? AppTheme.accent : AppTheme.textSecondary)
+                    model.booksBrowseSection == section ? Color.accentColor : AppTheme.textSecondary)
               }
               .overlay {
                 RoundedRectangle(
                   cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous
                 )
                 .strokeBorder(
-                  model.booksBrowseSection == section ? AppTheme.accent : Color.clear, lineWidth: 2.5)
+                  model.booksBrowseSection == section ? Color.accentColor : Color.clear, lineWidth: 2.5)
               }
               Text(section.rawValue)
                 .font(.caption2.weight(.medium))
@@ -229,15 +225,14 @@ struct MainRootView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.center)
-                .frame(width: captionW)
+                .frame(width: tile, alignment: .center)
             }
+            .frame(width: captionW, alignment: .leading)
           }
           .buttonStyle(.plain)
         }
       }
-      .padding(.vertical, AppTheme.Layout.horizontalBrowseStripVerticalPadding)
     }
-    .scrollContentBackground(.hidden)
   }
 
   private var booksSearchField: some View {
@@ -267,8 +262,18 @@ struct MainRootView: View {
   }
 
   @ViewBuilder
-  private var booksBrowseMainContent: some View {
-    switch model.booksBrowseSection {
+  private func booksBrowseSectionScrollContent(for section: BooksBrowseSection) -> some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      if section == .search {
+        booksSearchField
+      }
+      booksBrowseSectionContent(for: section)
+    }
+  }
+
+  @ViewBuilder
+  private func booksBrowseSectionContent(for section: BooksBrowseSection) -> some View {
+    switch section {
     case .books:
       booksCatalogBookListBody
     case .search:
@@ -320,7 +325,7 @@ struct MainRootView: View {
   private var booksBrowseCenteredProgress: some View {
     ProgressView()
       .controlSize(.extraLarge)
-      .tint(AppTheme.accent)
+      .tint(Color.accentColor)
       .scaleEffect(1.35)
       .padding(.vertical, 48)
       .frame(maxWidth: .infinity)
@@ -332,7 +337,7 @@ struct MainRootView: View {
 
   private var booksBrowseAuthorListBody: some View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      TabContentSectionTitle(title:"Author")
+      TabContentSectionTitle(title:"Authors")
       if !model.isNetworkReachable {
         booksBrowseOfflineHint
       } else if model.browseAuthorsLoading && model.browseAuthors.isEmpty {
@@ -348,13 +353,7 @@ struct MainRootView: View {
             model.openAuthorDetail(
               authorId: author.id, displayName: author.name, numBooks: author.numBooks)
           } label: {
-            BrowseEntityRowCard(
-              title: author.name,
-              detailLabel: "Books",
-              detailValue: booksBrowseCountLine(count: author.numBooks),
-              cacheItemId: "author:\(author.id)",
-              coverURL: author.hasAuthorImage ? model.authorImageURL(authorId: author.id) : nil
-            )
+            browseAuthorRow(author)
           }
           .buttonStyle(.plain)
           .task(id: author.id) {
@@ -366,7 +365,9 @@ struct MainRootView: View {
   }
 
   private var booksBrowseNarratorListBody: some View {
-    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+    let columns = [GridItem(.flexible()), GridItem(.flexible())]
+
+    return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Narrators")
       if !model.isNetworkReachable {
         booksBrowseOfflineHint
@@ -378,13 +379,19 @@ struct MainRootView: View {
           .foregroundStyle(AppTheme.textSecondary)
           .padding(.vertical, 8)
       } else {
-        ForEach(model.browseNarrators) { narrator in
-          Button {
-            model.openNarratorDetail(narratorName: narrator.name, numBooks: narrator.numBooks)
-          } label: {
-            browseNarratorRow(narrator)
+        LazyVGrid(columns: columns, alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+          ForEach(model.browseNarrators) { narrator in
+            Button {
+              model.openNarratorDetail(narratorName: narrator.name, numBooks: narrator.numBooks)
+            } label: {
+              FacetBrowseTileCard(
+                kind: .narrators,
+                title: narrator.name,
+                count: narrator.numBooks
+              )
+            }
+            .buttonStyle(.plain)
           }
-          .buttonStyle(.plain)
         }
       }
     }
@@ -422,7 +429,9 @@ struct MainRootView: View {
   }
 
   private var booksBrowseCollectionsListBody: some View {
-    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+    let columns = [GridItem(.flexible()), GridItem(.flexible())]
+
+    return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Collections")
       if !model.isNetworkReachable {
         booksBrowseOfflineHint
@@ -434,23 +443,32 @@ struct MainRootView: View {
           .foregroundStyle(AppTheme.textSecondary)
           .padding(.vertical, 8)
       } else {
-        ForEach(model.browseCollections) { collection in
-          Button {
-            model.openCollectionDetail(
-              collectionId: collection.id,
-              displayName: collection.name,
-              numBooks: collection.books?.count)
-          } label: {
-            browseCollectionRow(collection)
+        LazyVGrid(columns: columns, alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+          ForEach(model.browseCollections) { collection in
+            Button {
+              model.openCollectionDetail(
+                collectionId: collection.id,
+                displayName: collection.name,
+                numBooks: collection.books?.count
+              )
+            } label: {
+              FacetBrowseTileCard(
+                kind: .collections,
+                title: collection.name,
+                count: collection.books?.count
+              )
+            }
+            .buttonStyle(.plain)
           }
-          .buttonStyle(.plain)
         }
       }
     }
   }
 
   private var booksBrowseTagsListBody: some View {
-    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+    let columns = [GridItem(.flexible()), GridItem(.flexible())]
+
+    return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Tags")
       if !model.isNetworkReachable {
         booksBrowseOfflineHint
@@ -462,20 +480,28 @@ struct MainRootView: View {
           .foregroundStyle(AppTheme.textSecondary)
           .padding(.vertical, 8)
       } else {
-        ForEach(model.browseTags) { tag in
-          Button {
-            model.openTagDetail(tagName: tag.name, numBooks: tag.numBooks)
-          } label: {
-            browseTagRow(tag)
+        LazyVGrid(columns: columns, alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+          ForEach(model.browseTags) { tag in
+            Button {
+              model.openTagDetail(tagName: tag.name, numBooks: tag.numBooks)
+            } label: {
+              FacetBrowseTileCard(
+                kind: .tags,
+                title: tag.name,
+                count: tag.numBooks
+              )
+            }
+            .buttonStyle(.plain)
           }
-          .buttonStyle(.plain)
         }
       }
     }
   }
 
   private var booksBrowseGenresListBody: some View {
-    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+    let columns = [GridItem(.flexible()), GridItem(.flexible())]
+
+    return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Genres")
       if !model.isNetworkReachable {
         booksBrowseOfflineHint
@@ -487,75 +513,46 @@ struct MainRootView: View {
           .foregroundStyle(AppTheme.textSecondary)
           .padding(.vertical, 8)
       } else {
-        ForEach(model.browseGenres) { genre in
-          Button {
-            model.openGenreDetail(genreName: genre.name, numBooks: genre.numBooks)
-          } label: {
-            browseGenreRow(genre)
+        LazyVGrid(columns: columns, alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+          ForEach(model.browseGenres) { genre in
+            Button {
+              model.openGenreDetail(genreName: genre.name, numBooks: genre.numBooks)
+            } label: {
+              FacetBrowseTileCard(
+                kind: .genres,
+                title: genre.name,
+                count: genre.numBooks
+              )
+            }
+            .buttonStyle(.plain)
           }
-          .buttonStyle(.plain)
         }
       }
     }
   }
 
   @ViewBuilder
-  private func browseNarratorRow(_ narrator: ABSLibraryNarratorListItem) -> some View {
-    let bookId = model.browseNarratorCoverItemIdByNarratorName[narrator.name]
+  private func browseAuthorRow(_ author: ABSLibraryAuthorListItem) -> some View {
     BrowseEntityRowCard(
-      title: narrator.name,
+      title: author.name,
       detailLabel: "Books",
-      detailValue: booksBrowseCountLine(count: narrator.numBooks),
-      cacheItemId: bookId ?? "narrator-ph:\(narrator.id)",
-      coverURL: bookId.flatMap { model.coverURL(for: $0) }
+      detailValue: browseEntityBooksCountLine(count: author.numBooks),
+      cacheItemId: "author:\(author.id)",
+      coverURL: author.hasAuthorImage ? model.authorImageURL(authorId: author.id) : nil
     )
   }
 
   @ViewBuilder
   private func browseSeriesRow(_ series: ABSLibrarySeriesListItem) -> some View {
-    let bookId = model.browseRepresentativeBookItemId(from: series.books)
+    let placeholder = "series-ph:\(series.id)"
+    let bookIds = model.browseSeriesCoverBookIds(from: series.books)
     BrowseEntityRowCard(
       title: series.name,
       detailLabel: "Books",
       detailValue: booksBrowseCountLine(count: series.books?.count),
-      cacheItemId: bookId ?? "series-ph:\(series.id)",
-      coverURL: bookId.flatMap { model.coverURL(for: $0) }
-    )
-  }
-
-  @ViewBuilder
-  private func browseCollectionRow(_ collection: ABSLibraryCollectionListItem) -> some View {
-    let bookId = model.browseRepresentativeBookItemId(from: collection.books)
-    BrowseEntityRowCard(
-      title: collection.name,
-      detailLabel: "Books",
-      detailValue: booksBrowseCountLine(count: collection.books?.count),
-      cacheItemId: bookId ?? "collection-ph:\(collection.id)",
-      coverURL: bookId.flatMap { model.coverURL(for: $0) }
-    )
-  }
-
-  @ViewBuilder
-  private func browseTagRow(_ tag: BooksBrowseTagListItem) -> some View {
-    let bookId = model.browseTagCoverItemIdByName[tag.name]
-    BrowseEntityRowCard(
-      title: tag.name,
-      detailLabel: "Books",
-      detailValue: booksBrowseCountLine(count: tag.numBooks),
-      cacheItemId: bookId ?? "tag-ph:\(tag.id)",
-      coverURL: bookId.flatMap { model.coverURL(for: $0) }
-    )
-  }
-
-  @ViewBuilder
-  private func browseGenreRow(_ genre: BooksBrowseGenreListItem) -> some View {
-    let bookId = model.browseGenreCoverItemIdByName[genre.name]
-    BrowseEntityRowCard(
-      title: genre.name,
-      detailLabel: "Books",
-      detailValue: booksBrowseCountLine(count: genre.numBooks),
-      cacheItemId: bookId ?? "genre-ph:\(genre.id)",
-      coverURL: bookId.flatMap { model.coverURL(for: $0) }
+      cacheItemId: bookIds.first ?? placeholder,
+      coverURL: bookIds.first.flatMap { model.coverURL(for: $0) },
+      coverBookIds: bookIds.count > 1 ? bookIds : nil
     )
   }
 
@@ -572,7 +569,7 @@ struct MainRootView: View {
         model.clearCatalogFilter()
       }
       .font(.subheadline.weight(.semibold))
-      .foregroundStyle(AppTheme.accent)
+      .foregroundStyle(Color.accentColor)
     }
     .padding(.horizontal, AppTheme.Layout.tabPaddingH)
     .padding(.vertical, 8)
@@ -589,62 +586,53 @@ struct MainRootView: View {
     .onDisappear { podcastCatalogToolbarState.detach() }
   }
 
-  private var podcastCatalogBodyIdentity: String {
-    model.podcastSelectedShowId ?? "new"
+  private static let podcastCatalogNewSectionId = "__new__"
+
+  private var podcastCatalogScrollSectionIDs: [String] {
+    [Self.podcastCatalogNewSectionId] + model.podcastShows.map(\.id)
+  }
+
+  private var podcastCatalogScrollSelection: String {
+    model.podcastSelectedShowId ?? Self.podcastCatalogNewSectionId
+  }
+
+  private func podcastCatalogShowId(forSectionId sectionId: String) -> String? {
+    sectionId == Self.podcastCatalogNewSectionId ? nil : sectionId
   }
 
   private var podcastCatalogScrollView: some View {
-    ScrollViewReader { proxy in
-      ScrollView {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-          podcastShowsCoverStrip
-            .id("podcastScrollTop")
-          podcastCatalogMainBody
-            .id("podcastCatalogBody-\(podcastCatalogBodyIdentity)")
-        }
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(.top, AppTheme.Layout.withinSectionSpacing)
-        .padding(
-          .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
-      }
-      .abstandScrollScreenBackground()
-      .refreshable {
-        await model.refreshPodcastsTab()
-      }
-    }
-  }
-
-  private func scrollPodcastCatalogToTop(proxy: ScrollViewProxy, animated: Bool) {
-    if animated {
-      withAnimation(.easeOut(duration: 0.25)) {
-        proxy.scrollTo("podcastScrollTop", anchor: .top)
-      }
-    } else {
-      var transaction = Transaction()
-      transaction.disablesAnimations = true
-      withTransaction(transaction) {
-        proxy.scrollTo("podcastScrollTop", anchor: .top)
-      }
+    AbstandFixedBrowseStripSectionsLayout(
+      selection: podcastCatalogScrollSelection,
+      sectionIDs: podcastCatalogScrollSectionIDs,
+      scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
+        + model.nowPlayingAccessoryScrollBottomInset,
+      onRefresh: { await model.refreshPodcastsTab() }
+    ) {
+      podcastShowsCoverStrip
+    } sectionBody: { sectionId in
+      podcastCatalogSectionScrollContent(showId: podcastCatalogShowId(forSectionId: sectionId))
     }
   }
 
   @ViewBuilder
-  private var podcastCatalogMainBody: some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      TabContentSectionTitle(title:"Episodes")
-      podcastPodcastsTabEpisodesContent
+  private func podcastCatalogSectionScrollContent(showId: String?) -> some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+        TabContentSectionTitle(title:"Episodes")
+        podcastPodcastsTabEpisodesContent(showId: showId)
+      }
     }
   }
 
   private var podcastShowsCoverStrip: some View {
     let cover = AppTheme.Layout.horizontalBrowseStripTile
     let captionW = cover + AppTheme.Layout.horizontalBrowseStripLabelWidthExtra
-    return ScrollView(.horizontal, showsIndicators: false) {
+    return AbstandHorizontalBrowseStripScroll {
       HStack(alignment: .top, spacing: AppTheme.Layout.horizontalBrowseStripInterTileSpacing) {
         Button {
           Task { await model.selectPodcastShowFilter(nil) }
         } label: {
-          VStack(spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
+          VStack(alignment: .leading, spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
             ZStack {
               RoundedRectangle(
                 cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
@@ -652,20 +640,21 @@ struct MainRootView: View {
                 .frame(width: cover, height: cover)
               Image(systemName: "square.grid.2x2")
                 .font(.title2)
-                .foregroundStyle(model.podcastSelectedShowId == nil ? AppTheme.accent : AppTheme.textSecondary)
+                .foregroundStyle(model.podcastSelectedShowId == nil ? Color.accentColor : AppTheme.textSecondary)
             }
             .overlay {
               RoundedRectangle(
                 cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
                 .strokeBorder(
-                  model.podcastSelectedShowId == nil ? AppTheme.accent : Color.clear, lineWidth: 2.5)
+                  model.podcastSelectedShowId == nil ? Color.accentColor : Color.clear, lineWidth: 2.5)
             }
             Text("New")
               .font(.caption2.weight(.medium))
               .foregroundStyle(AppTheme.textPrimary)
               .lineLimit(1)
-              .frame(width: captionW)
+              .frame(width: cover, alignment: .center)
           }
+          .frame(width: captionW, alignment: .leading)
         }
         .buttonStyle(.plain)
 
@@ -679,7 +668,7 @@ struct MainRootView: View {
             model.applyPodcastShowFilterSelection(show.id)
             Task { await model.loadPodcastEpisodesForShowLibraryItem(show.id) }
           } label: {
-            VStack(spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
+            VStack(alignment: .leading, spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
               CoverImageView(
                 url: model.coverURL(for: show.id),
                 token: model.token,
@@ -694,7 +683,7 @@ struct MainRootView: View {
                 RoundedRectangle(
                   cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
                   .strokeBorder(
-                    model.podcastSelectedShowId == show.id ? AppTheme.accent : Color.clear, lineWidth: 2.5)
+                    model.podcastSelectedShowId == show.id ? Color.accentColor : Color.clear, lineWidth: 2.5)
               }
               Text(show.displayTitle)
                 .font(.caption2.weight(.medium))
@@ -702,31 +691,37 @@ struct MainRootView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.center)
-                .frame(width: captionW)
+                .frame(width: cover, alignment: .center)
             }
+            .frame(width: captionW, alignment: .leading)
           }
           .buttonStyle(.plain)
         }
       }
-      .padding(.vertical, AppTheme.Layout.horizontalBrowseStripVerticalPadding)
     }
-    .scrollContentBackground(.hidden)
   }
 
-  private var podcastPodcastsTabEpisodesContent: some View {
-    let episodes = model.podcastEpisodesForPodcastsTab
+  @ViewBuilder
+  private func podcastPodcastsTabEpisodesContent(showId: String?) -> some View {
+    let episodes = model.podcastEpisodesForPodcastsTab(showId: showId)
+    let isShowPane = showId != nil
+    let isActivePane =
+      isShowPane
+      ? model.podcastSelectedShowId == showId
+      : model.podcastSelectedShowId == nil
     let listLoading: Bool = {
-      if model.podcastSelectedShowId != nil {
+      guard isActivePane else { return false }
+      if isShowPane {
         return model.isLoadingPodcastShowEpisodes && episodes.isEmpty
       }
       return model.isLoadingPodcasts && episodes.isEmpty
     }()
 
-    return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       if listLoading {
         ProgressView()
           .controlSize(.large)
-          .tint(AppTheme.accent)
+          .tint(Color.accentColor)
           .padding(.vertical, 32)
           .frame(maxWidth: .infinity)
       }
@@ -735,7 +730,7 @@ struct MainRootView: View {
         !model.isLoadingPodcasts,
         !model.isLoadingPodcastShowEpisodes
       {
-        if model.podcastSelectedShowId != nil {
+        if isShowPane {
           Text("No episodes in the library for this show.")
             .font(.subheadline)
             .foregroundStyle(AppTheme.textSecondary)
@@ -753,17 +748,20 @@ struct MainRootView: View {
       ForEach(episodes, id: \.progressLookupKey) { episode in
         PodcastEpisodeRowCard(episode: episode, model: model)
           .task(id: episode.progressLookupKey) {
-            await model.loadMorePodcastsIfNeeded(currentItemId: episode.id)
+            if showId == nil {
+              await model.loadMorePodcastsIfNeeded(currentItemId: episode.id)
+            }
           }
       }
 
-      if model.podcastSelectedShowId != nil,
+      if isShowPane,
+        isActivePane,
         model.isLoadingPodcastShowEpisodes,
         !episodes.isEmpty
       {
         ProgressView()
           .controlSize(.small)
-          .tint(AppTheme.accent)
+          .tint(Color.accentColor)
           .frame(maxWidth: .infinity)
           .padding(.vertical, 8)
       }
@@ -781,7 +779,7 @@ private struct HomeServerConnectionIndicatorButton: View {
       model.homeToolbarServerConnectionTapped()
     } label: {
       Group {
-        if model.isServerConnectionProbeInProgress {
+        if model.isServerConnectionProbeInProgress, !model.isAppBootstrapInProgress {
           ProgressView()
             .controlSize(.small)
             .tint(AppTheme.warning)
@@ -813,7 +811,9 @@ private struct HomeServerConnectionIndicatorButton: View {
     case .online:
       return "Connected to server. Tap to enable offline mode."
     case .connecting:
-      return "Checking server connection."
+      return model.isAppBootstrapInProgress
+        ? "App is starting. Loading library and player."
+        : "Checking server connection."
     case .offline:
       if model.offlineHomeUIActive {
         return "Offline mode. Tap to go online."
@@ -833,13 +833,10 @@ private struct StartDashboardView: View {
       if model.offlineHomeUIActive {
         offlineHomeFixedRoot
       } else {
-        startDashboardOnlineScroll
+        startDashboardOnlineLayout
       }
     }
     .abstandScrollScreenBackground()
-    .refreshable {
-      await model.refreshStartTabPullToRefresh()
-    }
     .onAppear {
       if !model.offlineHomeUIActive {
         model.refreshEbookContinueReadingShelf()
@@ -895,65 +892,73 @@ private struct StartDashboardView: View {
       .background(AppTheme.background)
   }
 
-  private var startDashboardOnlineScroll: some View {
-    ScrollView {
-      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-        let hasHomeDownloads =
-          !model.downloadedItemIds.isEmpty || model.downloads.activeItemId != nil
-        let showStartEmpty =
-          model.startShelves.isEmpty && model.startBooks.isEmpty && !hasHomeDownloads
-            && model.downloadedTitlesForHome.isEmpty
-        if showStartEmpty {
-          startDashboardEmptyState
-        }
-        ForEach(model.startShelves) { shelf in
-          let continueSplit =
-            startDashboardIsContinueShelf(shelf) && (shelf.hasBooks || shelf.hasPodcastEpisodes)
-          Group {
-            if continueSplit {
-              VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-                if shelf.hasBooks || shelf.hasPodcastEpisodes {
-                  startDashboardContinueListeningSection(shelf)
+  /// Gleicher Kopf-/Scroll-Abstand wie Podcasts (`AbstandFixedBrowseStripTabLayout`, ohne Strip).
+  private var startDashboardOnlineLayout: some View {
+    AbstandFixedBrowseStripTabLayout(
+      showsStrip: false,
+      scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
+        + model.nowPlayingAccessoryScrollBottomInset,
+      onRefresh: { await model.refreshStartTabPullToRefresh() }
+    ) {
+      EmptyView()
+    } scrollBody: {
+      startDashboardOnlineScrollBody
+    }
+  }
+
+  private var startDashboardOnlineScrollBody: some View {
+    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      let hasHomeDownloads =
+        !model.downloadedItemIds.isEmpty || model.downloads.activeItemId != nil
+      let showStartEmpty =
+        model.startShelves.isEmpty && model.startBooks.isEmpty && !hasHomeDownloads
+          && model.downloadedTitlesForHome.isEmpty
+      if showStartEmpty {
+        startDashboardEmptyState
+      }
+      ForEach(model.startShelves) { shelf in
+        let continueSplit =
+          startDashboardIsContinueShelf(shelf) && (shelf.hasBooks || shelf.hasPodcastEpisodes)
+        Group {
+          if continueSplit {
+            VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+              if shelf.hasBooks || shelf.hasPodcastEpisodes {
+                startDashboardContinueListeningSection(shelf)
+              }
+              if shelf.hasAuthors {
+                VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+                  TabContentSectionTitle(title:shelf.displayTitle)
+                  startDashboardAuthorsContent(shelf.authors, shelf: shelf)
                 }
-                if shelf.hasAuthors {
-                  VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-                    TabContentSectionTitle(title:shelf.displayTitle)
-                    startDashboardAuthorsContent(shelf.authors, shelf: shelf)
+              }
+            }
+          } else {
+            VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+              if shelf.hasBooks || shelf.hasAuthors || shelf.hasSeries || shelf.hasPodcastEpisodes {
+                TabContentSectionTitle(title:shelf.displayTitle)
+              }
+              if shelf.hasSeries {
+                startDashboardSeriesContent(shelf.series, shelf: shelf)
+              } else if shelf.hasBooks {
+                if startDashboardUsesCompactLayout(shelf) {
+                  StartShelfCoverSwipeRow(books: shelf.books)
+                } else {
+                  ForEach(shelf.books) { book in
+                    BookRowCard(
+                      book: book,
+                      model: model,
+                      opensEbookOnCover: shelf.category == "continueEbooks"
+                    )
                   }
                 }
               }
-            } else {
-              VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-                if shelf.hasBooks || shelf.hasAuthors || shelf.hasSeries || shelf.hasPodcastEpisodes {
-                  TabContentSectionTitle(title:shelf.displayTitle)
-                }
-                if shelf.hasSeries {
-                  startDashboardSeriesContent(shelf.series, shelf: shelf)
-                } else if shelf.hasBooks {
-                  if startDashboardUsesCompactLayout(shelf) {
-                    StartShelfCoverSwipeRow(books: shelf.books)
-                  } else {
-                    ForEach(shelf.books) { book in
-                      BookRowCard(
-                        book: book,
-                        model: model,
-                        opensEbookOnCover: shelf.category == "continueEbooks"
-                      )
-                    }
-                  }
-                }
-                if shelf.hasAuthors {
-                  startDashboardAuthorsContent(shelf.authors, shelf: shelf)
-                }
+              if shelf.hasAuthors {
+                startDashboardAuthorsContent(shelf.authors, shelf: shelf)
               }
             }
           }
         }
       }
-      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.top, AppTheme.Layout.withinSectionSpacing)
-      .padding(
-        .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
   }
 
@@ -1043,13 +1048,15 @@ private struct StartDashboardView: View {
         displayName: series.name,
         numBooks: series.books?.count)
     } label: {
-      let bookId = model.browseRepresentativeBookItemId(from: series.books)
+      let placeholder = "series-ph:\(series.id)"
+      let bookIds = model.browseSeriesCoverBookIds(from: series.books)
       BrowseEntityRowCard(
         title: series.name,
         detailLabel: "Books",
         detailValue: browseEntityBooksCountLine(count: series.books?.count),
-        cacheItemId: bookId ?? "series-ph:\(series.id)",
-        coverURL: bookId.flatMap { model.coverURL(for: $0) }
+        cacheItemId: bookIds.first ?? placeholder,
+        coverURL: bookIds.first.flatMap { model.coverURL(for: $0) },
+        coverBookIds: bookIds.count > 1 ? bookIds : nil
       )
     }
     .buttonStyle(.plain)
@@ -1173,13 +1180,15 @@ private struct BooksSearchBrowseView: View {
         }
         searchSection(title: "Series", isEmpty: model.searchSeries.isEmpty) {
           ForEach(model.searchSeries) { s in
-            let bookId = model.browseRepresentativeBookItemId(from: s.books)
+            let placeholder = "series-ph:\(s.id)"
+            let bookIds = model.browseSeriesCoverBookIds(from: s.books)
             searchNavRow(
               title: s.name,
               detailLabel: "Books",
               detailValue: (s.books?.count).map { "\($0)" },
-              cacheItemId: bookId ?? "series-ph:\(s.id)",
-              coverURL: bookId.flatMap { model.coverURL(for: $0) }
+              cacheItemId: bookIds.first ?? placeholder,
+              coverURL: bookIds.first.flatMap { model.coverURL(for: $0) },
+              coverBookIds: bookIds.count > 1 ? bookIds : nil
             ) {
               model.openSeriesDetail(
                 seriesId: s.id, displayName: s.name, numBooks: s.books?.count)
@@ -1245,6 +1254,7 @@ private extension BooksSearchBrowseView {
     detailValue: String? = nil,
     cacheItemId: String = "",
     coverURL: URL? = nil,
+    coverBookIds: [String]? = nil,
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
@@ -1253,7 +1263,8 @@ private extension BooksSearchBrowseView {
         detailLabel: detailLabel,
         detailValue: detailValue,
         cacheItemId: cacheItemId.isEmpty ? "search:\(title)" : cacheItemId,
-        coverURL: coverURL
+        coverURL: coverURL,
+        coverBookIds: coverBookIds
       )
     }
     .buttonStyle(.plain)
@@ -1554,7 +1565,7 @@ struct PodcastShowAutoDownloadSettingsContent: View {
       if model.podcastAutoDownloadSettingsShowId != showId {
         ProgressView()
           .controlSize(.small)
-          .tint(AppTheme.accent)
+          .tint(Color.accentColor)
           .frame(maxWidth: .infinity, alignment: .center)
           .padding(.vertical, 8)
       } else {
@@ -1568,7 +1579,7 @@ struct PodcastShowAutoDownloadSettingsContent: View {
             }
           )
         )
-        .tint(AppTheme.accent)
+        .tint(Color.accentColor)
         .disabled(!model.isNetworkReachable || model.podcastAutoDownloadSettingsSaving)
 
         if model.podcastAutoDownloadEnabled {
@@ -1583,7 +1594,7 @@ struct PodcastShowAutoDownloadSettingsContent: View {
         if model.podcastAutoDownloadSettingsSaving {
           ProgressView()
             .controlSize(.small)
-            .tint(AppTheme.accent)
+            .tint(Color.accentColor)
         }
 
         PodcastEpisodeLimitStepperRow(
@@ -1809,7 +1820,7 @@ struct PodcastRssFeedDraftRow: View {
       } label: {
         Image(systemName: "arrow.down.circle")
           .font(.title3)
-          .foregroundStyle(AppTheme.accent)
+          .foregroundStyle(Color.accentColor)
       }
       .buttonStyle(.plain)
       .frame(minWidth: 88, alignment: .trailing)
@@ -2013,14 +2024,14 @@ private struct ContinueListeningHeroOfflineBadge: View {
         ContinueListeningHeroCoverPill {
           Image(systemName: "arrow.down.circle.fill")
             .font(ContinueListeningHeroCoverPillMetrics.iconFont)
-            .foregroundStyle(AppTheme.accent)
+            .foregroundStyle(Color.accentColor)
         }
         .accessibilityLabel("Downloaded")
       } else if model.downloads.activeItemId == storageId {
         ContinueListeningHeroCoverPill {
           ProgressView(value: model.downloads.progress)
             .progressViewStyle(.circular)
-            .tint(AppTheme.accent)
+            .tint(Color.accentColor)
             .scaleEffect(0.72)
             .frame(width: 13, height: 13)
         }
@@ -2167,13 +2178,13 @@ struct PodcastEpisodeRowCard: View {
   private var podcastDownloadStatusIcon: some View {
     if live.isDownloaded {
       Image(systemName: "arrow.down.circle.fill")
-        .foregroundStyle(AppTheme.accent)
+        .foregroundStyle(Color.accentColor)
         .font(.caption)
         .accessibilityLabel("Saved offline")
     } else if live.isDownloading {
       ProgressView(value: live.downloadProgress)
         .frame(width: 36)
-        .tint(AppTheme.accent)
+        .tint(Color.accentColor)
         .accessibilityLabel("Downloading")
     }
   }
@@ -2213,9 +2224,9 @@ struct PodcastEpisodeRowCard: View {
         if live.isDownloading {
           ZStack {
             RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
-              .stroke(AppTheme.accent.opacity(0.45), lineWidth: 1)
+              .stroke(Color.accentColor.opacity(0.45), lineWidth: 1)
             ProgressView(value: live.downloadProgress)
-              .tint(AppTheme.accent)
+              .tint(Color.accentColor)
               .scaleEffect(x: 1, y: 1.1, anchor: .center)
               .padding(.horizontal, 8)
           }
@@ -2228,7 +2239,7 @@ struct PodcastEpisodeRowCard: View {
           } label: {
             Image(systemName: "arrow.down.circle.badge.xmark")
               .font(.callout)
-              .foregroundStyle(AppTheme.accent)
+              .foregroundStyle(Color.accentColor)
           }
           .buttonStyle(LibraryCardActionButtonStyle(variant: .downloaded))
           .accessibilityLabel("Remove offline copy")
@@ -2238,7 +2249,7 @@ struct PodcastEpisodeRowCard: View {
           } label: {
             Image(systemName: "arrow.down.circle")
               .font(.callout)
-              .foregroundStyle(AppTheme.accent)
+              .foregroundStyle(Color.accentColor)
           }
           .buttonStyle(LibraryCardActionButtonStyle(variant: .accent))
           .accessibilityLabel("Download")
@@ -2259,7 +2270,7 @@ struct PodcastEpisodeRowCard: View {
           .font(.callout)
           .foregroundStyle(
             model.isNetworkReachable
-              ? (isFinished ? AppTheme.success : AppTheme.accent)
+              ? (isFinished ? AppTheme.success : Color.accentColor)
               : AppTheme.textSecondary)
       }
       .buttonStyle(LibraryCardActionButtonStyle(variant: isFinished ? .finished : .accent))
@@ -2288,7 +2299,7 @@ struct PodcastEpisodeRowCard: View {
               } label: {
                 Text(author.name)
                   .font(.subheadline)
-                  .foregroundStyle(AppTheme.accent)
+                  .foregroundStyle(Color.accentColor)
                   .multilineTextAlignment(.leading)
                   .fixedSize(horizontal: false, vertical: true)
                   .frame(maxWidth: .infinity, alignment: .leading)
@@ -2302,7 +2313,7 @@ struct PodcastEpisodeRowCard: View {
           } label: {
             Text(line)
               .font(.subheadline)
-              .foregroundStyle(AppTheme.accent)
+              .foregroundStyle(Color.accentColor)
               .multilineTextAlignment(.leading)
               .fixedSize(horizontal: false, vertical: true)
               .frame(maxWidth: .infinity, alignment: .leading)
@@ -2337,7 +2348,7 @@ struct PodcastEpisodeRowCard: View {
         } label: {
           Text(title)
             .font(.subheadline)
-            .foregroundStyle(AppTheme.accent)
+            .foregroundStyle(Color.accentColor)
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2358,26 +2369,6 @@ struct PodcastEpisodeRowCard: View {
         .foregroundStyle(AppTheme.textPrimary)
         .fixedSize(horizontal: false, vertical: true)
     }
-  }
-}
-
-/// Fortschritt für Continue-Hero: rechteckig, bündig links/rechts (kein `ProgressView`-Capsule-Stil).
-private struct ContinueHeroSquareEdgeProgress: View {
-  var value: Double
-  var height: CGFloat
-  var trackColor: Color
-  var fillColor: Color
-
-  var body: some View {
-    GeometryReader { geo in
-      let w = max(0, geo.size.width)
-      let t = min(1, max(0, value))
-      ZStack(alignment: .leading) {
-        Rectangle().fill(trackColor)
-        Rectangle().fill(fillColor).frame(width: w * t)
-      }
-    }
-    .frame(height: height)
   }
 }
 
@@ -2481,8 +2472,9 @@ private struct StartShelfSeriesCoverTile: View {
   let series: ABSLibrarySeriesListItem
 
   var body: some View {
-    let bookId = model.browseRepresentativeBookItemId(from: series.books)
-    let cacheId = bookId ?? "series-ph:\(series.id)"
+    let placeholder = "series-ph:\(series.id)"
+    let bookIds = model.browseSeriesCoverBookIds(from: series.books)
+    let cacheId = bookIds.first ?? placeholder
     return Button {
       model.openSeriesDetail(
         seriesId: series.id,
@@ -2490,13 +2482,17 @@ private struct StartShelfSeriesCoverTile: View {
         numBooks: series.books?.count)
     } label: {
       StartShelfMiniCover {
-        CoverImageView(
-          url: bookId.flatMap { model.coverURL(for: $0) },
-          token: model.token,
-          itemId: cacheId,
-          cacheAccount: model.coverImageCacheAccountDirectory(),
-          cacheRevision: model.coverImageCacheRevision
-        )
+        if bookIds.count > 1 {
+          SeriesMultiCoverView(bookIds: bookIds)
+        } else {
+          CoverImageView(
+            url: bookIds.first.flatMap { model.coverURL(for: $0) },
+            token: model.token,
+            itemId: cacheId,
+            cacheAccount: model.coverImageCacheAccountDirectory(),
+            cacheRevision: model.coverImageCacheRevision
+          )
+        }
       }
     }
     .buttonStyle(.plain)
@@ -2615,11 +2611,10 @@ private struct ContinueListeningHeroBookCard: View {
 
         Group {
           if let v = heroProgress01 {
-            ContinueHeroSquareEdgeProgress(
+            AbstandCardBottomProgress(
               value: v,
               height: barH,
-              trackColor: Color.white.opacity(0.22),
-              fillColor: AppTheme.accent
+              trackColor: Color.white.opacity(0.22)
             )
             .frame(maxWidth: .infinity)
           } else {
@@ -2788,11 +2783,10 @@ private struct ContinueListeningHeroPodcastCard: View {
 
         Group {
           if let v = heroProgress01 {
-            ContinueHeroSquareEdgeProgress(
+            AbstandCardBottomProgress(
               value: v,
               height: barH,
-              trackColor: Color.white.opacity(0.22),
-              fillColor: AppTheme.accent
+              trackColor: Color.white.opacity(0.22)
             )
             .frame(maxWidth: .infinity)
           } else {
@@ -2873,9 +2867,173 @@ private struct ContinueListeningHeroPodcastCard: View {
 
 // MARK: - Browse / search entity row (Autor, Serie, Sprecher, …)
 
+// MARK: - Facet tiles (Collections / Genres / Tags) ohne Cover
+
+private enum FacetBrowseTileMetrics {
+  static let tileHeight: CGFloat = 93
+  /// Wie `BookRowCard` / `BrowseEntityRowCard` (`libraryRowTitleText`).
+  static let titleFont: Font = .headline.weight(.semibold)
+  /// Wie `ContinueListeningHeroCoverPill` (äußeres `.padding(10)`).
+  static let edgeInset: CGFloat = 10
+  static let iconPointSize: CGFloat = 21
+  static let contentPadding: CGFloat = 14
+}
+
+private struct FacetBrowseTileCard: View {
+  let kind: BooksBrowseSection
+  let title: String
+  let count: Int?
+
+  var body: some View {
+    facetBrowseTileCardChrome(
+      title: title,
+      count: count,
+      accessibilityLabel: facetBrowseTileAccessibilityLabel
+    ) {
+      facetBrowseTileLeadingIcon(systemImage: kind.systemImage)
+    }
+  }
+
+  private var facetBrowseTileAccessibilityLabel: String {
+    if let c = count, c > 0 {
+      return "\(kind.rawValue): \(title), \(c) books"
+    }
+    return "\(kind.rawValue): \(title)"
+  }
+}
+
+@ViewBuilder
+private func facetBrowseTileCardChrome<Leading: View>(
+  title: String,
+  count: Int?,
+  accessibilityLabel: String,
+  @ViewBuilder leading: () -> Leading
+) -> some View {
+  let cardShape = RoundedRectangle(
+    cornerRadius: LibraryRowLayout.cornerRadius,
+    style: .continuous
+  )
+
+  ZStack(alignment: .topLeading) {
+    cardShape
+      .fill(AppTheme.card)
+    leading()
+      .allowsHitTesting(false)
+    VStack(alignment: .leading, spacing: 0) {
+      Spacer(minLength: 0)
+      Text(title)
+        .font(FacetBrowseTileMetrics.titleFont)
+        .foregroundStyle(AppTheme.textPrimary)
+        .lineLimit(2)
+        .truncationMode(.tail)
+        .multilineTextAlignment(.leading)
+        .minimumScaleFactor(0.85)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .padding(FacetBrowseTileMetrics.contentPadding)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+  }
+  .frame(height: FacetBrowseTileMetrics.tileHeight)
+  .clipShape(cardShape)
+  .overlay(alignment: .topTrailing) {
+    if let c = count, c > 0 {
+      ContinueListeningHeroCoverPill {
+        Text("\(c) Books")
+          .font(.caption2.weight(.semibold))
+          .monospacedDigit()
+          .foregroundStyle(.white)
+          .lineLimit(1)
+      }
+    }
+  }
+  .accessibilityElement(children: .combine)
+  .accessibilityLabel(accessibilityLabel)
+}
+
+@ViewBuilder
+private func facetBrowseTileLeadingInset<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+  content()
+    .padding(FacetBrowseTileMetrics.edgeInset)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .accessibilityHidden(true)
+}
+
+@ViewBuilder
+private func facetBrowseTileLeadingIcon(systemImage: String) -> some View {
+  facetBrowseTileLeadingInset {
+    Image(systemName: systemImage)
+      .font(.system(size: FacetBrowseTileMetrics.iconPointSize, weight: .semibold))
+      .foregroundStyle(Color.accentColor)
+  }
+}
+
 private func browseEntityBooksCountLine(count: Int?) -> String? {
   guard let c = count, c > 0 else { return nil }
   return "\(c)"
+}
+
+/// Serien-Cover: bis zu vier Miniatur-Covers im 82×82-Slot (2×2, bei 2–3 Büchern angepasst).
+private struct SeriesMultiCoverView: View {
+  @EnvironmentObject private var model: AppModel
+  let bookIds: [String]
+
+  private static let gap: CGFloat = 1
+
+  var body: some View {
+    let ids = Array(bookIds.prefix(4))
+    GeometryReader { geo in
+      let w = geo.size.width
+      let h = geo.size.height
+      let g = Self.gap
+      let cellW = (w - g) / 2
+      let cellH = (h - g) / 2
+
+      switch ids.count {
+      case 2:
+        HStack(spacing: g) {
+          coverTile(id: ids[0], width: (w - g) / 2, height: h)
+          coverTile(id: ids[1], width: (w - g) / 2, height: h)
+        }
+      case 3:
+        VStack(spacing: g) {
+          HStack(spacing: g) {
+            coverTile(id: ids[0], width: cellW, height: cellH)
+            coverTile(id: ids[1], width: cellW, height: cellH)
+          }
+          HStack(spacing: g) {
+            coverTile(id: ids[2], width: cellW, height: cellH)
+            Color.clear.frame(width: cellW, height: cellH)
+          }
+        }
+      default:
+        VStack(spacing: g) {
+          HStack(spacing: g) {
+            coverTile(id: ids[0], width: cellW, height: cellH)
+            coverTile(id: ids[1], width: cellW, height: cellH)
+          }
+          HStack(spacing: g) {
+            coverTile(id: ids[2], width: cellW, height: cellH)
+            coverTile(id: ids[3], width: cellW, height: cellH)
+          }
+        }
+      }
+    }
+    .frame(width: LibraryRowLayout.coverSide, height: LibraryRowLayout.coverSide)
+  }
+
+  @ViewBuilder
+  private func coverTile(id: String, width: CGFloat, height: CGFloat) -> some View {
+    CoverImageView(
+      url: model.coverURL(for: id),
+      token: model.token,
+      itemId: id,
+      cacheAccount: model.coverImageCacheAccountDirectory(),
+      cacheRevision: model.coverImageCacheRevision
+    )
+    .frame(width: width, height: height)
+    .clipped()
+    .accessibilityHidden(true)
+  }
 }
 
 /// Gleiches Kartenlayout wie `BookRowCard`: Cover 82×82, Titel oben am Cover ausgerichtet.
@@ -2886,17 +3044,23 @@ struct BrowseEntityRowCard: View {
   let detailValue: String?
   let cacheItemId: String
   let coverURL: URL?
+  /// Mehrere Serien-Bücher: 2–4 Covers im gleichen Slot statt einem einzelnen Cover.
+  var coverBookIds: [String]? = nil
 
   var body: some View {
     HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
       LibraryRowLayout.coverSlot {
-        CoverImageView(
-          url: coverURL,
-          token: model.token,
-          itemId: cacheItemId,
-          cacheAccount: model.coverImageCacheAccountDirectory(),
-          cacheRevision: model.coverImageCacheRevision
-        )
+        if let ids = coverBookIds, ids.count > 1 {
+          SeriesMultiCoverView(bookIds: ids)
+        } else {
+          CoverImageView(
+            url: coverURL,
+            token: model.token,
+            itemId: cacheItemId,
+            cacheAccount: model.coverImageCacheAccountDirectory(),
+            cacheRevision: model.coverImageCacheRevision
+          )
+        }
       }
 
       LibraryRowLayout.metadataColumn(showsProgressBar: false) {
@@ -2982,13 +3146,13 @@ struct PodcastShowRowCard: View {
       EmptyView()
     } else if model.downloadedItemIds.contains(show.id) {
       Image(systemName: "arrow.down.circle.fill")
-        .foregroundStyle(AppTheme.accent)
+        .foregroundStyle(Color.accentColor)
         .font(.caption)
         .accessibilityLabel("Saved offline")
     } else if model.downloads.activeItemId == show.id {
       ProgressView(value: model.downloads.progress)
         .frame(width: 36)
-        .tint(AppTheme.accent)
+        .tint(Color.accentColor)
         .accessibilityLabel("Downloading")
     }
   }
@@ -3029,11 +3193,10 @@ private enum LibraryRowLayout {
   @ViewBuilder
   static func bottomProgressOverlay(value: Double, visible: Bool) -> some View {
     if visible {
-      ContinueHeroSquareEdgeProgress(
+      AbstandCardBottomProgress(
         value: value,
         height: AppTheme.Layout.libraryRowBottomProgressHeight,
-        trackColor: Color.white.opacity(0.14),
-        fillColor: AppTheme.accent
+        trackColor: Color.white.opacity(0.14)
       )
       .frame(maxWidth: .infinity)
       .accessibilityLabel("Playback progress")
@@ -3368,13 +3531,13 @@ struct BookRowCard: View {
       EmptyView()
     } else if live.isDownloaded {
       Image(systemName: "arrow.down.circle.fill")
-        .foregroundStyle(AppTheme.accent)
+        .foregroundStyle(Color.accentColor)
         .font(.caption)
         .accessibilityLabel("Saved offline")
     } else if live.isDownloading {
       ProgressView(value: live.downloadProgress)
         .frame(width: 36)
-        .tint(AppTheme.accent)
+        .tint(Color.accentColor)
         .accessibilityLabel("Downloading")
     }
   }
@@ -3405,9 +3568,9 @@ struct BookRowCard: View {
           if isDownloading {
             ZStack {
               RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
-                .stroke(AppTheme.accent.opacity(0.45), lineWidth: 1)
+                .stroke(Color.accentColor.opacity(0.45), lineWidth: 1)
               ProgressView(value: downloadProgress)
-                .tint(AppTheme.accent)
+                .tint(Color.accentColor)
                 .scaleEffect(x: 1, y: 1.1, anchor: .center)
                 .padding(.horizontal, 8)
             }
@@ -3420,7 +3583,7 @@ struct BookRowCard: View {
             } label: {
               Image(systemName: "arrow.down.circle.badge.xmark")
                 .font(.callout)
-                .foregroundStyle(AppTheme.accent)
+                .foregroundStyle(Color.accentColor)
             }
             .buttonStyle(LibraryCardActionButtonStyle(variant: .downloaded))
             .accessibilityLabel("Remove offline copy")
@@ -3430,7 +3593,7 @@ struct BookRowCard: View {
             } label: {
               Image(systemName: "arrow.down.circle")
                 .font(.callout)
-                .foregroundStyle(AppTheme.accent)
+                .foregroundStyle(Color.accentColor)
             }
             .buttonStyle(LibraryCardActionButtonStyle(variant: .neutral))
             .accessibilityLabel("Download")
@@ -3451,7 +3614,7 @@ struct BookRowCard: View {
             .font(.callout)
             .foregroundStyle(
               model.isNetworkReachable
-                ? (isFinished ? AppTheme.success : AppTheme.accent)
+                ? (isFinished ? AppTheme.success : Color.accentColor)
                 : AppTheme.textSecondary)
         }
         .buttonStyle(LibraryCardActionButtonStyle(variant: isFinished ? .finished : .accent))
@@ -3536,7 +3699,7 @@ struct BookRowCard: View {
             } label: {
               Text(author.name)
                 .font(.subheadline)
-                .foregroundStyle(AppTheme.accent)
+                .foregroundStyle(Color.accentColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .multilineTextAlignment(.leading)
             }
@@ -3559,7 +3722,7 @@ struct BookRowCard: View {
           } label: {
             Text(line)
               .font(.subheadline)
-              .foregroundStyle(AppTheme.accent)
+              .foregroundStyle(Color.accentColor)
               .frame(maxWidth: .infinity, alignment: .leading)
               .multilineTextAlignment(.leading)
           }
@@ -3583,7 +3746,7 @@ struct BookRowCard: View {
             } label: {
               Text(name)
                 .font(.subheadline)
-                .foregroundStyle(AppTheme.accent)
+                .foregroundStyle(Color.accentColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .multilineTextAlignment(.leading)
             }
@@ -3605,7 +3768,7 @@ struct BookRowCard: View {
             } label: {
               Text(seriesDisplayLine(for: s))
                 .font(.subheadline)
-                .foregroundStyle(AppTheme.accent)
+                .foregroundStyle(Color.accentColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .multilineTextAlignment(.leading)
             }
@@ -3729,7 +3892,7 @@ private struct ListeningHistoryDisclosure: View {
         .textCase(.uppercase)
         .tracking(0.6)
     }
-    .tint(AppTheme.accent)
+    .tint(Color.accentColor)
   }
 }
 
@@ -3760,7 +3923,7 @@ private struct ListeningHistoryRow: View {
         } label: {
           Image(systemName: "arrow.counterclockwise.circle.fill")
             .font(.title2)
-            .foregroundStyle(AppTheme.accent)
+            .foregroundStyle(Color.accentColor)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Jump to this session")
@@ -3773,7 +3936,7 @@ private struct ListeningHistoryRow: View {
           Capsule()
             .fill(AppTheme.card)
           Capsule()
-            .fill(AppTheme.accent.opacity(0.88))
+            .fill(Color.accentColor.opacity(0.88))
             .frame(width: x1 - x0)
             .offset(x: x0)
         }
@@ -3832,7 +3995,7 @@ private struct DetailToolbarMarkFinishedItem: View {
 
   private var iconColor: Color {
     guard enabled else { return AppTheme.textSecondary }
-    return isFinished ? AppTheme.accent : AppTheme.success
+    return isFinished ? Color.accentColor : AppTheme.success
   }
 
   var body: some View {
@@ -3848,6 +4011,8 @@ private struct DetailToolbarMarkFinishedItem: View {
 
 /// Play-Button in Buch-/Folgen-Details: gelbe Fläche füllt sich mit Hörfortschritt (keine separate Progress-Bar).
 private struct DetailProgressFillPlayButton: View {
+  @Environment(\.themeAccent) private var themeAccent
+
   let progress01: Double
   let isFinished: Bool
   let action: () -> Void
@@ -3894,7 +4059,7 @@ private struct DetailProgressFillPlayButton: View {
       }
 
     playLabel
-      .foregroundStyle(AppTheme.accent)
+      .foregroundStyle(themeAccent)
       .frame(width: size.width, height: size.height)
       .overlay(alignment: .leading) { masked }
   }
@@ -3902,7 +4067,7 @@ private struct DetailProgressFillPlayButton: View {
   @ViewBuilder
   private var playLabelColored: some View {
     if isFinished {
-      playLabel.foregroundStyle(Self.playLabelOnFill.opacity(0.55))
+      playLabel.foregroundStyle(Self.playLabelOnFill)
     } else {
       GeometryReader { geo in
         playLabelColored(
@@ -3914,18 +4079,41 @@ private struct DetailProgressFillPlayButton: View {
     }
   }
 
+  /// Füllfläche: links abgerundet; rechts erst bei vollem Fortschritt (sonst Kante am Balkenende).
+  @ViewBuilder
+  private func progressFillBar(width: CGFloat, height: CGFloat) -> some View {
+    let r = MiniPlayerMetrics.controlCorner
+    let roundTrailing = isFinished || fillAmount >= 0.999
+    if roundTrailing {
+      corner
+        .fill(themeAccent)
+        .frame(width: width, height: height)
+    } else {
+      UnevenRoundedRectangle(
+        topLeadingRadius: r,
+        bottomLeadingRadius: r,
+        bottomTrailingRadius: 0,
+        topTrailingRadius: 0,
+        style: .continuous
+      )
+      .fill(themeAccent)
+      .frame(width: width, height: height)
+    }
+  }
+
   private var playControl: some View {
     ZStack {
       if isFinished {
-        corner.fill(AppTheme.accent)
+        corner.fill(themeAccent)
       } else {
-        corner.stroke(AppTheme.accent, lineWidth: 1.5)
+        corner.stroke(themeAccent, lineWidth: 1.5)
         if !isEmptyProgress {
           GeometryReader { geo in
-            corner
-              .fill(AppTheme.accent)
-              .frame(width: max(0, geo.size.width * fillAmount))
-              .frame(maxHeight: .infinity, alignment: .leading)
+            progressFillBar(
+              width: max(0, geo.size.width * fillAmount),
+              height: geo.size.height
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
           }
         }
       }
@@ -3936,22 +4124,15 @@ private struct DetailProgressFillPlayButton: View {
   }
 
   var body: some View {
-    Group {
-      if isFinished {
-        playControl
-      } else {
-        Button(action: action) {
-          playControl
-        }
-        .buttonStyle(.plain)
-        .tint(nil)
-      }
+    Button(action: action) {
+      playControl
     }
+    .buttonStyle(.plain)
+    .tint(nil)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("Play")
     .accessibilityValue(progressAccessibilityLabel)
-    .accessibilityHint(isFinished ? "Already finished" : "")
-    .accessibilityAddTraits(isFinished ? [] : .isButton)
+    .accessibilityHint(isFinished ? "Starts from the beginning" : "")
   }
 }
 
@@ -4024,7 +4205,7 @@ struct BookDetailView: View {
     .abstandDetailScrollBackground(coverTintColor)
     .navigationTitle(book.displayTitle)
     .toolbarTitleDisplayMode(.inline)
-    .tint(AppTheme.accent)
+    .tint(Color.accentColor)
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         bookDetailUtilityToolbarItems(book: detail ?? book)
@@ -4037,8 +4218,10 @@ struct BookDetailView: View {
       let loaded = await model.loadBookDetail(id: bookId)
       detail = loaded
       await loadCoverTint()
+    }
+    .task(id: bookId) {
       listeningSessions = await model.loadBookListeningSessions(
-        libraryItemId: bookId, bookMediaId: loaded?.mediaId)
+        libraryItemId: bookId, bookMediaId: detail?.mediaId ?? book.mediaId)
     }
     .alert("Reset listening progress?", isPresented: $confirmDiscardListeningProgress) {
       Button("Cancel", role: .cancel) {}
@@ -4070,6 +4253,7 @@ struct BookDetailView: View {
   }
 
   private func openLinkedEntityDetail(_ nav: BooksEntityDetailNav) {
+    model.prepareEntityDetail(for: nav)
     linkedEntityDetailNav = nav
   }
 
@@ -4153,7 +4337,7 @@ struct BookDetailView: View {
           if book.hasReadableAttachedEbook {
             Image(systemName: "book.closed.fill")
               .font(.body)
-              .foregroundStyle(AppTheme.accent)
+              .foregroundStyle(Color.accentColor)
               .accessibilityLabel("eBook attached")
           }
           if prog?.isFinished == true {
@@ -4195,7 +4379,15 @@ struct BookDetailView: View {
         DetailProgressFillPlayButton(
           progress01: bookPlayProgress01,
           isFinished: isFinished,
-          action: { Task { await model.play(book: d) } }
+          action: {
+            Task {
+              await model.play(
+                book: d,
+                resumeAtOverride: isFinished ? 0 : nil,
+                autoPlay: true
+              )
+            }
+          }
         )
         .disabled(model.isPreparingEbook)
 
@@ -4242,7 +4434,7 @@ struct BookDetailView: View {
               } label: {
                 Text(author.name)
                   .font(.subheadline)
-                  .foregroundStyle(AppTheme.accent)
+                  .foregroundStyle(Color.accentColor)
                   .frame(maxWidth: .infinity, alignment: .leading)
               }
               .buttonStyle(.plain)
@@ -4262,7 +4454,7 @@ struct BookDetailView: View {
           } label: {
             Text(narrators)
               .font(.subheadline)
-              .foregroundStyle(AppTheme.accent)
+              .foregroundStyle(Color.accentColor)
               .frame(maxWidth: .infinity, alignment: .leading)
           }
           .buttonStyle(.plain)
@@ -4282,7 +4474,7 @@ struct BookDetailView: View {
               } label: {
                 Text(seriesDisplayLine(for: s))
                   .font(.subheadline)
-                  .foregroundStyle(AppTheme.accent)
+                  .foregroundStyle(Color.accentColor)
                   .frame(maxWidth: .infinity, alignment: .leading)
               }
               .buttonStyle(.plain)
@@ -4327,7 +4519,7 @@ struct BookDetailView: View {
             } label: {
               Text(tag)
                 .font(.subheadline)
-                .foregroundStyle(AppTheme.accent)
+                .foregroundStyle(Color.accentColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
@@ -4360,7 +4552,7 @@ struct BookDetailView: View {
             } label: {
               Text(genre)
                 .font(.subheadline)
-                .foregroundStyle(AppTheme.accent)
+                .foregroundStyle(Color.accentColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
@@ -4423,7 +4615,7 @@ struct BookDetailView: View {
           .textCase(.uppercase)
           .tracking(0.6)
       }
-      .tint(AppTheme.accent)
+      .tint(Color.accentColor)
     }
   }
 
@@ -4449,7 +4641,7 @@ struct BookDetailView: View {
         .font(.body)
     case .inProgress:
       Image(systemName: "play.circle.fill")
-        .foregroundStyle(AppTheme.accent)
+        .foregroundStyle(Color.accentColor)
         .font(.body)
     case .notStarted:
       EmptyView()
@@ -4476,7 +4668,7 @@ struct BookDetailView: View {
         chapterStatusIcon(state: state)
         Image(systemName: "play.circle")
           .font(.title3)
-          .foregroundStyle(AppTheme.accent)
+          .foregroundStyle(Color.accentColor)
       }
       .padding(.vertical, 10)
       .contentShape(Rectangle())
@@ -4534,7 +4726,7 @@ struct PodcastEpisodeDetailView: View {
     .abstandDetailScrollBackground(coverTintColor)
     .navigationTitle(episode.episodeTitle)
     .toolbarTitleDisplayMode(.inline)
-    .tint(AppTheme.accent)
+    .tint(Color.accentColor)
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         episodeDetailUtilityToolbarItems
@@ -4650,17 +4842,21 @@ struct PodcastEpisodeDetailView: View {
 
   private var infoSection: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text(episode.episodeTitle)
-        .font(.title2.weight(.bold))
-        .foregroundStyle(AppTheme.textPrimary)
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text(episode.episodeTitle)
+          .font(.title2.weight(.bold))
+          .foregroundStyle(AppTheme.textPrimary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+        if prog?.isFinished == true {
+          Image(systemName: "checkmark.circle.fill")
+            .font(.body)
+            .foregroundStyle(AppTheme.success)
+            .accessibilityLabel("Finished")
+        }
+      }
       Text(episode.showTitle)
         .font(.title3)
         .foregroundStyle(AppTheme.textSecondary)
-      if prog?.isFinished == true {
-        Label("Finished", systemImage: "checkmark.circle.fill")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(AppTheme.success)
-      }
     }
   }
 
@@ -4685,7 +4881,14 @@ struct PodcastEpisodeDetailView: View {
       DetailProgressFillPlayButton(
         progress01: episodePlayProgress01,
         isFinished: isFinished,
-        action: { Task { await model.playPodcastEpisode(episode) } }
+        action: {
+          Task {
+            await model.playPodcastEpisode(
+              episode,
+              resumeAtOverride: isFinished ? 0 : nil
+            )
+          }
+        }
       )
       .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
 
@@ -4704,7 +4907,7 @@ struct PodcastEpisodeDetailView: View {
               .frame(width: 112, alignment: .leading)
             Text(show.displayTitle)
               .font(.subheadline)
-              .foregroundStyle(AppTheme.accent)
+              .foregroundStyle(Color.accentColor)
               .frame(maxWidth: .infinity, alignment: .leading)
           }
         }
@@ -4725,7 +4928,7 @@ struct PodcastEpisodeDetailView: View {
               } label: {
                 Text(author.name)
                   .font(.subheadline)
-                  .foregroundStyle(AppTheme.accent)
+                  .foregroundStyle(Color.accentColor)
                   .frame(maxWidth: .infinity, alignment: .leading)
                   .multilineTextAlignment(.leading)
               }
@@ -4824,12 +5027,33 @@ private struct BooksEntityDetailView: View {
   let nav: BooksEntityDetailNav
   @State private var headerTintColor: Color = AppTheme.background
 
+  /// Kein Cover, kein Cover-Tint — nur Standard-Hintergrund (#121212).
+  private var usesPlainDetailBackground: Bool {
+    switch nav.kind {
+    case .narrator, .genre, .tag, .collection: return true
+    default: return false
+    }
+  }
+
+  private var detailScrollBackgroundColor: Color {
+    usesPlainDetailBackground ? AppTheme.background : headerTintColor
+  }
+
   private var showsEntityDescription: Bool {
     nav.kind == .author || nav.kind == .collection
   }
 
+  private var entityDetailIsCurrent: Bool {
+    model.entityDetailMatches(nav)
+  }
+
   private var bookCountLabel: String? {
-    let n = nav.numBooks ?? (model.entityDetailTotal > 0 ? model.entityDetailTotal : nil)
+    let n: Int?
+    if entityDetailIsCurrent {
+      n = nav.numBooks ?? (model.entityDetailTotal > 0 ? model.entityDetailTotal : nil)
+    } else {
+      n = nav.numBooks
+    }
     guard let n, n > 0 else { return nil }
     return n == 1 ? "1 book" : "\(n) books"
   }
@@ -4849,28 +5073,39 @@ private struct BooksEntityDetailView: View {
         .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
     .scrollContentBackground(.hidden)
-    .abstandDetailScrollBackground(headerTintColor)
+    .abstandDetailScrollBackground(detailScrollBackgroundColor)
     .task(id: nav.id) {
+      if !model.entityDetailMatches(nav) {
+        model.prepareEntityDetail(for: nav)
+      }
+      if !usesPlainDetailBackground {
+        headerTintColor = AppTheme.background
+      }
       await model.reloadEntityDetail(for: nav, reset: true)
-      await loadHeaderTint()
+      if !usesPlainDetailBackground {
+        await loadHeaderTint()
+      }
     }
     .refreshable {
       await model.refreshEntityDetail(for: nav)
-      await loadHeaderTint()
+      if !usesPlainDetailBackground {
+        await loadHeaderTint()
+      }
     }
     .onChange(of: model.entityDetailBooks.count) { _, _ in
-      if nav.kind != .author {
-        Task { await loadHeaderTint() }
-      }
+      guard nav.kind == .series else { return }
+      Task { await loadHeaderTint() }
     }
   }
 
   private var headerSection: some View {
     VStack(alignment: .leading, spacing: 12) {
-      HStack {
-        Spacer()
-        entityCover
-        Spacer()
+      if showsEntityDetailCover {
+        HStack {
+          Spacer()
+          entityCover
+          Spacer()
+        }
       }
       VStack(alignment: .leading, spacing: 6) {
         Text(nav.title)
@@ -4879,7 +5114,7 @@ private struct BooksEntityDetailView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
         Text(nav.filterSummaryPrefix)
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(AppTheme.accent)
+          .foregroundStyle(Color.accentColor)
         if let bookCountLabel {
           Text(bookCountLabel)
             .font(.subheadline)
@@ -4887,6 +5122,11 @@ private struct BooksEntityDetailView: View {
         }
       }
     }
+  }
+
+  /// Narrator / Genre / Tag / Collection: kein Cover — nur Titelblock.
+  private var showsEntityDetailCover: Bool {
+    !usesPlainDetailBackground
   }
 
   @ViewBuilder
@@ -4969,10 +5209,10 @@ private struct BooksEntityDetailView: View {
 
   @ViewBuilder
   private var entityDescriptionSection: some View {
-    if !model.entityDetailMetaReady {
+    if !entityDetailIsCurrent || !model.entityDetailMetaReady {
       ProgressView()
         .controlSize(.regular)
-        .tint(AppTheme.accent)
+        .tint(Color.accentColor)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
     } else {
@@ -4997,10 +5237,10 @@ private struct BooksEntityDetailView: View {
     let standalone = model.entityDetailAuthorStandaloneBooks
     let isEmpty = seriesSections.isEmpty && standalone.isEmpty
 
-    if model.entityDetailLoading && isEmpty {
+    if !entityDetailIsCurrent || (model.entityDetailLoading && isEmpty) {
       ProgressView()
         .controlSize(.large)
-        .tint(AppTheme.accent)
+        .tint(Color.accentColor)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
     } else if isEmpty {
@@ -5039,10 +5279,10 @@ private struct BooksEntityDetailView: View {
   private var flatEntityDetailBooksSection: some View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       entityDetailSectionHeading("Books")
-      if model.entityDetailLoading && model.entityDetailBooks.isEmpty {
+      if !entityDetailIsCurrent || (model.entityDetailLoading && model.entityDetailBooks.isEmpty) {
         ProgressView()
           .controlSize(.large)
-          .tint(AppTheme.accent)
+          .tint(Color.accentColor)
           .frame(maxWidth: .infinity)
           .padding(.vertical, 32)
       } else if model.entityDetailBooks.isEmpty {
@@ -5085,9 +5325,14 @@ private struct BooksEntityDetailView: View {
   }
 
   private func loadHeaderTint() async {
-    guard let url = model.entityDetailCoverURL(for: nav)
-      ?? (nav.kind == .author ? model.authorImageURL(authorId: nav.entityId) : nil)
+    guard !usesPlainDetailBackground else { return }
+
+    guard let url =
+      nav.kind == .author
+      ? model.authorImageURL(authorId: nav.entityId)
+      : model.entityDetailCoverURL(for: nav)
     else { return }
+
     var req = URLRequest(url: url)
     req.setValue("Bearer \(model.token)", forHTTPHeaderField: "Authorization")
     do {

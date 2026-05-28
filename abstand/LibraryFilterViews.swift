@@ -35,7 +35,7 @@ struct BooksCatalogFilterToolbarMenu: View, Equatable {
           ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
       )
       .symbolRenderingMode(.monochrome)
-      .foregroundStyle(isActive ? AppTheme.accent : Color.primary)
+      .foregroundStyle(isActive ? Color.accentColor : Color.primary)
     }
   }
 
@@ -59,7 +59,7 @@ struct BooksCatalogFilterToolbarMenu: View, Equatable {
       HStack {
         Image(systemName: systemImage)
           .symbolRenderingMode(.monochrome)
-          .foregroundStyle(isSelected ? AppTheme.accent : AppTheme.textSecondary)
+          .foregroundStyle(isSelected ? Color.accentColor : AppTheme.textSecondary)
         Text(title)
           .foregroundStyle(AppTheme.textPrimary)
         Spacer(minLength: 8)
@@ -67,7 +67,7 @@ struct BooksCatalogFilterToolbarMenu: View, Equatable {
           Image(systemName: "checkmark")
             .font(.body.weight(.semibold))
             .symbolRenderingMode(.monochrome)
-            .foregroundStyle(AppTheme.accent)
+            .foregroundStyle(Color.accentColor)
         }
       }
     }

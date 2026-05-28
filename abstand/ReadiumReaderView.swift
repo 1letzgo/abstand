@@ -61,7 +61,7 @@ struct ReadiumReaderView: View {
       Group {
         if isLoading {
           ProgressView()
-            .tint(AppTheme.accent)
+            .tint(Color.accentColor)
         } else if let loadError {
           ContentUnavailableView("Could not open", systemImage: "exclamationmark.triangle", description: Text(loadError))
         } else if let navigatorController {
@@ -246,7 +246,7 @@ struct ReadiumReaderView: View {
           }
         }
       )
-      .tint(AppTheme.accent)
+      .tint(Color.accentColor)
       .disabled(readerActionInProgress || isLoading)
       .accessibilityLabel("Reading progress")
       .accessibilityValue(
@@ -413,7 +413,7 @@ struct EpubAvailableBadge: View {
   var body: some View {
     Image(systemName: "book.closed.fill")
       .font(.caption)
-      .foregroundStyle(AppTheme.accent)
+      .foregroundStyle(Color.accentColor)
       .accessibilityLabel("eBook available")
   }
 }

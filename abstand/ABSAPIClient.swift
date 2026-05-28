@@ -188,6 +188,13 @@ actor ABSAPIClient {
     return try await send(req)
   }
 
+  /// Eigenes Passwort ändern (`PATCH /api/me/password`).
+  func changePassword(current: String, new: String) async throws {
+    let body = try encoder.encode(ABSChangePasswordRequest(password: current, newPassword: new))
+    let req = try authorizedRequest(path: "api/me/password", method: "PATCH", body: body)
+    try await sendData(req)
+  }
+
   // MARK: - Server admin (root)
 
   func serverUsers() async throws -> [ABSAdminUserSummary] {

@@ -2,43 +2,46 @@ import Charts
 import SwiftUI
 
 private enum StatsBrowseSection: String, CaseIterable, Identifiable {
-  case overview = "Listening"
+  case level = "Level"
   case mostListened = "Most listened"
-  case activity = "Activity"
-  case week = "7 days"
+  case listening = "Listening"
+  case calendar = "Calendar"
   case recentSessions = "Sessions"
 
   var id: String { rawValue }
 
   static let stripOrder: [StatsBrowseSection] = [
-    .overview, .activity, .week, .mostListened, .recentSessions,
+    .level, .listening, .calendar, .mostListened, .recentSessions,
   ]
 
   var systemImage: String {
     switch self {
-    case .overview: return "clock.fill"
+    case .level: return "medal.fill"
     case .mostListened: return "list.star"
-    case .activity: return "calendar"
-    case .week: return "chart.xyaxis.line"
+    case .listening: return "clock.fill"
+    case .calendar: return "calendar"
     case .recentSessions: return "play.circle.fill"
     }
   }
 }
 
 private struct StatsBrowseSectionStrip: View {
+  @EnvironmentObject private var model: AppModel
   let selection: StatsBrowseSection
   let onSelect: (StatsBrowseSection) -> Void
+
+  private var accent: Color { model.appearanceAccentColor }
 
   var body: some View {
     let tile = AppTheme.Layout.horizontalBrowseStripTile
     let captionW = tile + AppTheme.Layout.horizontalBrowseStripLabelWidthExtra
-    ScrollView(.horizontal, showsIndicators: false) {
+    AbstandHorizontalBrowseStripScroll {
       HStack(alignment: .top, spacing: AppTheme.Layout.horizontalBrowseStripInterTileSpacing) {
         ForEach(StatsBrowseSection.stripOrder) { section in
           Button {
             onSelect(section)
           } label: {
-            VStack(spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
+            VStack(alignment: .leading, spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
               ZStack {
                 RoundedRectangle(
                   cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous
@@ -48,14 +51,14 @@ private struct StatsBrowseSectionStrip: View {
                 Image(systemName: section.systemImage)
                   .font(.title2)
                   .foregroundStyle(
-                    selection == section ? AppTheme.accent : AppTheme.textSecondary)
+                    selection == section ? accent : AppTheme.textSecondary)
               }
               .overlay {
                 RoundedRectangle(
                   cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous
                 )
                 .strokeBorder(
-                  selection == section ? AppTheme.accent : Color.clear, lineWidth: 2.5)
+                  selection == section ? accent : Color.clear, lineWidth: 2.5)
               }
               Text(section.rawValue)
                 .font(.caption2.weight(.medium))
@@ -63,15 +66,14 @@ private struct StatsBrowseSectionStrip: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.center)
-                .frame(width: captionW)
+                .frame(width: tile, alignment: .center)
             }
+            .frame(width: captionW, alignment: .leading)
           }
           .buttonStyle(.plain)
         }
       }
-      .padding(.vertical, AppTheme.Layout.horizontalBrowseStripVerticalPadding)
     }
-    .scrollContentBackground(.hidden)
   }
 }
 
@@ -92,6 +94,12 @@ private var statsListRowDivider: some View {
   Divider().overlay(AppTheme.textSecondary.opacity(0.25))
 }
 
+private extension View {
+  func statsListRowFrame(alignment: Alignment = .leading) -> some View {
+    abstandCardListRowFrame(alignment: alignment)
+  }
+}
+
 /// Wie Home: enger Abstand Überschrift → Inhalt; `sectionSpacing` nur zwischen mehreren Blöcken.
 private struct StatsContentSection<Content: View>: View {
   let title: String
@@ -108,7 +116,7 @@ private struct StatsContentSection<Content: View>: View {
 /// Listening data from `GET /api/me/listening-stats` (eigener Stats-Tab).
 struct StatsTabView: View {
   @EnvironmentObject private var model: AppModel
-  @State private var browseSection: StatsBrowseSection = .overview
+  @State private var browseSection: StatsBrowseSection = .level
 
   private static let statsLocale = Locale(identifier: "en_US")
   private static let periodColumns = [
@@ -119,7 +127,6 @@ struct StatsTabView: View {
     GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
     GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
   ]
-
   private static let statsCalendar: Calendar = {
     var cal = Calendar(identifier: .gregorian)
     cal.firstWeekday = 2 // Montag
@@ -144,25 +151,62 @@ struct StatsTabView: View {
   }()
 
   var body: some View {
-    ScrollView {
-      statsBody
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(.top, AppTheme.Layout.withinSectionSpacing)
-        .padding(
-          .bottom,
-          AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset
-        )
+    Group {
+      if model.listeningStats != nil {
+        AbstandFixedBrowseStripSectionsLayout(
+          selection: browseSection,
+          sectionIDs: StatsBrowseSection.stripOrder,
+          scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
+            + model.nowPlayingAccessoryScrollBottomInset,
+          onRefresh: { await model.loadListeningStats() }
+        ) {
+          StatsBrowseSectionStrip(selection: browseSection) { browseSection = $0 }
+        } sectionBody: { section in
+          statsSectionScrollBody(section: section)
+        }
+      } else {
+        AbstandFixedBrowseStripTabLayout(
+          showsStrip: false,
+          scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
+            + model.nowPlayingAccessoryScrollBottomInset,
+          onRefresh: { await model.loadListeningStats() }
+        ) {
+          EmptyView()
+        } scrollBody: {
+          statsLoadingScrollBody
+        }
+      }
     }
-    .abstandScrollScreenBackground()
-    .refreshable {
-      await model.loadListeningStats()
-    }
+    .tint(model.appearanceAccentColor)
     .task {
+      model.prepareListeningAchievementsForStatsTab()
       await model.loadListeningStats()
     }
   }
 
-  private var statsBody: some View {
+  private var statsLoadingScrollBody: some View {
+    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      if model.listeningStatsLoading {
+        ProgressView()
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 48)
+      } else if !model.isNetworkReachable {
+        Text(
+          "No saved statistics. Connect to the server to load and cache your listening data."
+        )
+        .font(.subheadline)
+        .foregroundStyle(AppTheme.textSecondary)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+      } else {
+        Text("No statistics loaded.")
+          .foregroundStyle(AppTheme.textSecondary)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func statsSectionScrollBody(section: StatsBrowseSection) -> some View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
       if let fetched = model.listeningStatsFetchedAt, model.listeningStats != nil,
         !model.isNetworkReachable
@@ -170,26 +214,8 @@ struct StatsTabView: View {
         cacheOfflineBanner(fetchedAt: fetched)
       }
 
-      if model.listeningStats == nil {
-        if model.listeningStatsLoading {
-          ProgressView()
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 48)
-        } else if !model.isNetworkReachable {
-          Text(
-            "No saved statistics. Connect to the server to load and cache your listening data."
-          )
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 32)
-        } else {
-          Text("No statistics loaded.")
-            .foregroundStyle(AppTheme.textSecondary)
-        }
-      } else if let stats = model.listeningStats {
-        StatsBrowseSectionStrip(selection: browseSection) { browseSection = $0 }
-        statsSectionContent(stats)
+      if let stats = model.listeningStats {
+        statsSectionContent(stats, section: section)
       }
     }
   }
@@ -197,7 +223,7 @@ struct StatsTabView: View {
   private func cacheOfflineBanner(fetchedAt: Date) -> some View {
     HStack(alignment: .top, spacing: 10) {
       Image(systemName: "icloud.slash")
-        .foregroundStyle(AppTheme.accent)
+        .foregroundStyle(model.appearanceAccentColor)
       Text("Offline — cached \(Self.cacheDateFormatter.string(from: fetchedAt)).")
         .font(.caption)
         .foregroundStyle(AppTheme.textSecondary)
@@ -210,16 +236,16 @@ struct StatsTabView: View {
   }
 
   @ViewBuilder
-  private func statsSectionContent(_ stats: ABSListeningStatsResponse) -> some View {
-    switch browseSection {
-    case .overview:
-      statsOverviewSection(stats)
+  private func statsSectionContent(_ stats: ABSListeningStatsResponse, section: StatsBrowseSection) -> some View {
+    switch section {
+    case .level:
+      statsLevelSection
     case .mostListened:
       statsTopListenedSection(stats)
-    case .activity:
-      statsActivitySection(stats)
-    case .week:
-      statsWeekSection(stats)
+    case .listening:
+      statsListeningSection(stats)
+    case .calendar:
+      statsCalendarSection(stats)
     case .recentSessions:
       statsRecentSessionsSection(stats)
     }
@@ -227,15 +253,28 @@ struct StatsTabView: View {
 
   // MARK: - Listing
 
-  private func statsOverviewSection(_ stats: ABSListeningStatsResponse) -> some View {
-    StatsContentSection(title: "Listening time") {
-      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+  private func statsListeningTimeSection(_ stats: ABSListeningStatsResponse) -> some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      StatsContentSection(title: "Listening time") {
         totalHero(stats)
-        LazyVGrid(columns: Self.periodColumns, spacing: AppTheme.Layout.withinSectionSpacing) {
-          summaryPeriodCard(title: "Today", seconds: stats.today)
-          summaryPeriodCard(title: "7 days", seconds: stats.secondsInLastDays(7))
-          summaryPeriodCard(title: "Month", seconds: stats.secondsThisCalendarMonth())
-          summaryPeriodCard(title: "Year", seconds: stats.secondsThisCalendarYear())
+      }
+      LazyVGrid(columns: Self.periodColumns, spacing: AppTheme.Layout.withinSectionSpacing) {
+        summaryPeriodCard(title: "Today", seconds: stats.today)
+        summaryPeriodCard(title: "7 days", seconds: stats.secondsInLastDays(7))
+        summaryPeriodCard(title: "Month", seconds: stats.secondsThisCalendarMonth())
+        summaryPeriodCard(title: "Year", seconds: stats.secondsThisCalendarYear())
+      }
+    }
+  }
+
+  private var statsLevelSection: some View {
+    let levelAchievements = ListeningAchievementKind.sortedForDisplay(
+      model.listeningAchievementsSnapshot.achievements
+    )
+    return StatsContentSection(title: "Level") {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+        ForEach(levelAchievements) { achievement in
+          ListeningAchievementCard(achievement: achievement)
         }
       }
     }
@@ -273,7 +312,7 @@ struct StatsTabView: View {
       HStack(alignment: .top, spacing: 12) {
         Image(systemName: "headphones.circle.fill")
           .font(.system(size: 44))
-          .foregroundStyle(AppTheme.accent)
+          .foregroundStyle(model.appearanceAccentColor)
         VStack(alignment: .leading, spacing: 6) {
           Text(formatStatsCompact(stats.totalTime))
             .font(.system(size: 32, weight: .bold, design: .rounded))
@@ -296,12 +335,13 @@ struct StatsTabView: View {
   /// Kompakte Stat-Karte: zwei Zeilen (Titel oben, Wert unten); optional Icon links.
   private func statsMetricCard(
     icon: String? = nil,
-    tint: Color = AppTheme.accent,
+    tint: Color? = nil,
     title: String,
     value: String,
     uppercaseTitle: Bool = false,
     valueFont: Font = .headline.weight(.bold)
   ) -> some View {
+    let resolvedTint = tint ?? model.appearanceAccentColor
     let textColumn = VStack(alignment: .leading, spacing: 4) {
       Text(title)
         .font(.caption.weight(.semibold))
@@ -321,7 +361,7 @@ struct StatsTabView: View {
         HStack(alignment: .center, spacing: 12) {
           Image(systemName: icon)
             .font(.title3)
-            .foregroundStyle(tint)
+            .foregroundStyle(resolvedTint)
             .frame(width: 26, alignment: .center)
           textColumn
           Spacer(minLength: 0)
@@ -330,8 +370,9 @@ struct StatsTabView: View {
         textColumn
       }
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(14)
+    .statsListRowFrame()
+    .padding(.horizontal, AppTheme.Layout.settingsCardInsetHPadding)
+    .padding(.vertical, AppTheme.Layout.settingsCardInsetVPadding)
     .background(AppTheme.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
   }
@@ -344,33 +385,28 @@ struct StatsTabView: View {
     )
   }
 
-  // MARK: - Activity
+  // MARK: - Listening
 
-  private func statsActivitySection(_ stats: ABSListeningStatsResponse) -> some View {
+  private func statsListeningSection(_ stats: ABSListeningStatsResponse) -> some View {
     let weekdayBars = stats.dayOfWeekBars(calendar: Self.statsCalendar, locale: Self.statsLocale)
     return VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-      StatsContentSection(title: "Year overview") {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          ListeningYearHeatmapCard(stats: stats, locale: Self.statsLocale, calendar: Self.statsCalendar)
-            .background(AppTheme.card)
-            .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-            .clipped()
-          HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-            featuredStatCard(
-              icon: "flame.fill",
-              tint: AppTheme.accent,
-              value: "\(stats.currentListeningStreakDays(calendar: Self.statsCalendar))",
-              label: "Current streak",
-              subtitle: "days in a row"
-            )
-            featuredStatCard(
-              icon: "trophy.fill",
-              tint: AppTheme.accent.opacity(0.85),
-              value: "\(stats.bestListeningStreakDays(calendar: Self.statsCalendar))",
-              label: "Longest streak",
-              subtitle: "best run"
-            )
-          }
+      statsListeningTimeSection(stats)
+
+      StatsContentSection(title: "Streaks") {
+        HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
+          featuredStatCard(
+            icon: "flame.fill",
+            value: "\(stats.currentListeningStreakDays(calendar: Self.statsCalendar))",
+            label: "Current streak",
+            subtitle: ""
+          )
+          featuredStatCard(
+            icon: "trophy.fill",
+            tint: model.appearanceAccentColor.opacity(0.85),
+            value: "\(stats.bestListeningStreakDays(calendar: Self.statsCalendar))",
+            label: "Longest streak",
+            subtitle: ""
+          )
         }
       }
 
@@ -380,27 +416,29 @@ struct StatsTabView: View {
         }
       }
 
-      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-        featuredStatCard(
-          icon: "calendar.badge.clock",
-          tint: AppTheme.success,
-          value: "\(stats.daysListenedInLastYear)",
-          label: "Days with listening",
-          subtitle: "in the last 12 months"
-        )
-        LazyVGrid(columns: Self.activityColumns, spacing: AppTheme.Layout.withinSectionSpacing) {
-          statsMetricCard(
-            icon: "book.fill", tint: AppTheme.success,
-            title: "Audiobooks", value: "\(stats.bookLikeItemCount)")
-          statsMetricCard(
-            icon: "dot.radiowaves.left.and.right", tint: AppTheme.textSecondary,
-            title: "Podcasts", value: "\(stats.podcastLikeItemCount)")
-          statsMetricCard(
-            icon: "calendar", tint: AppTheme.textPrimary,
-            title: "Active days", value: "\(stats.daysActive)")
-          statsMetricCard(
-            icon: "gauge.with.dots.needle.67percent", tint: AppTheme.textSecondary,
-            title: "Daily average", value: formatStatsCompact(stats.dailyAverageSeconds))
+      StatsContentSection(title: "Overview") {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+          featuredStatCard(
+            icon: "calendar.badge.clock",
+            tint: AppTheme.success,
+            value: "\(stats.daysListenedInLastYear)",
+            label: "Days with listening",
+            subtitle: "in the last 12 months"
+          )
+          LazyVGrid(columns: Self.activityColumns, spacing: AppTheme.Layout.withinSectionSpacing) {
+            statsMetricCard(
+              icon: "book.fill", tint: AppTheme.success,
+              title: "Audiobooks", value: "\(stats.bookLikeItemCount)")
+            statsMetricCard(
+              icon: "dot.radiowaves.left.and.right", tint: AppTheme.textSecondary,
+              title: "Podcasts", value: "\(stats.podcastLikeItemCount)")
+            statsMetricCard(
+              icon: "calendar", tint: AppTheme.textPrimary,
+              title: "Active days", value: "\(stats.daysActive)")
+            statsMetricCard(
+              icon: "gauge.with.dots.needle.67percent", tint: AppTheme.textSecondary,
+              title: "Daily average", value: formatStatsCompact(stats.dailyAverageSeconds))
+          }
         }
       }
     }
@@ -408,7 +446,7 @@ struct StatsTabView: View {
 
   private func featuredStatCard(
     icon: String,
-    tint: Color,
+    tint: Color? = nil,
     value: String,
     label: String,
     subtitle: String
@@ -432,7 +470,7 @@ struct StatsTabView: View {
           x: .value("Day", row.label),
           y: .value("Hours", hours)
         )
-        .foregroundStyle(AppTheme.accent.gradient)
+        .foregroundStyle(model.appearanceAccentColor.gradient)
         .cornerRadius(4)
       }
     }
@@ -451,22 +489,11 @@ struct StatsTabView: View {
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
   }
 
-  // MARK: - Week
+  // MARK: - Calendar
 
-  private func statsWeekSection(_ stats: ABSListeningStatsResponse) -> some View {
-    let bars = stats.lastSevenDayBars(calendar: Self.statsCalendar, locale: Self.statsLocale)
-    return VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-      StatsContentSection(title: "Last 7 days") {
-        weekLineChartCard(bars: bars, height: 260)
-      }
-      StatsContentSection(title: "Daily breakdown") {
-        StatsGroupedListCard {
-          ForEach(Array(bars.enumerated()), id: \.element.id) { index, row in
-            if index > 0 { statsListRowDivider }
-            weekDayRow(row: row, maxSeconds: max(bars.map(\.seconds).max() ?? 1, 1))
-          }
-        }
-      }
+  private func statsCalendarSection(_ stats: ABSListeningStatsResponse) -> some View {
+    StatsContentSection(title: "Calendar") {
+      ListeningMonthHeatmapCard(stats: stats, locale: Self.statsLocale, calendar: Self.statsCalendar)
     }
   }
 
@@ -489,82 +516,6 @@ struct StatsTabView: View {
         }
       }
     }
-  }
-
-  private func weekDayRow(
-    row: (id: String, label: String, seconds: Int),
-    maxSeconds: Int
-  ) -> some View {
-    let fraction = CGFloat(row.seconds) / CGFloat(maxSeconds)
-    return HStack(spacing: 12) {
-      Text(row.label)
-        .font(.subheadline.weight(.medium))
-        .foregroundStyle(AppTheme.textPrimary)
-        .frame(width: 36, alignment: .leading)
-      GeometryReader { geo in
-        ZStack(alignment: .leading) {
-          RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(AppTheme.background)
-          RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(AppTheme.accent.opacity(0.5))
-            .frame(width: max(4, geo.size.width * fraction))
-        }
-      }
-      .frame(height: 10)
-      Text(formatStatsCompact(row.seconds))
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(AppTheme.textSecondary)
-        .frame(width: 64, alignment: .trailing)
-    }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 12)
-  }
-
-  private func weekLineChartCard(bars: [(id: String, label: String, seconds: Int)], height: CGFloat) -> some View {
-    let maxSec = max(bars.map(\.seconds).max() ?? 0, 1)
-    let maxHours = max(Double(maxSec) / 3600.0, 0.25)
-    return Chart {
-      ForEach(bars, id: \.id) { row in
-        let hours = Double(row.seconds) / 3600.0
-        AreaMark(
-          x: .value("Day", row.label),
-          y: .value("Hours", hours)
-        )
-        .foregroundStyle(
-          LinearGradient(
-            colors: [AppTheme.accent.opacity(0.35), AppTheme.accent.opacity(0.05)],
-            startPoint: .top,
-            endPoint: .bottom
-          )
-        )
-        .interpolationMethod(.catmullRom)
-        LineMark(
-          x: .value("Day", row.label),
-          y: .value("Hours", hours)
-        )
-        .foregroundStyle(AppTheme.accent)
-        .interpolationMethod(.catmullRom)
-        PointMark(
-          x: .value("Day", row.label),
-          y: .value("Hours", hours)
-        )
-        .foregroundStyle(AppTheme.accent)
-        .symbolSize(48)
-      }
-    }
-    .chartYScale(domain: 0 ... maxHours)
-    .chartYAxis {
-      AxisMarks(position: .leading)
-    }
-    .chartXAxis {
-      AxisMarks { _ in
-        AxisValueLabel().font(.caption2)
-      }
-    }
-    .frame(height: height)
-    .padding(14)
-    .background(AppTheme.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
   }
 
   // MARK: - Formatting
@@ -731,7 +682,7 @@ private struct StatsTopListenedBookCard: View {
             HStack(spacing: 8) {
               Text(formatPlaybackDurationShortHuman(Double(item.timeListening)))
                 .font(.subheadline.monospacedDigit())
-                .foregroundStyle(AppTheme.accent)
+                .foregroundStyle(model.appearanceAccentColor)
               Text("listened")
                 .font(.subheadline)
                 .foregroundStyle(AppTheme.textSecondary)
@@ -833,7 +784,7 @@ private struct StatsRecentSessionCard: View {
             HStack(spacing: 8) {
               Text(formatPlaybackDurationShortHuman(Double(session.timeListening)))
                 .font(.subheadline.monospacedDigit())
-                .foregroundStyle(AppTheme.accent)
+                .foregroundStyle(model.appearanceAccentColor)
               if !startedAtCaption.isEmpty {
                 Text(startedAtCaption)
                   .font(.subheadline)

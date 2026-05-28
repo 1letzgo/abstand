@@ -35,6 +35,8 @@ private struct AppRootContainer: View {
         .sheet(isPresented: $nowPlayingSheetPresented) {
           NowPlayingDetailView()
             .environmentObject(model)
+            .tint(model.appearanceAccentColor)
+            .themeAccentFromAppModel(model)
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
@@ -45,6 +47,8 @@ private struct AppRootContainer: View {
         LoginView()
       }
     }
+    .tint(model.appearanceAccentColor)
+    .themeAccentFromAppModel(model)
     .preferredColorScheme(.dark)
     .task {
       await model.bootstrapFromStoredCredentials()
