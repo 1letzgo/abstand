@@ -19,6 +19,7 @@ struct ReadiumReaderView: View {
   let localFileURL: URL
   let format: ABSEbookFormat
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.themeAccent) private var themeAccent
   @State private var readerTheme = EpubReaderSettings.loadTheme()
   @State private var fontSize = EpubReaderSettings.defaultFontSize
   @State private var continuousScroll = EpubReaderSettings.loadContinuousScroll()
@@ -61,7 +62,7 @@ struct ReadiumReaderView: View {
       Group {
         if isLoading {
           ProgressView()
-            .tint(Color.accentColor)
+            .tint(themeAccent)
         } else if let loadError {
           ContentUnavailableView("Could not open", systemImage: "exclamationmark.triangle", description: Text(loadError))
         } else if let navigatorController {
@@ -246,7 +247,7 @@ struct ReadiumReaderView: View {
           }
         }
       )
-      .tint(Color.accentColor)
+      .tint(themeAccent)
       .disabled(readerActionInProgress || isLoading)
       .accessibilityLabel("Reading progress")
       .accessibilityValue(
@@ -410,10 +411,12 @@ extension Notification.Name {
 
 /// Badge für Hörbücher mit angehängter E-Book-/PDF-Datei.
 struct EpubAvailableBadge: View {
+  @Environment(\.themeAccent) private var themeAccent
+
   var body: some View {
     Image(systemName: "book.closed.fill")
       .font(.caption)
-      .foregroundStyle(Color.accentColor)
+      .foregroundStyle(themeAccent)
       .accessibilityLabel("eBook available")
   }
 }

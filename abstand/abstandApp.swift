@@ -19,11 +19,13 @@ struct abstandApp: App {
 
 private struct AppRootContainer: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.colorScheme) private var systemColorScheme
   @Environment(\.scenePhase) private var scenePhase
   @State private var nowPlayingSheetPresented = false
 
   var body: some View {
-    Group {
+    let _ = model.appearanceThemeRevision
+    return Group {
       if model.isLoggedIn {
         MainTabShellView(
           gate: model.floatingChrome.gate,
@@ -49,7 +51,18 @@ private struct AppRootContainer: View {
     }
     .tint(model.appearanceAccentColor)
     .themeAccentFromAppModel(model)
-    .preferredColorScheme(.dark)
+    .environment(\.appearanceThemeRevision, model.appearanceThemeRevision)
+    .background {
+      AppThemeScreenBackground(ignoresSafeArea: true)
+        .environmentObject(model)
+    }
+    .preferredColorScheme(model.preferredSwiftUIColorScheme)
+    .onAppear {
+      model.reapplyAppearance(systemColorScheme: systemColorScheme)
+    }
+    .onChange(of: systemColorScheme) { _, scheme in
+      model.reapplyAppearance(systemColorScheme: scheme)
+    }
     .task {
       await model.bootstrapFromStoredCredentials()
     }

@@ -1102,48 +1102,23 @@ struct ABSBook: Decodable, Identifiable {
     if let a = m.authors, !a.isEmpty { return a.map(\.name).joined(separator: ", ") }
     return "—"
   }
-  /// Erste Autor:in für kompakte UI (Listenkarten, Continue-Hero, Miniplayer); Detail- und Filterzeilen nutzen `displayAuthors`.
+  /// Alle Autoren für kompakte UI (Listenkarten, Continue-Hero, Miniplayer).
   var displayAuthorsCardLine: String {
-    let m = media.metadata
-    let raw: String? = {
-      if let a = m.authors, let first = a.first {
-        let t = first.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !t.isEmpty { return t }
-      }
-      if let n = m.authorName?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty, n != "—" {
-        return n
-      }
-      return nil
-    }()
-    if let raw {
-      return Self.primaryAuthorForCardCompactDisplay(raw)
-    }
-    let fallback = displayAuthors.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !fallback.isEmpty, fallback != "—" else { return "—" }
-    return Self.primaryAuthorForCardCompactDisplay(fallback)
+    displayAuthors
   }
 
-  /// Katalog liefert oft einen langen `authorName` („Autor1, Autor2 - Übersetzer, …“). Nur den ersten Namen zeigen,
-  /// außer bei typischem „Nachname, Vorname“ (zwei Segmente ohne Rollenhinweis).
-  private static func primaryAuthorForCardCompactDisplay(_ full: String) -> String {
-    let t = full.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !t.isEmpty else { return "—" }
-    let parts = t.components(separatedBy: ", ")
-    guard parts.count >= 2 else { return t }
-    let p1 = parts[1]
-    let p1Lower = p1.lowercased()
-    let looksLikeMultiPersonOrCreditsList =
-      parts.count >= 3
-      || p1.contains(" - ")
-      || p1Lower.contains("überset")
-      || p1Lower.contains("translat")
-      || p1Lower.contains("traduct")
-      || p1Lower.contains("lector")
-      || p1Lower.contains("bearbeit")
-    if looksLikeMultiPersonOrCreditsList {
-      return parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+  /// Autorenzeile für Serien-Karten — alle `displayAuthorsCardLine` der eingebetteten Bücher (dedupliziert).
+  static func cardAuthorsLine(from books: [ABSBook]?) -> String? {
+    guard let books, !books.isEmpty else { return nil }
+    var distinct: [String] = []
+    distinct.reserveCapacity(min(books.count, 8))
+    for book in books {
+      let line = book.displayAuthorsCardLine.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !line.isEmpty, line != "—" else { continue }
+      if !distinct.contains(line) { distinct.append(line) }
     }
-    return t
+    guard !distinct.isEmpty else { return nil }
+    return distinct.joined(separator: ", ")
   }
 
   var totalDuration: Double { media.duration ?? 0 }
@@ -1563,6 +1538,36 @@ enum ABSStartShelfMergedRow: Identifiable {
 }
 
 enum ABSStartShelfLocalization {
+  /// Ein Menüpunkt auf Home für Continue listening / reading / series.
+  static let homeBrowseContinueSectionID = "continue"
+
+  static let homeBrowseContinueCategories: [String] = [
+    "recentlyListened", "continueEbooks", "continueSeries",
+  ]
+
+  static func isHomeBrowseContinueCategory(_ category: String) -> Bool {
+    homeBrowseContinueCategories.contains(category)
+  }
+
+  static var homeBrowseContinueStripLabel: String {
+    String(localized: "Continue", comment: "Home browse strip: combined continue shelves")
+  }
+
+  /// Ein Menüpunkt auf Home für Recently added + Recent series.
+  static let homeBrowseRecentSectionID = "recent"
+
+  static let homeBrowseRecentCategories: [String] = [
+    "newestItems", "newestSeries",
+  ]
+
+  static func isHomeBrowseRecentCategory(_ category: String) -> Bool {
+    homeBrowseRecentCategories.contains(category)
+  }
+
+  static var homeBrowseRecentStripLabel: String {
+    String(localized: "Recent", comment: "Home browse strip: combined newest shelves")
+  }
+
   static let categoryTitles: [String: String] = [
     "recentlyListened": "Continue listening",
     "continueEbooks": "Continue reading",
@@ -1587,33 +1592,19 @@ enum ABSStartShelfLocalization {
     "recommended", "recentlyFinished", "newestAuthors",
   ]
 
-  /// Regale mit Listen- vs. Cover-Streifen-Layout (Bücher und/oder Autoren) — kein Hero.
-  static let categoriesWithBookLayoutSetting: Set<String> = [
-    "continueSeries", "newestItems", "newestSeries", "recommended", "recentlyFinished",
-    "newestAuthors",
-  ]
-
-  static func supportsBookLayoutSetting(category: String) -> Bool {
-    categoriesWithBookLayoutSetting.contains(category)
-  }
-}
-
-/// Home-Regal: volle Zeilenkarte oder horizontaler Cover-Streifen.
-enum StartShelfBookLayout: String, CaseIterable, Identifiable {
-  case list
-  case compact
-
-  var id: String { rawValue }
-
-  var label: String {
-    switch self {
-    case .list: "List"
-    case .compact: "Covers"
+  /// SF Symbol für die Home-Browse-Leiste (wie Library `BooksBrowseSection.systemImage`).
+  static func stripSystemImage(category: String) -> String {
+    switch category {
+    case homeBrowseContinueSectionID, "recentlyListened": return "play.circle.fill"
+    case "continueEbooks": return "book.closed.fill"
+    case "continueSeries": return "rectangle.stack.fill"
+    case homeBrowseRecentSectionID, "newestItems": return "sparkles"
+    case "newestSeries": return "books.vertical.fill"
+    case "recommended": return "lightbulb.fill"
+    case "recentlyFinished": return "arrow.counterclockwise"
+    case "newestAuthors": return "person.fill"
+    default: return "square.grid.2x2"
     }
-  }
-
-  static func defaultForCategory(_ category: String) -> StartShelfBookLayout {
-    category == "newestItems" ? .compact : .list
   }
 }
 
@@ -1740,6 +1731,11 @@ struct ABSLibrarySeriesListItem: Decodable, Identifiable {
   enum CodingKeys: String, CodingKey {
     case id, name, books
   }
+
+  /// API: kein Serien-`author` — alle Autoren aus `books` (wie Buch-Karten: `displayAuthorsCardLine`).
+  var cardAuthorsLine: String? {
+    ABSBook.cardAuthorsLine(from: books)
+  }
 }
 
 /// Eintrag aus `GET /api/libraries/:id/collections`
@@ -1819,6 +1815,11 @@ struct ABSSearchSeriesRow: Decodable, Identifiable {
   let id: String
   let name: String
   let books: [ABSBook]?
+
+  /// Wie `ABSLibrarySeriesListItem.cardAuthorsLine`.
+  var cardAuthorsLine: String? {
+    ABSBook.cardAuthorsLine(from: books)
+  }
 
   enum CodingKeys: String, CodingKey {
     case id, name, books, series

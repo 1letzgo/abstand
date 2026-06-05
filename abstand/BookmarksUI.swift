@@ -63,7 +63,7 @@ struct BookmarksDisclosure: View {
         .textCase(.uppercase)
         .tracking(0.6)
     }
-    .tint(Color.accentColor)
+    .tint(model.appearanceAccentColor)
     .alert(
       "Delete bookmark?",
       isPresented: Binding(
@@ -145,7 +145,7 @@ struct AddBookmarkTitleSheet: View {
       .navigationTitle("Bookmark")
       .navigationBarTitleDisplayMode(.inline)
       .toolbarBackground(AppTheme.background, for: .navigationBar)
-      .toolbarColorScheme(.dark, for: .navigationBar)
+      .toolbarColorScheme(model.resolvedInterfaceColorScheme, for: .navigationBar)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("Cancel") { dismiss() }
@@ -174,7 +174,7 @@ struct AddBookmarkTitleSheet: View {
     }
     .presentationDetents([.medium])
     .presentationDragIndicator(.visible)
-    .preferredColorScheme(.dark)
+    .preferredColorScheme(model.resolvedInterfaceColorScheme)
     .onAppear { refreshPositionAndDefaultTitle() }
   }
 
@@ -218,6 +218,8 @@ private struct PlayerBookmarkUtilityControlChrome: View, Equatable {
   let menuItems: [PlayerBookmarkMenuItem]
   @Binding var showAddSheet: Bool
   let onJump: (ABSAudioBookmark) -> Void
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
 
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.activeAudiobookId == rhs.activeAudiobookId
@@ -226,6 +228,7 @@ private struct PlayerBookmarkUtilityControlChrome: View, Equatable {
   }
 
   var body: some View {
+    let _ = themeRevision
     if activeAudiobookId != nil {
       Button {
         showAddSheet = true
@@ -233,7 +236,7 @@ private struct PlayerBookmarkUtilityControlChrome: View, Equatable {
         VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
           Image(systemName: "bookmark")
             .font(.title3)
-            .foregroundStyle(Color.white)
+            .foregroundStyle(themeAccent)
             .frame(width: 44, height: 44)
             .frame(
               maxWidth: .infinity,
@@ -243,7 +246,7 @@ private struct PlayerBookmarkUtilityControlChrome: View, Equatable {
             )
           Text("Bookmark", comment: "Player control label")
             .font(.caption2)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppTheme.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())

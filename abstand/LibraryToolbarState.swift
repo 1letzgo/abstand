@@ -538,6 +538,7 @@ enum PodcastCatalogNavigation: Hashable {
 struct PodcastCatalogToolbarContent: ToolbarContent {
   let snapshot: PodcastCatalogToolbarSnapshot
   let toolbarState: PodcastCatalogToolbarState
+  @Environment(\.themeAccent) private var themeAccent
 
   @MainActor
   init(toolbarState: PodcastCatalogToolbarState) {
@@ -550,7 +551,7 @@ struct PodcastCatalogToolbarContent: ToolbarContent {
       if snapshot.isServerRoot, snapshot.isPodcastNewView {
         NavigationLink(value: PodcastCatalogNavigation.addPodcast) {
           Image(systemName: "plus.circle.fill")
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(themeAccent)
         }
         .disabled(!snapshot.hasPodcastLibrary || !snapshot.isNetworkReachable)
         .accessibilityLabel("Add podcast")
@@ -568,7 +569,7 @@ struct PodcastCatalogToolbarContent: ToolbarContent {
           )
         } label: {
           Image(systemName: "gearshape.fill")
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(themeAccent)
         }
         .accessibilityLabel("Show settings")
       }
@@ -580,12 +581,14 @@ struct PodcastCatalogToolbarContent: ToolbarContent {
 }
 
 struct PodcastCatalogTabShell<Catalog: View>: View {
+  @EnvironmentObject private var model: AppModel
   @ObservedObject var toolbarState: PodcastCatalogToolbarState
   @State private var navigationPath = NavigationPath()
   @ViewBuilder var catalog: () -> Catalog
 
   var body: some View {
-    NavigationStack(path: $navigationPath) {
+    let _ = model.appearanceThemeRevision
+    return NavigationStack(path: $navigationPath) {
       catalog()
         .abstandTabScreenChrome()
         .navigationTitle(AppModel.MainTab.podcasts.rawValue)

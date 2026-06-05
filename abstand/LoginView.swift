@@ -9,23 +9,25 @@ struct LoginView: View {
 
   var body: some View {
     ZStack {
-      AppTheme.background.ignoresSafeArea()
+      AppThemeScreenBackground(ignoresSafeArea: true)
       ScrollView {
-        VStack(alignment: .leading, spacing: 20) {
-          Text("Abstand")
-            .font(.largeTitle.bold())
-            .foregroundStyle(AppTheme.textPrimary)
-          Text("Audiobookshelf")
-            .font(.title3)
-            .foregroundStyle(Color.accentColor)
-          Text("Sign in with your Audiobookshelf account.")
-            .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
+        VStack(alignment: .leading, spacing: 24) {
+          VStack(alignment: .leading, spacing: 6) {
+            Text("Abstand")
+              .font(.largeTitle.bold())
+              .foregroundStyle(model.appearancePalette.textPrimary)
+            Text("Audiobookshelf")
+              .font(.title3.weight(.semibold))
+              .abstandAccentForeground()
+            Text("Sign in with your Audiobookshelf account.")
+              .font(.subheadline)
+              .foregroundStyle(model.appearancePalette.textSecondary)
+          }
 
           VStack(spacing: 14) {
-            labeledField("Server URL", text: $server, secure: false)
-            labeledField("Username", text: $username, secure: false)
-            labeledField("Password", text: $password, secure: true)
+            AbstandLabeledTextField(title: "Server URL", text: $server)
+            AbstandLabeledTextField(title: "Username", text: $username)
+            AbstandLabeledTextField(title: "Password", text: $password, isSecure: true)
           }
           .onAppear {
             if server.isEmpty { server = model.serverURL }
@@ -44,17 +46,12 @@ struct LoginView: View {
               await model.login(server: server, username: username, password: password)
             }
           } label: {
-            HStack {
-              if busy { ProgressView().tint(.white) }
+            HStack(spacing: 8) {
+              if busy { ProgressView().tint(Color.black.opacity(0.85)) }
               Text("Sign in")
-                .fontWeight(.semibold)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(Color.accentColor)
-            .foregroundStyle(Color.black.opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
           }
+          .buttonStyle(AbstandPrimaryButtonStyle())
           .disabled(busy || server.isEmpty || username.isEmpty || password.isEmpty)
         }
         .padding(24)
@@ -65,30 +62,6 @@ struct LoginView: View {
         await model.bootstrapFromStoredCredentials()
       }
     }
-  }
-
-  private func labeledField(
-    _ title: String,
-    text: Binding<String>,
-    secure: Bool
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(title)
-        .font(.caption)
-        .foregroundStyle(AppTheme.textSecondary)
-      Group {
-        if secure {
-          SecureField("", text: text)
-        } else {
-          TextField("", text: text)
-        }
-      }
-      .textInputAutocapitalization(.never)
-      .autocorrectionDisabled()
-      .padding(12)
-      .background(AppTheme.card)
-      .foregroundStyle(AppTheme.textPrimary)
-      .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
+    .abstandThemeRefresh()
   }
 }

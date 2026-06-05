@@ -25,6 +25,9 @@ enum SleepTimerMode: Equatable {
 /// `AVPlayer`/`NotificationCenter`-Callbacks sind `@Sendable`; Zustandsänderungen laufen über Main-Queue + `MainActor.assumeIsolated`.
 @MainActor
 final class PlaybackController: NSObject, ObservableObject {
+  /// Mitlesen (SpeechAnalyzer / on-device).
+  let liveTranscription = PlayerLiveTranscriptionController()
+
   @Published private(set) var activeBook: ABSBook?
   /// Gesetzte Podcast-Folge (`play/.../episodeId`); bei Hörbüchern `nil`.
   @Published private(set) var activePlaybackEpisodeId: String?
@@ -130,6 +133,15 @@ final class PlaybackController: NSObject, ObservableObject {
   private var localRoot: URL?
   /// `true`, wenn die Wiedergabe aus einem lokalen Download-Ordner läuft (kein Auto-Download nötig).
   var isPlaybackFromOfflineDownload: Bool { localRoot != nil }
+  /// Wie `playBook`: alle Tracks lokal — sonst Stream trotz Download-Ordner.
+  var isUsingLocalTrackFiles: Bool {
+    guard let root = localRoot, let book = activeBook else { return false }
+    return Self.allTracksPresent(root: root, book: book)
+  }
+
+  var canBuildTranscriptionStreamContext: Bool {
+    apiClient != nil && playSessionId != nil
+  }
   /// Nach Laden: sofort abspielen oder nur positionieren (App-Start).
   private var shouldAutoPlayAfterLoad = true
 
@@ -145,11 +157,18 @@ final class PlaybackController: NSObject, ObservableObject {
 
   private var nowPlayingArtwork: MPMediaItemArtwork?
   private var coverLoadTask: Task<Void, Never>?
+  /// Für Cover-Verlauf im Vollplayer (nur Dark); bei Appearance-Wechsel neu anwenden.
+  private var lastCoverImageForBarTint: UIImage?
   /// Nur in `deinit` (nicht isoliert) und im Beobachter-Setup verwendet.
   nonisolated(unsafe) private var interruptionObserver: NSObjectProtocol?
   nonisolated(unsafe) private var routeChangeObserver: NSObjectProtocol?
   private var cancellables = Set<AnyCancellable>()
   private var sleepWakeTask: Task<Void, Never>?
+  /// Verbleibende Laufzeit; bei Pause eingefroren, `sleepEndDate` nur während Wiedergabe.
+  private var sleepTimerRemaining: TimeInterval?
+  private var sleepTimerPaused = false
+  /// Für `.shouldResume` nach Telefonanruf / Unterbrechung.
+  private var wasPlayingBeforeInterruption = false
 
   override init() {
     super.init()
@@ -185,14 +204,46 @@ final class PlaybackController: NSObject, ObservableObject {
         }
       }
     }
-    $sleepEndDate
-      .sink { [weak self] end in
-        if end == nil {
-          self?.sleepTimerMode = .off
-        }
-        self?.rescheduleSleepWake(for: end)
+    liveTranscription.objectWillChange
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] _ in
+        self?.objectWillChange.send()
       }
       .store(in: &cancellables)
+
+    $sleepEndDate
+      .sink { [weak self] end in
+        guard let self else { return }
+        if end == nil {
+          if !self.sleepTimerPaused {
+            self.sleepTimerMode = .off
+            self.sleepTimerRemaining = nil
+          }
+        } else {
+          self.rescheduleSleepWake(for: end)
+        }
+      }
+      .store(in: &cancellables)
+  }
+
+  /// Countdown für UI — bei Pause konstant, bei Wiedergabe läuft die Uhr weiter.
+  var sleepTimerDisplaySeconds: TimeInterval? {
+    guard sleepTimerMode != .off else { return nil }
+    if sleepTimerPaused {
+      return sleepTimerRemaining
+    }
+    if let end = sleepEndDate {
+      return max(0, end.timeIntervalSinceNow)
+    }
+    if let remaining = sleepTimerRemaining, remaining > 0 {
+      return remaining
+    }
+    return nil
+  }
+
+  var isSleepTimerActive: Bool {
+    guard sleepTimerMode != .off else { return false }
+    return (sleepTimerDisplaySeconds ?? 0) > 0
   }
 
   deinit {
@@ -205,6 +256,55 @@ final class PlaybackController: NSObject, ObservableObject {
     }
   }
 
+  /// Sleep-Timer komplett aus (manuell „Aus“, Ablauf, Track-Ende).
+  func clearSleepTimer() {
+    sleepWakeTask?.cancel()
+    sleepWakeTask = nil
+    sleepTimerRemaining = nil
+    sleepTimerPaused = false
+    sleepEndDate = nil
+  }
+
+  func applySleepTimerRemaining(_ seconds: TimeInterval) {
+    sleepTimerRemaining = max(0, seconds)
+    if isPlaying {
+      sleepTimerPaused = false
+      scheduleSleepTimerWakeIfNeeded()
+    } else {
+      sleepWakeTask?.cancel()
+      sleepWakeTask = nil
+      sleepEndDate = nil
+    }
+  }
+
+  private func scheduleSleepTimerWakeIfNeeded() {
+    guard let remaining = sleepTimerRemaining, remaining > 0, !sleepTimerPaused, isPlaying else {
+      sleepWakeTask?.cancel()
+      sleepWakeTask = nil
+      sleepEndDate = nil
+      return
+    }
+    sleepEndDate = Date().addingTimeInterval(remaining)
+  }
+
+  private func pauseSleepTimer() {
+    guard sleepTimerMode != .off else { return }
+    guard sleepEndDate != nil || (sleepTimerRemaining ?? 0) > 0 else { return }
+    if let end = sleepEndDate {
+      sleepTimerRemaining = max(0, end.timeIntervalSinceNow)
+    }
+    sleepTimerPaused = true
+    sleepWakeTask?.cancel()
+    sleepWakeTask = nil
+    sleepEndDate = nil
+  }
+
+  private func resumeSleepTimerIfNeeded() {
+    guard sleepTimerMode != .off, (sleepTimerRemaining ?? 0) > 0 else { return }
+    sleepTimerPaused = false
+    scheduleSleepTimerWakeIfNeeded()
+  }
+
   /// Wanduhr-basiert: funktioniert auch bei pausiertem Player (nicht nur über `AVPlayer`-Ticks).
   private func rescheduleSleepWake(for end: Date?) {
     sleepWakeTask?.cancel()
@@ -212,7 +312,7 @@ final class PlaybackController: NSObject, ObservableObject {
     guard let end else { return }
     let delay = end.timeIntervalSinceNow
     if delay <= 0 {
-      sleepEndDate = nil
+      clearSleepTimer()
       pause()
       return
     }
@@ -227,50 +327,58 @@ final class PlaybackController: NSObject, ObservableObject {
       guard let self else { return }
       guard !Task.isCancelled else { return }
       guard self.sleepEndDate == expectedEnd else { return }
-      self.sleepEndDate = nil
+      self.clearSleepTimer()
       self.pause()
     }
   }
 
   /// Session für Hintergrund / Sperrbildschirm; `setCategory` nur bei Bedarf (erneuter Aufruf kann sonst kurz unterbrechen).
-  func ensureAudioSessionForPlayback() {
+  /// `reclaimFromOtherApps`: Tonspur von anderer App zurückholen (explizites Play), nicht beim bloßen Vordergrund-Wechsel.
+  func ensureAudioSessionForPlayback(reclaimFromOtherApps: Bool = false) {
     let session = AVAudioSession.sharedInstance()
-    let opts: AVAudioSession.CategoryOptions = [
+    let categoryOpts: AVAudioSession.CategoryOptions = [
       .allowBluetoothHFP, .allowBluetoothA2DP, .allowAirPlay,
     ]
+    var activeOpts: AVAudioSession.SetActiveOptions = []
+    if reclaimFromOtherApps {
+      activeOpts.insert(.notifyOthersOnDeactivation)
+    }
     do {
       if session.category != .playback || session.mode != .spokenAudio {
         try session.setCategory(
           .playback,
           mode: .spokenAudio,
           policy: .longFormAudio,
-          options: opts
+          options: categoryOpts
         )
       }
-      try session.setActive(true, options: [])
+      try session.setActive(true, options: activeOpts)
     } catch {
       try? session.setCategory(
         .playback,
         mode: .default,
-        options: opts
+        options: categoryOpts
       )
-      try? session.setActive(true, options: [])
+      try? session.setActive(true, options: activeOpts)
     }
   }
 
   private func handleAudioSessionInterruption(typeRaw: UInt, optionRaw: UInt) {
     guard let type = AVAudioSession.InterruptionType(rawValue: typeRaw) else { return }
     switch type {
-    case .ended:
-      let opts = AVAudioSession.InterruptionOptions(rawValue: optionRaw)
-      if opts.contains(.shouldResume) {
-        ensureAudioSessionForPlayback()
-        if isPlaying {
-          applyPlayingRate()
-        }
-      }
     case .began:
+      wasPlayingBeforeInterruption = isPlaying
+      player?.pause()
       syncPlayingStateFromPlayerIfNeeded()
+    case .ended:
+      ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
+      let opts = AVAudioSession.InterruptionOptions(rawValue: optionRaw)
+      if opts.contains(.shouldResume), wasPlayingBeforeInterruption {
+        play()
+      } else {
+        syncPlayingStateFromPlayerIfNeeded()
+      }
+      wasPlayingBeforeInterruption = false
     @unknown default:
       break
     }
@@ -278,6 +386,25 @@ final class PlaybackController: NSObject, ObservableObject {
 
   /// Abgleich nach App-Rückkehr oder wenn das OS den Player stilllegt (ohne unser `pause()`).
   func refreshPlaybackStateFromEngine() {
+    reconcilePlayingStateWithEngine()
+  }
+
+  /// UI/`isPlaying` an echten `AVPlayer`-Zustand — auch wenn `currentItem` fehlt oder Engine pausiert wurde.
+  private func reconcilePlayingStateWithEngine() {
+    guard let p = player else {
+      if isPlaying {
+        isPlaying = false
+        updateNowPlaying()
+      }
+      return
+    }
+    guard p.currentItem != nil else {
+      if isPlaying {
+        isPlaying = false
+        updateNowPlaying()
+      }
+      return
+    }
     syncPlayingStateFromPlayerIfNeeded()
   }
 
@@ -303,6 +430,7 @@ final class PlaybackController: NSObject, ObservableObject {
     } else {
       accumulateListenTime()
       isPlaying = false
+      pauseSleepTimer()
       Task { await flushSync(force: true) }
     }
     updateNowPlaying()
@@ -398,12 +526,17 @@ final class PlaybackController: NSObject, ObservableObject {
     showMiniPlayerPlaceholder = show
   }
 
+  /// Nach Dark ↔ Sepia/Light: Cover-Verlauf nur im Dark-Modus.
+  func refreshMiniPlayerBarFillForAppearance() {
+    applyMiniPlayerBarFillFromStoredCover()
+  }
+
   func tearDownPlayer() {
-    sleepWakeTask?.cancel()
-    sleepWakeTask = nil
-    sleepEndDate = nil
+    liveTranscription.playbackDidStop()
+    clearSleepTimer()
     showMiniPlayerPlaceholder = false
     miniPlayerBarFillColor = AppTheme.card
+    lastCoverImageForBarTint = nil
     coverLoadTask?.cancel()
     coverLoadTask = nil
     nowPlayingArtwork = nil
@@ -819,11 +952,12 @@ final class PlaybackController: NSObject, ObservableObject {
   private func tick() {
     accumulateListenTime()
     onPlaybackTick?()
+    liveTranscription.handlePlaybackTick(player: self)
     refreshGlobalFromPlayer()
     updateChapterUI(global: globalPosition)
     updateNowPlaying()
-    if let end = sleepEndDate, Date() >= end {
-      sleepEndDate = nil
+    if isPlaying, let end = sleepEndDate, Date() >= end {
+      clearSleepTimer()
       pause()
     }
   }
@@ -969,14 +1103,35 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   func play() {
-    ensureAudioSessionForPlayback()
+    ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
     if localRoot != nil, playSessionId == nil, attemptServerPlaySessionForLocal {
       Task { await recreatePlaySessionForLocalPlaybackIfNeeded() }
+    }
+    if let item = player?.currentItem, item.status == .failed {
+      let local = player?.currentTime().seconds ?? 0
+      let offset = local.isFinite ? max(0, local) : 0
+      Task { await loadCurrentTrack(play: true, localOffset: offset) }
+      return
     }
     applyPlayingRate()
     isPlaying = true
     lastListenTick = Date()
+    resumeSleepTimerIfNeeded()
     updateNowPlaying()
+    // Nach Fremd-App im Hintergrund bleibt AVPlayer oft pausiert trotz `play()` — einmal nachziehen.
+    schedulePlaybackEngineKickstartIfStillPaused()
+  }
+
+  /// Kurz nach `play()`: Session + Rate erneut, falls iOS den Engine-Start verschluckt hat.
+  private func schedulePlaybackEngineKickstartIfStillPaused() {
+    Task { @MainActor [weak self] in
+      try? await Task.sleep(nanoseconds: 350_000_000)
+      guard let self, self.isPlaying, let p = self.player, p.currentItem != nil else { return }
+      guard !Self.engineIndicatesPlaying(p) else { return }
+      self.ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
+      self.applyPlayingRate()
+      self.updateNowPlaying()
+    }
   }
 
   /// Absorb `_resumeServerSync`: Session nach Pause/Offline erneut anlegen.
@@ -997,6 +1152,7 @@ final class PlaybackController: NSObject, ObservableObject {
 
   func pause() {
     accumulateListenTime()
+    pauseSleepTimer()
     player?.pause()
     isPlaying = false
     updateNowPlaying()
@@ -1316,10 +1472,19 @@ final class PlaybackController: NSObject, ObservableObject {
     }
     guard !Task.isCancelled, activeBook?.id == bookId else { return }
     guard let image = UIImage(data: data) else { return }
-    miniPlayerBarFillColor = Self.coverBarTintFromCoverImage(image)
+    lastCoverImageForBarTint = image
+    applyMiniPlayerBarFillFromStoredCover()
     let artwork = Self.makeNowPlayingArtwork(from: image)
     nowPlayingArtwork = artwork
     updateNowPlaying()
+  }
+
+  private func applyMiniPlayerBarFillFromStoredCover() {
+    if AppTheme.palette.isDarkLike, let image = lastCoverImageForBarTint {
+      miniPlayerBarFillColor = Self.coverBarTintFromCoverImage(image)
+    } else {
+      miniPlayerBarFillColor = AppTheme.card
+    }
   }
 
   /// RGB wie in `coverBarTintFromCoverImage` (z. B. für Platten-Cache der Continue-Hero-Karten).
@@ -1416,6 +1581,65 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Für `AppModel.syncOfflineProgressToServer`: offene Play-Session-Zeit an den Server schreiben.
   func flushPendingPlaySessionSync() async {
     await flushSync(force: true)
+  }
+
+  var transcriptionTrackKey: String {
+    let bookId = activeBook?.id ?? ""
+    return "\(bookId)-\(currentTrackIndex)"
+  }
+
+  func transcriptionLocalStartSeconds(preRoll: Double) -> Double {
+    let offset = trackStarts[safe: currentTrackIndex] ?? 0
+    let local = max(0, globalPosition - offset)
+    return max(0, local - preRoll)
+  }
+
+  func transcriptionLocalPlaybackSeconds(trackGlobalOffset: Double) -> Double {
+    max(0, globalPosition - trackGlobalOffset)
+  }
+
+  func makeTranscriptionAudioContext() async -> PlayerTranscriptionAudioContext? {
+    guard let book = activeBook, !tracks.isEmpty, currentTrackIndex < trackStarts.count else { return nil }
+    let offset = trackStarts[currentTrackIndex]
+    let trackIdx = tracks[currentTrackIndex].index
+    let placeholderLocale = Locale.current
+
+    if isUsingLocalTrackFiles, let root = localRoot {
+      let manifest = ABSDownloadManifest.load(from: root)
+      guard
+        let url = Self.resolvedLocalTrackURL(
+          root: root, trackIndex: trackIdx, manifest: manifest)
+      else { return nil }
+      return PlayerTranscriptionAudioContext(
+        assetURL: url,
+        streamAuthToken: nil,
+        trackGlobalOffset: offset,
+        locale: placeholderLocale,
+        trackIndex: currentTrackIndex
+      )
+    }
+
+    guard let client = apiClient, let sid = playSessionId else { return nil }
+    do {
+      let streamURL = try await client.publicStreamURL(sessionId: sid, trackIndex: trackIdx)
+      let token = await client.currentToken()
+      return PlayerTranscriptionAudioContext(
+        assetURL: streamURL,
+        streamAuthToken: token.isEmpty ? nil : token,
+        trackGlobalOffset: offset,
+        locale: placeholderLocale,
+        trackIndex: currentTrackIndex
+      )
+    } catch {
+      return nil
+    }
+  }
+}
+
+private extension Array {
+  subscript(safe index: Int) -> Element? {
+    guard indices.contains(index) else { return nil }
+    return self[index]
   }
 }
 

@@ -21,10 +21,15 @@ private struct ServerAdminScrollScreen<Content: View>: View {
 }
 
 private struct ServerAdminSectionLabel: View {
+  @EnvironmentObject private var model: AppModel
   let title: String
 
   var body: some View {
-    TabContentSectionTitle(title: title)
+    Text(title)
+      .font(.title3)
+      .bold()
+      .foregroundStyle(model.appearancePalette.textPrimary)
+      .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 
@@ -42,6 +47,7 @@ private struct ServerAdminSection<Content: View>: View {
 }
 
 private struct ServerAdminCard<Content: View>: View {
+  @EnvironmentObject private var model: AppModel
   @ViewBuilder let content: () -> Content
 
   var body: some View {
@@ -49,21 +55,24 @@ private struct ServerAdminCard<Content: View>: View {
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.horizontal, AppTheme.Layout.settingsCardInsetHPadding)
       .padding(.vertical, AppTheme.Layout.settingsCardInsetVPadding)
-      .background(AppTheme.card)
+      .background(model.appearancePalette.card)
       .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+      .abstandCardElevation(.standard)
   }
 }
 
 /// Einzelne Info-/Nav-Zeile ohne zusätzliche Kartenhöhe (z. B. Account).
 private struct ServerAdminCompactCard<Content: View>: View {
+  @EnvironmentObject private var model: AppModel
   @ViewBuilder let content: () -> Content
 
   var body: some View {
     content()
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.horizontal, AppTheme.Layout.settingsCardInsetHPadding)
-      .background(AppTheme.card)
+      .background(model.appearancePalette.card)
       .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+      .abstandCardElevation(.standard)
   }
 }
 
@@ -86,6 +95,7 @@ private struct ServerAdminNavRow: View {
   let subtitle: String?
 
   var body: some View {
+    let palette = model.appearancePalette
     HStack(spacing: 12) {
       Image(systemName: icon)
         .font(.body.weight(.semibold))
@@ -94,17 +104,17 @@ private struct ServerAdminNavRow: View {
       VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 4) {
         Text(title)
           .font(.body.weight(.medium))
-          .foregroundStyle(AppTheme.textPrimary)
+          .foregroundStyle(palette.textPrimary)
         if let subtitle {
           Text(subtitle)
             .font(.caption)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(palette.textSecondary)
         }
       }
       Spacer(minLength: 0)
       Image(systemName: "chevron.right")
         .font(.caption.weight(.semibold))
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(palette.textSecondary)
     }
     .settingsCardCompactRowFrame(alignment: .leading)
   }
@@ -137,8 +147,34 @@ private struct SettingsCardToggleRow: View {
       Toggle(isOn: $isOn) {
         Text(title)
           .font(.body)
-          .foregroundStyle(AppTheme.textPrimary)
+          .foregroundStyle(model.appearancePalette.textPrimary)
       }
+      .tint(model.appearanceAccentColor)
+    }
+    .settingsCardRowFrame()
+  }
+}
+
+private struct SettingsCardAppearanceModeRow: View {
+  @EnvironmentObject private var model: AppModel
+  @Binding var selection: AppearanceMode
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 12) {
+        SettingsCardIcon(systemName: "circle.lefthalf.filled")
+        Text("Appearance")
+          .font(.body)
+          .foregroundStyle(model.appearancePalette.textPrimary)
+        Spacer(minLength: 0)
+      }
+      Picker("Appearance", selection: $selection) {
+        ForEach(AppearanceMode.allCases) { mode in
+          Text(mode.label).tag(mode)
+        }
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
       .tint(model.appearanceAccentColor)
     }
     .settingsCardRowFrame()
@@ -156,7 +192,7 @@ private struct SettingsCardColorPickerRow: View {
       SettingsCardIcon(systemName: icon)
       Text(title)
         .font(.body)
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
       Spacer(minLength: 8)
       ColorPicker("", selection: $color, supportsOpacity: false)
         .labelsHidden()
@@ -236,15 +272,16 @@ private struct SettingsMetricCard: View {
   private var resolvedTint: Color { tint ?? model.appearanceAccentColor }
 
   var body: some View {
+    let palette = model.appearancePalette
     let textColumn = VStack(alignment: .leading, spacing: 4) {
       Text(title)
         .font(.caption.weight(.semibold))
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(palette.textSecondary)
         .lineLimit(1)
         .minimumScaleFactor(0.85)
       Text(value.isEmpty ? "—" : value)
         .font(.headline.weight(.bold))
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(palette.textPrimary)
         .minimumScaleFactor(0.7)
         .lineLimit(1)
     }
@@ -261,8 +298,9 @@ private struct SettingsMetricCard: View {
     .padding(.horizontal, AppTheme.Layout.settingsCardInsetHPadding)
     .padding(.vertical, AppTheme.Layout.settingsCardInsetVPadding)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(AppTheme.card)
+    .background(model.appearancePalette.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+    .abstandCardElevation(.standard)
   }
 }
 
@@ -297,10 +335,64 @@ private struct SettingsCardSecureFieldRow: View {
 }
 
 private struct SettingsCardDivider: View {
+  @EnvironmentObject private var model: AppModel
+
   var body: some View {
     Divider()
-      .overlay(AppTheme.textSecondary.opacity(0.25))
+      .overlay(model.appearancePalette.textSecondary.opacity(0.25))
       .padding(.vertical, AppTheme.Layout.settingsCardDividerSpacing)
+  }
+}
+
+private struct SettingsCardStepperRow: View {
+  @EnvironmentObject private var model: AppModel
+  let icon: String
+  let title: String
+  let valueLabel: String
+  @Binding var value: Int
+  let range: ClosedRange<Int>
+
+  var body: some View {
+    HStack(spacing: 12) {
+      SettingsCardIcon(systemName: icon)
+      Text(title)
+        .font(.body)
+        .foregroundStyle(AppTheme.textPrimary)
+      Spacer(minLength: 8)
+      Text(valueLabel)
+        .font(.subheadline)
+        .foregroundStyle(AppTheme.textSecondary)
+        .monospacedDigit()
+        .frame(minWidth: 88, alignment: .trailing)
+      Stepper("", value: $value, in: range)
+        .labelsHidden()
+        .tint(model.appearanceAccentColor)
+    }
+    .settingsCardRowFrame()
+  }
+}
+
+private struct SettingsCardAutoDownloadIntervalRow: View {
+  @EnvironmentObject private var model: AppModel
+  @Binding var selection: PodcastAutoDownloadInterval
+
+  var body: some View {
+    HStack(spacing: 12) {
+      SettingsCardIcon(systemName: "clock.arrow.circlepath")
+      Text("Interval")
+        .font(.body)
+        .foregroundStyle(AppTheme.textPrimary)
+      Spacer(minLength: 8)
+      Picker("Interval", selection: $selection) {
+        ForEach(PodcastAutoDownloadInterval.allCases) { interval in
+          Text(interval.label).tag(interval)
+        }
+      }
+      .pickerStyle(.menu)
+      .labelsHidden()
+      .tint(model.appearanceAccentColor)
+    }
+    .settingsCardRowFrame()
   }
 }
 
@@ -334,15 +426,7 @@ private struct SettingsCardActionRow: View {
 }
 
 private func startShelfSettingsIcon(category: String) -> String {
-  switch category {
-  case "continueListening", "recentlyListened": return "play.circle.fill"
-  case "continueEbooks": return "book.closed.fill"
-  case "recentlyAdded": return "sparkles"
-  case "recentSeries": return "books.vertical.fill"
-  case "newestAuthors": return "person.fill"
-  case "discover": return "lightbulb.fill"
-  default: return "square.grid.2x2"
-  }
+  ABSStartShelfLocalization.stripSystemImage(category: category)
 }
 
 // MARK: - Settings hub (Tab)
@@ -381,50 +465,22 @@ private struct SettingsIconStrip<Section: Identifiable & Hashable>: View {
   let icon: (Section) -> String
   let title: (Section) -> String
 
-  private var accent: Color { model.appearanceAccentColor }
-
   var body: some View {
-    let tile = AppTheme.Layout.horizontalBrowseStripTile
-    let captionW = tile + AppTheme.Layout.horizontalBrowseStripLabelWidthExtra
-    AbstandHorizontalBrowseStripScroll {
-      HStack(alignment: .top, spacing: AppTheme.Layout.horizontalBrowseStripInterTileSpacing) {
-        ForEach(sections) { section in
-          Button {
-            selection = section
-          } label: {
-            VStack(alignment: .leading, spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
-              ZStack {
-                RoundedRectangle(
-                  cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous
-                )
-                .fill(AppTheme.card)
-                .frame(width: tile, height: tile)
-                Image(systemName: icon(section))
-                  .font(.title2)
-                  .foregroundStyle(
-                    selection == section ? accent : AppTheme.textSecondary)
-              }
-              .overlay {
-                RoundedRectangle(
-                  cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous
-                )
-                .strokeBorder(
-                  selection == section ? accent : Color.clear, lineWidth: 2.5)
-              }
-              Text(title(section))
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(AppTheme.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .multilineTextAlignment(.center)
-                .frame(width: tile, alignment: .center)
-            }
-            .frame(width: captionW, alignment: .leading)
-          }
-          .buttonStyle(.plain)
+    AbstandBrowseStripIconMenu(
+      items: sections.map { section in
+        AbstandBrowseStripItem(
+          id: String(describing: section.id),
+          label: title(section),
+          systemImage: icon(section)
+        )
+      },
+      selectionID: String(describing: selection.id),
+      onSelect: { id in
+        if let match = sections.first(where: { String(describing: $0.id) == id }) {
+          selection = match
         }
       }
-    }
+    )
   }
 }
 
@@ -445,6 +501,7 @@ struct SettingsHubRootView: View {
   }
 
   var body: some View {
+    let _ = model.appearanceThemeRevision
     let sections = hubSectionIDs
     AbstandFixedBrowseStripSectionsLayout(
       retainOffscreenSections: false,
@@ -888,6 +945,8 @@ struct SettingsAppearanceView: View {
     ServerAdminSection(title: "Theme") {
       ServerAdminCard {
         VStack(alignment: .leading, spacing: 0) {
+          SettingsCardAppearanceModeRow(selection: $model.appearanceMode)
+          SettingsCardDivider()
           SettingsCardColorPickerRow(
             icon: "paintpalette.fill",
             title: "Accent color",
@@ -901,7 +960,7 @@ struct SettingsAppearanceView: View {
               SettingsCardIcon(systemName: "arrow.counterclockwise")
               Text("Reset to default")
                 .font(.body.weight(.medium))
-                .foregroundStyle(AppTheme.textPrimary)
+                .foregroundStyle(model.appearancePalette.textPrimary)
               Spacer(minLength: 0)
             }
             .settingsCardRowFrame()
@@ -917,7 +976,11 @@ struct SettingsAppearanceView: View {
         SettingsAppearanceHomeView()
       } label: {
         ServerAdminCard {
-          ServerAdminNavRow(icon: "house.fill", title: "Home", subtitle: nil)
+          ServerAdminNavRow(
+            icon: "house.fill",
+            title: "Home",
+            subtitle: "Shelf layout & sections"
+          )
         }
       }
       .buttonStyle(.plain)
@@ -937,34 +1000,16 @@ struct SettingsAppearanceHomeView: View {
               ForEach(Array(model.startSettingsCategoryList.enumerated()), id: \.element.category) {
                 index, row in
                 if index > 0 {
-                  Divider().overlay(AppTheme.textSecondary.opacity(0.25))
+                  Divider().overlay(model.appearancePalette.textSecondary.opacity(0.25))
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                  SettingsCardToggleRow(
-                    icon: startShelfSettingsIcon(category: row.category),
-                    title: row.label,
-                    isOn: Binding(
-                      get: { model.isStartCategoryEnabled(row.category) },
-                      set: { model.setStartCategoryEnabled(row.category, enabled: $0) }
-                    )
+                SettingsCardToggleRow(
+                  icon: startShelfSettingsIcon(category: row.category),
+                  title: row.label,
+                  isOn: Binding(
+                    get: { model.isStartCategoryEnabled(row.category) },
+                    set: { model.setStartCategoryEnabled(row.category, enabled: $0) }
                   )
-                  if model.isStartCategoryEnabled(row.category),
-                    model.supportsStartShelfBookLayoutSetting(row.category)
-                  {
-                    Picker(
-                      "Layout",
-                      selection: Binding(
-                        get: { model.startShelfBookLayout(for: row.category) },
-                        set: { model.setStartShelfBookLayout(row.category, layout: $0) }
-                      )
-                    ) {
-                      ForEach(StartShelfBookLayout.allCases) { layout in
-                        Text(layout.label).tag(layout)
-                      }
-                    }
-                    .pickerStyle(.segmented)
-                  }
-                }
+                )
               }
             }
           }
@@ -1171,6 +1216,7 @@ struct ServerUserDetailView: View {
     .padding(.vertical, 14)
     .background(AppTheme.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+    .abstandCardElevation(.standard)
   }
 
   private var recentSessionsButton: some View {
@@ -1446,6 +1492,7 @@ struct ServerLibraryDetailView: View {
         .padding(12)
         .background(AppTheme.card)
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+        .abstandCardElevation(.standard)
       }
     }
   }
@@ -1751,6 +1798,122 @@ private struct ServerAdminPodcastLibraryEpisodeRow: View {
   }
 }
 
+struct PodcastShowAutoDownloadSettingsContent: View {
+  @EnvironmentObject private var model: AppModel
+  let showId: String
+
+  private var controlsDisabled: Bool {
+    !model.isNetworkReachable || model.podcastAutoDownloadSettingsSaving
+  }
+
+  private var intervalBinding: Binding<PodcastAutoDownloadInterval> {
+    Binding(
+      get: { model.podcastAutoDownloadInterval },
+      set: { interval in
+        model.podcastAutoDownloadInterval = interval
+        Task { await model.savePodcastAutoDownloadSettings(showId: showId) }
+      }
+    )
+  }
+
+  private var autoDownloadBinding: Binding<Bool> {
+    Binding(
+      get: { model.podcastAutoDownloadEnabled },
+      set: { enabled in
+        model.podcastAutoDownloadEnabled = enabled
+        Task { await model.savePodcastAutoDownloadSettings(showId: showId) }
+      }
+    )
+  }
+
+  private var episodesToKeepBinding: Binding<Int> {
+    Binding(
+      get: { model.podcastMaxEpisodesToKeep },
+      set: { value in
+        model.podcastMaxEpisodesToKeep = value
+        Task { await model.savePodcastAutoDownloadSettings(showId: showId) }
+      }
+    )
+  }
+
+  private var newEpisodesPerCheckBinding: Binding<Int> {
+    Binding(
+      get: { model.podcastMaxNewEpisodesToDownload },
+      set: { value in
+        model.podcastMaxNewEpisodesToDownload = value
+        Task { await model.savePodcastAutoDownloadSettings(showId: showId) }
+      }
+    )
+  }
+
+  var body: some View {
+    ServerAdminCard {
+      Group {
+        if model.podcastAutoDownloadSettingsShowId != showId {
+          ProgressView()
+            .controlSize(.small)
+            .tint(model.appearanceAccentColor)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+        } else {
+          VStack(alignment: .leading, spacing: 0) {
+            SettingsCardToggleRow(
+              icon: "arrow.down.circle",
+              title: "Download new episodes automatically",
+              isOn: autoDownloadBinding
+            )
+            .disabled(controlsDisabled)
+
+            if model.podcastAutoDownloadEnabled {
+              SettingsCardDivider()
+              SettingsCardAutoDownloadIntervalRow(selection: intervalBinding)
+                .disabled(controlsDisabled)
+            }
+
+            SettingsCardDivider()
+            SettingsCardStepperRow(
+              icon: "tray.full",
+              title: "Max. episodes to keep",
+              valueLabel: PodcastAutoDownloadLimitInfo.episodesToKeepLabel(
+                model.podcastMaxEpisodesToKeep),
+              value: episodesToKeepBinding,
+              range: 0 ... 500
+            )
+            .disabled(controlsDisabled)
+
+            SettingsCardDivider()
+            SettingsCardStepperRow(
+              icon: "plus.rectangle.on.rectangle",
+              title: "Max. new episodes per check",
+              valueLabel: PodcastAutoDownloadLimitInfo.newEpisodesPerCheckLabel(
+                model.podcastMaxNewEpisodesToDownload),
+              value: newEpisodesPerCheckBinding,
+              range: 0 ... 100
+            )
+            .disabled(controlsDisabled)
+          }
+          .animation(.none, value: model.podcastAutoDownloadSettingsSaving)
+        }
+      }
+    }
+    .task(id: showId) {
+      if model.podcastAutoDownloadSettingsShowId != showId {
+        await model.loadPodcastAutoDownloadSettings(showId: showId)
+      }
+    }
+  }
+}
+
+private enum PodcastAutoDownloadLimitInfo {
+  static func episodesToKeepLabel(_ value: Int) -> String {
+    value == 0 ? "All episodes" : "\(value)"
+  }
+
+  static func newEpisodesPerCheckLabel(_ value: Int) -> String {
+    value == 0 ? "No limit" : "\(value)"
+  }
+}
+
 private struct ServerAdminPodcastSettingsSection: View {
   @EnvironmentObject private var model: AppModel
   let showId: String
@@ -1758,37 +1921,56 @@ private struct ServerAdminPodcastSettingsSection: View {
   let onRemove: () -> Void
 
   var body: some View {
-    Form {
-      Section("Auto download") {
-        PodcastShowAutoDownloadSettingsContent(showId: showId)
-      }
+    ServerAdminScrollScreen {
+      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+        ServerAdminSection(title: "Auto download") {
+          PodcastShowAutoDownloadSettingsContent(showId: showId)
+        }
 
-      if model.isServerAdmin {
-        Section {
-          Button {
-            Task { await model.checkAndDownloadNewPodcastEpisodes(showId: showId) }
-          } label: {
-            HStack {
-              Text("Check & download new episodes")
-              Spacer()
-              if model.podcastCheckNewInProgressShowId == showId {
-                ProgressView()
-                  .controlSize(.small)
-                  .tint(model.appearanceAccentColor)
+        if model.isServerAdmin {
+          ServerAdminCard {
+            Button {
+              Task { await model.checkAndDownloadNewPodcastEpisodes(showId: showId) }
+            } label: {
+              HStack(spacing: 12) {
+                SettingsCardIcon(systemName: "arrow.clockwise.circle")
+                Text("Check & download new episodes")
+                  .font(.body.weight(.medium))
+                  .foregroundStyle(AppTheme.textPrimary)
+                Spacer(minLength: 0)
+                if model.podcastCheckNewInProgressShowId == showId {
+                  ProgressView()
+                    .controlSize(.small)
+                    .tint(model.appearanceAccentColor)
+                }
               }
+              .settingsCardRowFrame()
+              .opacity(
+                model.isNetworkReachable && model.podcastCheckNewInProgressShowId != showId ? 1 : 0.45)
             }
+            .buttonStyle(.plain)
+            .disabled(!model.isNetworkReachable || model.podcastCheckNewInProgressShowId == showId)
           }
-          .disabled(!model.isNetworkReachable || model.podcastCheckNewInProgressShowId == showId)
         }
-      }
 
-      Section {
-        Button("Unsubscribe", role: .destructive) {
-          onRemove()
+        ServerAdminCompactCard {
+          Button {
+            onRemove()
+          } label: {
+            HStack(spacing: 12) {
+              SettingsCardIcon(systemName: "minus.circle", tint: AppTheme.danger)
+              Text("Unsubscribe")
+                .font(.body.weight(.medium))
+                .foregroundStyle(AppTheme.danger)
+              Spacer(minLength: 0)
+            }
+            .settingsCardCompactRowFrame()
+          }
+          .buttonStyle(.plain)
+          .disabled(!model.isNetworkReachable)
+          .opacity(model.isNetworkReachable ? 1 : 0.45)
         }
-        .disabled(!model.isNetworkReachable)
       }
     }
-    .abstandScrollScreenBackground()
   }
 }

@@ -10,6 +10,7 @@ CLAUDE.md
 # Markdown docs for agents/tools — public README stays in the repo
 *.md
 !README.md
+!SKILLS.md
 
 # --- Secrets & credentials ---
 .env

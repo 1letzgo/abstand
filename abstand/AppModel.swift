@@ -16,8 +16,7 @@ private enum Keys {
   static let downloads = "abstand_downloaded_ids"
   static let lastPlayedItemId = "abstand_last_played_library_item_id"
   static let startDisabledCategories = "abstand_start_disabled_categories"
-  /// Pro Home-`category`: `list` oder `compact` (Cover-Streifen).
-  static let startShelfBookLayouts = "abstand_start_shelf_book_layouts"
+  static let homeBrowseCategory = "abstand_home_browse_category"
   static let catalogSortField = "abstand_catalog_sort_field"
   static let catalogSortDescending = "abstand_catalog_sort_descending"
   /// Sortierung nur Podcast-Bibliothek (Shows-Leiste + Fallback `libraryItems` für Folgen).
@@ -50,6 +49,9 @@ private enum Keys {
   /// Tab „eBooks“ in der Tab-Leiste (neben Audio).
   /// Akzentfarbe als „r,g,b“ (0…1) in sRGB.
   static let appearanceAccentRGB = "abstand_appearance_accent_rgb"
+  static let appearanceAccentRGBDark = "abstand_appearance_accent_rgb_dark"
+  static let appearanceAccentRGBLight = "abstand_appearance_accent_rgb_light"
+  static let appearanceMode = "abstand_appearance_mode"
 }
 
 /// Sortierfeld für `GET /api/libraries/:id/items` (`sort`) bei **Bücher**-Bibliotheken.
@@ -488,8 +490,18 @@ final class AppModel: ObservableObject {
   @Published var startDisabledCategories: Set<String> = Set(
     UserDefaults.standard.stringArray(forKey: Keys.startDisabledCategories) ?? []
   )
-  @Published var startShelfBookLayoutByCategory: [String: String] =
-    UserDefaults.standard.dictionary(forKey: Keys.startShelfBookLayouts) as? [String: String] ?? [:]
+  /// Aktives Regal in der Home-Browse-Leiste (Kategorie-Key aus Appearance → Home).
+  @Published var homeBrowseCategory: String = {
+    let saved = UserDefaults.standard.string(forKey: Keys.homeBrowseCategory) ?? ""
+    if ABSStartShelfLocalization.isHomeBrowseContinueCategory(saved) {
+      return ABSStartShelfLocalization.homeBrowseContinueSectionID
+    }
+    if ABSStartShelfLocalization.isHomeBrowseRecentCategory(saved) {
+      return ABSStartShelfLocalization.homeBrowseRecentSectionID
+    }
+    if !saved.isEmpty { return saved }
+    return ABSStartShelfLocalization.homeBrowseContinueSectionID
+  }()
   @Published var progressByItemId: [String: ABSUserMediaProgress] = [:]
   /// Audiobookshelf-User-ID der aktiven Session (Lesestand E-Books pro User).
   private(set) var sessionUserId: String = ""
@@ -622,20 +634,111 @@ final class AppModel: ObservableObject {
   @Published private(set) var networkUsesUnmeteredLAN: Bool = false
   /// Nach 3 Minuten Wiedergabe im WLAN: aktuellen Titel (Hörbuch oder Podcast) automatisch herunterladen.
   /// Akzentfarbe der App (Tabs, Buttons, Highlights) — Einstellungen → Appearance.
-  @Published var appearanceAccentColor: Color = AppModel.loadAppearanceAccentColor() {
+  @Published var appearanceAccentColor: Color = AppTheme.defaultAccent {
     didSet {
+      if suppressAppearanceAccentSideEffects {
+        AppTheme.applyAccent(appearanceAccentColor)
+        return
+      }
       guard !Self.appearanceAccentColorsEqual(appearanceAccentColor, oldValue) else { return }
-      Self.persistAppearanceAccentColor(appearanceAccentColor)
+      Self.persistAppearanceAccentColor(
+        appearanceAccentColor,
+        slot: Self.currentAppearanceAccentSlot(
+          mode: appearanceMode, system: lastSystemColorScheme))
       AppTheme.applyAccent(appearanceAccentColor)
     }
   }
 
+  /// Dark / Sepia-Light / System — Standard Dark.
+  @Published var appearanceMode: AppearanceMode = AppearanceMode.load() {
+    didSet {
+      guard appearanceMode != oldValue else { return }
+      guard !suppressAppearanceAccentSideEffects else { return }
+      appearanceMode.persist()
+      reapplyAppearance(systemColorScheme: lastSystemColorScheme, previousMode: oldValue)
+    }
+  }
+
+  /// Einmal hochzählen nach Paletten- + Akzent-Wechsel — SwiftUI/`.tint` hängen daran (kein Full-UI-Reset).
+  @Published private(set) var appearanceThemeRevision = 0
+
+  /// Aktuelle UI-Palette für SwiftUI (`AppTheme.*` allein triggert keine Updates in NavigationLink-Labels).
+  @Published private(set) var appearancePalette: AppColorPalette = .dark
+
+  private var lastSystemColorScheme: ColorScheme = .dark
+  private var suppressAppearanceAccentSideEffects = false
+
   var appearanceAccentMatchesDefault: Bool {
-    Self.appearanceAccentColorsEqual(appearanceAccentColor, AppTheme.defaultAccent)
+    let slot = Self.currentAppearanceAccentSlot(
+      mode: appearanceMode, system: lastSystemColorScheme)
+    return Self.appearanceAccentColorsEqual(appearanceAccentColor, slot.defaultAccent)
+  }
+
+  /// Für `.preferredColorScheme` am Root; bei `.system` → `nil`.
+  var preferredSwiftUIColorScheme: ColorScheme? {
+    switch appearanceMode {
+    case .dark: return .dark
+    case .light: return .light
+    case .system: return nil
+    }
+  }
+
+  /// Toolbar / Sheets: aufgelöstes Hell-Dunkel (Sepia zählt als `.light`).
+  var resolvedInterfaceColorScheme: ColorScheme {
+    switch appearanceMode {
+    case .dark: return .dark
+    case .light: return .light
+    case .system: return lastSystemColorScheme
+    }
   }
 
   func resetAppearanceAccentToDefault() {
-    appearanceAccentColor = AppTheme.defaultAccent
+    let slot = Self.currentAppearanceAccentSlot(
+      mode: appearanceMode, system: lastSystemColorScheme)
+    appearanceAccentColor = slot.defaultAccent
+  }
+
+  /// Palette, Akzent pro Slot und UIKit-Chrome — ein Einstieg statt verstreuter Listener.
+  func reapplyAppearance(systemColorScheme: ColorScheme, previousMode: AppearanceMode? = nil) {
+    if let previousMode {
+      let slot = Self.currentAppearanceAccentSlot(mode: previousMode, system: lastSystemColorScheme)
+      Self.persistAppearanceAccentColor(appearanceAccentColor, slot: slot)
+    } else if appearanceMode == .system {
+      let oldSlot = Self.currentAppearanceAccentSlot(mode: .system, system: lastSystemColorScheme)
+      let newSlot = Self.currentAppearanceAccentSlot(mode: .system, system: systemColorScheme)
+      if oldSlot != newSlot {
+        Self.persistAppearanceAccentColor(appearanceAccentColor, slot: oldSlot)
+      }
+    }
+
+    lastSystemColorScheme = systemColorScheme
+
+    let palette = AppColorPalette.palette(for: appearanceMode, system: systemColorScheme)
+    if AppTheme.palette != palette {
+      AppTheme.applyPalette(palette)
+    }
+    appearancePalette = palette
+
+    applyAppearanceAccentForCurrentSlot()
+    player.refreshMiniPlayerBarFillForAppearance()
+    appearanceThemeRevision += 1
+  }
+
+  private func applyAppearanceAccentForCurrentSlot() {
+    let slot = Self.currentAppearanceAccentSlot(
+      mode: appearanceMode, system: lastSystemColorScheme)
+    let loaded = Self.loadAppearanceAccentColor(slot: slot)
+    suppressAppearanceAccentSideEffects = true
+    appearanceAccentColor = loaded
+    suppressAppearanceAccentSideEffects = false
+    AppTheme.applyAccent(loaded)
+  }
+
+  private static func currentAppearanceAccentSlot(
+    mode: AppearanceMode,
+    system: ColorScheme
+  ) -> AppearanceAccentSlot {
+    AppearanceAccentSlot.slot(for: mode, system: system)
   }
   @Published var smartDownloadOnWiFi: Bool = AppModel.initialSmartDownloadOnWiFi() {
     didSet { UserDefaults.standard.set(smartDownloadOnWiFi, forKey: Keys.smartDlAutoWifi) }
@@ -729,17 +832,13 @@ final class AppModel: ObservableObject {
     }
   }
 
-  /// Home-Toolbar: Ampel — online → Offline-Modus; offline → wieder verbinden.
+  /// Home-Toolbar: Ampel — tippen aktiviert Offline-Modus (mit Bestätigung) bzw. beendet ihn.
   func homeToolbarServerConnectionTapped() {
     if offlineHomeUIActive {
       exitOfflineHomeUI()
       return
     }
-    if serverConnectionIndicatorState == .online {
-      requestEnterOfflineHomeMode()
-      return
-    }
-    Task { await probeServerConnection() }
+    requestEnterOfflineHomeMode()
   }
 
   func probeServerConnectionIfNeeded() async {
@@ -893,9 +992,10 @@ final class AppModel: ObservableObject {
 
   init() {
     Self.migrateLibraryKeysIfNeeded()
+    Self.migrateAppearanceAccentKeysIfNeeded()
     migrateStartDisabledCategoriesIfNeeded()
     loadLocalFinishedProgressKeys()
-    AppTheme.applyAccent(appearanceAccentColor)
+    reapplyAppearance(systemColorScheme: .dark)
     CarPlayCoordinator.shared.bind(appModel: self)
     // Player-Ticks nicht pauschal an `AppModel` — Floating-Bar hat `FloatingPlayerChromeController`.
     // Nur Mini-Player-Einblendung (Scroll-Inset) bei aktivem Titel.
@@ -1400,17 +1500,34 @@ final class AppModel: ObservableObject {
     return d.bool(forKey: Keys.openPlayerWhenStartPlaying)
   }
 
-  private static func loadAppearanceAccentColor() -> Color {
-    guard let raw = UserDefaults.standard.string(forKey: Keys.appearanceAccentRGB),
-      let color = color(fromAccentRGBString: raw)
-    else { return AppTheme.defaultAccent }
-    return color
+  /// Legacy `abstand_appearance_accent_rgb` → Dark; Light startet mit Sepia-Braun.
+  private static func migrateAppearanceAccentKeysIfNeeded() {
+    let d = UserDefaults.standard
+    if d.string(forKey: Keys.appearanceAccentRGBDark) == nil,
+      let legacy = d.string(forKey: Keys.appearanceAccentRGB),
+      color(fromAccentRGBString: legacy) != nil
+    {
+      d.set(legacy, forKey: Keys.appearanceAccentRGBDark)
+    }
+    if d.string(forKey: Keys.appearanceAccentRGBLight) == nil {
+      persistAppearanceAccentColor(AppTheme.defaultLightAccent, slot: .light)
+    }
   }
 
-  private static func persistAppearanceAccentColor(_ color: Color) {
+  private static func loadAppearanceAccentColor(slot: AppearanceAccentSlot) -> Color {
+    let d = UserDefaults.standard
+    if let raw = d.string(forKey: slot.userDefaultsKey),
+      let color = color(fromAccentRGBString: raw)
+    {
+      return color
+    }
+    return slot.defaultAccent
+  }
+
+  private static func persistAppearanceAccentColor(_ color: Color, slot: AppearanceAccentSlot) {
     guard let rgb = rgbComponents(from: color) else { return }
     let raw = String(format: "%.4f,%.4f,%.4f", rgb.r, rgb.g, rgb.b)
-    UserDefaults.standard.set(raw, forKey: Keys.appearanceAccentRGB)
+    UserDefaults.standard.set(raw, forKey: slot.userDefaultsKey)
   }
 
   private static func color(fromAccentRGBString raw: String) -> Color? {
@@ -1758,6 +1875,97 @@ final class AppModel: ObservableObject {
     !startDisabledCategories.contains(Self.normalizedStartSettingsCategory(category))
   }
 
+  /// Eingeschaltete Home-Regale für die horizontale Leiste (Continue-Regale als ein Eintrag).
+  var homeBrowseStripRows: [(category: String, label: String)] {
+    var rows: [(category: String, label: String)] = []
+    var insertedContinue = false
+    var insertedRecent = false
+    for row in startSettingsCategoryList {
+      if ABSStartShelfLocalization.isHomeBrowseContinueCategory(row.category) {
+        if !insertedContinue, isAnyHomeBrowseContinueShelfEnabled {
+          rows.append(
+            (
+              ABSStartShelfLocalization.homeBrowseContinueSectionID,
+              ABSStartShelfLocalization.homeBrowseContinueStripLabel
+            ))
+          insertedContinue = true
+        }
+        continue
+      }
+      if ABSStartShelfLocalization.isHomeBrowseRecentCategory(row.category) {
+        if !insertedRecent, isAnyHomeBrowseRecentShelfEnabled {
+          rows.append(
+            (
+              ABSStartShelfLocalization.homeBrowseRecentSectionID,
+              ABSStartShelfLocalization.homeBrowseRecentStripLabel
+            ))
+          insertedRecent = true
+        }
+        continue
+      }
+      if isStartCategoryEnabled(row.category) {
+        rows.append((row.category, row.label))
+      }
+    }
+    return rows
+  }
+
+  var homeBrowseStripCategoryIDs: [String] {
+    homeBrowseStripRows.map(\.category)
+  }
+
+  var isAnyHomeBrowseContinueShelfEnabled: Bool {
+    ABSStartShelfLocalization.homeBrowseContinueCategories.contains { isStartCategoryEnabled($0) }
+  }
+
+  var isAnyHomeBrowseRecentShelfEnabled: Bool {
+    ABSStartShelfLocalization.homeBrowseRecentCategories.contains { isStartCategoryEnabled($0) }
+  }
+
+  func startShelf(forCategory category: String) -> ABSStartShelfSection? {
+    startShelves.first { $0.category == category }
+  }
+
+  /// Regale für einen Home-Menüpunkt (`continue` = alle eingeschalteten Continue-Regale).
+  func startShelves(forHomeBrowseSection sectionID: String) -> [ABSStartShelfSection] {
+    if sectionID == ABSStartShelfLocalization.homeBrowseContinueSectionID {
+      return ABSStartShelfLocalization.homeBrowseContinueCategories.compactMap { cat in
+        guard isStartCategoryEnabled(cat) else { return nil }
+        return startShelf(forCategory: cat)
+      }
+    }
+    if sectionID == ABSStartShelfLocalization.homeBrowseRecentSectionID {
+      return ABSStartShelfLocalization.homeBrowseRecentCategories.compactMap { cat in
+        guard isStartCategoryEnabled(cat) else { return nil }
+        return startShelf(forCategory: cat)
+      }
+    }
+    if let shelf = startShelf(forCategory: sectionID) { return [shelf] }
+    return []
+  }
+
+  func selectHomeBrowseSection(_ category: String) {
+    guard homeBrowseStripCategoryIDs.contains(category) else { return }
+    homeBrowseCategory = category
+    UserDefaults.standard.set(category, forKey: Keys.homeBrowseCategory)
+  }
+
+  func clampHomeBrowseSectionIfNeeded() {
+    if ABSStartShelfLocalization.isHomeBrowseContinueCategory(homeBrowseCategory) {
+      homeBrowseCategory = ABSStartShelfLocalization.homeBrowseContinueSectionID
+      UserDefaults.standard.set(homeBrowseCategory, forKey: Keys.homeBrowseCategory)
+    }
+    if ABSStartShelfLocalization.isHomeBrowseRecentCategory(homeBrowseCategory) {
+      homeBrowseCategory = ABSStartShelfLocalization.homeBrowseRecentSectionID
+      UserDefaults.standard.set(homeBrowseCategory, forKey: Keys.homeBrowseCategory)
+    }
+    let ids = homeBrowseStripCategoryIDs
+    guard !ids.isEmpty else { return }
+    guard !ids.contains(homeBrowseCategory), let first = ids.first else { return }
+    homeBrowseCategory = first
+    UserDefaults.standard.set(first, forKey: Keys.homeBrowseCategory)
+  }
+
   func setStartCategoryEnabled(_ category: String, enabled: Bool) {
     var next = startDisabledCategories
     if enabled {
@@ -1767,27 +1975,8 @@ final class AppModel: ObservableObject {
     }
     startDisabledCategories = next
     UserDefaults.standard.set(Array(startDisabledCategories), forKey: Keys.startDisabledCategories)
+    clampHomeBrowseSectionIfNeeded()
     Task { await loadStartDashboard() }
-  }
-
-  func supportsStartShelfBookLayoutSetting(_ category: String) -> Bool {
-    ABSStartShelfLocalization.supportsBookLayoutSetting(category: category)
-  }
-
-  func startShelfBookLayout(for category: String) -> StartShelfBookLayout {
-    if let raw = startShelfBookLayoutByCategory[category],
-      let layout = StartShelfBookLayout(rawValue: raw)
-    {
-      return layout
-    }
-    return StartShelfBookLayout.defaultForCategory(category)
-  }
-
-  func setStartShelfBookLayout(_ category: String, layout: StartShelfBookLayout) {
-    var next = startShelfBookLayoutByCategory
-    next[category] = layout.rawValue
-    startShelfBookLayoutByCategory = next
-    UserDefaults.standard.set(next, forKey: Keys.startShelfBookLayouts)
   }
 
   /// Schalter-Reihenfolge inkl. optionalem eBook-„Continue reading“ direkt nach „Continue listening“.
@@ -1814,6 +2003,7 @@ final class AppModel: ObservableObject {
       )
       return (category: cat, label: label)
     }
+    clampHomeBrowseSectionIfNeeded()
   }
 
   /// Home-Regal „Continue reading“ aus lokalem Readium-Fortschritt (nur bei aktivem eBook-Tab).
@@ -2776,12 +2966,14 @@ final class AppModel: ObservableObject {
       async let pod: Void = reloadPodcastLibrary(reset: true)
       await restoreLastPlayedOnLaunch()
       _ = await (catalog, pod)
+      mainTab = .start
     } catch {
       isRestoringLaunchPlayback = false
       player.setMiniPlayerPlaceholder(true)
       publishErrorUnlessBenignCancellation(error)
       if serverSessionEstablished {
         isServerReachable = true
+        mainTab = .start
         await loadStartDashboard()
         return
       }
@@ -2791,6 +2983,7 @@ final class AppModel: ObservableObject {
   }
 
   func logout() {
+    mainTab = .start
     clearCoverImageCache()
     suppressOfflineModeSideEffects = true
     offlineHomeMode = false
@@ -6395,6 +6588,7 @@ final class AppModel: ObservableObject {
     }
     let storageId = podcastEpisodeOfflineStorageId(episode)
     applyLocalMarkFinished(libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
+    removeFinishedPodcastEpisodeFromCatalogLists(episode)
     pendingLocalProgressSyncKeys.insert(episode.progressLookupKey)
     syncContinueListeningShelvesWithProgress()
     if defersProgressSyncToServer {
@@ -6715,10 +6909,10 @@ final class AppModel: ObservableObject {
 
   func applySleepTimer(seconds: TimeInterval?) {
     if let seconds, seconds > 0 {
-      player.sleepEndDate = Date().addingTimeInterval(seconds)
+      player.applySleepTimerRemaining(seconds)
       OneTimeAchievementPersistentFlags.markSleepTimerUsed()
     } else {
-      player.sleepEndDate = nil
+      player.clearSleepTimer()
       player.sleepTimerMode = .off
     }
   }
@@ -6739,7 +6933,7 @@ final class AppModel: ObservableObject {
     }
     player.sleepTimerMode = .chapters(chapters)
     applySleepTimer(seconds: seconds)
-    return player.sleepEndDate != nil
+    return player.isSleepTimerActive
   }
 
   /// Client-Validierung für Passwort-Änderung; `nil` = ok.
@@ -7685,6 +7879,22 @@ final class AppModel: ObservableObject {
 
   private func removeBookFromCatalogList(_ bookId: String) {
     books.removeAll { $0.id == bookId }
+  }
+
+  /// Podcast-Tab „New“ (`recent-episodes`) und Sendungs-Cache: fertige Folge sofort aus der Liste.
+  private func removeFinishedPodcastEpisodeFromCatalogLists(_ episode: ABSPodcastEpisodeListItem) {
+    let key = episode.progressLookupKey
+    let hadInNew = podcastEpisodes.contains { $0.progressLookupKey == key }
+    podcastEpisodes.removeAll { $0.progressLookupKey == key }
+    if hadInNew {
+      podcastLibraryTotal = max(podcastEpisodes.count, podcastLibraryTotal - 1)
+    }
+    podcastFilteredEpisodes.removeAll { $0.progressLookupKey == key }
+    let sid = episode.libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !sid.isEmpty, var cached = podcastFilteredEpisodesByShowId[sid] {
+      cached.removeAll { $0.progressLookupKey == key }
+      podcastFilteredEpisodesByShowId[sid] = cached
+    }
   }
 
   /// Nach Fortschritt-Reset: „not started“ — Karte über Live-State, Liste nur bei Fortschritts-Filtern anpassen.

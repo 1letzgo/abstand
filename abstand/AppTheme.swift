@@ -3,24 +3,65 @@ import UIKit
 
 /// Zentrale Farben und Abstände für die gesamte App.
 enum AppTheme {
-  static let background = Color(red: 18 / 255, green: 18 / 255, blue: 18 / 255)
-  static let card = Color(red: 37 / 255, green: 37 / 255, blue: 37 / 255)
+  private(set) static var palette: AppColorPalette = .dark
+
+  static var background: Color { palette.background }
+  static var card: Color { palette.card }
+  static var textPrimary: Color { palette.textPrimary }
+  static var textSecondary: Color { palette.textSecondary }
+  static var achievementLevel1: Color { palette.achievementLevel1 }
+  static var achievementLevel2: Color { palette.achievementLevel2 }
+  static var achievementLevel3: Color { palette.achievementLevel3 }
+  static var achievementLevel4: Color { palette.achievementLevel4 }
+  static var progressTrack: Color { palette.progressTrack }
+  static var heroPlayPillBackground: Color { palette.heroPlayPillBackground }
+  static var heroPlayPillForeground: Color { palette.heroPlayPillForeground }
+  static var heroCardShadow: Color { palette.heroCardShadow }
+  static var cardShadow: Color { palette.cardShadow }
+
+  /// Schatten-Metriken (Farbe kommt aus `AppColorPalette`).
+  enum CardElevation {
+    /// Browse-Icon-Kacheln, kleine Chips.
+    case subtle
+    /// Library-Zeilen, Achievements, Stats-Karten.
+    case standard
+    /// Continue-Hero-Karten.
+    case hero
+
+    var radius: CGFloat {
+      switch self {
+      case .subtle: Layout.cardShadowRadiusSubtle
+      case .standard: Layout.cardShadowRadius
+      case .hero: Layout.heroCardShadowRadius
+      }
+    }
+
+    var y: CGFloat {
+      switch self {
+      case .subtle: Layout.cardShadowYSubtle
+      case .standard: Layout.cardShadowY
+      case .hero: Layout.heroCardShadowY
+      }
+    }
+  }
+
+  /// Dark-Mode-Akzent (Standard Gelb).
   static let defaultAccent = Color(red: 251 / 255, green: 192 / 255, blue: 45 / 255)
+  /// Sepia-Light-Akzent (warmes Braun).
+  static let defaultLightAccent = Color(red: 168 / 255, green: 108 / 255, blue: 48 / 255)
   /// Aktuelle Akzentfarbe (Standard: Gelb; überschreibbar in Einstellungen → Appearance).
   /// In SwiftUI-Views bevorzugt `Color.accentColor` (folgt `.tint` am Root). `AppTheme.accent` für UIKit/Charts.
   private(set) static var accent: Color = defaultAccent
-  static let textPrimary = Color.white
-  static let textSecondary = Color(red: 176 / 255, green: 176 / 255, blue: 176 / 255)
   static let danger = Color(red: 0.92, green: 0.32, blue: 0.32)
   static let success = Color(red: 0.35, green: 0.82, blue: 0.55)
   /// Verbindungs-Ampel „prüft …“ (gelb).
   static let warning = Color(red: 0.98, green: 0.78, blue: 0.22)
 
-  /// Stats-Achievement-Stufen 1–4: aufsteigend hellgrau → dunkelorange (Level 5: `success`).
-  static let achievementLevel1 = Color(red: 190 / 255, green: 190 / 255, blue: 190 / 255)
-  static let achievementLevel2 = Color(red: 158 / 255, green: 152 / 255, blue: 146 / 255)
-  static let achievementLevel3 = Color(red: 210 / 255, green: 152 / 255, blue: 88 / 255)
-  static let achievementLevel4 = Color(red: 204 / 255, green: 108 / 255, blue: 36 / 255)
+  static func applyPalette(_ newPalette: AppColorPalette) {
+    guard palette != newPalette else { return }
+    palette = newPalette
+    configureTabBarAppearance()
+  }
 
   /// Raster für Tabs, Listen und Karten (Home / Books / …).
   enum Layout {
@@ -33,7 +74,12 @@ enum AppTheme {
     /// Zwischen Hauptblöcken (Regale, Suchbereich ↔ Liste) — wie Home `LazyVStack`.
     static let sectionSpacing: CGFloat = 22
     /// Kategoriezeile ↔ erste Zeile / Karten innerhalb eines Blocks.
-    static let withinSectionSpacing: CGFloat = 12
+    /// Etwas Luft für Karten-Schatten zwischen Zeilen/Blöcken.
+    static let withinSectionSpacing: CGFloat = 14
+    /// Buch-/Folgen-Detail: Titelblock → Play.
+    static let detailPlayButtonTopPadding: CGFloat = 10
+    /// Buch-/Folgen-Detail: Play → Metadaten (ohne Trennlinie).
+    static let detailPlayButtonBottomPadding: CGFloat = 12
     /// Zusatz unter Scroll-Inhalten vor dem Tab-Bar-Zubehör (`nowPlayingAccessoryScrollBottomInset` kommt dazu).
     static let scrollBottomInsetBase: CGFloat = 24
 
@@ -60,13 +106,13 @@ enum AppTheme {
     static let continueHeroCardWidth: CGFloat = 176
     /// Quadrat wie die Kartenbreite: typisches Cover vollständig sichtbar (`scaledToFit`).
     static let continueHeroCoverMaxHeight: CGFloat = 176
-    /// Abstand Titel ↔ Unterzeile im Hero-Metablock.
-    static let continueHeroMetadataTitleDetailSpacing: CGFloat = 4
+    /// Abstand Titel ↔ Autor/Show (wie `BookRowCard` metadata `spacing: 2`).
+    static let continueHeroMetadataTitleDetailSpacing: CGFloat = 2
     static let continueHeroMetadataVerticalPadding: CGFloat = 8
     /// Genau zwei Zeilen `headline` (wie `BookRowCard`, fester Slot).
     static let continueHeroMetadataTitleFixedHeight: CGFloat = 44
-    /// Eine Zeile `caption` für Autor/Show.
-    static let continueHeroMetadataDetailFixedHeight: CGFloat = 18
+    /// Eine Zeile `.footnote` für Autor/Show (wie `LibraryRowCollapsedMetaLine`).
+    static let continueHeroMetadataDetailFixedHeight: CGFloat = 20
     /// Abstand Autor-/Show-Zeile → Play-Pille.
     static let continueHeroMetadataPlayPillTopPadding: CGFloat = 8
     /// Höhe der Play-/Read-Pille (Capsule inkl. Innen-Padding).
@@ -87,6 +133,13 @@ enum AppTheme {
     static let continueHeroCardHeight: CGFloat = continueHeroCardTotalHeight
 
     static let cardCornerRadius: CGFloat = 14
+    /// Karten-Schatten (siehe `abstandCardElevation`).
+    static let cardShadowRadiusSubtle: CGFloat = 6
+    static let cardShadowYSubtle: CGFloat = 2
+    static let cardShadowRadius: CGFloat = 10
+    static let cardShadowY: CGFloat = 4
+    static let heroCardShadowRadius: CGFloat = 14
+    static let heroCardShadowY: CGFloat = 6
     /// Mindesthöhe für Zeilen in gruppierten Karten (Settings, Stats, …).
     static let listRowMinHeight: CGFloat = 50
     /// Mindesthöhe für interaktive Settings-Zeilen (Toggle, Picker, Eingabe).
@@ -95,8 +148,8 @@ enum AppTheme {
     static let settingsCardCompactRowHeight: CGFloat = listRowMinHeight
     /// Horizontaler Innenabstand in Settings-Karten.
     static let settingsCardInsetHPadding: CGFloat = 16
-    /// Vertikaler Innenabstand in mehrzeiligen Settings-Karten.
-    static let settingsCardInsetVPadding: CGFloat = 4
+    /// Vertikaler Innenabstand in Settings-Karten (symmetrisch, ~iOS Inset Grouped).
+    static let settingsCardInsetVPadding: CGFloat = 8
     /// Vertikaler Abstand um Trennlinien zwischen Settings-Zeilen.
     static let settingsCardDividerSpacing: CGFloat = 6
     /// Library-Zeilen — gleiche Abrundung wie Browse-/Podcast-Icon-Kacheln.
@@ -113,17 +166,12 @@ enum AppTheme {
     static let libraryRowBottomProgressHeight: CGFloat = 4
   }
 
-  /// Wird nach Änderung der Akzentfarbe (Einstellungen) gepostet — für UIKit / manuelle Listener.
-  static let appearanceAccentDidChangeNotification = Notification.Name(
-    "abstandAppearanceAccentDidChange")
-
   /// Akzentfarbe setzen und System-Chrome (Tab-Bar) aktualisieren.
   static func applyAccent(_ color: Color) {
     accent = color
     let appearance = makeTabBarAppearance()
     applyTabBarAppearanceToUIKitProxy(appearance)
     refreshLiveTabBars(appearance: appearance)
-    NotificationCenter.default.post(name: appearanceAccentDidChangeNotification, object: nil)
   }
 
   /// Keine schwebende graue Tab-Bar-Kapsel (iOS 18+); Icons behalten Accent-Farben.
@@ -141,7 +189,7 @@ enum AppTheme {
     appearance.shadowColor = .clear
 
     let item = UITabBarItemAppearance()
-    item.normal.iconColor = UIColor(white: 0.69, alpha: 1)
+    item.normal.iconColor = UIColor(textSecondary)
     item.selected.iconColor = selectedAccent
     appearance.stackedLayoutAppearance = item
     appearance.inlineLayoutAppearance = item
@@ -190,11 +238,78 @@ private struct ThemeAccentColorKey: EnvironmentKey {
   static let defaultValue: Color = AppTheme.defaultAccent
 }
 
+private struct AppearanceThemeRevisionKey: EnvironmentKey {
+  static let defaultValue = 0
+}
+
+/// In horizontalen Scroll-Reihen keine Karten-Schatten — sonst überlappen sie zu einem „Streifen“-BG.
+private struct AbstandCardShadowEnabledKey: EnvironmentKey {
+  static let defaultValue = true
+}
+
 extension EnvironmentValues {
   /// Akzentfarbe aus Einstellungen → Appearance (via `.themeAccentFromAppModel` am Root).
   var themeAccent: Color {
     get { self[ThemeAccentColorKey.self] }
     set { self[ThemeAccentColorKey.self] = newValue }
+  }
+
+  /// Inkrement bei Paletten- + Akzent-Wechsel — Views mit `AppTheme.*` / `.tint` müssen das lesen.
+  var appearanceThemeRevision: Int {
+    get { self[AppearanceThemeRevisionKey.self] }
+    set { self[AppearanceThemeRevisionKey.self] = newValue }
+  }
+
+  var abstandCardShadowEnabled: Bool {
+    get { self[AbstandCardShadowEnabledKey.self] }
+    set { self[AbstandCardShadowEnabledKey.self] = newValue }
+  }
+}
+
+/// Entfernt den opaken UIScrollView-Hintergrund (SwiftUI-ScrollView).
+struct AbstandUIScrollViewClearBackground: UIViewRepresentable {
+  func makeUIView(context: Context) -> UIView {
+    let view = UIView(frame: .zero)
+    view.isUserInteractionEnabled = false
+    view.backgroundColor = .clear
+    return view
+  }
+
+  func updateUIView(_ uiView: UIView, context: Context) {
+    DispatchQueue.main.async {
+      Self.clearScrollViews(startingAt: uiView)
+    }
+  }
+
+  private static func clearScrollViews(startingAt view: UIView) {
+    var ancestor: UIView? = view.superview
+    while let current = ancestor {
+      if let scroll = current as? UIScrollView {
+        scroll.backgroundColor = .clear
+        scroll.isOpaque = false
+        for sub in scroll.subviews {
+          sub.backgroundColor = .clear
+        }
+        return
+      }
+      ancestor = current.superview
+    }
+  }
+}
+
+/// App-Hintergrundfarbe; neu zeichnen wenn Dark ↔ Sepia wechselt.
+struct AppThemeScreenBackground: View {
+  @EnvironmentObject private var model: AppModel
+  var ignoresSafeArea = false
+
+  var body: some View {
+    Group {
+      if ignoresSafeArea {
+        model.appearancePalette.background.ignoresSafeArea()
+      } else {
+        model.appearancePalette.background
+      }
+    }
   }
 }
 
@@ -204,7 +319,7 @@ struct AbstandCardBottomProgress: View {
 
   var value: Double
   var height: CGFloat = AppTheme.Layout.libraryRowBottomProgressHeight
-  var trackColor: Color = Color.white.opacity(0.14)
+  var trackColor: Color = AppTheme.progressTrack
   /// `nil` = `themeAccent` aus der Environment (Appearance-Farbe).
   var fillColor: Color?
 
@@ -227,30 +342,51 @@ struct AbstandCardBottomProgress: View {
 }
 
 private struct AbstandScrollBackgroundModifier: ViewModifier {
+  @EnvironmentObject private var model: AppModel
   var ignoreSafeArea = false
 
   func body(content: Content) -> some View {
-    content
+    let background = model.appearancePalette.background
+    return content
       .scrollContentBackground(.hidden)
       .background {
         if ignoreSafeArea {
-          AppTheme.background.ignoresSafeArea()
+          background.ignoresSafeArea()
         } else {
-          AppTheme.background
+          background
         }
       }
   }
 }
 
+private struct AbstandTabScreenChromeModifier: ViewModifier {
+  @EnvironmentObject private var model: AppModel
+
+  func body(content: Content) -> some View {
+    let background = model.appearancePalette.background
+    return content
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .background(background)
+      .toolbarBackground(background, for: .navigationBar)
+      .toolbarBackground(.visible, for: .navigationBar)
+  }
+}
+
 /// Hintergrund unter ganzen Detail-Screen inkl. Tab-Bar — nicht nur ScrollView-Höhe.
 private struct AbstandDetailScreenBackgroundModifier: ViewModifier {
+  @EnvironmentObject private var model: AppModel
   let tint: Color
 
   func body(content: Content) -> some View {
-    ZStack {
+    let background = model.appearancePalette.background
+    return ZStack {
       ZStack {
-        AppTheme.background
-        tint
+        background
+        if model.appearancePalette.isDarkLike {
+          tint
+        } else {
+          tint.opacity(0.42)
+        }
       }
       .ignoresSafeArea()
       content
@@ -259,10 +395,26 @@ private struct AbstandDetailScreenBackgroundModifier: ViewModifier {
   }
 }
 
+private struct AbstandThemeRefreshModifier: ViewModifier {
+  @Environment(\.appearanceThemeRevision) private var themeRevision
+
+  func body(content: Content) -> some View {
+    let _ = themeRevision
+    content
+  }
+}
+
 extension View {
+  /// Liest `appearanceThemeRevision`, damit statische `AppTheme.*`-Farben neu gebunden werden.
+  func abstandThemeRefresh() -> some View {
+    modifier(AbstandThemeRefreshModifier())
+  }
+
   /// Propagiert `AppModel.appearanceAccentColor` — Fortschrittsbalken & `.themeAccent` reagieren sofort.
   func themeAccentFromAppModel(_ model: AppModel) -> some View {
-    environment(\.themeAccent, model.appearanceAccentColor)
+    self
+      .environment(\.themeAccent, model.appearanceAccentColor)
+      .environment(\.appearanceThemeRevision, model.appearanceThemeRevision)
   }
 
   /// System-Scrollmaterial ausblenden, App-Hintergrund (#121212) — für `ScrollView` und `List`.
@@ -272,8 +424,7 @@ extension View {
 
   /// Volle Tab-Fläche inkl. Bereich unter der Navigationsleiste.
   func abstandTabScreenChrome() -> some View {
-    frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(AppTheme.background)
+    modifier(AbstandTabScreenChromeModifier())
   }
 
   /// Detail-Screens (Autor/Serie/Buch/Folge): Tint + `#121212` bis unter die Tab-Bar (nicht am ScrollView abgeschnitten).
@@ -300,25 +451,132 @@ extension View {
   /// Fixer horizontaler Browse-Strip direkt unter dem Tab-Großtitel (Library / Stats / Podcasts).
   /// Horizontales Einrücken nur im Strip-`ScrollView` (wie Tab-Scroll-Inhalt), nicht hier — sonst doppeltes Padding.
   func abstandFixedBrowseStripHeaderChrome() -> some View {
-    padding(.top, AppTheme.Layout.horizontalBrowseStripToTitleSpacing)
-      .padding(.bottom, AppTheme.Layout.horizontalBrowseStripToContentSpacing)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(AppTheme.background)
+    modifier(AbstandBrowseStripHeaderChromeModifier())
   }
 }
 
-/// Horizontaler Icon-/Cover-Strip unter dem Tab-Großtitel; Parent: `abstandFixedBrowseStripHeaderChrome()`.
+private struct AbstandBrowseStripHeaderChromeModifier: ViewModifier {
+  @EnvironmentObject private var model: AppModel
+
+  func body(content: Content) -> some View {
+    content
+      .padding(.top, AppTheme.Layout.horizontalBrowseStripToTitleSpacing)
+      .padding(.bottom, AppTheme.Layout.horizontalBrowseStripToContentSpacing)
+      .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+/// Horizontale Scroll-Reihe (Browse-Menü, Continue Listening, …).
 struct AbstandHorizontalBrowseStripScroll<Content: View>: View {
+  /// `true`: volle Tab-Breite, Inset per `contentMargins` (fixer Browse-Streifen).
+  /// `false`: Parent hat bereits `.padding(.horizontal, tabPaddingH)` — kein doppeltes Inset.
+  var appliesHorizontalContentInset: Bool = true
+  var verticalContentPadding: CGFloat = AppTheme.Layout.horizontalBrowseStripVerticalPadding
   @ViewBuilder var content: () -> Content
 
   var body: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
+    let scroll = ScrollView(.horizontal, showsIndicators: false) {
       content()
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(.vertical, AppTheme.Layout.horizontalBrowseStripVerticalPadding)
+        .padding(.vertical, verticalContentPadding)
     }
-    .contentMargins(.horizontal, 0, for: .scrollContent)
     .scrollContentBackground(.hidden)
+
+    Group {
+      if appliesHorizontalContentInset {
+        scroll
+          .contentMargins(.horizontal, AppTheme.Layout.tabPaddingH, for: .scrollContent)
+      } else {
+        scroll
+      }
+    }
+    .abstandHorizontalScrollRow()
+    .abstandThemeRefresh()
+  }
+}
+
+/// Eintrag im Icon-Menüstreifen (Home, Library, Stats, Settings).
+struct AbstandBrowseStripItem: Identifiable, Hashable {
+  let id: String
+  let label: String
+  let systemImage: String
+}
+
+/// Horizontales Icon-Menü — gemeinsames Template für Home, Library, Stats, Settings.
+struct AbstandBrowseStripIconMenu: View {
+  @EnvironmentObject private var model: AppModel
+  let items: [AbstandBrowseStripItem]
+  let selectionID: String
+  let onSelect: (String) -> Void
+
+  private var accent: Color { model.appearanceAccentColor }
+
+  var body: some View {
+    let palette = model.appearancePalette
+    let tile = AppTheme.Layout.horizontalBrowseStripTile
+    let captionW = tile + AppTheme.Layout.horizontalBrowseStripLabelWidthExtra
+    AbstandHorizontalBrowseStripScroll {
+      HStack(alignment: .top, spacing: AppTheme.Layout.horizontalBrowseStripInterTileSpacing) {
+        ForEach(items) { item in
+          Button {
+            onSelect(item.id)
+          } label: {
+            AbstandBrowseStripIconTile(
+              palette: palette,
+              tileSide: tile,
+              systemImage: item.systemImage,
+              label: item.label,
+              isSelected: item.id == selectionID,
+              accent: accent
+            )
+            .frame(width: captionW, alignment: .leading)
+          }
+          .buttonStyle(AbstandScalePressButtonStyle())
+        }
+      }
+    }
+  }
+}
+
+private struct AbstandBrowseStripIconTile: View {
+  let palette: AppColorPalette
+  let tileSide: CGFloat
+  let systemImage: String
+  let label: String
+  let isSelected: Bool
+  let accent: Color
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
+      ZStack {
+        RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
+          .fill(palette.card)
+          .frame(width: tileSide, height: tileSide)
+        Image(systemName: systemImage)
+          .font(.title2)
+          .symbolRenderingMode(.monochrome)
+          .foregroundStyle(isSelected ? accent : palette.textSecondary)
+      }
+      .overlay {
+        RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
+          .strokeBorder(
+            isSelected ? accent : palette.textSecondary.opacity(0.2),
+            lineWidth: isSelected ? 2.5 : 1
+          )
+      }
+      .background {
+        if isSelected {
+          RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
+            .fill(accent.opacity(0.12))
+        }
+      }
+      Text(label)
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(palette.textPrimary)
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .multilineTextAlignment(.center)
+        .frame(width: tileSide, alignment: .center)
+    }
   }
 }
 
@@ -441,15 +699,201 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
   }
 }
 
-/// Kategoriezeile über Browse-Strips und Listen (Home, Library, Podcasts, Settings).
+// MARK: - Design system (Karten, Buttons, Felder, Ladeindikatoren)
+
+/// Gruppierte Kartenfläche (Settings, Stats, Admin).
+struct AbstandGroupedCard<Content: View>: View {
+  @EnvironmentObject private var model: AppModel
+  var horizontalPadding: CGFloat = AppTheme.Layout.settingsCardInsetHPadding
+  var verticalPadding: CGFloat = AppTheme.Layout.settingsCardInsetVPadding
+  @ViewBuilder var content: () -> Content
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      content()
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal, horizontalPadding)
+    .padding(.vertical, verticalPadding)
+    .background(model.appearancePalette.card)
+    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+    .abstandCardElevation(.standard)
+  }
+}
+
+private struct AbstandCardElevationModifier: ViewModifier {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.abstandCardShadowEnabled) private var cardShadowEnabled
+  let elevation: AppTheme.CardElevation
+
+  private var shadowColor: Color {
+    switch elevation {
+    case .hero: model.appearancePalette.heroCardShadow
+    case .subtle, .standard: model.appearancePalette.cardShadow
+    }
+  }
+
+  func body(content: Content) -> some View {
+    if cardShadowEnabled {
+      content
+        .compositingGroup()
+        .shadow(color: shadowColor, radius: elevation.radius, x: 0, y: elevation.y)
+    } else {
+      content
+    }
+  }
+}
+
+/// Primäraktion (Login, Bestätigen) — Appearance-Akzent mit Druck-Feedback.
+struct AbstandPrimaryButtonStyle: ButtonStyle {
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(.body.weight(.semibold))
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 14)
+      .foregroundStyle(Color.black.opacity(0.85))
+      .background(
+        RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous)
+          .fill(themeAccent.opacity(fillOpacity(isPressed: configuration.isPressed)))
+      )
+      .scaleEffect(configuration.isPressed && isEnabled ? 0.98 : 1)
+      .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+  }
+
+  private func fillOpacity(isPressed: Bool) -> Double {
+    guard isEnabled else { return 0.35 }
+    return isPressed ? 0.88 : 1
+  }
+}
+
+/// Dezentes Drücken für Icon-Kacheln und Listenzeilen.
+struct AbstandScalePressButtonStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .scaleEffect(configuration.isPressed ? 0.96 : 1)
+      .opacity(configuration.isPressed ? 0.9 : 1)
+      .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+  }
+}
+
+/// Beschriftetes Eingabefeld (Login, Formulare).
+struct AbstandLabeledTextField: View {
+  @EnvironmentObject private var model: AppModel
+  let title: String
+  @Binding var text: String
+  var isSecure = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(title)
+        .font(.caption.weight(.medium))
+        .foregroundStyle(model.appearancePalette.textSecondary)
+      Group {
+        if isSecure {
+          SecureField("", text: $text)
+        } else {
+          TextField("", text: $text)
+        }
+      }
+      .textInputAutocapitalization(.never)
+      .autocorrectionDisabled()
+      .padding(12)
+      .foregroundStyle(model.appearancePalette.textPrimary)
+      .background(model.appearancePalette.card)
+      .clipShape(
+        RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
+      )
+    }
+    .abstandThemeRefresh()
+  }
+}
+
+/// Zentrierter Lade-Spinner in Listen/Sheets.
+struct AbstandLoadingSpinner: View {
+  @Environment(\.themeAccent) private var themeAccent
+  var controlSize: ControlSize = .large
+  var verticalPadding: CGFloat = 48
+  var scale: CGFloat = 1
+
+  var body: some View {
+    ProgressView()
+      .controlSize(controlSize)
+      .tint(themeAccent)
+      .scaleEffect(scale)
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, verticalPadding)
+  }
+}
+
+private struct AbstandSearchFieldChromeModifier: ViewModifier {
+  @EnvironmentObject private var model: AppModel
+
+  func body(content: Content) -> some View {
+    content
+      .padding(12)
+      .background(model.appearancePalette.card)
+      .clipShape(
+        RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
+      )
+      .abstandThemeRefresh()
+  }
+}
+
+private struct AbstandAccentForegroundModifier: ViewModifier {
+  @Environment(\.themeAccent) private var themeAccent
+
+  func body(content: Content) -> some View {
+    content.foregroundStyle(themeAccent)
+  }
+}
+
+extension View {
+  /// Suchfeld-Hintergrund (Karte, abgerundet) — Inhalt (HStack + TextField) von außen.
+  func abstandSearchFieldChrome() -> some View {
+    modifier(AbstandSearchFieldChromeModifier())
+  }
+
+  /// Tippbare Metadaten-Links (Autor, Serie, Show).
+  func abstandAccentForeground() -> some View {
+    modifier(AbstandAccentForegroundModifier())
+  }
+
+  /// Tiefe unter abgerundeten Karten — nach `.clipShape` anwenden.
+  func abstandCardElevation(_ elevation: AppTheme.CardElevation = .standard) -> some View {
+    modifier(AbstandCardElevationModifier(elevation: elevation))
+  }
+
+  /// Horizontale Menü-/Carousel-Zeile: kein Schatten-Bleed, UIScrollView transparent.
+  func abstandHorizontalScrollRow() -> some View {
+    environment(\.abstandCardShadowEnabled, false)
+      .background { AbstandUIScrollViewClearBackground() }
+  }
+
+  /// Dezente Kante statt Schatten (Continue-Hero in horizontaler Reihe).
+  func abstandHeroCardOutline(palette: AppColorPalette) -> some View {
+    overlay {
+      RoundedRectangle(
+        cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius,
+        style: .continuous
+      )
+      .strokeBorder(palette.textSecondary.opacity(0.22), lineWidth: 1)
+    }
+  }
+}
+
+/// Kategoriezeile über Browse-Strips und Listen (Home, Library, Podcasts, Stats).
 struct TabContentSectionTitle: View {
+  @EnvironmentObject private var model: AppModel
   let title: String
 
   var body: some View {
     Text(title)
       .font(.title3)
       .bold()
-      .foregroundStyle(AppTheme.textPrimary)
+      .foregroundStyle(model.appearancePalette.textPrimary)
       .frame(maxWidth: .infinity, alignment: .leading)
   }
 }

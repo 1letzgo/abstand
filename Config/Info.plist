@@ -4,6 +4,8 @@
 <dict>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>abstand uses on-device speech recognition to show a live read-along transcript while you listen.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

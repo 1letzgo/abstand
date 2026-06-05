@@ -40,6 +40,7 @@ private enum PodcastAddSource: String, CaseIterable, Identifiable {
 
 struct PodcastAddFromSearchView: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
   @State private var query: String = ""
   @State private var source: PodcastAddSource = .search
 
@@ -112,7 +113,7 @@ struct PodcastAddFromSearchView: View {
         } label: {
           Text(model.podcastDirectoryCountryCode().uppercased())
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(themeAccent)
         }
         .accessibilityLabel("Podcast store region")
       }
@@ -144,9 +145,7 @@ struct PodcastAddFromSearchView: View {
         .buttonStyle(.plain)
       }
     }
-    .padding(12)
-    .background(AppTheme.card)
-    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .abstandSearchFieldChrome()
   }
 
   @ViewBuilder
@@ -161,11 +160,8 @@ struct PodcastAddFromSearchView: View {
       )
       .padding(.horizontal)
     } else if model.podcastDirectorySearchLoading {
-      ProgressView()
-        .controlSize(.large)
-        .tint(Color.accentColor)
+      AbstandLoadingSpinner()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.vertical, 48)
     } else if model.podcastDirectorySearchHits.isEmpty {
       ContentUnavailableView(
         "No shows found",
@@ -189,11 +185,8 @@ struct PodcastAddFromSearchView: View {
 
       Group {
         if model.podcastChartsLoading, model.podcastChartsHits.isEmpty {
-          ProgressView()
-            .controlSize(.large)
-            .tint(Color.accentColor)
+          AbstandLoadingSpinner()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.vertical, 48)
         } else if model.podcastChartsHits.isEmpty {
           ContentUnavailableView(
             "Charts unavailable",
@@ -223,9 +216,12 @@ struct PodcastAddFromSearchView: View {
 }
 
 private struct PodcastChartsCategoryPillStrip: View {
+  @EnvironmentObject private var model: AppModel
   let categories: [ABSPodcastCharts.ChartCategory]
   let selectedGenreId: Int?
   let onSelect: (Int?) -> Void
+
+  private var accent: Color { model.appearanceAccentColor }
 
   var body: some View {
     ScrollView(.horizontal, showsIndicators: false) {
@@ -237,23 +233,26 @@ private struct PodcastChartsCategoryPillStrip: View {
           } label: {
             Text(category.title)
               .font(.subheadline.weight(.medium))
-              .foregroundStyle(selected ? Color.accentColor : AppTheme.textPrimary)
+              .foregroundStyle(selected ? accent : AppTheme.textPrimary)
               .lineLimit(1)
               .padding(.horizontal, 14)
               .padding(.vertical, 8)
               .background(AppTheme.card, in: Capsule(style: .continuous))
               .overlay {
                 Capsule(style: .continuous)
-                  .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 2)
+                  .strokeBorder(selected ? accent : Color.clear, lineWidth: 2)
               }
           }
           .buttonStyle(.plain)
         }
       }
-      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
+      .padding(.vertical, AppTheme.Layout.cardShadowYSubtle)
     }
+    .contentMargins(.horizontal, AppTheme.Layout.tabPaddingH, for: .scrollContent)
+    .scrollContentBackground(.hidden)
     .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     .fixedSize(horizontal: false, vertical: true)
+    .abstandThemeRefresh()
   }
 }
 
@@ -310,7 +309,7 @@ private struct PodcastDirectoryHitRow: View {
           }
         }
         .buttonStyle(.borderedProminent)
-        .tint(Color.accentColor)
+        .tint(model.appearanceAccentColor)
         .disabled(
           (hit.feedUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
             || !model.isNetworkReachable)

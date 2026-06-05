@@ -3,6 +3,7 @@ import SwiftUI
 /// Filter-Button neben Sort im Bücher-Katalog (nur Schnellfilter).
 /// Equatable: kein Re-Render bei unrelated `AppModel`-Updates (verhindert Menü-Flackern).
 struct BooksCatalogFilterToolbarMenu: View, Equatable {
+  @Environment(\.themeAccent) private var themeAccent
   var isActive: Bool
   var libraryCatalogQuickFilter: LibraryCatalogQuickFilter?
   var isAllFilterActive: Bool
@@ -35,7 +36,7 @@ struct BooksCatalogFilterToolbarMenu: View, Equatable {
           ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
       )
       .symbolRenderingMode(.monochrome)
-      .foregroundStyle(isActive ? Color.accentColor : Color.primary)
+      .foregroundStyle(isActive ? themeAccent : AppTheme.textPrimary)
     }
   }
 
@@ -59,7 +60,7 @@ struct BooksCatalogFilterToolbarMenu: View, Equatable {
       HStack {
         Image(systemName: systemImage)
           .symbolRenderingMode(.monochrome)
-          .foregroundStyle(isSelected ? Color.accentColor : AppTheme.textSecondary)
+          .foregroundStyle(isSelected ? themeAccent : AppTheme.textSecondary)
         Text(title)
           .foregroundStyle(AppTheme.textPrimary)
         Spacer(minLength: 8)
@@ -67,7 +68,7 @@ struct BooksCatalogFilterToolbarMenu: View, Equatable {
           Image(systemName: "checkmark")
             .font(.body.weight(.semibold))
             .symbolRenderingMode(.monochrome)
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(themeAccent)
         }
       }
     }

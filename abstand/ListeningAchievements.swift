@@ -31,7 +31,7 @@ enum ListeningAchievementTier: Int, Comparable, CaseIterable {
     case .level2: return "Level 2"
     case .level3: return "Level 3"
     case .level4: return "Level 4"
-    case .level5: return "Level 5"
+    case .level5: return "Maximum level"
     }
   }
 
@@ -42,7 +42,7 @@ enum ListeningAchievementTier: Int, Comparable, CaseIterable {
     case .level2: return AppTheme.achievementLevel2
     case .level3: return AppTheme.achievementLevel3
     case .level4: return AppTheme.achievementLevel4
-    case .level5: return AppTheme.success
+    case .level5: return AppTheme.achievementLevel4
     }
   }
 }
@@ -50,9 +50,9 @@ enum ListeningAchievementTier: Int, Comparable, CaseIterable {
 /// Messgröße für Stats-Achievements (Schwellen pro Level 1–5).
 enum ListeningAchievementKind: String, Codable, CaseIterable, Identifiable {
   case listeningTimeHours
+  case activeDays
   case longestStreak
   case currentStreak
-  case activeDays
   case marathonDay
   case finishedBooks
   case finishedEpisodes
@@ -60,7 +60,7 @@ enum ListeningAchievementKind: String, Codable, CaseIterable, Identifiable {
 
   var id: String { rawValue }
 
-  /// Reihenfolge in der Level-Ansicht (`allCases`: Listening time zuerst).
+  /// Reihenfolge in der Level-Ansicht (`allCases`: Listening time, dann Active days, …).
   static func sortedForDisplay(_ achievements: [ListeningAchievementState]) -> [ListeningAchievementState] {
     allCases.compactMap { kind in achievements.first { $0.kind == kind } }
   }
@@ -201,7 +201,7 @@ enum ListeningAchievementKind: String, Codable, CaseIterable, Identifiable {
     case .locked:
       progress = "Not unlocked yet. \(formattedValue(state.currentValue))"
     case .level5:
-      progress = "Level 5 reached. \(formattedValue(state.currentValue))"
+      progress = formattedValue(state.currentValue)
     default:
       progress = "\(state.tier.accessibilityLabel). \(state.valueLine)"
     }
@@ -219,9 +219,6 @@ struct ListeningAchievementState: Identifiable, Codable, Equatable {
   var progressToNext: Double { kind.progressFraction(toward: currentValue) }
 
   var valueLine: String {
-    if tier == .level5 {
-      return "\(kind.formattedValue(currentValue)) · Level 5"
-    }
     if let next = nextThreshold {
       return "\(kind.formattedValue(currentValue)) / \(kind.formattedThreshold(next))"
     }
@@ -266,12 +263,20 @@ struct ListeningAchievementsSnapshot: Codable, Equatable {
 }
 
 struct ListeningAchievementCard: View {
+  @EnvironmentObject private var model: AppModel
   let achievement: ListeningAchievementState
+  /// Zwei Karten pro Zeile (Stats Level).
+  var compact: Bool = false
 
   @State private var showExplanation = false
 
   private static let iconSlotWidth: CGFloat = 28
+  private static let compactIconSlotWidth: CGFloat = 22
   private static let rowSpacing: CGFloat = 12
+  private static let compactRowSpacing: CGFloat = 8
+  private static let progressBarHeight = AppTheme.Layout.libraryRowBottomProgressHeight
+  private static let compactInset: CGFloat = 10
+  private static let compactBadgeEdge: CGFloat = 28
 
   var body: some View {
     Button {
@@ -280,6 +285,7 @@ struct ListeningAchievementCard: View {
       cardBody
     }
     .buttonStyle(.plain)
+    .frame(maxHeight: compact ? .infinity : nil)
     .accessibilityLabel(
       "\(achievement.kind.title), \(achievement.valueLine), \(achievement.tier.accessibilityLabel)")
     .accessibilityHint("Shows how levels work for this achievement.")
@@ -290,73 +296,146 @@ struct ListeningAchievementCard: View {
     }
   }
 
-  private var showsBottomProgressBar: Bool {
-    achievement.tier != .level5
+  private var progressBarValue: Double {
+    achievement.tier == .level5 ? 1 : achievement.progressToNext
   }
 
+  /// Level 5: Dark = Mint; Sepia-Light = App-Akzent (`nil` → `themeAccent`).
+  private var progressBarFillColor: Color? {
+    guard achievement.tier == .level5 else { return nil }
+    return model.appearancePalette.isDarkLike ? AppTheme.success : nil
+  }
+
+  /// Level-5-Tönung: im Light Mode Akzent statt Mint-Grün.
+  private var tierAccentColor: Color {
+    guard achievement.tier == .level5, !model.appearancePalette.isDarkLike else {
+      return achievement.tier.tintColor
+    }
+    return model.appearanceAccentColor
+  }
+
+  @ViewBuilder
   private var cardBody: some View {
-    let barH = AppTheme.Layout.libraryRowBottomProgressHeight
+    if compact {
+      compactCardBody
+    } else {
+      regularCardBody
+    }
+  }
+
+  private var regularCardBody: some View {
+    let palette = model.appearancePalette
+    let contentBottom = 14 + Self.progressBarHeight
     return VStack(alignment: .leading, spacing: 0) {
       HStack(alignment: .top, spacing: Self.rowSpacing) {
-        Image(systemName: achievement.kind.systemImage)
-          .font(.system(size: 21, weight: .semibold))
-          .foregroundStyle(achievement.tier.tintColor)
-          .frame(width: Self.iconSlotWidth, alignment: .center)
+        achievementIcon(size: 21, slotWidth: Self.iconSlotWidth)
 
         VStack(alignment: .leading, spacing: 2) {
           Text(achievement.kind.title)
             .font(.headline.weight(.semibold))
-            .foregroundStyle(AppTheme.textPrimary)
+            .foregroundStyle(palette.textPrimary)
             .lineLimit(1)
             .minimumScaleFactor(0.85)
 
           Text(achievement.valueLine)
             .font(.subheadline.monospacedDigit())
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(palette.textSecondary)
             .lineLimit(1)
             .minimumScaleFactor(0.85)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
 
-        levelBadge
+        levelBadge(edge: 36, levelFont: .title3.weight(.bold), cornerRadius: 10)
       }
       .padding(.horizontal, 14)
       .padding(.top, 14)
-      .padding(.bottom, showsBottomProgressBar ? 14 + barH : 14)
+      .padding(.bottom, contentBottom)
     }
     .overlay(alignment: .bottom) {
-      if showsBottomProgressBar {
-        AbstandCardBottomProgress(value: achievement.progressToNext)
-          .allowsHitTesting(false)
-      }
+      bottomProgressSlot
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(AppTheme.card)
+    .background(palette.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+    .abstandCardElevation(.standard)
+  }
+
+  private var compactCardBody: some View {
+    let palette = model.appearancePalette
+    return VStack(alignment: .leading, spacing: 0) {
+      VStack(alignment: .leading, spacing: Self.compactRowSpacing) {
+        HStack(alignment: .top, spacing: Self.compactRowSpacing) {
+          achievementIcon(size: 17, slotWidth: Self.compactIconSlotWidth)
+          Spacer(minLength: 0)
+          levelBadge(edge: Self.compactBadgeEdge, levelFont: .headline.weight(.bold), cornerRadius: 8)
+        }
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(achievement.kind.title)
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(palette.textPrimary)
+            .lineLimit(2)
+            .minimumScaleFactor(0.85)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+
+          Text(achievement.valueLine)
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(palette.textSecondary)
+            .lineLimit(2)
+            .minimumScaleFactor(0.8)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+      }
+      .padding(Self.compactInset)
+
+      Spacer(minLength: 0)
+
+      bottomProgressSlot
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .background(palette.card)
+    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+    .abstandCardElevation(.standard)
+  }
+
+  private var bottomProgressSlot: some View {
+    AbstandCardBottomProgress(
+      value: progressBarValue,
+      fillColor: progressBarFillColor
+    )
+    .frame(height: Self.progressBarHeight)
+    .allowsHitTesting(false)
+  }
+
+  private func achievementIcon(size: CGFloat, slotWidth: CGFloat) -> some View {
+    Image(systemName: achievement.kind.systemImage)
+      .font(.system(size: size, weight: .semibold))
+      .foregroundStyle(tierAccentColor)
+      .frame(width: slotWidth, alignment: .center)
   }
 
   @ViewBuilder
-  private var levelBadge: some View {
+  private func levelBadge(edge: CGFloat, levelFont: Font, cornerRadius: CGFloat) -> some View {
     if let level = achievement.tier.levelNumber {
       Text("\(level)")
-        .font(.title3.weight(.bold))
+        .font(levelFont)
         .monospacedDigit()
-        .foregroundStyle(achievement.tier.tintColor)
-        .frame(width: 36, height: 36)
+        .foregroundStyle(tierAccentColor)
+        .frame(width: edge, height: edge)
         .background(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(achievement.tier.tintColor.opacity(0.2))
+          RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(tierAccentColor.opacity(0.2))
         )
         .overlay {
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .strokeBorder(achievement.tier.tintColor, lineWidth: 1.5)
+          RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .strokeBorder(tierAccentColor, lineWidth: 1.5)
         }
         .accessibilityLabel(achievement.tier.accessibilityLabel)
     } else {
       Image(systemName: "lock.fill")
-        .font(.title3.weight(.semibold))
-        .foregroundStyle(achievement.tier.tintColor)
-        .frame(width: 36, height: 36)
+        .font(levelFont)
+        .foregroundStyle(tierAccentColor)
+        .frame(width: edge, height: edge)
         .accessibilityLabel(achievement.tier.accessibilityLabel)
     }
   }

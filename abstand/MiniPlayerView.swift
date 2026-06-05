@@ -60,6 +60,7 @@ private enum FullPlayerProgressLayout {
 
 private struct FullPlayerProgressTrack: View {
   @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
 
   let value: Double
   let total: Double
@@ -74,13 +75,14 @@ private struct FullPlayerProgressTrack: View {
   private var trackCornerRadius: CGFloat { FullPlayerProgressLayout.trackHeight / 2 }
 
   var body: some View {
-    GeometryReader { geo in
+    let _ = themeRevision
+    return GeometryReader { geo in
       let w = geo.size.width
       let fillWidth = max(0, w * fraction)
       let fillTrailingRadius = fraction >= 0.999 ? trackCornerRadius : 0.0
       ZStack(alignment: .leading) {
         Capsule(style: .continuous)
-          .fill(Color.secondary.opacity(0.35))
+          .fill(AppTheme.progressTrack)
           .frame(height: FullPlayerProgressLayout.trackHeight)
         themeAccent
           .frame(width: fillWidth, height: FullPlayerProgressLayout.trackHeight)
@@ -95,7 +97,7 @@ private struct FullPlayerProgressTrack: View {
           )
         ForEach(Array(chapterMarkers.enumerated()), id: \.offset) { _, marker in
           Rectangle()
-            .fill(Color.primary.opacity(0.55))
+            .fill(AppTheme.textSecondary.opacity(0.65))
             .frame(width: 1, height: FullPlayerProgressLayout.trackHeight)
             .offset(x: max(0, w * marker - 0.5))
         }
@@ -150,38 +152,58 @@ private final class InlineRoutePickerView: AVRoutePickerView {
   override var intrinsicContentSize: CGSize { CGSize(width: 44, height: 44) }
 }
 
-private struct FullPlayerAirPlayButton: UIViewRepresentable {
+private struct FullPlayerAirPlayButton: View {
+  @Environment(\.themeAccent) private var themeAccent
+
+  var body: some View {
+    FullPlayerAirPlayButtonRepresentable(tint: UIColor(themeAccent))
+  }
+}
+
+private struct FullPlayerAirPlayButtonRepresentable: UIViewRepresentable {
+  let tint: UIColor
+
   func makeUIView(context: Context) -> InlineRoutePickerView {
     let v = InlineRoutePickerView()
     v.prioritizesVideoDevices = false
-    v.tintColor = .white
-    v.activeTintColor = .white
     v.backgroundColor = .clear
     v.clipsToBounds = true
+    applyTint(to: v)
     return v
   }
 
-  func updateUIView(_ uiView: InlineRoutePickerView, context: Context) {}
+  func updateUIView(_ uiView: InlineRoutePickerView, context: Context) {
+    applyTint(to: uiView)
+  }
+
+  private func applyTint(to view: InlineRoutePickerView) {
+    view.tintColor = tint
+    view.activeTintColor = tint
+  }
 }
 
-/// Sleep-Menü-Label: Countdown per `TimelineView` — Endzeit ändert sich nicht jede Sekunde, daher kein Menu-Flackern.
+/// Sleep-Menü-Label: bei Pause eingefrorener Countdown, sonst `TimelineView` (kein Menu-Flackern).
 private struct SleepTimerUtilityMenuLabel: View {
-  let endDate: Date?
+  @ObservedObject var player: PlaybackController
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
 
   var body: some View {
+    let _ = themeRevision
     VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
       Group {
-        if let end = endDate {
-          TimelineView(.periodic(from: .now, by: 1)) { _ in
-            Text(formatPlaybackTime(max(0, end.timeIntervalSinceNow)))
-              .font(.subheadline.weight(.medium))
-              .monospacedDigit()
-              .foregroundStyle(Color.accentColor)
+        if let seconds = player.sleepTimerDisplaySeconds, seconds > 0 {
+          if player.sleepEndDate != nil {
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+              sleepCountdownText(player.sleepTimerDisplaySeconds ?? seconds)
+            }
+          } else {
+            sleepCountdownText(seconds)
           }
         } else {
           Text("Off")
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppTheme.textSecondary)
         }
       }
       .frame(
@@ -192,10 +214,17 @@ private struct SleepTimerUtilityMenuLabel: View {
       )
       Text("Sleep", comment: "Player control label")
         .font(.caption2)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(AppTheme.textSecondary)
     }
     .frame(maxWidth: .infinity)
     .contentShape(Rectangle())
+  }
+
+  private func sleepCountdownText(_ seconds: TimeInterval) -> some View {
+    Text(formatPlaybackTime(max(0, seconds)))
+      .font(.subheadline.weight(.medium))
+      .monospacedDigit()
+      .foregroundStyle(themeAccent)
   }
 }
 
@@ -248,6 +277,7 @@ private struct SleepTimerCapsuleStepper: View {
   let centerAccessibilityLabel: String
   let minusEnabled: Bool
   let plusEnabled: Bool
+  var capsuleFill: Color = AppTheme.background
   let onMinus: () -> Void
   let onPlus: () -> Void
 
@@ -277,7 +307,7 @@ private struct SleepTimerCapsuleStepper: View {
     .padding(.vertical, 6)
     .background(
       Capsule(style: .continuous)
-        .fill(AppTheme.background)
+        .fill(capsuleFill)
     )
   }
 
@@ -302,6 +332,8 @@ private struct SleepTimerPopoverContent: View {
   @State private var minutes = 0
   @State private var chapters = 0
 
+  private var palette: AppColorPalette { model.appearancePalette }
+
   private var maxChapters: Int { player.maxSleepChapterCount() }
   private var showsChapterRow: Bool { player.chapterCount > 0 }
   private var chapterTimerActive: Bool {
@@ -313,7 +345,7 @@ private struct SleepTimerPopoverContent: View {
     VStack(spacing: 10) {
       Text("Sleep Timer", comment: "Sleep timer popover title")
         .font(.subheadline.weight(.semibold))
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(palette.textPrimary)
         .frame(maxWidth: .infinity)
         .padding(.bottom, 2)
 
@@ -324,6 +356,7 @@ private struct SleepTimerPopoverContent: View {
         centerAccessibilityLabel: sleepTimerMinutesAccessibilityLabel(minutes),
         minusEnabled: minutes > 0,
         plusEnabled: minutes < SleepTimerMetrics.minuteMax,
+        capsuleFill: palette.background,
         onMinus: { adjustMinutes(by: -SleepTimerMetrics.minuteStep) },
         onPlus: { adjustMinutes(by: SleepTimerMetrics.minuteStep) }
       )
@@ -336,6 +369,7 @@ private struct SleepTimerPopoverContent: View {
           centerAccessibilityLabel: sleepTimerChaptersAccessibilityLabel(chapters),
           minusEnabled: chapters > 0 && (chapters > 1 || chapterTimerActive),
           plusEnabled: chapters < maxChapters,
+          capsuleFill: palette.background,
           onMinus: { adjustChapters(by: -1) },
           onPlus: { adjustChapters(by: 1) }
         )
@@ -344,7 +378,7 @@ private struct SleepTimerPopoverContent: View {
     .padding(.horizontal, 16)
     .padding(.vertical, 14)
     .frame(width: SleepTimerMetrics.popoverWidth)
-    .background(AppTheme.card)
+    .background(palette.card)
     .onAppear(perform: syncFromActiveTimer)
   }
 
@@ -410,9 +444,10 @@ private struct SleepTimerPopoverControl<Label: View>: View {
 /// Untere Steuerzeile: von `globalPosition`-Ticks entkoppelt, damit `Menu` nicht flackert.
 private struct FullPlayerUtilityBar: View, Equatable {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
 
   let playbackRate: Float
-  let sleepEndDate: Date?
   let activeAudiobookId: String?
   let offlineStorageId: String?
   let isDownloaded: Bool
@@ -420,10 +455,12 @@ private struct FullPlayerUtilityBar: View, Equatable {
   let downloadProgressBucket: Int
   let bookmarkMenuItems: [PlayerBookmarkMenuItem]
   let isLoggedIn: Bool
+  let isLiveTranscriptionEnabled: Bool
+  let isLiveTranscriptionBusy: Bool
+  let onToggleLiveTranscription: () -> Void
 
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.playbackRate == rhs.playbackRate
-      && lhs.sleepEndDate == rhs.sleepEndDate
       && lhs.activeAudiobookId == rhs.activeAudiobookId
       && lhs.offlineStorageId == rhs.offlineStorageId
       && lhs.isDownloaded == rhs.isDownloaded
@@ -431,10 +468,13 @@ private struct FullPlayerUtilityBar: View, Equatable {
       && lhs.downloadProgressBucket == rhs.downloadProgressBucket
       && lhs.bookmarkMenuItems == rhs.bookmarkMenuItems
       && lhs.isLoggedIn == rhs.isLoggedIn
+      && lhs.isLiveTranscriptionEnabled == rhs.isLiveTranscriptionEnabled
+      && lhs.isLiveTranscriptionBusy == rhs.isLiveTranscriptionBusy
   }
 
   var body: some View {
-    HStack(spacing: 0) {
+    let _ = themeRevision
+    return HStack(spacing: 0) {
       Menu {
         ForEach(PlaybackController.playbackRatePresets, id: \.self) { r in
           Button {
@@ -445,7 +485,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
               Spacer(minLength: 8)
               if playbackRate == r {
                 Image(systemName: "checkmark")
-                  .foregroundStyle(Color.accentColor)
+                  .foregroundStyle(themeAccent)
               }
             }
           }
@@ -454,6 +494,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
         VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
           Text(miniPlayerFormatPlaybackRate(playbackRate))
             .font(.subheadline.weight(.medium))
+            .foregroundStyle(AppTheme.textPrimary)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
             .frame(
@@ -464,19 +505,53 @@ private struct FullPlayerUtilityBar: View, Equatable {
             )
           Text("Tempo", comment: "Player control label")
             .font(.caption2)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppTheme.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
       }
 
       SleepTimerPopoverControl {
-        SleepTimerUtilityMenuLabel(endDate: sleepEndDate)
+        SleepTimerUtilityMenuLabel(player: model.player)
       }
 
       PlayerBookmarkUtilityControl(
         activeAudiobookId: activeAudiobookId,
         menuItems: bookmarkMenuItems
+      )
+
+      Button(action: onToggleLiveTranscription) {
+        VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
+          Group {
+            if isLiveTranscriptionBusy {
+              ProgressView()
+                .controlSize(.small)
+            } else {
+              Image(systemName: isLiveTranscriptionEnabled ? "text.word.spacing" : "text.word.spacing")
+                .font(.title3)
+                .symbolVariant(isLiveTranscriptionEnabled ? .fill : .none)
+            }
+          }
+          .foregroundStyle(isLiveTranscriptionEnabled ? themeAccent : AppTheme.textPrimary)
+          .frame(
+            maxWidth: .infinity,
+            minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+            maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+            alignment: .center
+          )
+          Text("Read along", comment: "Player live transcript toggle")
+            .font(.caption2)
+            .foregroundStyle(AppTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .disabled(isLiveTranscriptionBusy)
+      .accessibilityLabel(
+        isLiveTranscriptionEnabled
+          ? String(localized: "Stop read-along transcript", comment: "Accessibility")
+          : String(localized: "Start read-along transcript", comment: "Accessibility")
       )
 
       VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
@@ -490,7 +565,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
           )
         Text("AirPlay", comment: "Player control label")
           .font(.caption2)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(AppTheme.textSecondary)
       }
       .frame(maxWidth: .infinity)
       .contentShape(Rectangle())
@@ -512,7 +587,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
           VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
             Image(systemName: "arrow.down.circle.fill")
               .font(.title3)
-              .foregroundStyle(Color.white)
+              .foregroundStyle(themeAccent)
               .frame(
                 maxWidth: .infinity,
                 minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
@@ -521,7 +596,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
               )
             Text("Download", comment: "Player download control caption")
               .font(.caption2)
-              .foregroundStyle(.secondary)
+              .foregroundStyle(AppTheme.textSecondary)
           }
           .frame(maxWidth: .infinity)
           .contentShape(Rectangle())
@@ -532,7 +607,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
       } else if isDownloading {
         VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
           ProgressView(value: Double(downloadProgressBucket) / 20.0)
-            .tint(.white)
+            .tint(themeAccent)
             .scaleEffect(x: 1, y: 0.9, anchor: .center)
             .frame(
               maxWidth: .infinity,
@@ -542,7 +617,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
             )
           Text("Download", comment: "Player download control caption")
             .font(.caption2)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppTheme.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
@@ -554,7 +629,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
           VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
             Image(systemName: "arrow.down.circle")
               .font(.title3)
-              .foregroundStyle(Color.white)
+              .foregroundStyle(AppTheme.textPrimary)
               .frame(
                 maxWidth: .infinity,
                 minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
@@ -563,7 +638,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
               )
             Text("Download", comment: "Player download control caption")
               .font(.caption2)
-              .foregroundStyle(.secondary)
+              .foregroundStyle(AppTheme.textSecondary)
           }
           .frame(maxWidth: .infinity)
           .contentShape(Rectangle())
@@ -582,6 +657,8 @@ struct NowPlayingDetailView: View {
   @EnvironmentObject private var model: AppModel
   @EnvironmentObject private var player: PlaybackController
   @Environment(\.verticalSizeClass) private var verticalSizeClass
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
 
   private var showIdlePlaceholder: Bool {
     player.showMiniPlayerPlaceholder && player.activeBook == nil && !model.isPlayerConnectionLoading
@@ -604,64 +681,89 @@ struct NowPlayingDetailView: View {
           portraitLayout
         }
       }
+      .safeAreaPadding(.horizontal, MiniPlayerMetrics.fullPlayerCoverInset)
+      .safeAreaPadding(.top, MiniPlayerMetrics.fullPlayerCoverInset)
     }
-    .preferredColorScheme(.dark)
+    .preferredColorScheme(model.resolvedInterfaceColorScheme)
+    .onDisappear {
+      if player.liveTranscription.isEnabled {
+        player.liveTranscription.disable()
+      }
+    }
   }
 
+  @ViewBuilder
   private var fullPlayerBackground: some View {
-    let top = player.miniPlayerBarFillColor
-    let dark = Color(white: 0.1)
-    return LinearGradient(colors: [top, dark], startPoint: .top, endPoint: .bottom)
+    let _ = themeRevision
+    let palette = model.appearancePalette
+    if palette.isDarkLike {
+      LinearGradient(
+        colors: [player.miniPlayerBarFillColor, Color(white: 0.1)],
+        startPoint: .top,
+        endPoint: .bottom
+      )
+    } else {
+      // Wie Buch-Detail im Light/Sepia: kein Cover-Verlauf, nur App-Hintergrund.
+      palette.background
+    }
   }
 
   private var portraitLayout: some View {
-    VStack(spacing: 0) {
+    Group {
       if let b = player.activeBook {
-        fullPlayerArtwork(book: b)
-        Spacer(minLength: 24)
-        VStack(spacing: 32) {
-          chapterTitleArea(book: b)
-          TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-            playbackColumn(book: b)
-          }
-        }
-        .frame(maxWidth: 800)
-        Spacer(minLength: 24)
-        fullPlayerUtilityBar
-        Spacer(minLength: 8)
+        fullPlayerPortraitLayout(book: b)
       } else if showsConnectionLoading {
         connectionLoadingPlaceholder
       } else if showIdlePlaceholder {
         idlePlaceholder
       }
     }
-    .padding(.horizontal, MiniPlayerMetrics.fullPlayerCoverInset)
-    .padding(.top, MiniPlayerMetrics.fullPlayerCoverInset)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
   }
 
-  private var landscapeLayout: some View {
-    HStack(alignment: .top, spacing: MiniPlayerMetrics.fullPlayerCoverInset) {
-      if let b = player.activeBook {
-        fullPlayerArtwork(book: b)
-          .containerRelativeFrame(.horizontal) { w, _ in w * 0.4 }
-        VStack(spacing: 24) {
-          Spacer()
-          chapterTitleArea(book: b)
-          TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-            playbackColumn(book: b)
-          }
-          fullPlayerUtilityBar
-          Spacer()
+  private func fullPlayerPortraitLayout(book: ABSBook) -> some View {
+    VStack(spacing: 0) {
+      playerHeaderArea(book: book)
+      Spacer(minLength: 24)
+      VStack(spacing: 32) {
+        chapterTitleArea(book: book)
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+          playbackColumn(book: book)
         }
-        .frame(maxWidth: .infinity)
+      }
+      .frame(maxWidth: 800)
+      Spacer(minLength: 24)
+      fullPlayerUtilityBar
+      Spacer(minLength: 8)
+    }
+  }
+
+  private var landscapeLayout: some View {
+    Group {
+      if let b = player.activeBook {
+        fullPlayerLandscapeLayout(book: b)
       } else {
         restoringOrIdleInLandscape
       }
     }
-    .padding(.horizontal, MiniPlayerMetrics.fullPlayerCoverInset)
-    .padding(.top, MiniPlayerMetrics.fullPlayerCoverInset)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+  }
+
+  private func fullPlayerLandscapeLayout(book: ABSBook) -> some View {
+    HStack(alignment: .top, spacing: MiniPlayerMetrics.fullPlayerCoverInset) {
+      playerHeaderArea(book: book)
+        .containerRelativeFrame(.horizontal) { w, _ in w * 0.48 }
+      VStack(spacing: 24) {
+        Spacer()
+        chapterTitleArea(book: book)
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+          playbackColumn(book: book)
+        }
+        fullPlayerUtilityBar
+        Spacer()
+      }
+      .frame(maxWidth: .infinity)
+    }
   }
 
   private var restoringOrIdleInLandscape: some View {
@@ -707,6 +809,71 @@ struct NowPlayingDetailView: View {
     return "—"
   }
 
+  @ViewBuilder
+  private func playerHeaderArea(book: ABSBook) -> some View {
+    if player.liveTranscription.isEnabled {
+      readAlongKaraokeCard(book: book)
+    } else {
+      fullPlayerArtwork(book: book)
+    }
+  }
+
+  /// Gleicher Platz und Rahmen wie `fullPlayerArtwork`, Inhalt = Karaoke-Transkript (100 % Kartenfläche).
+  private func readAlongKaraokeCard(book: ABSBook) -> some View {
+    let dur = max(player.totalDuration, 1)
+    let pos = player.globalPosition
+    let pct = min(100, max(0, Int((pos / dur * 100).rounded())))
+    let corner: CGFloat = 24
+    return Color.clear
+      .fullPlayerHeaderSquareFrame()
+      .background(AppTheme.card.opacity(0.35), in: RoundedRectangle(cornerRadius: corner, style: .continuous))
+      .overlay {
+        GeometryReader { geo in
+          let pad = PlayerTeleprompterMetrics.cardContentPadding
+          PlayerLiveTranscriptPanelView(
+            transcription: player.liveTranscription,
+            globalPlaybackTime: player.globalPosition,
+            isPlaying: player.isPlaying,
+            playbackRate: Double(player.playbackRate),
+            viewportSize: CGSize(
+              width: max(0, geo.size.width - pad * 2),
+              height: max(0, geo.size.height - pad * 2)
+            )
+          )
+          .padding(pad)
+        }
+      }
+      .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: corner, style: .continuous)
+          .strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
+      }
+      .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
+      .overlay(alignment: .topTrailing) {
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+          playbackProgressBadge(percent: pct)
+            .padding(.top, 12)
+            .padding(.trailing, 12)
+        }
+      }
+      .accessibilityLabel(String(localized: "Read along transcript", comment: "Accessibility"))
+  }
+
+  private func playbackProgressBadge(percent: Int) -> some View {
+    Text(verbatim: "\(percent)%")
+      .font(.caption.weight(.semibold))
+      .monospacedDigit()
+      .foregroundStyle(AppTheme.textPrimary)
+      .padding(.horizontal, 11)
+      .padding(.vertical, 6)
+      .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+      .overlay {
+        Capsule(style: .continuous)
+          .strokeBorder(AppTheme.textSecondary.opacity(0.35), lineWidth: 0.5)
+      }
+      .accessibilityLabel("Fortschritt \(percent) Prozent")
+  }
+
   private func fullPlayerArtwork(book: ABSBook) -> some View {
     let dur = max(player.totalDuration, 1)
     let pos = player.globalPosition
@@ -720,9 +887,7 @@ struct NowPlayingDetailView: View {
       cacheRevision: model.coverImageCacheRevision,
       contentMode: .fit
     )
-    .aspectRatio(1, contentMode: .fit)
-    .frame(maxWidth: 400)
-    .frame(maxWidth: .infinity)
+    .fullPlayerHeaderSquareFrame()
     .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
     .overlay {
       RoundedRectangle(cornerRadius: corner, style: .continuous)
@@ -730,20 +895,11 @@ struct NowPlayingDetailView: View {
     }
     .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
     .overlay(alignment: .topTrailing) {
-      Text(verbatim: "\(pct)%")
-        .font(.caption.weight(.semibold))
-        .monospacedDigit()
-        .foregroundStyle(.primary)
-        .padding(.horizontal, 11)
-        .padding(.vertical, 6)
-        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
-        .overlay {
-          Capsule(style: .continuous)
-            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
-        }
-        .padding(.top, 12)
-        .padding(.trailing, 12)
-        .accessibilityLabel("Fortschritt \(pct) Prozent")
+      TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+        playbackProgressBadge(percent: pct)
+          .padding(.top, 12)
+          .padding(.trailing, 12)
+      }
     }
   }
 
@@ -769,12 +925,12 @@ struct NowPlayingDetailView: View {
       HStack {
         Text(formatPlaybackTime(pos))
           .font(.caption)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(AppTheme.textSecondary)
         Spacer()
         if !centerCaption.isEmpty {
           Text(centerCaption)
             .font(.caption)
-            .foregroundStyle(.primary)
+            .foregroundStyle(AppTheme.textPrimary)
             .lineLimit(1)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
@@ -785,7 +941,7 @@ struct NowPlayingDetailView: View {
         Spacer()
         Text(formatPlaybackTime(max(0, dur - pos)))
           .font(.caption)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(AppTheme.textSecondary)
       }
       .monospacedDigit()
     }
@@ -828,6 +984,7 @@ struct NowPlayingDetailView: View {
       .buttonStyle(.borderedProminent)
       .controlSize(.large)
       .clipShape(Circle())
+      .tint(themeAccent)
       .disabled(player.activeBook == nil)
       .frame(maxWidth: .infinity)
 
@@ -846,6 +1003,7 @@ struct NowPlayingDetailView: View {
       fullPlayerTransportChapterSlot(isLeading: false, hasChapters: hasChapters)
         .frame(maxWidth: .infinity)
     }
+    .foregroundStyle(AppTheme.textPrimary)
     .buttonStyle(.borderless)
   }
 
@@ -884,9 +1042,9 @@ struct NowPlayingDetailView: View {
       let ep = player.activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       return ep.isEmpty ? id : nil
     }()
+    let tx = player.liveTranscription
     return FullPlayerUtilityBar(
       playbackRate: player.playbackRate,
-      sleepEndDate: player.sleepEndDate,
       activeAudiobookId: audiobookId,
       offlineStorageId: sid,
       isDownloaded: sid.map { model.downloadedItemIds.contains($0) } ?? false,
@@ -895,9 +1053,18 @@ struct NowPlayingDetailView: View {
       bookmarkMenuItems: audiobookId.map { id in
         model.bookmarks(for: id).map(PlayerBookmarkMenuItem.init)
       } ?? [],
-      isLoggedIn: model.isLoggedIn
+      isLoggedIn: model.isLoggedIn,
+      isLiveTranscriptionEnabled: tx.isEnabled,
+      isLiveTranscriptionBusy: tx.isPreparing || tx.modelDownloadProgress != nil,
+      onToggleLiveTranscription: {
+        Task { @MainActor in
+          await tx.toggle(player: player)
+          if let err = tx.errorMessage {
+            model.errorMessage = err
+          }
+        }
+      }
     )
-    .equatable()
   }
 
   private var connectionLoadingPlaceholder: some View {
@@ -1167,6 +1334,8 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
   let chrome: FloatingPlayerChromeController
 
   @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
 
   private static let rowMinHeight: CGFloat = 48
   private static let accessoryTransportSide: CGFloat = 44
@@ -1205,19 +1374,20 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
 
   /// Nur Anzeige — Tap auf gesamte linke Fläche über umschließenden `Button` (`.plain`).
   private var openRegionLabel: some View {
-    HStack(spacing: 0) {
+    let _ = themeRevision
+    return HStack(spacing: 0) {
       miniCover
       VStack(alignment: .leading, spacing: 2) {
         Text(snapshot.primaryLine)
           .font(.footnote)
           .fontWeight(.medium)
-          .foregroundStyle(.primary)
+          .foregroundStyle(AppTheme.textPrimary)
           .lineLimit(1)
           .frame(maxWidth: .infinity, alignment: .leading)
         if let subtitle = snapshot.subtitleText {
           Text(subtitle)
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppTheme.textSecondary)
             .fontWeight(.medium)
             .lineLimit(1)
         }
@@ -1228,6 +1398,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
   }
 
   private var transportControls: some View {
+    let _ = themeRevision
     let busy = snapshot.canTogglePlayback && snapshot.isBuffering
     let playDiameter: CGFloat = 36
     return HStack(spacing: 8) {
@@ -1238,7 +1409,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
           systemName: PlaybackController.gobackwardSystemImage(
             seconds: snapshot.skipBackwardSeconds))
           .font(.system(size: 18, weight: .medium))
-          .foregroundStyle(.primary)
+          .foregroundStyle(AppTheme.textPrimary)
           .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
           .contentShape(Rectangle())
       }
@@ -1253,7 +1424,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
       } label: {
         ZStack {
           Circle()
-            .fill(Color.accentColor)
+            .fill(themeAccent)
             .frame(width: playDiameter, height: playDiameter)
           if busy {
             ProgressView()
@@ -1305,7 +1476,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
         .overlay {
           Image(systemName: "waveform")
             .font(.caption2)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppTheme.textSecondary)
         }
     }
   }
@@ -1327,29 +1498,29 @@ struct LibraryCardActionButtonStyle: ButtonStyle {
   var variant: Variant = .neutral
   var minHeight: CGFloat = MiniPlayerMetrics.controlMinHeight
   @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
 
   func makeBody(configuration: Configuration) -> some View {
+    let _ = themeRevision
     let stroke: Color = {
       switch variant {
       case .neutral:
         return AppTheme.textSecondary.opacity(isEnabled ? 0.42 : 0.22)
       case .accent:
-        return Color.accentColor.opacity(isEnabled ? 0.55 : 0.22)
+        return themeAccent.opacity(isEnabled ? 0.55 : 0.22)
       case .danger:
         return AppTheme.danger.opacity(isEnabled ? 0.55 : 0.22)
-      case .downloaded:
-        return Color.accentColor.opacity(isEnabled ? 0.72 : 0.5)
-      case .finished:
-        return AppTheme.success.opacity(isEnabled ? 0.72 : 0.5)
+      case .downloaded, .finished:
+        return themeAccent.opacity(isEnabled ? 0.72 : 0.5)
       }
     }()
     let fill: Color = {
       switch variant {
       case .neutral: return .clear
-      case .accent: return Color.accentColor.opacity(0.12)
+      case .accent: return themeAccent.opacity(0.12)
       case .danger: return AppTheme.danger.opacity(0.12)
-      case .downloaded: return Color.accentColor.opacity(0.28)
-      case .finished: return AppTheme.success.opacity(0.28)
+      case .downloaded, .finished: return themeAccent.opacity(0.28)
       }
     }()
 
@@ -1382,6 +1553,8 @@ struct OfflineHomeMiniPlayerCard: View {
   let chrome: FloatingPlayerChromeController
   @EnvironmentObject private var model: AppModel
   @EnvironmentObject private var player: PlaybackController
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
 
   @State private var confirmMarkFinished = false
   @State private var confirmMarkUnfinished = false
@@ -1409,9 +1582,11 @@ struct OfflineHomeMiniPlayerCard: View {
   }
 
   private var cardBody: some View {
+    let _ = themeRevision
     let inset = AppTheme.Layout.libraryRowCardInset
     let shape = RoundedRectangle(
       cornerRadius: AppTheme.Layout.libraryRowCornerRadius, style: .continuous)
+    let palette = model.appearancePalette
 
     return VStack(alignment: .leading, spacing: 0) {
       VStack(alignment: .leading, spacing: inset) {
@@ -1434,10 +1609,10 @@ struct OfflineHomeMiniPlayerCard: View {
         } else if snapshot.showsConnectionLoading {
           HStack(spacing: 8) {
             ProgressView()
-              .tint(Color.accentColor)
+              .tint(themeAccent)
             Text("Loading…")
               .font(.subheadline)
-              .foregroundStyle(AppTheme.textSecondary)
+              .foregroundStyle(palette.textSecondary)
           }
           .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -1467,7 +1642,7 @@ struct OfflineHomeMiniPlayerCard: View {
     }
     .fixedSize(horizontal: false, vertical: true)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(AppTheme.card)
+    .background(palette.card)
     .clipShape(shape)
     .contentShape(shape)
   }
@@ -1505,7 +1680,7 @@ struct OfflineHomeMiniPlayerCard: View {
       } label: {
         ZStack {
           Circle()
-            .fill(Color.accentColor)
+            .fill(themeAccent)
             .frame(width: playDiameter, height: playDiameter)
           if isBusy {
             ProgressView()
@@ -1610,7 +1785,7 @@ struct OfflineHomeMiniPlayerCard: View {
     } label: {
       Image(systemName: finished ? "arrow.uturn.backward.circle" : "checkmark.circle")
         .font(.callout)
-        .foregroundStyle(finished ? AppTheme.success : Color.accentColor)
+        .foregroundStyle(themeAccent)
     }
     .buttonStyle(
       LibraryCardActionButtonStyle(
@@ -1659,11 +1834,11 @@ struct OfflineHomeMiniPlayerCard: View {
   }
 
   private var offlineSleepTimerCornerButton: some View {
-    let sleepActive = player.sleepEndDate != nil
+    let sleepActive = player.isSleepTimerActive
     return SleepTimerPopoverControl {
       Image(systemName: sleepActive ? "moon.fill" : "moon")
         .font(.callout)
-        .foregroundStyle(sleepActive ? Color.accentColor : AppTheme.textPrimary)
+        .foregroundStyle(sleepActive ? themeAccent : AppTheme.textPrimary)
     }
     .buttonStyle(
       LibraryCardActionButtonStyle(
@@ -1719,7 +1894,7 @@ struct OfflineHomeMiniPlayerCard: View {
       RoundedRectangle(cornerRadius: radius, style: .continuous)
         .fill(AppTheme.background)
         .frame(width: side, height: side)
-        .overlay { ProgressView().tint(Color.accentColor) }
+        .overlay { ProgressView().tint(themeAccent) }
     } else {
       RoundedRectangle(cornerRadius: radius, style: .continuous)
         .fill(AppTheme.background)
@@ -1753,7 +1928,7 @@ struct OfflineHomeMiniPlayerCard: View {
       if !showsProgress, let subtitle = snapshot.subtitleText {
         Text(subtitle)
           .font(.caption.monospacedDigit())
-          .foregroundStyle(Color.accentColor)
+          .foregroundStyle(themeAccent)
           .lineLimit(1)
       }
     }
@@ -1782,6 +1957,7 @@ struct OfflineHomeMiniPlayerCard: View {
         Text("Author")
           .font(.footnote.weight(.semibold))
           .foregroundStyle(AppTheme.textSecondary)
+          .textCase(.uppercase)
         Text(author)
           .font(.footnote)
           .foregroundStyle(AppTheme.textPrimary)
@@ -1818,10 +1994,18 @@ struct OfflineHomeMiniPlayerCard: View {
 
   @ViewBuilder
   private var offlineSleepTimerCountdownLabel: some View {
-    if let end = player.sleepEndDate {
-      TimelineView(.periodic(from: .now, by: 1)) { _ in
-        Text(formatPlaybackTime(max(0, end.timeIntervalSinceNow)))
-          .foregroundStyle(Color.accentColor)
+    if let seconds = player.sleepTimerDisplaySeconds, seconds > 0 {
+      if player.sleepEndDate != nil {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+          Text(formatPlaybackTime(max(0, player.sleepTimerDisplaySeconds ?? seconds)))
+            .foregroundStyle(themeAccent)
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .frame(maxWidth: .infinity)
+        }
+      } else {
+        Text(formatPlaybackTime(seconds))
+          .foregroundStyle(themeAccent)
           .lineLimit(1)
           .minimumScaleFactor(0.85)
           .frame(maxWidth: .infinity)
@@ -1831,6 +2015,17 @@ struct OfflineHomeMiniPlayerCard: View {
         .frame(minWidth: 52, minHeight: 1)
         .accessibilityHidden(true)
     }
+  }
+}
+
+// MARK: - Full player header (1:1)
+
+private extension View {
+  /// Gleicher 1:1-Rahmen für Cover und Read-along-Karte.
+  func fullPlayerHeaderSquareFrame() -> some View {
+    aspectRatio(1, contentMode: .fit)
+      .frame(maxWidth: 400)
+      .frame(maxWidth: .infinity)
   }
 }
 

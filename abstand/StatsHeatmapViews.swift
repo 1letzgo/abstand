@@ -3,9 +3,10 @@ import SwiftUI
 // MARK: - Monats-Kalender-Heatmap
 
 private enum HeatmapMetrics {
-  static let cardPaddingH: CGFloat = 14
+  static let cardPaddingH = AppTheme.Layout.settingsCardInsetHPadding
   static let cardPaddingV: CGFloat = 12
-  static let navRowHeight: CGFloat = 28
+  /// Zeile mit Monatsüberschrift und Vor/Zurück.
+  static let navRowHeight: CGFloat = 36
   static let weekdayHeaderHeight: CGFloat = 16
   static let legendHeight: CGFloat = 14
   /// Zusatzabstand über der „Less … More“-Legende.
@@ -25,6 +26,11 @@ struct ListeningMonthHeatmapCard: View {
   var calendar: Calendar = .current
 
   private var accent: Color { model.appearanceAccentColor }
+  private var palette: AppColorPalette { model.appearancePalette }
+  /// Dark: Mint-Grün; Sepia-Light: App-Akzent (Grün auf hellem Papier hat zu wenig Kontrast).
+  private var heatmapActiveColor: Color {
+    palette.isDarkLike ? AppTheme.success : accent
+  }
 
   @State private var monthsBack: Int = 0
   @State private var cardWidth: CGFloat = 0
@@ -79,8 +85,9 @@ struct ListeningMonthHeatmapCard: View {
           .preference(key: HeatmapCardWidthKey.self, value: geo.size.width)
       }
     )
-    .background(AppTheme.card)
+    .background(model.appearancePalette.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+    .abstandCardElevation(.standard)
     .onPreferenceChange(HeatmapCardWidthKey.self) { cardWidth = $0 }
   }
 
@@ -90,17 +97,11 @@ struct ListeningMonthHeatmapCard: View {
       calendar: calendar,
       locale: locale
     )
-    return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      Text("Listening time", comment: "Stats calendar: summary card title")
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(AppTheme.textSecondary)
-      daySummary(heatmap: heatmap)
-    }
-    .padding(.horizontal, HeatmapMetrics.cardPaddingH)
-    .padding(.vertical, HeatmapMetrics.cardPaddingV)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(AppTheme.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+    let summary = listeningSummaryContent(heatmap: heatmap)
+    return StatsTimelineMetricCard(title: summary.title, value: summary.value)
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel(summary.accessibility)
+      .animation(.easeInOut(duration: 0.15), value: selectedDayKey)
   }
 
   @ViewBuilder
@@ -138,7 +139,7 @@ struct ListeningMonthHeatmapCard: View {
       } label: {
         Image(systemName: "chevron.left")
           .font(.body.weight(.semibold))
-          .foregroundStyle(canGoBack ? AppTheme.textPrimary : AppTheme.textSecondary.opacity(0.35))
+          .foregroundStyle(canGoBack ? palette.textPrimary : palette.textSecondary.opacity(0.35))
           .frame(width: 36, height: HeatmapMetrics.navRowHeight)
       }
       .buttonStyle(.plain)
@@ -154,7 +155,7 @@ struct ListeningMonthHeatmapCard: View {
       } label: {
         Image(systemName: "chevron.right")
           .font(.body.weight(.semibold))
-          .foregroundStyle(canGoForward ? AppTheme.textPrimary : AppTheme.textSecondary.opacity(0.35))
+          .foregroundStyle(canGoForward ? palette.textPrimary : palette.textSecondary.opacity(0.35))
           .frame(width: 36, height: HeatmapMetrics.navRowHeight)
       }
       .buttonStyle(.plain)
@@ -167,10 +168,10 @@ struct ListeningMonthHeatmapCard: View {
   @ViewBuilder
   private func monthTitleLabel(_ title: String) -> some View {
     let label = Text(title)
-      .font(.headline.weight(.semibold))
-      .foregroundStyle(AppTheme.textPrimary)
+      .font(.title2.weight(.bold))
+      .foregroundStyle(palette.textPrimary)
       .lineLimit(1)
-      .minimumScaleFactor(0.85)
+      .minimumScaleFactor(0.7)
 
     if monthTitleLinksToCurrentMonth {
       Button {
@@ -192,7 +193,7 @@ struct ListeningMonthHeatmapCard: View {
       ForEach(0 ..< 7, id: \.self) { col in
         Text(layout.weekdayLabel(column: col))
           .font(.caption2.weight(.semibold))
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(palette.textSecondary)
           .frame(width: layout.blockSize, height: HeatmapMetrics.weekdayHeaderHeight)
       }
     }
@@ -273,9 +274,12 @@ struct ListeningMonthHeatmapCard: View {
   }
 
   private func dayNumberColor(level: Int, inMonth: Bool, isSelected: Bool) -> Color {
-    guard inMonth else { return AppTheme.textSecondary.opacity(0.5) }
+    guard inMonth else { return palette.textSecondary.opacity(0.5) }
     if isSelected { return accent }
-    return level >= 3 ? AppTheme.background : AppTheme.textSecondary
+    if level >= 3 {
+      return palette.isDarkLike ? palette.background : palette.heroPlayPillForeground
+    }
+    return palette.textSecondary
   }
 
   private func syncSelectedDay(for heatmap: ABSListeningMonthHeatmap) {
@@ -292,37 +296,36 @@ struct ListeningMonthHeatmapCard: View {
     selectedDayKey = nil
   }
 
-  private func daySummary(heatmap: ABSListeningMonthHeatmap) -> some View {
-    let seconds: Int
+  private struct ListeningSummaryContent {
+    let title: String
+    let value: String
     let accessibility: String
+  }
+
+  private func listeningSummaryContent(heatmap: ABSListeningMonthHeatmap) -> ListeningSummaryContent {
     if let key = selectedDayKey,
       let cell = heatmap.cells.first(where: { $0.id == key && $0.isInDisplayedMonth })
     {
-      seconds = cell.seconds
-      accessibility = selectedDayAccessibilityLabel(key: key, seconds: cell.seconds)
-    } else {
-      seconds = heatmap.totalSecondsInMonth
-      accessibility =
-        "\(heatmap.monthTitle), \(heatmap.daysListenedInMonth) days, \(listeningTimeLabel(seconds: seconds))"
+      return ListeningSummaryContent(
+        title: selectedDayMetricTitle(key: key),
+        value: listeningTimeLabel(seconds: cell.seconds),
+        accessibility: selectedDayAccessibilityLabel(key: key, seconds: cell.seconds)
+      )
     }
+    return ListeningSummaryContent(
+      title: String(localized: "Listening time", comment: "Stats timeline metric card title"),
+      value: listeningTimeLabel(seconds: heatmap.totalSecondsInMonth),
+      accessibility:
+        "\(heatmap.monthTitle), \(heatmap.daysListenedInMonth) days, \(listeningTimeLabel(seconds: heatmap.totalSecondsInMonth))"
+    )
+  }
 
-    let tint = seconds > 0 ? accent : AppTheme.textSecondary
-    return HStack(alignment: .center, spacing: 12) {
-      Image(systemName: "headphones.circle.fill")
-        .font(.system(size: 32))
-        .foregroundStyle(tint)
-      Text(listeningTimeLabel(seconds: seconds))
-        .font(.system(size: 28, weight: .bold, design: .rounded))
-        .monospacedDigit()
-        .foregroundStyle(seconds > 0 ? AppTheme.textPrimary : AppTheme.textSecondary)
-        .minimumScaleFactor(0.7)
-        .lineLimit(1)
-    }
-    .frame(maxWidth: .infinity, alignment: .center)
-    .frame(minHeight: AppTheme.Layout.listRowMinHeight)
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel(accessibility)
-    .animation(.easeInOut(duration: 0.15), value: selectedDayKey)
+  private func selectedDayMetricTitle(key: String) -> String {
+    guard let date = ABSListeningStatsResponse.parseDayKey(key, calendar: calendar) else { return key }
+    let f = DateFormatter()
+    f.locale = locale
+    f.dateFormat = "EEE, MMM d"
+    return f.string(from: date)
   }
 
   private func listeningTimeLabel(seconds: Int) -> String {
@@ -345,18 +348,18 @@ struct ListeningMonthHeatmapCard: View {
 
   private func heatmapFill(level: Int) -> Color {
     switch level {
-    case 0: return AppTheme.background
-    case 1: return AppTheme.success.opacity(0.28)
-    case 2: return AppTheme.success.opacity(0.48)
-    case 3: return AppTheme.success.opacity(0.72)
-    default: return AppTheme.success
+    case 0: return palette.background
+    case 1: return heatmapActiveColor.opacity(palette.isDarkLike ? 0.28 : 0.22)
+    case 2: return heatmapActiveColor.opacity(palette.isDarkLike ? 0.48 : 0.42)
+    case 3: return heatmapActiveColor.opacity(palette.isDarkLike ? 0.72 : 0.66)
+    default: return heatmapActiveColor
     }
   }
 
   private func heatmapOutline(level: Int) -> Color {
     level == 0
-      ? AppTheme.textSecondary.opacity(0.12)
-      : AppTheme.success.opacity(0.35)
+      ? palette.textSecondary.opacity(0.12)
+      : heatmapActiveColor.opacity(palette.isDarkLike ? 0.35 : 0.5)
   }
 
   private func heatmapLegend(blockSize: CGFloat) -> some View {
@@ -364,7 +367,7 @@ struct ListeningMonthHeatmapCard: View {
     return HStack(spacing: 3) {
       Text("Less", comment: "Heatmap legend low")
         .font(.caption2)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(palette.textSecondary)
       ForEach(0 ..< 5, id: \.self) { level in
         Circle()
           .fill(heatmapFill(level: level))
@@ -375,10 +378,41 @@ struct ListeningMonthHeatmapCard: View {
       }
       Text("More", comment: "Heatmap legend high")
         .font(.caption2)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(palette.textSecondary)
     }
     .padding(.top, HeatmapMetrics.legendTopPadding)
     .frame(maxWidth: .infinity, alignment: .center)
+  }
+}
+
+/// Wie `summaryPeriodCard` / Today in Stats › Listening time.
+private struct StatsTimelineMetricCard: View {
+  @EnvironmentObject private var model: AppModel
+  let title: String
+  let value: String
+
+  var body: some View {
+    let palette = model.appearancePalette
+    VStack(alignment: .leading, spacing: 4) {
+      Text(title)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(palette.textSecondary)
+        .textCase(.uppercase)
+        .lineLimit(2)
+        .minimumScaleFactor(0.85)
+      Text(value)
+        .font(.headline.weight(.bold))
+        .foregroundStyle(palette.textPrimary)
+        .minimumScaleFactor(0.7)
+        .lineLimit(1)
+    }
+    .abstandCardListRowFrame()
+    .padding(.horizontal, AppTheme.Layout.settingsCardInsetHPadding)
+    .padding(.vertical, AppTheme.Layout.settingsCardInsetVPadding)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(palette.card)
+    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+    .abstandCardElevation(.standard)
   }
 }
 
