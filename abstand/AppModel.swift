@@ -634,19 +634,25 @@ final class AppModel: ObservableObject {
   @Published private(set) var networkUsesUnmeteredLAN: Bool = false
   /// Nach 3 Minuten Wiedergabe im WLAN: aktuellen Titel (Hörbuch oder Podcast) automatisch herunterladen.
   /// Akzentfarbe der App (Tabs, Buttons, Highlights) — Einstellungen → Appearance.
-  @Published var appearanceAccentColor: Color = AppTheme.defaultAccent {
-    didSet {
-      if suppressAppearanceAccentSideEffects {
-        AppTheme.applyAccent(appearanceAccentColor)
-        return
-      }
-      guard !Self.appearanceAccentColorsEqual(appearanceAccentColor, oldValue) else { return }
-      Self.persistAppearanceAccentColor(
-        appearanceAccentColor,
-        slot: Self.currentAppearanceAccentSlot(
-          mode: appearanceMode, system: lastSystemColorScheme))
-      AppTheme.applyAccent(appearanceAccentColor)
+  @Published private(set) var appearanceAccentColor: Color = AppTheme.defaultAccent
+
+  /// Akzent aus ColorPicker / Settings — Side-Effects zentral (nicht in `@Published`-`didSet`).
+  func setAppearanceAccentColor(_ color: Color) {
+    guard !suppressAppearanceAccentSideEffects else {
+      appearanceAccentColor = color
+      AppTheme.applyAccent(color)
+      return
     }
+    guard !Self.appearanceAccentColorsEqual(color, appearanceAccentColor) else { return }
+    appearanceAccentColor = color
+    Self.persistAppearanceAccentColor(
+      color,
+      slot: Self.currentAppearanceAccentSlot(
+        mode: appearanceMode, system: lastSystemColorScheme))
+    AppTheme.applyAccent(color)
+    applyResolvedPalette()
+    player.refreshMiniPlayerBarFillForAppearance()
+    appearanceThemeRevision += 1
   }
 
   /// Dark / Sepia-Light / System — Standard Dark.
@@ -663,7 +669,8 @@ final class AppModel: ObservableObject {
   @Published private(set) var appearanceThemeRevision = 0
 
   /// Aktuelle UI-Palette für SwiftUI (`AppTheme.*` allein triggert keine Updates in NavigationLink-Labels).
-  @Published private(set) var appearancePalette: AppColorPalette = .dark
+  @Published private(set) var appearancePalette: AppColorPalette = AppColorPalette.derived(
+    from: AppTheme.defaultAccent, isDarkLike: true)
 
   private var lastSystemColorScheme: ColorScheme = .dark
   private var suppressAppearanceAccentSideEffects = false
@@ -695,7 +702,7 @@ final class AppModel: ObservableObject {
   func resetAppearanceAccentToDefault() {
     let slot = Self.currentAppearanceAccentSlot(
       mode: appearanceMode, system: lastSystemColorScheme)
-    appearanceAccentColor = slot.defaultAccent
+    setAppearanceAccentColor(slot.defaultAccent)
   }
 
   /// Palette, Akzent pro Slot und UIKit-Chrome — ein Einstieg statt verstreuter Listener.
@@ -713,15 +720,23 @@ final class AppModel: ObservableObject {
 
     lastSystemColorScheme = systemColorScheme
 
-    let palette = AppColorPalette.palette(for: appearanceMode, system: systemColorScheme)
+    applyAppearanceAccentForCurrentSlot()
+    applyResolvedPalette()
+    player.refreshMiniPlayerBarFillForAppearance()
+    appearanceThemeRevision += 1
+  }
+
+  /// Palette aus Modus + aktueller Akzentfarbe (Hintergrund leicht getönt).
+  private func applyResolvedPalette() {
+    let palette = AppColorPalette.palette(
+      for: appearanceMode,
+      system: lastSystemColorScheme,
+      accent: appearanceAccentColor
+    )
     if AppTheme.palette != palette {
       AppTheme.applyPalette(palette)
     }
     appearancePalette = palette
-
-    applyAppearanceAccentForCurrentSlot()
-    player.refreshMiniPlayerBarFillForAppearance()
-    appearanceThemeRevision += 1
   }
 
   private func applyAppearanceAccentForCurrentSlot() {
@@ -1077,6 +1092,11 @@ final class AppModel: ObservableObject {
     player.onAudiobookPlaybackCompleted = { [weak self] in
       Task { @MainActor [weak self] in
         await self?.handleAudiobookPlaybackCompleted()
+      }
+    }
+    player.onPodcastEpisodePlaybackCompleted = { [weak self] in
+      Task { @MainActor [weak self] in
+        await self?.handlePodcastEpisodePlaybackCompleted()
       }
     }
     floatingChrome.bind(model: self)
@@ -6184,7 +6204,17 @@ final class AppModel: ObservableObject {
       if let ep = manifestEpisodeId, !ep.isEmpty { return "\(playbackItemId)-\(ep)" }
       return playbackItemId
     }()
-    let resume = resumeAtOverride ?? progressByItemId[progressKey]?.currentTime ?? 0
+    let (resume, restartFromBeginning) = resolvedPlaybackStart(
+      progressKey: progressKey,
+      resumeAtOverride: resumeAtOverride
+    )
+    if restartFromBeginning {
+      await preparePlaybackRestartFromBeginning(
+        libraryItemId: playbackItemId,
+        episodeId: manifestEpisodeId,
+        progressKey: progressKey
+      )
+    }
     do {
       var resolved = book
       if let root = local, let manifest = ABSDownloadManifest.load(from: root) {
@@ -6214,7 +6244,8 @@ final class AppModel: ObservableObject {
         localDownloadRoot: local,
         episodeId: manifestEpisodeId,
         autoPlay: autoPlay,
-        attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable
+        attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable,
+        preferClientResumePosition: restartFromBeginning
       )
       UserDefaults.standard.set(resolved.id, forKey: Keys.lastPlayedItemId)
       if autoPlay {
@@ -6259,8 +6290,18 @@ final class AppModel: ObservableObject {
     isPreparingPlayback = true
     defer { isPreparingPlayback = false }
     errorMessage = nil
-    let resume =
-      resumeAtOverride ?? progressByItemId[episode.progressLookupKey]?.currentTime ?? 0
+    let progressKey = episode.progressLookupKey
+    let (resume, restartFromBeginning) = resolvedPlaybackStart(
+      progressKey: progressKey,
+      resumeAtOverride: resumeAtOverride
+    )
+    if restartFromBeginning {
+      await preparePlaybackRestartFromBeginning(
+        libraryItemId: episode.libraryItemId,
+        episodeId: episode.episodeId,
+        progressKey: progressKey
+      )
+    }
     let stub = episode.playbackStubBook(libraryId: selectedPodcastLibrary?.id)
     do {
       try await player.playBook(
@@ -6270,7 +6311,8 @@ final class AppModel: ObservableObject {
         localDownloadRoot: local,
         episodeId: episode.episodeId,
         autoPlay: autoPlay,
-        attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable
+        attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable,
+        preferClientResumePosition: restartFromBeginning
       )
       UserDefaults.standard.set(stub.id, forKey: Keys.lastPlayedItemId)
       if autoPlay {
@@ -6416,6 +6458,14 @@ final class AppModel: ObservableObject {
       player.activePlaybackEpisodeId == nil
     else { return }
     await markFinished(bookId: bookId)
+  }
+
+  /// Podcast-Folge bis zum Ende gehört: lokal fertig (Offline) bzw. inkl. Server-Sync.
+  private func handlePodcastEpisodePlaybackCompleted() async {
+    guard player.activePlaybackEpisodeId != nil,
+      let episode = podcastEpisodeForActivePlayback()
+    else { return }
+    await markPodcastEpisodeFinished(episode)
   }
 
   private func wasCurrentPlaybackForBook(_ bookId: String) -> Bool {
@@ -7960,8 +8010,50 @@ final class AppModel: ObservableObject {
     let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !k.isEmpty else { return false }
     if suppressedContinueListeningKeys.contains(k) { return true }
+    return isLocallyMarkedFinished(progressKey: k)
+  }
+
+  private func isLocallyMarkedFinished(progressKey: String) -> Bool {
+    let k = progressKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !k.isEmpty else { return false }
     if localFinishedProgressKeys.contains(k) { return true }
     return progressByItemId[k]?.isFinished == true
+  }
+
+  /// Startposition für Wiedergabe; nach „Fertig“ ohne Override von vorn.
+  private func resolvedPlaybackStart(
+    progressKey: String,
+    resumeAtOverride: Double?
+  ) -> (resume: Double, restartFromBeginning: Bool) {
+    ensureLocalProgressLoadedFromDisk()
+    if let override = resumeAtOverride {
+      return (max(0, override), override <= 0.001)
+    }
+    if isLocallyMarkedFinished(progressKey: progressKey) {
+      return (0, true)
+    }
+    return (progressByItemId[progressKey]?.currentTime ?? 0, false)
+  }
+
+  /// Fortschritt lokal/auf dem Server zurücksetzen, bevor ein fertiges Medium neu startet.
+  private func preparePlaybackRestartFromBeginning(
+    libraryItemId: String,
+    episodeId: String?,
+    progressKey: String
+  ) async {
+    clearLocallyFinishedProgressKey(progressKey)
+    if progressByItemId[progressKey] != nil {
+      applyLocalMarkUnfinished(libraryItemId: libraryItemId, episodeId: episodeId)
+      pendingLocalProgressSyncKeys.insert(progressKey)
+    }
+    if mayUseServerNetwork, isNetworkReachable, let c = client {
+      try? await c.patchProgress(
+        libraryItemId: libraryItemId,
+        episodeId: episodeId,
+        patch: ABSProgressPatch(currentTime: 0, duration: nil, progress: 0, isFinished: false)
+      )
+    }
+    syncContinueListeningShelvesWithProgress()
   }
 
   private func applyLocalMarkFinished(libraryItemId: String, episodeId: String?) {

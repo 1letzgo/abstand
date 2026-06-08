@@ -12,6 +12,7 @@ struct MainRootView: View {
     let _ = model.appearanceThemeRevision
     return tabViewBody
       .tint(model.appearanceAccentColor)
+      .themeAccentFromAppModel(model)
       .background {
         AppThemeScreenBackground(ignoresSafeArea: true)
       }
@@ -588,7 +589,7 @@ struct MainRootView: View {
         + model.nowPlayingAccessoryScrollBottomInset,
       onRefresh: { await model.refreshPodcastsTab() }
     ) {
-      podcastShowsCoverStrip
+      podcastShowsDockStrip
     } sectionBody: { sectionId in
       podcastCatalogSectionScrollContent(showId: podcastCatalogShowId(forSectionId: sectionId))
     }
@@ -604,84 +605,37 @@ struct MainRootView: View {
     }
   }
 
-  private var podcastShowsCoverStrip: some View {
+  private var podcastDockStripItems: [AbstandBrowseStripItem] {
+    [
+      AbstandBrowseStripItem(
+        id: Self.podcastCatalogNewSectionId,
+        label: "New",
+        systemImage: "square.grid.2x2"
+      ),
+    ] + model.podcastShows.map { show in
+      AbstandBrowseStripItem(
+        id: show.id,
+        label: show.displayTitle,
+        systemImage: "mic.fill",
+        coverItemId: show.id
+      )
+    }
+  }
+
+  private var podcastShowsDockStrip: some View {
     let _ = model.appearanceThemeRevision
-    let palette = model.appearancePalette
-    let cover = AppTheme.Layout.horizontalBrowseStripTile
-    let captionW = cover + AppTheme.Layout.horizontalBrowseStripLabelWidthExtra
-    let accent = browseStripAccent
-    return AbstandHorizontalBrowseStripScroll {
-      HStack(alignment: .top, spacing: AppTheme.Layout.horizontalBrowseStripInterTileSpacing) {
-        Button {
+    return AbstandBrowseStripIconMenu(
+      items: podcastDockStripItems,
+      selectionID: podcastCatalogScrollSelection,
+      onSelect: { id in
+        if id == Self.podcastCatalogNewSectionId {
           Task { await model.selectPodcastShowFilter(nil) }
-        } label: {
-          VStack(alignment: .leading, spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
-            ZStack {
-              RoundedRectangle(
-                cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
-                .fill(palette.card)
-                .frame(width: cover, height: cover)
-              Image(systemName: "square.grid.2x2")
-                .font(.title2)
-                .foregroundStyle(model.podcastSelectedShowId == nil ? accent : palette.textSecondary)
-            }
-            .overlay {
-              RoundedRectangle(
-                cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
-                .strokeBorder(
-                  model.podcastSelectedShowId == nil ? accent : Color.clear, lineWidth: 2.5)
-            }
-            Text("New")
-              .font(.caption2.weight(.medium))
-              .foregroundStyle(palette.textPrimary)
-              .lineLimit(1)
-              .frame(width: cover, alignment: .center)
-          }
-          .frame(width: captionW, alignment: .leading)
-        }
-        .buttonStyle(.plain)
-
-        if model.podcastShowsLoading, model.podcastShows.isEmpty {
-          ProgressView()
-            .frame(width: cover, height: cover)
-        }
-
-        ForEach(model.podcastShows) { show in
-          Button {
-            model.applyPodcastShowFilterSelection(show.id)
-            Task { await model.loadPodcastEpisodesForShowLibraryItem(show.id) }
-          } label: {
-            VStack(alignment: .leading, spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
-              CoverImageView(
-                url: model.coverURL(for: show.id),
-                token: model.token,
-                itemId: show.id,
-                cacheAccount: model.coverImageCacheAccountDirectory(),
-                cacheRevision: model.coverImageCacheRevision
-              )
-              .frame(width: cover, height: cover)
-              .clipShape(
-                RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous))
-              .overlay {
-                RoundedRectangle(
-                  cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
-                  .strokeBorder(
-                    model.podcastSelectedShowId == show.id ? accent : Color.clear, lineWidth: 2.5)
-              }
-              Text(show.displayTitle)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(palette.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .multilineTextAlignment(.center)
-                .frame(width: cover, alignment: .center)
-            }
-            .frame(width: captionW, alignment: .leading)
-          }
-          .buttonStyle(.plain)
+        } else {
+          model.applyPodcastShowFilterSelection(id)
+          Task { await model.loadPodcastEpisodesForShowLibraryItem(id) }
         }
       }
-    }
+    )
   }
 
   @ViewBuilder
@@ -1787,10 +1741,7 @@ private func continueHeroPlayPill(
   caption: String,
   action: @escaping () -> Void
 ) -> some View {
-  let labelOnAccent =
-    palette.isDarkLike
-    ? Color(red: 42 / 255, green: 32 / 255, blue: 24 / 255)
-    : palette.heroPlayPillForeground
+  let labelOnAccent = palette.foregroundOnAccent(accent)
   HStack {
     Button(action: action) {
       HStack(spacing: 6) {
@@ -2170,7 +2121,7 @@ struct PodcastEpisodeRowCard: View {
   @ViewBuilder
   private func podcastEpisodeExpandedBlock(_ d: ABSPodcastEpisodeExpandedDetail) -> some View {
     let palette = model.appearancePalette
-    return VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: 8) {
       Divider().background(palette.textSecondary.opacity(0.2))
       podcastMetaRowShowFilter(episode: d.episode)
       podcastMetaRowHostAuthorFilter(detail: d)
@@ -3872,8 +3823,9 @@ private struct DetailToolbarMarkFinishedItem: View {
   }
 }
 
-/// Play-Button in Buch-/Folgen-Details: gelbe Fläche füllt sich mit Hörfortschritt (keine separate Progress-Bar).
+/// Play-Button in Buch-/Folgen-Details: Akzentfläche füllt sich mit Hörfortschritt (keine separate Progress-Bar).
 private struct DetailProgressFillPlayButton: View {
+  @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
 
   let progress01: Double
@@ -3900,7 +3852,10 @@ private struct DetailProgressFillPlayButton: View {
     return "\(Int(fillAmount * 100)) percent listened"
   }
 
-  private static let playLabelOnFill = Color.black.opacity(0.88)
+  private var labelOnAccentFill: Color {
+    let _ = model.appearanceThemeRevision
+    return model.appearancePalette.foregroundOnAccent(themeAccent)
+  }
 
   private var playLabel: some View {
     HStack(spacing: 6) {
@@ -3915,7 +3870,7 @@ private struct DetailProgressFillPlayButton: View {
   @ViewBuilder
   private func playLabelColored(fillWidth: CGFloat, in size: CGSize) -> some View {
     let masked = playLabel
-      .foregroundStyle(Self.playLabelOnFill)
+      .foregroundStyle(labelOnAccentFill)
       .frame(width: size.width, height: size.height)
       .mask(alignment: .leading) {
         Rectangle().frame(width: max(0, fillWidth))
@@ -3930,7 +3885,7 @@ private struct DetailProgressFillPlayButton: View {
   @ViewBuilder
   private var playLabelColored: some View {
     if isFinished {
-      playLabel.foregroundStyle(Self.playLabelOnFill)
+      playLabel.foregroundStyle(labelOnAccentFill)
     } else {
       GeometryReader { geo in
         playLabelColored(
@@ -3981,8 +3936,10 @@ private struct DetailProgressFillPlayButton: View {
         }
       }
       playLabelColored
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .contentShape(corner)
     .clipShape(corner)
   }
 
@@ -4270,6 +4227,7 @@ struct BookDetailView: View {
             }
           }
         )
+        .frame(maxWidth: .infinity)
         .disabled(model.isPreparingEbook)
 
         if d.hasReadableAttachedEbook {

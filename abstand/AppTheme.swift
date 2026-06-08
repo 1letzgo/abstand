@@ -3,7 +3,8 @@ import UIKit
 
 /// Zentrale Farben und Abstände für die gesamte App.
 enum AppTheme {
-  private(set) static var palette: AppColorPalette = .dark
+  private(set) static var palette: AppColorPalette = AppColorPalette.derived(
+    from: defaultAccent, isDarkLike: true)
 
   static var background: Color { palette.background }
   static var card: Color { palette.card }
@@ -16,6 +17,9 @@ enum AppTheme {
   static var progressTrack: Color { palette.progressTrack }
   static var heroPlayPillBackground: Color { palette.heroPlayPillBackground }
   static var heroPlayPillForeground: Color { palette.heroPlayPillForeground }
+  static func foregroundOnAccent(_ accent: Color) -> Color {
+    palette.foregroundOnAccent(accent)
+  }
   static var heroCardShadow: Color { palette.heroCardShadow }
   static var cardShadow: Color { palette.cardShadow }
 
@@ -47,8 +51,8 @@ enum AppTheme {
 
   /// Dark-Mode-Akzent (Standard Gelb).
   static let defaultAccent = Color(red: 251 / 255, green: 192 / 255, blue: 45 / 255)
-  /// Sepia-Light-Akzent (warmes Braun).
-  static let defaultLightAccent = Color(red: 168 / 255, green: 108 / 255, blue: 48 / 255)
+  /// Light-Mode-Akzent (Standard #00374A).
+  static let defaultLightAccent = Color(red: 0 / 255, green: 55 / 255, blue: 74 / 255)
   /// Aktuelle Akzentfarbe (Standard: Gelb; überschreibbar in Einstellungen → Appearance).
   /// In SwiftUI-Views bevorzugt `Color.accentColor` (folgt `.tint` am Root). `AppTheme.accent` für UIKit/Charts.
   private(set) static var accent: Color = defaultAccent
@@ -56,6 +60,45 @@ enum AppTheme {
   static let success = Color(red: 0.35, green: 0.82, blue: 0.55)
   /// Verbindungs-Ampel „prüft …“ (gelb).
   static let warning = Color(red: 0.98, green: 0.78, blue: 0.22)
+
+  /// Home-Browse „Expanding Dock“ — Layout; Farben über `Colors` aus Palette + Akzent.
+  enum ExpandingDock {
+    static let inactiveIconOpacity: CGFloat = 0.72
+
+    static let itemSpacing: CGFloat = 10
+    static let horizontalPadding: CGFloat = 18
+    static let verticalPadding: CGFloat = 4
+    static let circleSize: CGFloat = 46
+    static let iconSize: CGFloat = 21
+    static let activeCoverSize: CGFloat = 28
+    static let activeHeight: CGFloat = 46
+    static let activeLeadingPadding: CGFloat = 14
+    static let activeTrailingPadding: CGFloat = 18
+    static let iconLabelSpacing: CGFloat = 9
+    static let labelFontSize: CGFloat = 15.5
+    static let centerWhenFewThreshold = 4
+
+    static let selectionAnimation = Animation.spring(response: 0.32, dampingFraction: 0.72)
+
+    static var inactiveIconSideInset: CGFloat { (circleSize - iconSize) / 2 }
+
+    /// Theme-abhängige Dock-Farben (wie Continue-Hero-Play-Pille + Browse-Kacheln).
+    struct Colors {
+      let activeBackground: Color
+      let activeForeground: Color
+      let inactiveBackground: Color
+      let inactiveForeground: Color
+      let activeShadow: Color
+
+      init(palette: AppColorPalette, accent: Color) {
+        activeBackground = accent
+        activeForeground = palette.foregroundOnAccent(accent)
+        inactiveBackground = palette.card
+        inactiveForeground = palette.textSecondary
+        activeShadow = palette.cardShadow
+      }
+    }
+  }
 
   static func applyPalette(_ newPalette: AppColorPalette) {
     guard palette != newPalette else { return }
@@ -494,89 +537,27 @@ struct AbstandHorizontalBrowseStripScroll<Content: View>: View {
   }
 }
 
-/// Eintrag im Icon-Menüstreifen (Home, Library, Stats, Settings).
+/// Eintrag im Icon-Menüstreifen (Home, Library, Stats, Settings, Podcasts).
 struct AbstandBrowseStripItem: Identifiable, Hashable {
   let id: String
   let label: String
   let systemImage: String
+  /// Optional: Cover statt SF Symbol (z. B. Podcast-Sendungen).
+  var coverItemId: String?
 }
 
-/// Horizontales Icon-Menü — gemeinsames Template für Home, Library, Stats, Settings.
+/// Horizontales Kategorie-Menü (Expanding Dock) — Home, Library, Stats, Settings.
 struct AbstandBrowseStripIconMenu: View {
-  @EnvironmentObject private var model: AppModel
   let items: [AbstandBrowseStripItem]
   let selectionID: String
   let onSelect: (String) -> Void
 
-  private var accent: Color { model.appearanceAccentColor }
-
   var body: some View {
-    let palette = model.appearancePalette
-    let tile = AppTheme.Layout.horizontalBrowseStripTile
-    let captionW = tile + AppTheme.Layout.horizontalBrowseStripLabelWidthExtra
-    AbstandHorizontalBrowseStripScroll {
-      HStack(alignment: .top, spacing: AppTheme.Layout.horizontalBrowseStripInterTileSpacing) {
-        ForEach(items) { item in
-          Button {
-            onSelect(item.id)
-          } label: {
-            AbstandBrowseStripIconTile(
-              palette: palette,
-              tileSide: tile,
-              systemImage: item.systemImage,
-              label: item.label,
-              isSelected: item.id == selectionID,
-              accent: accent
-            )
-            .frame(width: captionW, alignment: .leading)
-          }
-          .buttonStyle(AbstandScalePressButtonStyle())
-        }
-      }
-    }
-  }
-}
-
-private struct AbstandBrowseStripIconTile: View {
-  let palette: AppColorPalette
-  let tileSide: CGFloat
-  let systemImage: String
-  let label: String
-  let isSelected: Bool
-  let accent: Color
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.horizontalBrowseStripTileLabelSpacing) {
-      ZStack {
-        RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
-          .fill(palette.card)
-          .frame(width: tileSide, height: tileSide)
-        Image(systemName: systemImage)
-          .font(.title2)
-          .symbolRenderingMode(.monochrome)
-          .foregroundStyle(isSelected ? accent : palette.textSecondary)
-      }
-      .overlay {
-        RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
-          .strokeBorder(
-            isSelected ? accent : palette.textSecondary.opacity(0.2),
-            lineWidth: isSelected ? 2.5 : 1
-          )
-      }
-      .background {
-        if isSelected {
-          RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
-            .fill(accent.opacity(0.12))
-        }
-      }
-      Text(label)
-        .font(.caption2.weight(.medium))
-        .foregroundStyle(palette.textPrimary)
-        .lineLimit(1)
-        .truncationMode(.tail)
-        .multilineTextAlignment(.center)
-        .frame(width: tileSide, alignment: .center)
-    }
+    AbstandExpandingDockBrowseStrip(
+      items: items,
+      selectionID: selectionID,
+      onSelect: onSelect
+    )
   }
 }
 
@@ -746,6 +727,7 @@ private struct AbstandCardElevationModifier: ViewModifier {
 
 /// Primäraktion (Login, Bestätigen) — Appearance-Akzent mit Druck-Feedback.
 struct AbstandPrimaryButtonStyle: ButtonStyle {
+  @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.isEnabled) private var isEnabled
 
@@ -754,7 +736,7 @@ struct AbstandPrimaryButtonStyle: ButtonStyle {
       .font(.body.weight(.semibold))
       .frame(maxWidth: .infinity)
       .padding(.vertical, 14)
-      .foregroundStyle(Color.black.opacity(0.85))
+      .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
       .background(
         RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous)
           .fill(themeAccent.opacity(fillOpacity(isPressed: configuration.isPressed)))
@@ -766,6 +748,14 @@ struct AbstandPrimaryButtonStyle: ButtonStyle {
   private func fillOpacity(isPressed: Bool) -> Double {
     guard isEnabled else { return 0.35 }
     return isPressed ? 0.88 : 1
+  }
+}
+
+/// Expanding-Dock-Chips ohne System-Rahmen/Glass.
+struct AbstandExpandingDockButtonStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .opacity(configuration.isPressed ? 0.9 : 1)
   }
 }
 

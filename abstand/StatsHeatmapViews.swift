@@ -277,7 +277,7 @@ struct ListeningMonthHeatmapCard: View {
     guard inMonth else { return palette.textSecondary.opacity(0.5) }
     if isSelected { return accent }
     if level >= 3 {
-      return palette.isDarkLike ? palette.background : palette.heroPlayPillForeground
+      return palette.foregroundOnAccent(accent)
     }
     return palette.textSecondary
   }
@@ -498,7 +498,7 @@ private struct MonthHeatmapLayout {
 }
 
 private extension Calendar {
-  fileprivate func startOfMonth(for date: Date) -> Date {
+  func startOfMonth(for date: Date) -> Date {
     let comps = dateComponents([.year, .month], from: date)
     return self.date(from: comps) ?? date
   }

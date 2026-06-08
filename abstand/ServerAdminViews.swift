@@ -90,16 +90,19 @@ private extension View {
 
 private struct ServerAdminNavRow: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   let icon: String
   let title: String
   let subtitle: String?
 
   var body: some View {
+    let _ = themeRevision
     let palette = model.appearancePalette
     HStack(spacing: 12) {
       Image(systemName: icon)
         .font(.body.weight(.semibold))
-        .foregroundStyle(model.appearanceAccentColor)
+        .foregroundStyle(themeAccent)
         .frame(width: 28, alignment: .center)
       VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 4) {
         Text(title)
@@ -123,20 +126,23 @@ private struct ServerAdminNavRow: View {
 // MARK: - Settings card rows
 
 private struct SettingsCardIcon: View {
-  @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   let systemName: String
   var tint: Color?
 
   var body: some View {
+    let _ = themeRevision
     Image(systemName: systemName)
       .font(.body.weight(.semibold))
-      .foregroundStyle(tint ?? model.appearanceAccentColor)
+      .foregroundStyle(tint ?? themeAccent)
       .frame(width: 28, alignment: .center)
   }
 }
 
 private struct SettingsCardToggleRow: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
   let icon: String
   let title: String
   @Binding var isOn: Bool
@@ -149,7 +155,7 @@ private struct SettingsCardToggleRow: View {
           .font(.body)
           .foregroundStyle(model.appearancePalette.textPrimary)
       }
-      .tint(model.appearanceAccentColor)
+      .tint(themeAccent)
     }
     .settingsCardRowFrame()
   }
@@ -157,9 +163,12 @@ private struct SettingsCardToggleRow: View {
 
 private struct SettingsCardAppearanceModeRow: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   @Binding var selection: AppearanceMode
 
   var body: some View {
+    let _ = themeRevision
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 12) {
         SettingsCardIcon(systemName: "circle.lefthalf.filled")
@@ -175,17 +184,19 @@ private struct SettingsCardAppearanceModeRow: View {
       }
       .pickerStyle(.segmented)
       .labelsHidden()
-      .tint(model.appearanceAccentColor)
+      .tint(themeAccent)
+      .id(themeRevision)
     }
+    .padding(.vertical, 6)
     .settingsCardRowFrame()
   }
 }
 
 private struct SettingsCardColorPickerRow: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
   let icon: String
   let title: String
-  @Binding var color: Color
 
   var body: some View {
     HStack(spacing: 12) {
@@ -194,9 +205,18 @@ private struct SettingsCardColorPickerRow: View {
         .font(.body)
         .foregroundStyle(model.appearancePalette.textPrimary)
       Spacer(minLength: 8)
-      ColorPicker("", selection: $color, supportsOpacity: false)
-        .labelsHidden()
-        .tint(model.appearanceAccentColor)
+      // Kein `.id(themeRevision)` — sonst wird der Picker nach jeder Wahl neu
+      // aufgebaut und akzeptiert keine weiteren Auswahlen.
+      ColorPicker(
+        "",
+        selection: Binding(
+          get: { model.appearanceAccentColor },
+          set: { model.setAppearanceAccentColor($0) }
+        ),
+        supportsOpacity: false
+      )
+      .labelsHidden()
+      .tint(themeAccent)
     }
     .settingsCardRowFrame()
   }
@@ -543,6 +563,8 @@ struct SettingsHubRootView: View {
       refreshCoverCacheByteCount()
     }
     .tint(model.appearanceAccentColor)
+    .themeAccentFromAppModel(model)
+    .abstandThemeRefresh()
   }
 
   private func clampHubSectionIfNeeded() {
@@ -942,49 +964,56 @@ struct SettingsAppearanceView: View {
   @EnvironmentObject private var model: AppModel
 
   var body: some View {
-    ServerAdminSection(title: "Theme") {
-      ServerAdminCard {
-        VStack(alignment: .leading, spacing: 0) {
-          SettingsCardAppearanceModeRow(selection: $model.appearanceMode)
-          SettingsCardDivider()
-          SettingsCardColorPickerRow(
-            icon: "paintpalette.fill",
-            title: "Accent color",
-            color: $model.appearanceAccentColor
-          )
-          SettingsCardDivider()
-          Button {
-            model.resetAppearanceAccentToDefault()
-          } label: {
-            HStack(spacing: 12) {
-              SettingsCardIcon(systemName: "arrow.counterclockwise")
-              Text("Reset to default")
-                .font(.body.weight(.medium))
-                .foregroundStyle(model.appearancePalette.textPrimary)
-              Spacer(minLength: 0)
-            }
-            .settingsCardRowFrame()
+    let _ = model.appearanceThemeRevision
+    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      ServerAdminSection(title: "Theme") {
+        LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
+          ServerAdminCard {
+            SettingsCardAppearanceModeRow(selection: $model.appearanceMode)
           }
-          .buttonStyle(.plain)
-          .disabled(model.appearanceAccentMatchesDefault)
-          .opacity(model.appearanceAccentMatchesDefault ? 0.45 : 1)
+          ServerAdminCard {
+            SettingsCardColorPickerRow(
+              icon: "paintpalette.fill",
+              title: "Accent color"
+            )
+          }
+          ServerAdminCard {
+            Button {
+              model.resetAppearanceAccentToDefault()
+            } label: {
+              HStack(spacing: 12) {
+                SettingsCardIcon(systemName: "arrow.counterclockwise")
+                Text("Reset to default")
+                  .font(.body.weight(.medium))
+                  .foregroundStyle(model.appearancePalette.textPrimary)
+                Spacer(minLength: 0)
+              }
+              .settingsCardRowFrame()
+            }
+            .buttonStyle(.plain)
+            .disabled(model.appearanceAccentMatchesDefault)
+            .opacity(model.appearanceAccentMatchesDefault ? 0.45 : 1)
+          }
         }
       }
-    }
-    ServerAdminSection(title: "Views") {
-      NavigationLink {
-        SettingsAppearanceHomeView()
-      } label: {
-        ServerAdminCard {
-          ServerAdminNavRow(
-            icon: "house.fill",
-            title: "Home",
-            subtitle: "Shelf layout & sections"
-          )
+      ServerAdminSection(title: "Views") {
+        NavigationLink {
+          SettingsAppearanceHomeView()
+        } label: {
+          ServerAdminCard {
+            ServerAdminNavRow(
+              icon: "house.fill",
+              title: "Home",
+              subtitle: "Shelf layout & sections"
+            )
+          }
         }
+        .buttonStyle(.plain)
       }
-      .buttonStyle(.plain)
     }
+    .tint(model.appearanceAccentColor)
+    .themeAccentFromAppModel(model)
+    .abstandThemeRefresh()
   }
 }
 
@@ -1017,6 +1046,8 @@ struct SettingsAppearanceHomeView: View {
       }
     }
     .navigationTitle("Home")
+    .themeAccentFromAppModel(model)
+    .abstandThemeRefresh()
     .toolbarTitleDisplayMode(.inlineLarge)
     .tint(model.appearanceAccentColor)
   }

@@ -455,9 +455,6 @@ private struct FullPlayerUtilityBar: View, Equatable {
   let downloadProgressBucket: Int
   let bookmarkMenuItems: [PlayerBookmarkMenuItem]
   let isLoggedIn: Bool
-  let isLiveTranscriptionEnabled: Bool
-  let isLiveTranscriptionBusy: Bool
-  let onToggleLiveTranscription: () -> Void
 
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.playbackRate == rhs.playbackRate
@@ -468,8 +465,6 @@ private struct FullPlayerUtilityBar: View, Equatable {
       && lhs.downloadProgressBucket == rhs.downloadProgressBucket
       && lhs.bookmarkMenuItems == rhs.bookmarkMenuItems
       && lhs.isLoggedIn == rhs.isLoggedIn
-      && lhs.isLiveTranscriptionEnabled == rhs.isLiveTranscriptionEnabled
-      && lhs.isLiveTranscriptionBusy == rhs.isLiveTranscriptionBusy
   }
 
   var body: some View {
@@ -518,40 +513,6 @@ private struct FullPlayerUtilityBar: View, Equatable {
       PlayerBookmarkUtilityControl(
         activeAudiobookId: activeAudiobookId,
         menuItems: bookmarkMenuItems
-      )
-
-      Button(action: onToggleLiveTranscription) {
-        VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
-          Group {
-            if isLiveTranscriptionBusy {
-              ProgressView()
-                .controlSize(.small)
-            } else {
-              Image(systemName: isLiveTranscriptionEnabled ? "text.word.spacing" : "text.word.spacing")
-                .font(.title3)
-                .symbolVariant(isLiveTranscriptionEnabled ? .fill : .none)
-            }
-          }
-          .foregroundStyle(isLiveTranscriptionEnabled ? themeAccent : AppTheme.textPrimary)
-          .frame(
-            maxWidth: .infinity,
-            minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
-            maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
-            alignment: .center
-          )
-          Text("Read along", comment: "Player live transcript toggle")
-            .font(.caption2)
-            .foregroundStyle(AppTheme.textSecondary)
-        }
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .disabled(isLiveTranscriptionBusy)
-      .accessibilityLabel(
-        isLiveTranscriptionEnabled
-          ? String(localized: "Stop read-along transcript", comment: "Accessibility")
-          : String(localized: "Start read-along transcript", comment: "Accessibility")
       )
 
       VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
@@ -660,6 +621,8 @@ struct NowPlayingDetailView: View {
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
+  @State private var readAlongDownloadWarningPresented = false
+
   private var showIdlePlaceholder: Bool {
     player.showMiniPlayerPlaceholder && player.activeBook == nil && !model.isPlayerConnectionLoading
   }
@@ -685,10 +648,25 @@ struct NowPlayingDetailView: View {
       .safeAreaPadding(.top, MiniPlayerMetrics.fullPlayerCoverInset)
     }
     .preferredColorScheme(model.resolvedInterfaceColorScheme)
+    .task {
+      await player.liveTranscription.refreshReadAlongAvailability()
+    }
     .onDisappear {
       if player.liveTranscription.isEnabled {
         player.liveTranscription.disable()
       }
+    }
+    .alert(
+      String(localized: "Download required", comment: "Read along alert title"),
+      isPresented: $readAlongDownloadWarningPresented
+    ) {
+      Button(String(localized: "OK", comment: "Dismiss"), role: .cancel) {}
+    } message: {
+      Text(
+        String(
+          localized: "Read along only works when the audiobook is fully downloaded.",
+          comment: "Read along download required alert")
+      )
     }
   }
 
@@ -811,10 +789,39 @@ struct NowPlayingDetailView: View {
 
   @ViewBuilder
   private func playerHeaderArea(book: ABSBook) -> some View {
-    if player.liveTranscription.isEnabled {
-      readAlongKaraokeCard(book: book)
-    } else {
-      fullPlayerArtwork(book: book)
+    Group {
+      if player.liveTranscription.isEnabled {
+        readAlongKaraokeCard(book: book)
+      } else {
+        fullPlayerArtwork(book: book)
+      }
+    }
+    .overlay(alignment: .bottomTrailing) {
+      if player.liveTranscription.isReadAlongAvailable {
+        readAlongCoverPill
+          .padding(12)
+      }
+    }
+  }
+
+  private var readAlongCoverPill: some View {
+    let tx = player.liveTranscription
+    let isDownloadReady = player.isReadAlongDownloadReady
+    return ReadAlongCoverPill(
+      isEnabled: tx.isEnabled,
+      isBusy: tx.isPreparing || tx.modelDownloadProgress != nil,
+      isDownloadReady: isDownloadReady
+    ) {
+      guard isDownloadReady else {
+        readAlongDownloadWarningPresented = true
+        return
+      }
+      Task { @MainActor in
+        await tx.toggle(player: player)
+        if let err = tx.errorMessage {
+          model.errorMessage = err
+        }
+      }
     }
   }
 
@@ -973,10 +980,12 @@ struct NowPlayingDetailView: View {
           if isBusy {
             ProgressView()
               .controlSize(.large)
-          } else {
-            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-              .font(.system(size: 40))
-              .symbolVariant(.fill)
+              .tint(model.appearancePalette.foregroundOnAccent(themeAccent))
+            } else {
+              Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 40))
+                .symbolVariant(.fill)
+                .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
           }
         }
         .frame(width: 64, height: 64)
@@ -1042,7 +1051,6 @@ struct NowPlayingDetailView: View {
       let ep = player.activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       return ep.isEmpty ? id : nil
     }()
-    let tx = player.liveTranscription
     return FullPlayerUtilityBar(
       playbackRate: player.playbackRate,
       activeAudiobookId: audiobookId,
@@ -1053,17 +1061,7 @@ struct NowPlayingDetailView: View {
       bookmarkMenuItems: audiobookId.map { id in
         model.bookmarks(for: id).map(PlayerBookmarkMenuItem.init)
       } ?? [],
-      isLoggedIn: model.isLoggedIn,
-      isLiveTranscriptionEnabled: tx.isEnabled,
-      isLiveTranscriptionBusy: tx.isPreparing || tx.modelDownloadProgress != nil,
-      onToggleLiveTranscription: {
-        Task { @MainActor in
-          await tx.toggle(player: player)
-          if let err = tx.errorMessage {
-            model.errorMessage = err
-          }
-        }
-      }
+      isLoggedIn: model.isLoggedIn
     )
   }
 
@@ -1153,7 +1151,7 @@ struct TabAccessoryMiniPlayerSnapshot: Equatable {
     isPlaying: false,
     isBuffering: false,
     canTogglePlayback: false,
-    skipBackwardSeconds: PlaybackController.defaultSkipBackwardSeconds
+    skipBackwardSeconds: ABSPlaybackSkipDefaults.backwardSeconds
   )
 
   @MainActor
@@ -1429,12 +1427,12 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
           if busy {
             ProgressView()
               .progressViewStyle(.circular)
-              .tint(.white)
+              .tint(AppTheme.foregroundOnAccent(themeAccent))
               .scaleEffect(0.72)
           } else {
             Image(systemName: snapshot.isPlaying ? "pause.fill" : "play.fill")
               .font(.system(size: 14, weight: .semibold))
-              .foregroundStyle(.white)
+              .foregroundStyle(AppTheme.foregroundOnAccent(themeAccent))
           }
         }
         .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
@@ -1657,6 +1655,7 @@ struct OfflineHomeMiniPlayerCard: View {
     let playDiameter = MiniPlayerMetrics.miniPlayerPlayOrb
     let sideSlot = MiniPlayerMetrics.controlMinHeight
     let rowHeight = max(playDiameter, sideSlot)
+    let onAccent = model.appearancePalette.foregroundOnAccent(themeAccent)
     return HStack(alignment: .center, spacing: 0) {
       offlineTransportChapterSlot(
         isLeading: true,
@@ -1685,12 +1684,12 @@ struct OfflineHomeMiniPlayerCard: View {
           if isBusy {
             ProgressView()
               .progressViewStyle(.circular)
-              .tint(.black.opacity(0.85))
+              .tint(onAccent)
               .scaleEffect(0.85)
           } else {
             Image(systemName: snapshot.isPlaying ? "pause.fill" : "play.fill")
               .font(.system(size: 18, weight: .semibold))
-              .foregroundStyle(Color.black.opacity(0.88))
+              .foregroundStyle(onAccent)
           }
         }
       }
@@ -2015,6 +2014,57 @@ struct OfflineHomeMiniPlayerCard: View {
         .frame(minWidth: 52, minHeight: 1)
         .accessibilityHidden(true)
     }
+  }
+}
+
+// MARK: - Read-along Cover-Pille
+
+private struct ReadAlongCoverPill: View {
+  @Environment(\.themeAccent) private var themeAccent
+
+  let isEnabled: Bool
+  let isBusy: Bool
+  let isDownloadReady: Bool
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Group {
+        if isBusy {
+          ProgressView()
+            .controlSize(.small)
+        } else {
+          Image(systemName: "text.word.spacing")
+            .font(.body.weight(.semibold))
+            .symbolVariant(isEnabled ? .fill : .none)
+        }
+      }
+      .foregroundStyle(isEnabled ? themeAccent : AppTheme.textPrimary)
+      .frame(width: 36, height: 36)
+      .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+      .overlay {
+        Capsule(style: .continuous)
+          .strokeBorder(
+            isEnabled ? themeAccent.opacity(0.55) : AppTheme.textSecondary.opacity(0.35),
+            lineWidth: 0.5
+          )
+      }
+    }
+    .opacity(isDownloadReady ? 1 : 0.45)
+    .buttonStyle(.plain)
+    .disabled(isBusy)
+    .accessibilityLabel(
+      isEnabled
+        ? String(localized: "Stop read-along transcript", comment: "Accessibility")
+        : String(localized: "Start read-along transcript", comment: "Accessibility")
+    )
+    .accessibilityHint(
+      isDownloadReady
+        ? ""
+        : String(
+          localized: "Requires a full download of this audiobook.",
+          comment: "Read along accessibility hint")
+    )
   }
 }
 

@@ -111,7 +111,8 @@ struct PlayerLiveTranscriptPanelView: View {
   /// Volle Kartenhöhe/-breite (Cover 1:1); sonst Standardmaße.
   var viewportSize: CGSize?
 
-  @State private var displayTime: Double = 0
+  @State private var playbackClock = ReadAlongPlaybackClock()
+  @State private var lookupSelection: PlayerTranscriptWordLookupSelection?
 
   private var teleprompterLayout: PlayerTeleprompterLayout {
     if let viewportSize, viewportSize.height > 0 {
@@ -132,12 +133,12 @@ struct PlayerLiveTranscriptPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
       } else {
-        ZStack {
-          ReadAlongSmoothTimeDriver(
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { timeline in
+          let displayTime = playbackClock.displayedTime(
+            at: timeline.date,
             target: globalPlaybackTime,
             isPlaying: isPlaying,
-            playbackRate: playbackRate,
-            displayTime: $displayTime
+            playbackRate: playbackRate
           )
           VStack(spacing: 0) {
             Spacer(minLength: 0)
@@ -146,8 +147,8 @@ struct PlayerLiveTranscriptPanelView: View {
               .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
           }
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
         .background {
           GeometryReader { geo in
@@ -172,16 +173,19 @@ struct PlayerLiveTranscriptPanelView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .onAppear {
-      displayTime = globalPlaybackTime
+      playbackClock.hardReset(to: globalPlaybackTime)
       if let viewportSize { syncContentWidth(viewportSize.width) }
     }
     .onChange(of: viewportSize) { _, size in
       if let size { syncContentWidth(size.width) }
     }
-    .onChange(of: globalPlaybackTime) { _, target in
-      if abs(displayTime - target) > 2 {
-        displayTime = target
-      }
+    .sheet(item: $lookupSelection) { selection in
+      PlayerTranscriptWordLookupSheet(
+        selection: selection,
+        sourceLocale: transcription.transcriptionLocale
+      )
+      .presentationDetents([.medium, .large])
+      .presentationDragIndicator(.visible)
     }
   }
 
@@ -192,8 +196,9 @@ struct PlayerLiveTranscriptPanelView: View {
 
   private func teleprompterStack(at time: Double) -> some View {
     let lines = transcription.transcriptLines
-    let centerIdx = transcription.activeLineIndex(at: time)
-    let progress = transcription.lineProgress(at: time)
+    let fractionalLine = transcription.fractionalActiveLinePosition(at: time)
+    let centerIdx = Int(floor(fractionalLine))
+    let progress = fractionalLine - floor(fractionalLine)
     let layout = teleprompterLayout
     let intraLineOffset = -CGFloat(progress) * layout.rowStride
     let activeWord = transcription.activeWord(at: time)
@@ -211,7 +216,9 @@ struct PlayerLiveTranscriptPanelView: View {
               lineIndex: lineIndex,
               activeLineIndex: activeLineIndex,
               activeWord: activeWord,
-              layout: layout
+              layout: layout,
+              lookupSelection: lookupSelection,
+              onWordTap: selectWordForLookup
             )
           } else {
             Text(" ")
@@ -224,6 +231,7 @@ struct PlayerLiveTranscriptPanelView: View {
       }
     }
     .offset(y: intraLineOffset)
+    .compositingGroup()
   }
 
   private func activeTranscriptLineIndex(
@@ -239,33 +247,67 @@ struct PlayerLiveTranscriptPanelView: View {
     return idx
   }
 
+  private func selectWordForLookup(_ word: PlayerTranscriptWord) {
+    guard !word.isWhitespaceOnly else { return }
+    let term = PlayerTranscriptWordLookup.normalizedTerm(from: word.text)
+    guard !term.isEmpty else { return }
+    lookupSelection = PlayerTranscriptWordLookupSelection(word: word, term: term)
+  }
+
   @ViewBuilder
   private func lineText(
     _ line: PlayerTranscriptLine,
     lineIndex: Int,
     activeLineIndex: Int,
     activeWord: PlayerTranscriptWord?,
-    layout: PlayerTeleprompterLayout
+    layout: PlayerTeleprompterLayout,
+    lookupSelection: PlayerTranscriptWordLookupSelection?,
+    onWordTap: @escaping (PlayerTranscriptWord) -> Void
   ) -> some View {
     let isOnActiveLine = lineIndex == activeLineIndex
-    line.words.reduce(Text(verbatim: "")) { partial, word in
-      let isActive = activeWord?.id == word.id
-      return partial + Text(word.text)
-        .font(layout.transcriptFont)
-        .foregroundStyle(
-          wordColor(
-            isOnActiveLine: isOnActiveLine,
-            isActive: isActive,
-            isVolatile: word.isVolatile
+    HStack(spacing: 0) {
+      ForEach(line.words) { word in
+        let isActive = activeWord?.id == word.id
+        let isSelected = lookupSelection?.word.id == word.id
+        if word.isWhitespaceOnly {
+          Text(word.text)
+            .font(layout.transcriptFont)
+            .foregroundStyle(.clear)
+        } else {
+          Button {
+            onWordTap(word)
+          } label: {
+            Text(word.text)
+              .font(layout.transcriptFont)
+              .foregroundStyle(
+                wordColor(
+                  isOnActiveLine: isOnActiveLine,
+                  isActive: isActive,
+                  isSelected: isSelected,
+                  isVolatile: word.isVolatile
+                )
+              )
+              .underline(isSelected, color: AppTheme.accent)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel(word.text)
+          .accessibilityHint(
+            String(localized: "Look up or translate this word", comment: "Teleprompter word tap")
           )
-        )
+        }
+      }
     }
-    .multilineTextAlignment(.leading)
     .frame(maxWidth: .infinity, alignment: .leading)
     .lineLimit(1)
   }
 
-  private func wordColor(isOnActiveLine: Bool, isActive: Bool, isVolatile: Bool) -> Color {
+  private func wordColor(
+    isOnActiveLine: Bool,
+    isActive: Bool,
+    isSelected: Bool,
+    isVolatile: Bool
+  ) -> Color {
+    if isSelected { return AppTheme.accent }
     if isActive { return AppTheme.accent }
     if isVolatile { return AppTheme.textPrimary.opacity(0.4) }
     let opacity = isOnActiveLine
@@ -287,39 +329,62 @@ struct PlayerLiveTranscriptPanelView: View {
 
 // MARK: - Smooth time (60 fps)
 
-/// Gleitet die Anzeigezeit zum Player-Tick und extrapoliert zwischen Updates.
-private struct ReadAlongSmoothTimeDriver: View {
-  let target: Double
-  let isPlaying: Bool
-  let playbackRate: Double
-  @Binding var displayTime: Double
+/// Extrapoliert zwischen Player-Ticks (≈0,35 s) mit konstanter Rate — ohne pro-Frame `.task`.
+private final class ReadAlongPlaybackClock {
+  private var anchorTime: Double = 0
+  private var anchorInstant: TimeInterval = 0
+  private var lastTarget: Double = -1
+  private var hasAnchor = false
 
-  @State private var lastFrameDate: Date?
-
-  var body: some View {
-    TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { timeline in
-      Color.clear
-        .frame(width: 0, height: 0)
-        .task(id: timeline.date.timeIntervalSinceReferenceDate) {
-          advance(displayDate: timeline.date)
-        }
-    }
+  func hardReset(to target: Double) {
+    anchorTime = target
+    anchorInstant = Date().timeIntervalSinceReferenceDate
+    lastTarget = target
+    hasAnchor = true
   }
 
-  private func advance(displayDate: Date) {
-    let dt: Double
-    if let last = lastFrameDate {
-      dt = min(0.05, max(0, displayDate.timeIntervalSince(last)))
-    } else {
-      dt = 1.0 / 60.0
-    }
-    lastFrameDate = displayDate
+  func displayedTime(
+    at instant: Date,
+    target: Double,
+    isPlaying: Bool,
+    playbackRate: Double
+  ) -> Double {
+    let now = instant.timeIntervalSinceReferenceDate
+    let rate = max(0.25, min(3, playbackRate))
 
-    var t = displayTime
-    if isPlaying, dt > 0 {
-      t += dt * playbackRate
+    if !hasAnchor || abs(target - lastTarget) > 2 {
+      anchorTime = target
+      anchorInstant = now
+      lastTarget = target
+      hasAnchor = true
+      return target
     }
-    let blend = min(1, dt * 18)
-    displayTime = t + (target - t) * blend
+
+    if !isPlaying {
+      anchorTime = target
+      anchorInstant = now
+      lastTarget = target
+      return target
+    }
+
+    if target != lastTarget {
+      let extrapolated = anchorTime + (now - anchorInstant) * rate
+      anchorTime = extrapolated
+      anchorInstant = now
+      lastTarget = target
+    }
+
+    let extrapolated = anchorTime + (now - anchorInstant) * rate
+    let drift = target - extrapolated
+    if abs(drift) > 0.4 {
+      anchorTime = target
+      anchorInstant = now
+      return target
+    }
+    if abs(drift) > 0.04 {
+      anchorTime += drift * 0.18
+      anchorInstant = now
+    }
+    return anchorTime + (now - anchorInstant) * rate
   }
 }

@@ -15,6 +15,13 @@ enum ABSPlaybackError: LocalizedError {
   }
 }
 
+/// Skip-Intervalle — außerhalb von `@MainActor PlaybackController` referenzierbar (z. B. Snapshots).
+enum ABSPlaybackSkipDefaults {
+  static let intervalOptions: [Int] = [5, 10, 15, 30, 45, 60]
+  static let backwardSeconds = 15
+  static let forwardSeconds = 30
+}
+
 /// Aktive Sleep-Timer-Konfiguration (für Popover-Anzeige).
 enum SleepTimerMode: Equatable {
   case off
@@ -58,9 +65,9 @@ final class PlaybackController: NSObject, ObservableObject {
 
   /// Skip-Intervalle für Zurück/Vor (Player, Mini-Player, Sperrbildschirm).
   /// Nur Werte mit SF-Symbolen (`gobackward.N` / `goforward.N`).
-  static let skipIntervalOptions: [Int] = [5, 10, 15, 30, 45, 60]
-  static let defaultSkipBackwardSeconds = 15
-  static let defaultSkipForwardSeconds = 30
+  static let skipIntervalOptions = ABSPlaybackSkipDefaults.intervalOptions
+  static let defaultSkipBackwardSeconds = ABSPlaybackSkipDefaults.backwardSeconds
+  static let defaultSkipForwardSeconds = ABSPlaybackSkipDefaults.forwardSeconds
   private static let skipBackwardDefaultsKey = "abstand_skip_backward_seconds"
   private static let skipForwardDefaultsKey = "abstand_skip_forward_seconds"
 
@@ -94,6 +101,8 @@ final class PlaybackController: NSObject, ObservableObject {
 
   private var player: AVPlayer?
   private var timeObserver: Any?
+  /// Read-Along: häufigere Position-Updates für flüssigeres Teleprompter-Scrollen.
+  private var readAlongHighFrequencyTicks = false
   private var endObserver: NSObjectProtocol?
   private var statusObserver: NSKeyValueObservation?
   /// `timeControlStatus`: System/andere App kann pausieren ohne unsere `pause()` — UI angleichen.
@@ -139,6 +148,9 @@ final class PlaybackController: NSObject, ObservableObject {
     return Self.allTracksPresent(root: root, book: book)
   }
 
+  /// Read-along nur bei vollständig heruntergeladenem Titel mit lokalen Audio-Dateien.
+  var isReadAlongDownloadReady: Bool { isUsingLocalTrackFiles }
+
   var canBuildTranscriptionStreamContext: Bool {
     apiClient != nil && playSessionId != nil
   }
@@ -149,6 +161,8 @@ final class PlaybackController: NSObject, ObservableObject {
   var onPlaybackTick: (() -> Void)?
   /// Letzter Track eines Hörbuchs zu Ende (keine Podcast-Folge).
   var onAudiobookPlaybackCompleted: (() -> Void)?
+  /// Letzter Track einer Podcast-Folge zu Ende.
+  var onPodcastEpisodePlaybackCompleted: (() -> Void)?
   /// Lokale Download-Wiedergabe ohne aktive Play-Session: PATCH / Offline-Hörzeit (vgl. Absorb).
   var onLocalPlaybackWithoutSessionSync: ((Int, Double, Double) async -> Void)?
 
@@ -210,6 +224,10 @@ final class PlaybackController: NSObject, ObservableObject {
         self?.objectWillChange.send()
       }
       .store(in: &cancellables)
+
+    Task { @MainActor in
+      await liveTranscription.refreshReadAlongAvailability()
+    }
 
     $sleepEndDate
       .sink { [weak self] end in
@@ -588,7 +606,9 @@ final class PlaybackController: NSObject, ObservableObject {
     localDownloadRoot: URL?,
     episodeId: String? = nil,
     autoPlay: Bool = true,
-    attemptServerPlaySession: Bool = true
+    attemptServerPlaySession: Bool = true,
+    /// Bei Neustart nach „Fertig“: Client-Position statt Server-Ende (`max(session, resume)`).
+    preferClientResumePosition: Bool = false
   ) async throws {
     tearDownPlayer()
     ensureAudioSessionForPlayback()
@@ -601,16 +621,30 @@ final class PlaybackController: NSObject, ObservableObject {
     localRoot = localDownloadRoot
     attemptServerPlaySessionForLocal = attemptServerPlaySession
 
-    if let root = localDownloadRoot, Self.allTracksPresent(root: root, book: book) {
-      try await startLocalPlayback(
-        client: client, book: book, root: root, resumeAt: resumeHint)
-    } else {
-      try await startRemotePlayback(
-        client: client, book: book, resumeAt: resumeHint, episodeId: resolvedEpisodeId)
+    do {
+      if let root = localDownloadRoot, Self.allTracksPresent(root: root, book: book) {
+        try await startLocalPlayback(
+          client: client,
+          book: book,
+          root: root,
+          resumeAt: resumeHint,
+          preferClientResumePosition: preferClientResumePosition
+        )
+      } else {
+        try await startRemotePlayback(
+          client: client,
+          book: book,
+          resumeAt: resumeHint,
+          episodeId: resolvedEpisodeId,
+          preferClientResumePosition: preferClientResumePosition
+        )
+      }
+      scheduleCoverLoad(for: book.id)
+      startPeriodicSync()
+    } catch {
+      tearDownPlayer()
+      throw error
     }
-
-    scheduleCoverLoad(for: book.id)
-    startPeriodicSync()
   }
 
   static func stableDeviceId() -> String {
@@ -733,7 +767,8 @@ final class PlaybackController: NSObject, ObservableObject {
     client: ABSAPIClient,
     book: ABSBook,
     root: URL,
-    resumeAt resumeHint: Double
+    resumeAt resumeHint: Double,
+    preferClientResumePosition: Bool = false
   ) async throws {
     playSessionId = nil
     var resumeAt = resumeHint
@@ -755,7 +790,10 @@ final class PlaybackController: NSObject, ObservableObject {
           libraryItemFallback: session.libraryItem,
           manifestChapters: manifestChapters
         )
-        let serverResume = max(session.currentTime, resumeAt)
+        let serverResume =
+          preferClientResumePosition
+          ? resumeAt
+          : max(session.currentTime, resumeAt)
         let cap = session.duration > 0 ? session.duration : serverResume
         resumeAt = min(serverResume, cap)
       }
@@ -833,7 +871,8 @@ final class PlaybackController: NSObject, ObservableObject {
     client: ABSAPIClient,
     book: ABSBook,
     resumeAt: Double,
-    episodeId: String?
+    episodeId: String?,
+    preferClientResumePosition: Bool = false
   ) async throws {
     let session = try await client.startPlaySession(
       itemId: book.id,
@@ -855,7 +894,10 @@ final class PlaybackController: NSObject, ObservableObject {
       libraryItemFallback: session.libraryItem
     )
 
-    let serverResume = max(session.currentTime, resumeAt)
+    let serverResume =
+      preferClientResumePosition
+      ? resumeAt
+      : max(session.currentTime, resumeAt)
     let safeResume = min(serverResume, session.duration > 0 ? session.duration : serverResume)
     totalDuration =
       session.duration > 0
@@ -896,16 +938,35 @@ final class PlaybackController: NSObject, ObservableObject {
     }
   }
 
-  private func installObservers() {
+  /// Zeit-Observer-Intervall für Read-Along (0,08 s) vs. normal (0,35 s).
+  func setReadAlongHighFrequencyTicks(_ active: Bool) {
+    guard readAlongHighFrequencyTicks != active else { return }
+    readAlongHighFrequencyTicks = active
+    guard player != nil else { return }
+    installPeriodicTimeObserver()
+  }
+
+  private func installPeriodicTimeObserver() {
+    if let timeObserver, let p = player {
+      p.removeTimeObserver(timeObserver)
+    }
+    timeObserver = nil
     guard let p = player else { return }
-    let interval = CMTime(seconds: 0.35, preferredTimescale: 600)
+    let seconds = readAlongHighFrequencyTicks ? 0.08 : 0.35
+    let interval = CMTime(seconds: seconds, preferredTimescale: 600)
     timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
       guard let self else { return }
       MainActor.assumeIsolated {
         self.tick()
       }
     }
+  }
 
+  private func installObservers() {
+    guard player != nil else { return }
+    installPeriodicTimeObserver()
+
+    guard let p = player else { return }
     endObserver = NotificationCenter.default.addObserver(
       forName: .AVPlayerItemDidPlayToEndTime,
       object: p.currentItem,
@@ -1002,6 +1063,8 @@ final class PlaybackController: NSObject, ObservableObject {
       pause()
       if activePlaybackEpisodeId == nil {
         onAudiobookPlaybackCompleted?()
+      } else {
+        onPodcastEpisodePlaybackCompleted?()
       }
       return
     }
@@ -1599,7 +1662,7 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   func makeTranscriptionAudioContext() async -> PlayerTranscriptionAudioContext? {
-    guard let book = activeBook, !tracks.isEmpty, currentTrackIndex < trackStarts.count else { return nil }
+    guard activeBook != nil, !tracks.isEmpty, currentTrackIndex < trackStarts.count else { return nil }
     let offset = trackStarts[currentTrackIndex]
     let trackIdx = tracks[currentTrackIndex].index
     let placeholderLocale = Locale.current

@@ -7,6 +7,7 @@ import UIKit
 
 enum PlayerLiveTranscriptionError: LocalizedError {
   case noActivePlayback
+  case speechRecognitionDenied
   case localeNotSupported
   case modelDownloadFailed
   case conversionFailed
@@ -17,6 +18,11 @@ enum PlayerLiveTranscriptionError: LocalizedError {
     switch self {
     case .noActivePlayback:
       return String(localized: "Nothing is playing.", comment: "Live transcript error")
+    case .speechRecognitionDenied:
+      return String(
+        localized:
+          "Speech recognition is not allowed. You can enable it in Settings → Privacy & Security → Speech Recognition.",
+        comment: "Live transcript error")
     case .localeNotSupported:
       return String(
         localized:
@@ -75,6 +81,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   @Published private(set) var modelDownloadProgress: Double?
   /// Hinweis, wenn eine andere Sprache als in den Buch-Metadaten genutzt wird.
   @Published private(set) var localeFallbackNotice: String?
+  /// `false` auf Geräten ohne `SpeechTranscriber` (z. B. iPhone 11).
+  @Published private(set) var isReadAlongAvailable = SpeechTranscriber.isAvailable
+
+  /// Sprache der laufenden Transkription (für Wort-Übersetzung).
+  var transcriptionLocale: Locale? { activeContext?.locale }
 
   private var finalizedWords: [PlayerTranscriptWord] = []
   private let lineAccumulator = PlayerTranscriptLineAccumulator()
@@ -94,7 +105,12 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   private weak var boundPlayer: PlaybackController?
   private var lastFeedTrackKey: String?
 
+  func refreshReadAlongAvailability() async {
+    isReadAlongAvailable = await SpeechTranscriberAvailability.isSupported()
+  }
+
   func toggle(player: PlaybackController) async {
+    guard isReadAlongAvailable, player.isReadAlongDownloadReady else { return }
     if isEnabled {
       disable()
       return
@@ -103,6 +119,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   }
 
   func enable(player: PlaybackController) async {
+    guard isReadAlongAvailable, player.isReadAlongDownloadReady else { return }
     errorMessage = nil
     guard player.activeBook != nil else {
       errorMessage = PlayerLiveTranscriptionError.noActivePlayback.localizedDescription
@@ -151,11 +168,34 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     guard isEnabled != enabled else { return }
     isEnabled = enabled
     UIApplication.shared.isIdleTimerDisabled = enabled
+    boundPlayer?.setReadAlongHighFrequencyTicks(enabled)
+  }
+
+  // MARK: - Berechtigung
+
+  /// `SpeechAnalyzer` nutzt dieselbe Nutzerfreigabe wie `SFSpeechRecognizer`.
+  private func ensureSpeechRecognitionAuthorized() async throws {
+    switch SFSpeechRecognizer.authorizationStatus() {
+    case .authorized:
+      return
+    case .notDetermined:
+      let status = await withCheckedContinuation { continuation in
+        SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
+      }
+      guard status == .authorized else {
+        throw PlayerLiveTranscriptionError.speechRecognitionDenied
+      }
+    case .denied, .restricted:
+      throw PlayerLiveTranscriptionError.speechRecognitionDenied
+    @unknown default:
+      throw PlayerLiveTranscriptionError.speechRecognitionDenied
+    }
   }
 
   // MARK: - Session
 
   private func startSession(player: PlaybackController) async throws {
+    try await ensureSpeechRecognitionAuthorized()
     stopSession()
     resetTranscriptContent()
     boundPlayer = player
@@ -515,6 +555,38 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     let lines = transcriptLines
     let idx = activeLineIndex(in: lines, at: globalTime)
     return lineProgress(in: lines, lineIndex: idx, at: globalTime)
+  }
+
+  /// Fortlaufende Zeilenposition (Ganzzahl = Zeilenanfang, Nachkomma = Fortschritt in der Zeile).
+  func fractionalActiveLinePosition(at globalTime: Double) -> Double {
+    fractionalActiveLinePosition(in: transcriptLines, at: globalTime)
+  }
+
+  private func fractionalActiveLinePosition(
+    in lines: [PlayerTranscriptLine],
+    at globalTime: Double
+  ) -> Double {
+    guard !lines.isEmpty else { return 0 }
+    if globalTime <= lines[0].globalStart { return 0 }
+
+    let lastIdx = lines.count - 1
+    if globalTime >= lines[lastIdx].globalEnd {
+      return Double(lastIdx) + 1
+    }
+
+    for i in lines.indices {
+      let line = lines[i]
+      if globalTime < line.globalStart {
+        return Double(i)
+      }
+      if globalTime < line.globalEnd {
+        let span = line.globalEnd - line.globalStart
+        let progress = span > 0 ? (globalTime - line.globalStart) / span : 0
+        return Double(i) + progress
+      }
+    }
+
+    return Double(lastIdx) + 1
   }
 
   private func activeLineIndex(in lines: [PlayerTranscriptLine], at globalTime: Double) -> Int {

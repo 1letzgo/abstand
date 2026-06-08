@@ -35,14 +35,21 @@ enum ListeningAchievementTier: Int, Comparable, CaseIterable {
     }
   }
 
-  var tintColor: Color {
+  /// Icon-/Badge-Farbe abgestuft aus der Appearance-Akzentfarbe.
+  func adaptiveTint(accent: Color, palette: AppColorPalette) -> Color {
     switch self {
-    case .locked: return AppTheme.textSecondary.opacity(0.45)
-    case .level1: return AppTheme.achievementLevel1
-    case .level2: return AppTheme.achievementLevel2
-    case .level3: return AppTheme.achievementLevel3
-    case .level4: return AppTheme.achievementLevel4
-    case .level5: return AppTheme.achievementLevel4
+    case .locked:
+      return palette.textSecondary.opacity(0.45)
+    case .level1:
+      return accent.opacity(palette.isDarkLike ? 0.48 : 0.38)
+    case .level2:
+      return accent.opacity(palette.isDarkLike ? 0.60 : 0.52)
+    case .level3:
+      return accent.opacity(palette.isDarkLike ? 0.74 : 0.68)
+    case .level4:
+      return accent.opacity(palette.isDarkLike ? 0.88 : 0.84)
+    case .level5:
+      return accent
     }
   }
 }
@@ -264,6 +271,8 @@ struct ListeningAchievementsSnapshot: Codable, Equatable {
 
 struct ListeningAchievementCard: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   let achievement: ListeningAchievementState
   /// Zwei Karten pro Zeile (Stats Level).
   var compact: Bool = false
@@ -300,18 +309,12 @@ struct ListeningAchievementCard: View {
     achievement.tier == .level5 ? 1 : achievement.progressToNext
   }
 
-  /// Level 5: Dark = Mint; Sepia-Light = App-Akzent (`nil` → `themeAccent`).
-  private var progressBarFillColor: Color? {
-    guard achievement.tier == .level5 else { return nil }
-    return model.appearancePalette.isDarkLike ? AppTheme.success : nil
-  }
-
-  /// Level-5-Tönung: im Light Mode Akzent statt Mint-Grün.
   private var tierAccentColor: Color {
-    guard achievement.tier == .level5, !model.appearancePalette.isDarkLike else {
-      return achievement.tier.tintColor
-    }
-    return model.appearanceAccentColor
+    let _ = themeRevision
+    return achievement.tier.adaptiveTint(
+      accent: themeAccent,
+      palette: model.appearancePalette
+    )
   }
 
   @ViewBuilder
@@ -399,10 +402,7 @@ struct ListeningAchievementCard: View {
   }
 
   private var bottomProgressSlot: some View {
-    AbstandCardBottomProgress(
-      value: progressBarValue,
-      fillColor: progressBarFillColor
-    )
+    AbstandCardBottomProgress(value: progressBarValue)
     .frame(height: Self.progressBarHeight)
     .allowsHitTesting(false)
   }
@@ -420,7 +420,7 @@ struct ListeningAchievementCard: View {
       Text("\(level)")
         .font(levelFont)
         .monospacedDigit()
-        .foregroundStyle(tierAccentColor)
+        .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
         .frame(width: edge, height: edge)
         .background(
           RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
