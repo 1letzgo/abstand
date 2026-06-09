@@ -46,6 +46,9 @@ playground/
 .LSOverride
 ._*
 
+# --- Local dev (Audiobookshelf Docker volumes) ---
+.dev/abs/
+
 # --- Logs & temp ---
 *.log
 *.tmp
