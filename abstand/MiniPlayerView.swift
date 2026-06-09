@@ -51,11 +51,14 @@ private enum FullPlayerTransportLayout {
   static let auxiliarySymbolFont: Font = .system(size: 30, weight: .medium)
 }
 
-/// Fortschrittsbalken im Vollplayer — nur Anzeige, kein Scrubber-Thumb.
+/// Fortschrittsbalken im Vollplayer — Anzeige; Scrub per Long-Press + Ziehen.
 private enum FullPlayerProgressLayout {
   /// Feste Zeilenhöhe — mit/ohne Kapitelmarker identisch.
   static let rowHeight: CGFloat = 8
   static let trackHeight: CGFloat = 6
+  static let scrubThumbDiameter: CGFloat = 14
+  /// Touch-Ziel um den schmalen Balken.
+  static let scrubHitHeight: CGFloat = 36
 }
 
 private struct FullPlayerProgressTrack: View {
@@ -66,6 +69,7 @@ private struct FullPlayerProgressTrack: View {
   let total: Double
   /// Relative Positionen (0…1) der Kapitelgrenzen.
   var chapterMarkers: [Double] = []
+  var showsScrubThumb = false
 
   private var fraction: Double {
     guard total > 0 else { return 0 }
@@ -101,8 +105,22 @@ private struct FullPlayerProgressTrack: View {
             .frame(width: 1, height: FullPlayerProgressLayout.trackHeight)
             .offset(x: max(0, w * marker - 0.5))
         }
+        if showsScrubThumb {
+          Circle()
+            .fill(themeAccent)
+            .overlay {
+              Circle()
+                .strokeBorder(AppTheme.background, lineWidth: 2)
+            }
+            .frame(
+              width: FullPlayerProgressLayout.scrubThumbDiameter,
+              height: FullPlayerProgressLayout.scrubThumbDiameter
+            )
+            .offset(x: max(0, fillWidth - FullPlayerProgressLayout.scrubThumbDiameter / 2))
+        }
       }
       .frame(width: w, height: FullPlayerProgressLayout.rowHeight)
+      .frame(maxHeight: .infinity, alignment: .center)
     }
     .frame(height: FullPlayerProgressLayout.rowHeight)
     .accessibilityElement(children: .ignore)
@@ -114,6 +132,105 @@ private struct FullPlayerProgressTrack: View {
     let pct = Int((fraction * 100).rounded())
     guard !chapterMarkers.isEmpty else { return "\(pct) percent" }
     return "\(pct) percent, \(chapterMarkers.count + 1) chapters"
+  }
+}
+
+/// Vollplayer-Fortschritt: Long-Press auf dem Balken, dann ziehen zum Suchen.
+private struct FullPlayerScrubberSection: View {
+  @ObservedObject var player: PlaybackController
+  let centerCaption: String
+
+  @State private var isScrubbing = false
+  @State private var scrubPosition: Double = 0
+  @State private var didScrubHaptic = false
+
+  private var duration: Double { max(player.totalDuration, 1) }
+
+  private var displayPosition: Double {
+    isScrubbing ? scrubPosition : player.globalPosition
+  }
+
+  private var scrubEnabled: Bool {
+    player.activeBook != nil && player.totalDuration > 0 && !player.isBuffering
+  }
+
+  var body: some View {
+    let dur = duration
+    let pos = min(max(0, displayPosition), dur)
+    VStack(alignment: .leading, spacing: 10) {
+      GeometryReader { geo in
+        let trackWidth = max(geo.size.width, 1)
+        FullPlayerProgressTrack(
+          value: pos,
+          total: dur,
+          chapterMarkers: player.chapterMarkerFractions,
+          showsScrubThumb: isScrubbing
+        )
+        .frame(maxHeight: .infinity, alignment: .center)
+        .contentShape(Rectangle())
+        .gesture(scrubEnabled ? scrubGesture(trackWidth: trackWidth) : nil)
+      }
+      .frame(height: FullPlayerProgressLayout.scrubHitHeight)
+      .padding(.top, 6)
+
+      HStack {
+        Text(formatPlaybackTime(pos))
+          .font(.caption)
+          .foregroundStyle(AppTheme.textSecondary)
+        Spacer()
+        if !centerCaption.isEmpty, !isScrubbing {
+          Text(centerCaption)
+            .font(.caption)
+            .foregroundStyle(AppTheme.textPrimary)
+            .lineLimit(1)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+        } else {
+          Spacer()
+            .frame(maxWidth: .infinity)
+        }
+        Spacer()
+        Text(formatPlaybackTime(max(0, dur - pos)))
+          .font(.caption)
+          .foregroundStyle(AppTheme.textSecondary)
+      }
+      .monospacedDigit()
+    }
+    .accessibilityHint("Long press and drag on the bar to seek.")
+  }
+
+  private func scrubGesture(trackWidth: CGFloat) -> some Gesture {
+    LongPressGesture(minimumDuration: 0.35)
+      .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+      .onChanged { value in
+        switch value {
+        case .second(true, let drag?):
+          if !isScrubbing {
+            isScrubbing = true
+            scrubPosition = player.globalPosition
+            if !didScrubHaptic {
+              didScrubHaptic = true
+              UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
+          }
+          scrubPosition = globalTime(forX: drag.location.x, trackWidth: trackWidth)
+        default:
+          break
+        }
+      }
+      .onEnded { value in
+        defer {
+          isScrubbing = false
+          didScrubHaptic = false
+        }
+        guard case .second(true, _) = value else { return }
+        player.seek(global: scrubPosition)
+      }
+  }
+
+  private func globalTime(forX x: CGFloat, trackWidth: CGFloat) -> Double {
+    let fraction = min(1, max(0, Double(x / trackWidth)))
+    return fraction * duration
   }
 }
 
@@ -918,40 +1035,10 @@ struct NowPlayingDetailView: View {
   }
 
   private func scrubberSection(book: ABSBook) -> some View {
-    let dur = max(player.totalDuration, 1)
-    let pos = player.globalPosition
-    let centerCaption = scrubberCenterCaption(book: book)
-    return VStack(alignment: .leading, spacing: 10) {
-      FullPlayerProgressTrack(
-        value: pos,
-        total: dur,
-        chapterMarkers: player.chapterMarkerFractions
-      )
-      .padding(.top, 6)
-
-      HStack {
-        Text(formatPlaybackTime(pos))
-          .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
-        Spacer()
-        if !centerCaption.isEmpty {
-          Text(centerCaption)
-            .font(.caption)
-            .foregroundStyle(AppTheme.textPrimary)
-            .lineLimit(1)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-        } else {
-          Spacer()
-            .frame(maxWidth: .infinity)
-        }
-        Spacer()
-        Text(formatPlaybackTime(max(0, dur - pos)))
-          .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
-      }
-      .monospacedDigit()
-    }
+    FullPlayerScrubberSection(
+      player: player,
+      centerCaption: scrubberCenterCaption(book: book)
+    )
   }
 
   private var transportControls: some View {

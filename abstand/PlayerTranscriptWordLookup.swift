@@ -21,7 +21,7 @@ enum PlayerTranscriptWordLookup {
   }
 
   static func localizedLanguageName(for locale: Locale) -> String {
-    let code = locale.language.languageCode?.identifier ?? locale.identifier(.bcp47)
+    let code = TranslationTargetLanguage.languageCode(from: locale) ?? locale.identifier(.bcp47)
     return Locale.current.localizedString(forLanguageCode: code) ?? code
   }
 
@@ -49,152 +49,335 @@ enum PlayerTranscriptWordLookup {
 struct PlayerTranscriptWordLookupSheet: View {
   let selection: PlayerTranscriptWordLookupSelection
   let sourceLocale: Locale?
+  @ObservedObject var model: AppModel
   @Environment(\.dismiss) private var dismiss
 
   @State private var showDictionary = false
+  @State private var dictionaryAvailable = false
+  @State private var targetLanguageCode: String
   @State private var translationConfiguration: TranslationSession.Configuration?
+  @State private var translationRequestGeneration = 0
   @State private var translatedText: String?
   @State private var translationError: String?
   @State private var isTranslating = false
 
-  private let dictionaryAvailable: Bool
-  private let sourceLanguage: Locale.Language?
-  private let targetLanguage: Locale.Language
-
-  init(selection: PlayerTranscriptWordLookupSelection, sourceLocale: Locale?) {
+  init(
+    selection: PlayerTranscriptWordLookupSelection,
+    sourceLocale: Locale?,
+    model: AppModel
+  ) {
     self.selection = selection
     self.sourceLocale = sourceLocale
-    dictionaryAvailable = PlayerTranscriptWordLookup.hasDictionaryDefinition(for: selection.term)
-    sourceLanguage = sourceLocale.map(PlayerTranscriptWordLookup.translationLanguage(from:))
-    targetLanguage = Locale.current.language
+    _model = ObservedObject(wrappedValue: model)
+    _targetLanguageCode = State(
+      initialValue: TranslationTargetLanguage.normalized(model.translationTargetLanguageCode)
+    )
+  }
+
+  private var sourceLanguage: Locale.Language? {
+    sourceLocale.map(PlayerTranscriptWordLookup.translationLanguage(from:))
+  }
+
+  private var targetLanguage: Locale.Language {
+    TranslationTargetLanguage.toLocaleLanguage(targetLanguageCode)
+  }
+
+  private var sameLanguagePair: Bool {
+    TranslationTargetLanguage.sameLanguage(sourceLocale, targetLanguageCode)
   }
 
   var body: some View {
     NavigationStack {
-      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-        Text(selection.term)
-          .font(.title2.weight(.bold))
-          .foregroundStyle(AppTheme.textPrimary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-
-        if let sourceLocale {
-          Text(
-            String(
-              format: String(
-                localized: "Transcript language: %@",
-                comment: "Teleprompter word lookup source language"
-              ),
-              PlayerTranscriptWordLookup.localizedLanguageName(for: sourceLocale)
-            )
-          )
-          .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
-        }
-
-        VStack(spacing: 10) {
-          if dictionaryAvailable {
-            lookupActionButton(
-              icon: "character.book.closed",
-              title: String(localized: "Look up definition", comment: "Teleprompter word lookup")
-            ) {
-              showDictionary = true
+      sheetContent
+        .padding(AppTheme.Layout.tabPaddingH)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppTheme.background)
+        .navigationTitle(
+          String(localized: "Look up & translate", comment: "Teleprompter word lookup title")
+        )
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+          ToolbarItem(placement: .cancellationAction) {
+            Button(String(localized: "Done", comment: "Dismiss sheet")) {
+              dismiss()
             }
           }
-          lookupActionButton(
-            icon: "translate",
-            title: String(localized: "Translate", comment: "Teleprompter word lookup")
-          ) {
-            requestTranslation()
-          }
         }
-
-        if isTranslating {
-          HStack(spacing: 10) {
-            ProgressView()
-              .controlSize(.small)
-            Text(String(localized: "Translating…", comment: "Teleprompter word lookup"))
-              .font(.subheadline)
-              .foregroundStyle(AppTheme.textSecondary)
-          }
-          .padding(.top, 4)
+        .task(id: selection.id) {
+          dictionaryAvailable = PlayerTranscriptWordLookup.hasDictionaryDefinition(for: selection.term)
+          requestTranslationIfNeeded()
         }
-
-        if let translatedText {
-          VStack(alignment: .leading, spacing: 6) {
-            Text(String(localized: "Translation", comment: "Teleprompter word lookup result label"))
-              .font(.caption.weight(.bold))
-              .foregroundStyle(AppTheme.textSecondary)
-              .textCase(.uppercase)
-            Text(translatedText)
-              .font(.body)
-              .foregroundStyle(AppTheme.textPrimary)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          }
-          .padding(14)
-          .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-
-        if let translationError {
-          Text(translationError)
-            .font(.caption)
-            .foregroundStyle(AppTheme.textSecondary)
-        }
-
-        if !dictionaryAvailable, translatedText == nil, !isTranslating {
-          Text(
-            String(
-              localized: "No dictionary entry on this device for this word.",
-              comment: "Teleprompter word lookup hint"
-            )
-          )
-          .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
-        }
-
-        Spacer(minLength: 0)
-      }
-      .padding(AppTheme.Layout.tabPaddingH)
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-      .background(AppTheme.background)
-      .navigationTitle(String(localized: "Word", comment: "Teleprompter word lookup title"))
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button(String(localized: "Done", comment: "Dismiss sheet")) {
-            dismiss()
-          }
-        }
-      }
     }
     .sheet(isPresented: $showDictionary) {
       DictionaryReferenceView(term: selection.term)
         .ignoresSafeArea()
     }
     .translationTask(translationConfiguration) { session in
-      do {
-        let response = try await session.translate(selection.term)
-        translatedText = response.targetText
-        translationError = nil
-      } catch {
-        translatedText = nil
-        translationError = error.localizedDescription
-      }
-      isTranslating = false
+      await runTranslation(using: session)
     }
   }
 
-  private func requestTranslation() {
+  private var sheetContent: some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      Text(selection.term)
+        .font(.title2.weight(.bold))
+        .foregroundStyle(AppTheme.textPrimary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+      languagePairRow
+
+      if isTranslating {
+        HStack(spacing: 10) {
+          ProgressView()
+            .controlSize(.small)
+          Text(String(localized: "Translating…", comment: "Teleprompter word lookup"))
+            .font(.subheadline)
+            .foregroundStyle(AppTheme.textSecondary)
+        }
+      }
+
+      if sameLanguagePair {
+        Text(
+          String(
+            localized: "Source and target language are the same — translation is not needed.",
+            comment: "Teleprompter word lookup"
+          )
+        )
+        .font(.caption)
+        .foregroundStyle(AppTheme.textSecondary)
+      } else if let translatedText {
+        lookupResultCard(
+          title: String(localized: "Translation", comment: "Teleprompter word lookup result label"),
+          body: translatedText
+        )
+      }
+
+      if let translationError {
+        Text(translationError)
+          .font(.caption)
+          .foregroundStyle(AppTheme.textSecondary)
+      }
+
+      if dictionaryAvailable {
+        lookupActionButton(
+          icon: "character.book.closed",
+          title: String(localized: "Look up in dictionary", comment: "Teleprompter word lookup")
+        ) {
+          showDictionary = true
+        }
+      } else if !sameLanguagePair, translatedText == nil, !isTranslating {
+        Text(
+          String(
+            localized: "No dictionary entry on this device for this word.",
+            comment: "Teleprompter word lookup hint"
+          )
+        )
+        .font(.caption)
+        .foregroundStyle(AppTheme.textSecondary)
+      }
+
+      Spacer(minLength: 0)
+    }
+  }
+
+  private var languagePairRow: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if let sourceLocale {
+        HStack(spacing: 8) {
+          Text(String(localized: "From", comment: "Teleprompter translation source language label"))
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(AppTheme.textSecondary)
+            .textCase(.uppercase)
+          Text(PlayerTranscriptWordLookup.localizedLanguageName(for: sourceLocale))
+            .font(.subheadline)
+            .foregroundStyle(AppTheme.textPrimary)
+          Image(systemName: "arrow.right")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(AppTheme.textSecondary)
+          Text(String(localized: "To", comment: "Teleprompter translation target language label"))
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(AppTheme.textSecondary)
+            .textCase(.uppercase)
+          Spacer(minLength: 0)
+        }
+      }
+
+      HStack(spacing: 12) {
+        Image(systemName: "globe")
+          .font(.body.weight(.semibold))
+          .foregroundStyle(AppTheme.textSecondary)
+          .frame(width: 22)
+        Text(String(localized: "Target language", comment: "Teleprompter translation target picker"))
+          .font(.body)
+          .foregroundStyle(AppTheme.textPrimary)
+        Spacer(minLength: 8)
+        Picker(
+          String(localized: "Target language", comment: "Teleprompter translation target picker"),
+          selection: $targetLanguageCode
+        ) {
+          ForEach(TranslationTargetLanguage.pickerOptions(), id: \.id) { opt in
+            Text(opt.label).tag(opt.id)
+          }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .tint(model.appearanceAccentColor)
+      }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 12)
+      .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .onChange(of: targetLanguageCode) { _, code in
+        let normalized = TranslationTargetLanguage.normalized(code)
+        if normalized != code {
+          targetLanguageCode = normalized
+          return
+        }
+        if model.translationTargetLanguageCode != normalized {
+          model.translationTargetLanguageCode = normalized
+        }
+        requestTranslationIfNeeded()
+      }
+    }
+  }
+
+  private func lookupResultCard(title: String, body: String) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(title)
+        .font(.caption.weight(.bold))
+        .foregroundStyle(AppTheme.textSecondary)
+        .textCase(.uppercase)
+      Text(body)
+        .font(.body)
+        .foregroundStyle(AppTheme.textPrimary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .padding(14)
+    .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+  }
+
+  @MainActor
+  private func requestTranslationIfNeeded() {
+    guard !sameLanguagePair else {
+      translatedText = nil
+      translationError = nil
+      isTranslating = false
+      translationConfiguration = nil
+      return
+    }
     translatedText = nil
     translationError = nil
     isTranslating = true
-    var config = TranslationSession.Configuration(
+    translationRequestGeneration += 1
+    translationConfiguration = TranslationSession.Configuration(
       source: sourceLanguage,
       target: targetLanguage
     )
-    if translationConfiguration != nil {
-      config.invalidate()
+  }
+
+  @MainActor
+  private func runTranslation(using session: TranslationSession) async {
+    guard translationConfiguration != nil else {
+      isTranslating = false
+      return
     }
-    translationConfiguration = config
+    let generation = translationRequestGeneration
+
+    do {
+      let pairingStatus = try await translationPairingStatus()
+      guard generation == translationRequestGeneration else { return }
+
+      switch pairingStatus {
+      case .installed:
+        break
+      case .supported:
+        do {
+          try await session.prepareTranslation()
+        } catch {
+          guard generation == translationRequestGeneration else { return }
+          applyTranslationFailure(
+            generation: generation,
+            message: translationErrorMessage(for: error)
+          )
+          return
+        }
+        guard generation == translationRequestGeneration else { return }
+      case .unsupported:
+        applyTranslationFailure(
+          generation: generation,
+          message: String(
+            localized:
+              "This language pair is not supported for translation on this device.",
+            comment: "Teleprompter word lookup"
+          )
+        )
+        return
+      @unknown default:
+        applyTranslationFailure(
+          generation: generation,
+          message: String(
+            localized: "Translation is not available for this language pair.",
+            comment: "Teleprompter word lookup"
+          )
+        )
+        return
+      }
+
+      let response = try await session.translate(selection.term)
+      guard generation == translationRequestGeneration else { return }
+      translatedText = response.targetText
+      translationError = nil
+      isTranslating = false
+    } catch {
+      guard generation == translationRequestGeneration else { return }
+      applyTranslationFailure(generation: generation, message: translationErrorMessage(for: error))
+    }
+  }
+
+  private func translationPairingStatus() async throws -> LanguageAvailability.Status {
+    let availability = LanguageAvailability()
+    if let sourceLanguage {
+      return await availability.status(from: sourceLanguage, to: targetLanguage)
+    }
+    return try await availability.status(for: selection.term, to: targetLanguage)
+  }
+
+  @MainActor
+  private func applyTranslationFailure(generation: Int, message: String) {
+    guard generation == translationRequestGeneration else { return }
+    translatedText = nil
+    translationError = message
+    isTranslating = false
+    // Konfiguration nicht im translationTask-Closure nil setzen — verzögert, sonst Re-Entrancy-Crash.
+    Task { @MainActor in
+      guard generation == translationRequestGeneration else { return }
+      translationConfiguration = nil
+    }
+  }
+
+  private func translationErrorMessage(for error: Error) -> String {
+    if error is CancellationError {
+      return String(
+        localized:
+          "Translation cancelled. Allow the language download when prompted, or try again later.",
+        comment: "Teleprompter word lookup"
+      )
+    }
+    if let cocoa = error as? CocoaError, cocoa.code == .userCancelled {
+      return String(
+        localized:
+          "Language download was skipped. Translation needs the language pack — try again and allow the download.",
+        comment: "Teleprompter word lookup"
+      )
+    }
+    let ns = error as NSError
+    if ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError {
+      return String(
+        localized:
+          "Language download was skipped. Translation needs the language pack — try again and allow the download.",
+        comment: "Teleprompter word lookup"
+      )
+    }
+    return error.localizedDescription
   }
 
   private func lookupActionButton(

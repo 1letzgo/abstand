@@ -52,6 +52,9 @@ private enum Keys {
   static let appearanceAccentRGBDark = "abstand_appearance_accent_rgb_dark"
   static let appearanceAccentRGBLight = "abstand_appearance_accent_rgb_light"
   static let appearanceMode = "abstand_appearance_mode"
+  static let libraryBookCardStyle = "abstand_library_book_card_style"
+  static let libraryPodcastCardStyle = "abstand_library_podcast_card_style"
+  static let translationTargetLanguageCode = "abstand_translation_target_language"
 }
 
 /// Sortierfeld für `GET /api/libraries/:id/items` (`sort`) bei **Bücher**-Bibliotheken.
@@ -662,6 +665,35 @@ final class AppModel: ObservableObject {
       guard !suppressAppearanceAccentSideEffects else { return }
       appearanceMode.persist()
       reapplyAppearance(systemColorScheme: lastSystemColorScheme, previousMode: oldValue)
+    }
+  }
+
+  /// Library-Zeilen: kompakte Zeile oder große Cover-Karte (Continue-Hero-Stil ohne Play-Pille).
+  @Published var libraryBookCardStyle: LibraryBookCardStyle = LibraryBookCardStyle.load() {
+    didSet {
+      guard libraryBookCardStyle != oldValue else { return }
+      libraryBookCardStyle.persist()
+    }
+  }
+
+  /// Podcast-Episoden: kompakte Zeile oder Cover-Karte (eigenes Setting, unabhängig von Büchern).
+  @Published var libraryPodcastCardStyle: LibraryPodcastCardStyle = LibraryPodcastCardStyle.load() {
+    didSet {
+      guard libraryPodcastCardStyle != oldValue else { return }
+      libraryPodcastCardStyle.persist()
+    }
+  }
+
+  /// Standard-Zielsprache für Teleprompter-Übersetzung (Quelle = Buch-/Transkriptsprache).
+  @Published var translationTargetLanguageCode: String = TranslationTargetLanguage.load() {
+    didSet {
+      let normalized = TranslationTargetLanguage.normalized(translationTargetLanguageCode)
+      if normalized != translationTargetLanguageCode {
+        translationTargetLanguageCode = normalized
+        return
+      }
+      guard translationTargetLanguageCode != oldValue else { return }
+      TranslationTargetLanguage.persist(translationTargetLanguageCode)
     }
   }
 

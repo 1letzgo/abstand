@@ -955,6 +955,16 @@ private struct SettingsPlaybackContent: View {
         }
       }
     }
+    ServerAdminSection(title: "Teleprompter") {
+      ServerAdminCard {
+        SettingsCardPickerRow(
+          icon: "translate",
+          title: "Translation language",
+          selection: $model.translationTargetLanguageCode,
+          options: TranslationTargetLanguage.pickerOptions()
+        )
+      }
+    }
   }
 }
 
@@ -997,18 +1007,50 @@ struct SettingsAppearanceView: View {
         }
       }
       ServerAdminSection(title: "Views") {
-        NavigationLink {
-          SettingsAppearanceHomeView()
-        } label: {
+        LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
           ServerAdminCard {
-            ServerAdminNavRow(
-              icon: "house.fill",
-              title: "Home",
-              subtitle: "Shelf layout & sections"
+            SettingsCardPickerRow(
+              icon: "books.vertical.fill",
+              title: "Library book cards",
+              selection: Binding(
+                get: { model.libraryBookCardStyle.rawValue },
+                set: { raw in
+                  if let style = LibraryBookCardStyle(rawValue: raw) {
+                    model.libraryBookCardStyle = style
+                  }
+                }
+              ),
+              options: LibraryBookCardStyle.allCases.map { (id: $0.rawValue, label: $0.label) }
             )
           }
+          ServerAdminCard {
+            SettingsCardPickerRow(
+              icon: "mic.fill",
+              title: "Podcast episode cards",
+              selection: Binding(
+                get: { model.libraryPodcastCardStyle.rawValue },
+                set: { raw in
+                  if let style = LibraryPodcastCardStyle(rawValue: raw) {
+                    model.libraryPodcastCardStyle = style
+                  }
+                }
+              ),
+              options: LibraryPodcastCardStyle.allCases.map { (id: $0.rawValue, label: $0.label) }
+            )
+          }
+          NavigationLink {
+            SettingsAppearanceHomeView()
+          } label: {
+            ServerAdminCard {
+              ServerAdminNavRow(
+                icon: "house.fill",
+                title: "Home",
+                subtitle: "Shelf layout & sections"
+              )
+            }
+          }
+          .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
       }
     }
     .tint(model.appearanceAccentColor)

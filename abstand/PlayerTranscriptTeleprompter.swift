@@ -104,6 +104,7 @@ enum PlayerTeleprompterMetrics {
 // MARK: - View
 
 struct PlayerLiveTranscriptPanelView: View {
+  @EnvironmentObject private var model: AppModel
   @ObservedObject var transcription: PlayerLiveTranscriptionController
   let globalPlaybackTime: Double
   var isPlaying: Bool = false
@@ -182,7 +183,8 @@ struct PlayerLiveTranscriptPanelView: View {
     .sheet(item: $lookupSelection) { selection in
       PlayerTranscriptWordLookupSheet(
         selection: selection,
-        sourceLocale: transcription.transcriptionLocale
+        sourceLocale: transcription.transcriptionLocale,
+        model: model
       )
       .presentationDetents([.medium, .large])
       .presentationDragIndicator(.visible)

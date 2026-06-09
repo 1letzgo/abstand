@@ -174,6 +174,18 @@ enum AppTheme {
     /// Gesamthöhe Continue-Hero-Karte (Cover + Metadaten).
     static let continueHeroCardTotalHeight: CGFloat = continueHeroCoverMaxHeight + continueHeroMetadataBlockHeight
     static let continueHeroCardHeight: CGFloat = continueHeroCardTotalHeight
+    /// Library-Cover-Karten: zweispaltiges Raster.
+    static let libraryHeroCoverCardColumns: [GridItem] = [
+      GridItem(.flexible(), spacing: withinSectionSpacing),
+      GridItem(.flexible(), spacing: withinSectionSpacing),
+    ]
+    /// Metadaten unter dem Cover ohne Play-Pille (wie Continue-Hero-Textblock).
+    static let libraryHeroMetadataBlockHeight: CGFloat =
+      continueHeroMetadataVerticalPadding
+      + continueHeroMetadataTitleFixedHeight
+      + continueHeroMetadataTitleDetailSpacing
+      + continueHeroMetadataDetailFixedHeight
+      + continueHeroMetadataExtraBottomPadding
 
     static let cardCornerRadius: CGFloat = 14
     /// Karten-Schatten (siehe `abstandCardElevation`).

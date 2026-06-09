@@ -281,15 +281,17 @@ struct MainRootView: View {
       if model.isLibraryCatalogFiltered {
         catalogFilterBanner
       }
-      ForEach(rows) { book in
-        BookRowCard(
-          book: book,
-          model: model,
-          opensDetailOnTap: model.libraryCatalogQuickFilter != .downloaded
-        )
-          .task(id: book.id) {
-            await model.loadMoreIfNeeded(currentItemId: book.id)
-          }
+      LibraryBookCardsFlow(model: model) {
+        ForEach(rows) { book in
+          LibraryBookListCard(
+            book: book,
+            model: model,
+            opensDetailOnTap: model.libraryCatalogQuickFilter != .downloaded
+          )
+            .task(id: book.id) {
+              await model.loadMoreIfNeeded(currentItemId: book.id)
+            }
+        }
       }
     }
   }
@@ -683,13 +685,15 @@ struct MainRootView: View {
         }
       }
 
-      ForEach(episodes, id: \.progressLookupKey) { episode in
-        PodcastEpisodeRowCard(episode: episode, model: model)
-          .task(id: episode.progressLookupKey) {
-            if showId == nil {
-              await model.loadMorePodcastsIfNeeded(currentItemId: episode.id)
+      LibraryPodcastCardsFlow(model: model) {
+        ForEach(episodes, id: \.progressLookupKey) { episode in
+          LibraryPodcastListCard(episode: episode, model: model)
+            .task(id: episode.progressLookupKey) {
+              if showId == nil {
+                await model.loadMorePodcastsIfNeeded(currentItemId: episode.id)
+              }
             }
-          }
+        }
       }
 
       if isShowPane,
@@ -984,9 +988,9 @@ private struct StartDashboardView: View {
   @ViewBuilder
   private func downloadedHomeRow(storageId: String) -> some View {
     if let episode = model.podcastEpisodeForDownloadedStorageId(storageId) {
-      PodcastEpisodeRowCard(episode: episode, model: model, opensDetailOnTap: false)
+      LibraryPodcastListCard(episode: episode, model: model, opensDetailOnTap: false)
     } else if let book = model.audiobookForDownloadedStorageId(storageId) {
-      BookRowCard(book: book, model: model, opensDetailOnTap: false)
+      LibraryBookListCard(book: book, model: model, opensDetailOnTap: false)
     }
   }
 
@@ -1128,8 +1132,10 @@ private struct BooksSearchBrowseView: View {
         }
 
         searchSection(title: "Books", isEmpty: model.searchBooks.isEmpty) {
-          ForEach(model.searchBooks) { book in
-            BookRowCard(book: book, model: model)
+          LibraryBookCardsFlow(model: model) {
+            ForEach(model.searchBooks) { book in
+              LibraryBookListCard(book: book, model: model)
+            }
           }
         }
         searchSection(title: "Authors", isEmpty: model.searchAuthors.isEmpty) {
@@ -1765,15 +1771,69 @@ private func continueHeroPlayPill(
   }
 }
 
-/// Einheitliche Typografie und feste Höhe für Bücher- und Podcast-Continue-Hero-Karten.
-private struct ContinueListeningHeroTextBlock<Pill: View>: View {
+/// Titel + Metadaten unter Continue-Hero-/Library-Cover (ohne Play-Pille).
+private struct ContinueListeningHeroMetadataBlock: View {
   @EnvironmentObject private var model: AppModel
   let title: String
   let detailLabel: String
   let detailValue: String
   let horizontalInset: CGFloat
   var onTitleTap: () -> Void = {}
+  var includesBottomPadding: Bool = false
+  var blockHeight: CGFloat
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.continueHeroMetadataTitleDetailSpacing) {
+      Text(title)
+        .font(.headline.weight(.semibold))
+        .foregroundStyle(model.appearancePalette.textPrimary)
+        .lineLimit(2)
+        .multilineTextAlignment(.leading)
+        .minimumScaleFactor(0.85)
+        .frame(
+          maxWidth: .infinity,
+          minHeight: AppTheme.Layout.continueHeroMetadataTitleFixedHeight,
+          maxHeight: AppTheme.Layout.continueHeroMetadataTitleFixedHeight,
+          alignment: .topLeading
+        )
+        .clipped()
+        .contentShape(Rectangle())
+        .onTapGesture { onTitleTap() }
+
+      LibraryRowCollapsedMetaLine(label: detailLabel, value: detailValue, valueLineLimit: 1)
+        .frame(
+          maxWidth: .infinity,
+          minHeight: AppTheme.Layout.continueHeroMetadataDetailFixedHeight,
+          maxHeight: AppTheme.Layout.continueHeroMetadataDetailFixedHeight,
+          alignment: .topLeading
+        )
+    }
+    .padding(.horizontal, horizontalInset)
+    .padding(.top, AppTheme.Layout.continueHeroMetadataVerticalPadding)
+    .padding(
+      .bottom,
+      includesBottomPadding ? AppTheme.Layout.continueHeroMetadataExtraBottomPadding : 0
+    )
+    .frame(maxWidth: .infinity)
+    .frame(height: blockHeight, alignment: .top)
+  }
+}
+
+/// Einheitliche Typografie und feste Höhe für Bücher- und Podcast-Continue-Hero-Karten.
+private struct ContinueListeningHeroTextBlock<Pill: View>: View {
+  let title: String
+  let detailLabel: String
+  let detailValue: String
+  let horizontalInset: CGFloat
+  var onTitleTap: () -> Void = {}
   @ViewBuilder private let playPill: () -> Pill
+
+  private var titleDetailHeight: CGFloat {
+    AppTheme.Layout.continueHeroMetadataVerticalPadding
+      + AppTheme.Layout.continueHeroMetadataTitleFixedHeight
+      + AppTheme.Layout.continueHeroMetadataTitleDetailSpacing
+      + AppTheme.Layout.continueHeroMetadataDetailFixedHeight
+  }
 
   init(
     title: String,
@@ -1793,38 +1853,20 @@ private struct ContinueListeningHeroTextBlock<Pill: View>: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      VStack(alignment: .leading, spacing: AppTheme.Layout.continueHeroMetadataTitleDetailSpacing) {
-        Text(title)
-          .font(.headline.weight(.semibold))
-          .foregroundStyle(model.appearancePalette.textPrimary)
-          .lineLimit(2)
-          .multilineTextAlignment(.leading)
-          .minimumScaleFactor(0.85)
-          .frame(
-            maxWidth: .infinity,
-            minHeight: AppTheme.Layout.continueHeroMetadataTitleFixedHeight,
-            maxHeight: AppTheme.Layout.continueHeroMetadataTitleFixedHeight,
-            alignment: .topLeading
-          )
-          .clipped()
-          .contentShape(Rectangle())
-          .onTapGesture { onTitleTap() }
-
-        LibraryRowCollapsedMetaLine(label: detailLabel, value: detailValue, valueLineLimit: 1)
-          .frame(
-            maxWidth: .infinity,
-            minHeight: AppTheme.Layout.continueHeroMetadataDetailFixedHeight,
-            maxHeight: AppTheme.Layout.continueHeroMetadataDetailFixedHeight,
-            alignment: .topLeading
-          )
-      }
+      ContinueListeningHeroMetadataBlock(
+        title: title,
+        detailLabel: detailLabel,
+        detailValue: detailValue,
+        horizontalInset: horizontalInset,
+        onTitleTap: onTitleTap,
+        blockHeight: titleDetailHeight
+      )
 
       playPill()
+        .padding(.horizontal, horizontalInset)
         .padding(.top, AppTheme.Layout.continueHeroMetadataPlayPillTopPadding)
         .padding(.bottom, AppTheme.Layout.continueHeroMetadataExtraBottomPadding)
     }
-    .padding(.horizontal, horizontalInset)
-    .padding(.top, AppTheme.Layout.continueHeroMetadataVerticalPadding)
     .frame(maxWidth: .infinity)
     .frame(height: AppTheme.Layout.continueHeroMetadataBlockHeight, alignment: .top)
   }
@@ -2302,6 +2344,241 @@ struct PodcastEpisodeRowCard: View {
         .foregroundStyle(palette.textPrimary)
         .fixedSize(horizontal: false, vertical: true)
     }
+  }
+}
+
+/// Wählt kompakte Zeile oder Cover-Karte gemäß `libraryPodcastCardStyle`.
+struct LibraryPodcastListCard: View {
+  let episode: ABSPodcastEpisodeListItem
+  @ObservedObject var model: AppModel
+  var opensDetailOnTap = true
+
+  private var usesHeroCoverStyle: Bool {
+    model.libraryPodcastCardStyle == .heroCover
+  }
+
+  var body: some View {
+    if usesHeroCoverStyle {
+      LibraryHeroPodcastEpisodeCard(
+        episode: episode,
+        model: model,
+        opensDetailOnTap: opensDetailOnTap
+      )
+    } else {
+      PodcastEpisodeRowCard(
+        episode: episode,
+        model: model,
+        opensDetailOnTap: opensDetailOnTap
+      )
+    }
+  }
+}
+
+/// Podcast-Cover-Karte im Library-Hero-Stil (Rasterzelle, ohne Play-Pille und Typ-Badge).
+private struct LibraryHeroPodcastEpisodeCard: View {
+  let episode: ABSPodcastEpisodeListItem
+  @ObservedObject var model: AppModel
+  var opensDetailOnTap = true
+
+  @StateObject private var live: LibraryPodcastEpisodeRowLiveState
+  @State private var tint: Color = AppTheme.card
+  @State private var showDetail = false
+
+  init(
+    episode: ABSPodcastEpisodeListItem,
+    model: AppModel,
+    opensDetailOnTap: Bool = true
+  ) {
+    self.episode = episode
+    self.opensDetailOnTap = opensDetailOnTap
+    _model = ObservedObject(wrappedValue: model)
+    _live = StateObject(
+      wrappedValue: LibraryPodcastEpisodeRowLiveState(
+        progressLookupKey: episode.progressLookupKey,
+        offlineStorageId: model.podcastEpisodeOfflineStorageId(episode),
+        model: model
+      )
+    )
+  }
+
+  private var prog: ABSUserMediaProgress? { live.progress }
+
+  private var resolvedTotalDurationSeconds: Double {
+    if episode.duration > 0 { return episode.duration }
+    if let p = prog, p.duration > 0 { return p.duration }
+    return 0
+  }
+
+  private var showLine: String {
+    let s = episode.showTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    return s.isEmpty ? "—" : s
+  }
+
+  private var heroProgress01: Double? {
+    guard let p = prog, !p.isFinished else { return nil }
+    let total = max(p.duration, resolvedTotalDurationSeconds)
+    if total > 0 {
+      let t = p.currentTime / total
+      if t.isFinite { return min(1, max(0, t)) }
+    }
+    let g = p.progress
+    if g > 0, g <= 1 { return min(1, max(0, g)) }
+    return nil
+  }
+
+  private var isFinished: Bool { prog?.isFinished == true }
+
+  var body: some View {
+    let palette = model.appearancePalette
+    let coverInset = AppTheme.Layout.libraryRowCardInset
+    let coverTopRadius = AppTheme.Layout.coverCornerRadius
+    let barH = AppTheme.Layout.libraryRowBottomProgressHeight
+    let coverClip = UnevenRoundedRectangle(
+      topLeadingRadius: coverTopRadius,
+      bottomLeadingRadius: 0,
+      bottomTrailingRadius: 0,
+      topTrailingRadius: coverTopRadius,
+      style: .continuous
+    )
+
+    Group {
+      if opensDetailOnTap {
+        cardBody(palette: palette, coverInset: coverInset, coverClip: coverClip, barH: barH)
+          .navigationDestination(isPresented: $showDetail) {
+            PodcastEpisodeDetailView(episode: episode)
+          }
+      } else {
+        cardBody(palette: palette, coverInset: coverInset, coverClip: coverClip, barH: barH)
+      }
+    }
+    .task(id: episode.progressLookupKey) {
+      let account = model.coverImageCacheAccountDirectory()
+      let itemId = episode.libraryItemId
+      if let c = CoverDerivedTintLoader.colorFromDiskOrCoverCache(account: account, itemId: itemId) {
+        tint = c
+      }
+      if let c = await CoverDerivedTintLoader.colorFromNetwork(
+        account: account,
+        itemId: itemId,
+        coverURL: model.coverURL(for: itemId),
+        token: model.token
+      ) {
+        tint = c
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func cardBody(
+    palette: AppColorPalette,
+    coverInset: CGFloat,
+    coverClip: UnevenRoundedRectangle,
+    barH: CGFloat
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      ZStack(alignment: .bottom) {
+        tint
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        CoverImageView(
+          url: model.coverURL(for: episode.libraryItemId),
+          token: model.token,
+          itemId: episode.libraryItemId,
+          cacheAccount: model.coverImageCacheAccountDirectory(),
+          cacheRevision: model.coverImageCacheRevision,
+          contentMode: .fit
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipShape(coverClip)
+        .contentShape(coverClip)
+        .onTapGesture {
+          if opensDetailOnTap {
+            showDetail = true
+          }
+        }
+        .accessibilityLabel(episode.episodeTitle)
+        .accessibilityHint(opensDetailOnTap ? "Opens episode details." : "")
+
+        LinearGradient(
+          stops: [
+            .init(color: .black.opacity(0.45), location: 0),
+            .init(color: .black.opacity(0), location: 1),
+          ],
+          startPoint: .bottom,
+          endPoint: .top
+        )
+        .frame(height: 72)
+        .frame(maxWidth: .infinity)
+        .allowsHitTesting(false)
+
+        Group {
+          if let v = heroProgress01 {
+            AbstandCardBottomProgress(
+              value: v,
+              height: barH,
+              trackColor: Color.white.opacity(0.22)
+            )
+            .frame(maxWidth: .infinity)
+          } else {
+            Color.clear
+              .frame(maxWidth: .infinity)
+              .frame(height: barH)
+          }
+        }
+      }
+      .aspectRatio(1, contentMode: .fit)
+      .frame(maxWidth: .infinity)
+      .overlay(alignment: .topTrailing) {
+        ContinueListeningHeroPodcastOfflineBadgeSlot(rowLive: live)
+      }
+      .clipped()
+
+      VStack(alignment: .leading, spacing: 8) {
+        ContinueListeningHeroMetadataBlock(
+          title: episode.episodeTitle,
+          detailLabel: "Show",
+          detailValue: showLine,
+          horizontalInset: coverInset,
+          onTitleTap: { if opensDetailOnTap { showDetail = true } },
+          includesBottomPadding: false,
+          blockHeight: AppTheme.Layout.libraryHeroMetadataBlockHeight
+            - AppTheme.Layout.continueHeroMetadataExtraBottomPadding
+        )
+        LibraryHeroCardMetadataFooter(
+          model: model,
+          durationLabel: formatPlaybackTime(resolvedTotalDurationSeconds),
+          showsDownload: true,
+          isDownloaded: live.isDownloaded,
+          isDownloading: live.isDownloading,
+          downloadProgress: live.downloadProgress,
+          isFinished: isFinished,
+          horizontalInset: coverInset,
+          onRemoveDownload: {
+            model.removeLocalDownload(bookId: model.podcastEpisodeOfflineStorageId(episode))
+          },
+          onToggleFinished: model.isNetworkReachable
+            ? {
+              Task {
+                if isFinished {
+                  await model.markPodcastEpisodeUnfinished(episode)
+                } else {
+                  await model.markPodcastEpisodeFinished(episode)
+                }
+              }
+            }
+            : nil
+        )
+      }
+      .background(palette.card)
+    }
+    .background(palette.card)
+    .clipShape(
+      RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous)
+    )
+    .abstandHeroCardOutline(palette: palette)
+    .frame(maxWidth: .infinity, alignment: .top)
+    .accessibilityElement(children: .contain)
+    .accessibilityHint(opensDetailOnTap ? "Opens episode details." : "")
   }
 }
 
@@ -3063,7 +3340,378 @@ private enum LibraryRowLayout {
   }
 }
 
+/// Footer unter Cover-Karten — gleiches Layout und Icons wie `BookRowCard` / `PodcastEpisodeRowCard`.
+private struct LibraryHeroCardMetadataFooter: View {
+  @ObservedObject var model: AppModel
+  let durationLabel: String
+  var showsDownload: Bool
+  var isDownloaded: Bool
+  var isDownloading: Bool
+  var downloadProgress: Double
+  var isFinished: Bool
+  var horizontalInset: CGFloat
+  var onRemoveDownload: (() -> Void)?
+  var onToggleFinished: (() -> Void)?
+
+  var body: some View {
+    LibraryRowLayout.metadataFooter {
+      Text(durationLabel)
+        .font(.subheadline.monospacedDigit())
+        .foregroundStyle(model.appearancePalette.textSecondary)
+    } trailing: {
+      HStack(spacing: 6) {
+        if isFinished {
+          libraryHeroStatusIconButton(action: onToggleFinished) {
+            Image(systemName: "checkmark.circle.fill")
+              .foregroundStyle(model.appearanceAccentColor)
+              .font(.caption)
+          }
+          .accessibilityLabel("Finished")
+        }
+        if showsDownload {
+          libraryHeroDownloadTrailingIcon
+        }
+      }
+    }
+    .padding(.horizontal, horizontalInset)
+    .padding(.bottom, AppTheme.Layout.continueHeroMetadataExtraBottomPadding)
+  }
+
+  @ViewBuilder
+  private var libraryHeroDownloadTrailingIcon: some View {
+    if isDownloaded {
+      libraryHeroStatusIconButton(action: onRemoveDownload) {
+        Image(systemName: "arrow.down.circle.fill")
+          .foregroundStyle(model.appearanceAccentColor)
+          .font(.caption)
+      }
+      .accessibilityLabel("Saved offline")
+    } else if isDownloading {
+      ProgressView(value: downloadProgress)
+        .frame(width: 36)
+        .tint(model.appearanceAccentColor)
+        .accessibilityLabel("Downloading")
+    }
+  }
+
+  @ViewBuilder
+  private func libraryHeroStatusIconButton<Label: View>(
+    action: (() -> Void)?,
+    @ViewBuilder label: () -> Label
+  ) -> some View {
+    if let action {
+      Button(action: action) {
+        label()
+      }
+      .buttonStyle(.plain)
+    } else {
+      label()
+    }
+  }
+}
+
 // MARK: - Book row
+
+/// Einspaltige Liste (Compact) oder zweispaltiges Raster (Cover card).
+private struct LibraryCoverCardsFlow<Content: View>: View {
+  let usesCoverGrid: Bool
+  @ViewBuilder var content: () -> Content
+
+  var body: some View {
+    if usesCoverGrid {
+      LazyVGrid(
+        columns: AppTheme.Layout.libraryHeroCoverCardColumns,
+        alignment: .leading,
+        spacing: AppTheme.Layout.withinSectionSpacing
+      ) {
+        content()
+      }
+    } else {
+      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+        content()
+      }
+    }
+  }
+}
+
+private struct LibraryBookCardsFlow<Content: View>: View {
+  @ObservedObject var model: AppModel
+  @ViewBuilder var content: () -> Content
+
+  var body: some View {
+    LibraryCoverCardsFlow(
+      usesCoverGrid: model.libraryBookCardStyle == .heroCover,
+      content: content
+    )
+  }
+}
+
+private struct LibraryPodcastCardsFlow<Content: View>: View {
+  @ObservedObject var model: AppModel
+  @ViewBuilder var content: () -> Content
+
+  var body: some View {
+    LibraryCoverCardsFlow(
+      usesCoverGrid: model.libraryPodcastCardStyle == .heroCover,
+      content: content
+    )
+  }
+}
+
+/// Wählt kompakte Zeile oder Cover-Karte gemäß `libraryBookCardStyle` (eBooks bleiben kompakt).
+struct LibraryBookListCard: View {
+  let book: ABSBook
+  @ObservedObject var model: AppModel
+  var showEbookBadge = false
+  var opensEbookOnCover = false
+  var progressOverride: ABSUserMediaProgress?
+  var authorLineOverride: String?
+  var showsPlaybackControls = true
+  var showsDownloadStatus = true
+  var opensDetailOnTap = true
+
+  private var usesHeroCoverStyle: Bool {
+    model.libraryBookCardStyle == .heroCover && !opensEbookOnCover
+  }
+
+  var body: some View {
+    if usesHeroCoverStyle {
+      LibraryHeroBookRowCard(
+        book: book,
+        model: model,
+        showEbookBadge: showEbookBadge,
+        progressOverride: progressOverride,
+        authorLineOverride: authorLineOverride,
+        showsDownloadStatus: showsDownloadStatus,
+        opensDetailOnTap: opensDetailOnTap
+      )
+    } else {
+      BookRowCard(
+        book: book,
+        model: model,
+        showEbookBadge: showEbookBadge,
+        opensEbookOnCover: opensEbookOnCover,
+        progressOverride: progressOverride,
+        authorLineOverride: authorLineOverride,
+        showsPlaybackControls: showsPlaybackControls,
+        showsDownloadStatus: showsDownloadStatus,
+        opensDetailOnTap: opensDetailOnTap
+      )
+    }
+  }
+}
+
+/// Library-Cover-Karte im Continue-Hero-Stil (Rasterzelle, ohne Play-Pille und Typ-Badge).
+private struct LibraryHeroBookRowCard: View {
+  let book: ABSBook
+  @ObservedObject var model: AppModel
+  var showEbookBadge = false
+  var progressOverride: ABSUserMediaProgress?
+  var authorLineOverride: String?
+  var showsDownloadStatus = true
+  var opensDetailOnTap = true
+
+  @StateObject private var live: LibraryBookRowLiveState
+  @State private var tint: Color = AppTheme.card
+  @State private var showDetail = false
+
+  init(
+    book: ABSBook,
+    model: AppModel,
+    showEbookBadge: Bool = false,
+    progressOverride: ABSUserMediaProgress? = nil,
+    authorLineOverride: String? = nil,
+    showsDownloadStatus: Bool = true,
+    opensDetailOnTap: Bool = true
+  ) {
+    self.book = book
+    self.showEbookBadge = showEbookBadge
+    self.progressOverride = progressOverride
+    self.authorLineOverride = authorLineOverride
+    self.showsDownloadStatus = showsDownloadStatus
+    self.opensDetailOnTap = opensDetailOnTap
+    _model = ObservedObject(wrappedValue: model)
+    _live = StateObject(
+      wrappedValue: LibraryBookRowLiveState(
+        bookId: book.id,
+        model: model,
+        observesProgress: progressOverride == nil,
+        observesDownload: showsDownloadStatus
+      )
+    )
+  }
+
+  private var prog: ABSUserMediaProgress? { progressOverride ?? live.progress }
+
+  private var authorLine: String {
+    if let authorLineOverride {
+      let line = authorLineOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !line.isEmpty { return line }
+    }
+    return continueHeroAuthorSingleLine(for: book)
+  }
+
+  private var heroProgress01: Double? {
+    guard let p = prog, !p.isFinished, p.duration > 0 else { return nil }
+    return min(1, max(0, p.progress))
+  }
+
+  private var isFinished: Bool { prog?.isFinished == true }
+
+  var body: some View {
+    let palette = model.appearancePalette
+    let coverInset = AppTheme.Layout.libraryRowCardInset
+    let coverTopRadius = AppTheme.Layout.coverCornerRadius
+    let barH = AppTheme.Layout.libraryRowBottomProgressHeight
+    let coverClip = UnevenRoundedRectangle(
+      topLeadingRadius: coverTopRadius,
+      bottomLeadingRadius: 0,
+      bottomTrailingRadius: 0,
+      topTrailingRadius: coverTopRadius,
+      style: .continuous
+    )
+
+    Group {
+      if opensDetailOnTap {
+        cardBody(palette: palette, coverInset: coverInset, coverClip: coverClip, barH: barH)
+          .navigationDestination(isPresented: $showDetail) {
+            BookDetailView(bookId: book.id)
+          }
+      } else {
+        cardBody(palette: palette, coverInset: coverInset, coverClip: coverClip, barH: barH)
+      }
+    }
+    .task(id: book.id) {
+      let account = model.coverImageCacheAccountDirectory()
+      if let c = CoverDerivedTintLoader.colorFromDiskOrCoverCache(account: account, itemId: book.id) {
+        tint = c
+      }
+      if let c = await CoverDerivedTintLoader.colorFromNetwork(
+        account: account,
+        itemId: book.id,
+        coverURL: model.coverURL(for: book.id),
+        token: model.token
+      ) {
+        tint = c
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func cardBody(
+    palette: AppColorPalette,
+    coverInset: CGFloat,
+    coverClip: UnevenRoundedRectangle,
+    barH: CGFloat
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      ZStack(alignment: .bottom) {
+        tint
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        CoverImageView(
+          url: model.coverURL(for: book.id),
+          token: model.token,
+          itemId: book.id,
+          cacheAccount: model.coverImageCacheAccountDirectory(),
+          cacheRevision: model.coverImageCacheRevision,
+          contentMode: .fit
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipShape(coverClip)
+        .contentShape(coverClip)
+        .onTapGesture {
+          if opensDetailOnTap {
+            showDetail = true
+          }
+        }
+        .accessibilityLabel(book.displayTitle)
+        .accessibilityHint(
+          opensDetailOnTap ? "Opens book details." : ""
+        )
+
+        LinearGradient(
+          stops: [
+            .init(color: .black.opacity(0.45), location: 0),
+            .init(color: .black.opacity(0), location: 1),
+          ],
+          startPoint: .bottom,
+          endPoint: .top
+        )
+        .frame(height: 72)
+        .frame(maxWidth: .infinity)
+        .allowsHitTesting(false)
+
+        Group {
+          if let v = heroProgress01 {
+            AbstandCardBottomProgress(
+              value: v,
+              height: barH,
+              trackColor: Color.white.opacity(0.22)
+            )
+            .frame(maxWidth: .infinity)
+          } else {
+            Color.clear
+              .frame(maxWidth: .infinity)
+              .frame(height: barH)
+          }
+        }
+      }
+      .aspectRatio(1, contentMode: .fit)
+      .frame(maxWidth: .infinity)
+      .overlay(alignment: .topTrailing) {
+        if showsDownloadStatus {
+          ContinueListeningHeroBookOfflineBadgeSlot(rowLive: live)
+        }
+      }
+      .clipped()
+
+      VStack(alignment: .leading, spacing: 8) {
+        ContinueListeningHeroMetadataBlock(
+          title: book.displayTitle,
+          detailLabel: "Author",
+          detailValue: authorLine,
+          horizontalInset: coverInset,
+          onTitleTap: { if opensDetailOnTap { showDetail = true } },
+          includesBottomPadding: false,
+          blockHeight: AppTheme.Layout.libraryHeroMetadataBlockHeight
+            - AppTheme.Layout.continueHeroMetadataExtraBottomPadding
+        )
+        LibraryHeroCardMetadataFooter(
+          model: model,
+          durationLabel: formatPlaybackTime(book.media.duration ?? 0),
+          showsDownload: showsDownloadStatus,
+          isDownloaded: live.isDownloaded,
+          isDownloading: live.isDownloading,
+          downloadProgress: live.downloadProgress,
+          isFinished: isFinished,
+          horizontalInset: coverInset,
+          onRemoveDownload: { model.removeLocalDownload(bookId: book.id) },
+          onToggleFinished: model.isNetworkReachable
+            ? {
+              Task {
+                if isFinished {
+                  await model.markUnfinished(bookId: book.id)
+                } else {
+                  await model.markFinished(bookId: book.id)
+                }
+              }
+            }
+            : nil
+        )
+      }
+      .background(palette.card)
+    }
+    .background(palette.card)
+    .clipShape(
+      RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous)
+    )
+    .abstandHeroCardOutline(palette: palette)
+    .frame(maxWidth: .infinity, alignment: .top)
+    .accessibilityElement(children: .contain)
+    .accessibilityHint(opensDetailOnTap ? "Opens book details." : "")
+  }
+}
 
 struct BookRowCard: View {
   let book: ABSBook
@@ -5127,9 +5775,9 @@ private struct BooksEntityDetailView: View {
         ForEach(seriesSections) { section in
           VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
             entityDetailSectionHeading(section.name)
-            LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+            LibraryBookCardsFlow(model: model) {
               ForEach(section.books) { book in
-                BookRowCard(book: book, model: model)
+                LibraryBookListCard(book: book, model: model)
               }
             }
           }
@@ -5137,9 +5785,9 @@ private struct BooksEntityDetailView: View {
         if !standalone.isEmpty {
           VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
             entityDetailSectionHeading(seriesSections.isEmpty ? "Books" : "Other books")
-            LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+            LibraryBookCardsFlow(model: model) {
               ForEach(standalone) { book in
-                BookRowCard(book: book, model: model)
+                LibraryBookListCard(book: book, model: model)
               }
             }
           }
@@ -5165,9 +5813,9 @@ private struct BooksEntityDetailView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
           .padding(.vertical, 8)
       } else {
-        LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+        LibraryBookCardsFlow(model: model) {
           ForEach(model.entityDetailBooks) { book in
-            BookRowCard(book: book, model: model)
+            LibraryBookListCard(book: book, model: model)
               .task(id: book.id) {
                 await model.loadMoreEntityDetailIfNeeded(nav: nav, currentItemId: book.id)
               }

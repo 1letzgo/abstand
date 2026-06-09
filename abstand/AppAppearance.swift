@@ -31,6 +31,131 @@ enum AppearanceMode: String, CaseIterable, Identifiable, Hashable {
   }
 }
 
+/// Darstellung von Hörbuch-Zeilen in Library, Suche und Entitäts-Details.
+enum LibraryBookCardStyle: String, CaseIterable, Identifiable, Hashable {
+  case compact
+  case heroCover
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .compact: "Compact row"
+    case .heroCover: "Cover card"
+    }
+  }
+
+  private static let storageKey = "abstand_library_book_card_style"
+
+  static func load(from defaults: UserDefaults = .standard) -> LibraryBookCardStyle {
+    guard let raw = defaults.string(forKey: storageKey),
+      let style = LibraryBookCardStyle(rawValue: raw)
+    else { return .compact }
+    return style
+  }
+
+  func persist(to defaults: UserDefaults = .standard) {
+    defaults.set(rawValue, forKey: Self.storageKey)
+  }
+}
+
+/// Darstellung von Podcast-Episoden in Library und Downloads.
+enum LibraryPodcastCardStyle: String, CaseIterable, Identifiable, Hashable {
+  case compact
+  case heroCover
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .compact: "Compact row"
+    case .heroCover: "Cover card"
+    }
+  }
+
+  private static let storageKey = "abstand_library_podcast_card_style"
+
+  static func load(from defaults: UserDefaults = .standard) -> LibraryPodcastCardStyle {
+    guard let raw = defaults.string(forKey: storageKey),
+      let style = LibraryPodcastCardStyle(rawValue: raw)
+    else { return .compact }
+    return style
+  }
+
+  func persist(to defaults: UserDefaults = .standard) {
+    defaults.set(rawValue, forKey: Self.storageKey)
+  }
+}
+
+/// Zielsprache für Teleprompter-Wortübersetzung (Quelle = Buch-/Transkriptsprache).
+enum TranslationTargetLanguage {
+  private static let storageKey = "abstand_translation_target_language"
+
+  /// Häufige Zielsprachen für Picker in Settings und Wort-Sheet.
+  static let selectableLanguageCodes: [String] = [
+    "de", "en", "fr", "es", "it", "nl", "pt", "pl", "ru", "ja", "zh", "ko",
+    "ar", "hi", "tr", "sv", "da", "nb", "fi", "cs", "hu", "uk", "el", "he", "vi", "th", "id", "ro",
+  ]
+
+  static var defaultLanguageCode: String {
+    languageCode(from: Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)) ?? "en"
+  }
+
+  static func load(from defaults: UserDefaults = .standard) -> String {
+    let raw = defaults.string(forKey: storageKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !raw.isEmpty { return normalized(raw) }
+    return defaultLanguageCode
+  }
+
+  /// Gültiger Picker-Wert (nur bekannte ISO-639-1-Codes).
+  static func normalized(_ code: String) -> String {
+    let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !trimmed.isEmpty else { return defaultLanguageCode }
+    let base = languageCode(from: trimmed) ?? trimmed
+    let allowed = Set(selectableLanguageCodes + [defaultLanguageCode])
+    return allowed.contains(base) ? base : defaultLanguageCode
+  }
+
+  static func persist(_ code: String, to defaults: UserDefaults = .standard) {
+    defaults.set(code, forKey: storageKey)
+  }
+
+  static func displayName(for code: String, locale: Locale = .current) -> String {
+    locale.localizedString(forLanguageCode: code) ?? code.uppercased()
+  }
+
+  static func pickerOptions(locale: Locale = .current) -> [(id: String, label: String)] {
+    var codes = Set(selectableLanguageCodes)
+    codes.insert(defaultLanguageCode)
+    codes.insert(load())
+    return codes.sorted { displayName(for: $0, locale: locale) < displayName(for: $1, locale: locale) }
+      .map { (id: $0, label: displayName(for: $0, locale: locale)) }
+  }
+
+  static func toLocaleLanguage(_ code: String) -> Locale.Language {
+    Locale.Language(identifier: code)
+  }
+
+  static func languageCode(from locale: Locale) -> String? {
+    if let code = locale.language.languageCode?.identifier, !code.isEmpty {
+      return code.lowercased()
+    }
+    return languageCode(from: locale.identifier(.bcp47))
+  }
+
+  static func sameLanguage(_ a: Locale?, _ targetCode: String) -> Bool {
+    guard let a, let src = languageCode(from: a) else { return false }
+    return src.lowercased() == targetCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+  }
+
+  private static func languageCode(from identifier: String) -> String? {
+    let id = identifier.lowercased()
+    if let dash = id.firstIndex(of: "-") { return String(id[..<dash]) }
+    if let underscore = id.firstIndex(of: "_") { return String(id[..<underscore]) }
+    return id.count >= 2 ? String(id.prefix(2)) : (id.isEmpty ? nil : id)
+  }
+}
+
 /// UI-Farben — Hintergrund/Karten leicht aus der Appearance-Akzentfarbe abgeleitet.
 struct AppColorPalette: Equatable {
   let isDarkLike: Bool
