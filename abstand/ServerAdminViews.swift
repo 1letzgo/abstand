@@ -454,6 +454,7 @@ private func startShelfSettingsIcon(category: String) -> String {
 private enum SettingsHubSection: String, CaseIterable, Identifiable, Hashable {
   case appearance = "Appearance"
   case playback = "Playback"
+  case stats = "Stats"
   case downloads = "Downloads"
   case account = "Account"
   case server = "Server"
@@ -464,6 +465,7 @@ private enum SettingsHubSection: String, CaseIterable, Identifiable, Hashable {
     switch self {
     case .appearance: return "paintbrush.fill"
     case .playback: return "play.circle"
+    case .stats: return "chart.bar.fill"
     case .downloads: return "arrow.down.circle"
     case .account: return "person.crop.circle"
     case .server: return "server.rack"
@@ -471,7 +473,7 @@ private enum SettingsHubSection: String, CaseIterable, Identifiable, Hashable {
   }
 
   static func stripOrder(isServerRoot: Bool, offlineHome: Bool) -> [SettingsHubSection] {
-    var sections: [SettingsHubSection] = [.account, .appearance, .playback]
+    var sections: [SettingsHubSection] = [.stats, .account, .appearance, .playback]
     if !offlineHome { sections.append(.downloads) }
     if isServerRoot { sections.append(.server) }
     return sections
@@ -506,7 +508,7 @@ private struct SettingsIconStrip<Section: Identifiable & Hashable>: View {
 
 struct SettingsHubRootView: View {
   @EnvironmentObject private var model: AppModel
-  @State private var hubSection: SettingsHubSection = .account
+  @State private var hubSection: SettingsHubSection = .stats
   @State private var coverCacheByteCount: Int64 = 0
 
   private var hubSectionIDs: [SettingsHubSection] {
@@ -529,8 +531,15 @@ struct SettingsHubRootView: View {
       sectionIDs: sections,
       scrollBottomInset: scrollBottomInset,
       onRefresh: {
-        guard hubSection == .account, !model.offlineHomeUIActive else { return }
-        await model.reloadSettingsTab(reloadCatalogs: false)
+        guard !model.offlineHomeUIActive else { return }
+        switch hubSection {
+        case .account:
+          await model.reloadSettingsTab(reloadCatalogs: false)
+        case .stats:
+          await model.loadListeningStats()
+        default:
+          break
+        }
       }
     ) {
       SettingsIconStrip(
@@ -542,9 +551,17 @@ struct SettingsHubRootView: View {
     } sectionBody: { section in
       settingsHubSectionBody(section)
     }
-    .task {
+    .task(id: hubSection) {
       guard !model.offlineHomeUIActive else { return }
-      await model.reloadSettingsTab(reloadCatalogs: false)
+      switch hubSection {
+      case .stats:
+        model.prepareListeningAchievementsForStatsTab()
+        await model.loadListeningStats()
+      case .account, .downloads:
+        await model.reloadSettingsTab(reloadCatalogs: false)
+      default:
+        break
+      }
     }
     .onAppear {
       clampHubSectionIfNeeded()
@@ -596,6 +613,8 @@ struct SettingsHubRootView: View {
         SettingsAppearanceView()
       case .playback:
         SettingsPlaybackView()
+      case .stats:
+        SettingsStatsHubView()
       case .downloads:
         ServerAdminSection(title: "Downloads") {
           LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
@@ -688,6 +707,38 @@ struct SettingsHubRootView: View {
     }
 
     ServerAdminLibrariesSection()
+  }
+}
+
+// MARK: - Stats hub
+
+struct SettingsStatsHubView: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      StatsLevelSectionView()
+      StatsTimelineHubSectionView()
+
+      ForEach(SettingsStatsCategory.allCases) { category in
+        ServerAdminSection(title: category.rawValue) {
+          NavigationLink {
+            category.detailView
+              .navigationTitle(category.rawValue)
+              .toolbarTitleDisplayMode(.inline)
+          } label: {
+            ServerAdminCard {
+              ServerAdminNavRow(
+                icon: category.icon,
+                title: category.rawValue,
+                subtitle: category.subtitle
+              )
+            }
+          }
+          .buttonStyle(.plain)
+        }
+      }
+    }
   }
 }
 
@@ -1011,7 +1062,7 @@ struct SettingsAppearanceView: View {
           ServerAdminCard {
             SettingsCardPickerRow(
               icon: "books.vertical.fill",
-              title: "Library book cards",
+              title: "Audiobook",
               selection: Binding(
                 get: { model.libraryBookCardStyle.rawValue },
                 set: { raw in
@@ -1036,6 +1087,31 @@ struct SettingsAppearanceView: View {
                 }
               ),
               options: LibraryPodcastCardStyle.allCases.map { (id: $0.rawValue, label: $0.label) }
+            )
+          }
+          ServerAdminCard {
+            SettingsCardPickerRow(
+              icon: "book.closed.fill",
+              title: "eBook tab cards",
+              selection: Binding(
+                get: { model.ebooksTabCardStyle.rawValue },
+                set: { raw in
+                  if let style = LibraryEbookCardStyle(rawValue: raw) {
+                    model.ebooksTabCardStyle = style
+                  }
+                }
+              ),
+              options: LibraryEbookCardStyle.allCases.map { (id: $0.rawValue, label: $0.label) }
+            )
+          }
+          ServerAdminCard {
+            SettingsCardToggleRow(
+              icon: "book.closed.fill",
+              title: "eBooks tab",
+              isOn: Binding(
+                get: { model.showEbooksTab },
+                set: { model.showEbooksTab = $0 }
+              )
             )
           }
           NavigationLink {

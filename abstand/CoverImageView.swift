@@ -6,6 +6,8 @@ enum CoverImageContentMode {
   case fill
   /// Vollansicht: komplettes Cover sichtbar, Briefkasten nach Bedarf.
   case fit
+  /// eBook-Zeilen: Höhe fix, Breite folgt dem Seitenverhältnis des Covers (kein Beschnitt, kein Strecken).
+  case fitVariableWidth
 }
 
 struct CoverImageView: View {
@@ -78,6 +80,11 @@ struct CoverImageView: View {
           .resizable()
           .scaledToFit()
           .frame(maxWidth: .infinity, maxHeight: .infinity)
+      case .fitVariableWidth:
+        // Kein greedy Frame: Breite ergibt sich aus Zeilenhöhe × Seitenverhältnis.
+        Image(uiImage: image)
+          .resizable()
+          .scaledToFit()
       }
     } else {
       ZStack {
@@ -101,6 +108,10 @@ struct CoverImageView: View {
       case .fit:
         content
           .frame(minWidth: 44, minHeight: 44)
+      case .fitVariableWidth:
+        // Platzhalter im typischen Buch-Hochformat (10:16).
+        content
+          .aspectRatio(10 / 16, contentMode: .fit)
       }
     }
   }

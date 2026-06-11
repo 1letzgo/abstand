@@ -45,6 +45,9 @@ private struct AppRootContainer: View {
         .onChange(of: model.nowPlayingSheetPresentationCounter) { _, _ in
           nowPlayingSheetPresented = true
         }
+        .onChange(of: model.nowPlayingSheetDismissCounter) { _, _ in
+          nowPlayingSheetPresented = false
+        }
       } else {
         LoginView()
       }

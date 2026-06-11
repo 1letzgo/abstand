@@ -104,7 +104,7 @@ enum PlayerTeleprompterMetrics {
 // MARK: - View
 
 struct PlayerLiveTranscriptPanelView: View {
-  @EnvironmentObject private var model: AppModel
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   @ObservedObject var transcription: PlayerLiveTranscriptionController
   let globalPlaybackTime: Double
   var isPlaying: Bool = false
@@ -113,7 +113,6 @@ struct PlayerLiveTranscriptPanelView: View {
   var viewportSize: CGSize?
 
   @State private var playbackClock = ReadAlongPlaybackClock()
-  @State private var lookupSelection: PlayerTranscriptWordLookupSelection?
 
   private var teleprompterLayout: PlayerTeleprompterLayout {
     if let viewportSize, viewportSize.height > 0 {
@@ -123,7 +122,8 @@ struct PlayerLiveTranscriptPanelView: View {
   }
 
   var body: some View {
-    ZStack(alignment: .topLeading) {
+    let _ = themeRevision
+    return ZStack(alignment: .topLeading) {
       if transcription.transcriptLines.isEmpty {
         HStack(spacing: 10) {
           ProgressView()
@@ -180,15 +180,7 @@ struct PlayerLiveTranscriptPanelView: View {
     .onChange(of: viewportSize) { _, size in
       if let size { syncContentWidth(size.width) }
     }
-    .sheet(item: $lookupSelection) { selection in
-      PlayerTranscriptWordLookupSheet(
-        selection: selection,
-        sourceLocale: transcription.transcriptionLocale,
-        model: model
-      )
-      .presentationDetents([.medium, .large])
-      .presentationDragIndicator(.visible)
-    }
+    .abstandThemeRefresh()
   }
 
   private func syncContentWidth(_ width: CGFloat) {
@@ -219,7 +211,7 @@ struct PlayerLiveTranscriptPanelView: View {
               activeLineIndex: activeLineIndex,
               activeWord: activeWord,
               layout: layout,
-              lookupSelection: lookupSelection,
+              lookupSelection: transcription.wordLookupSelection,
               onWordTap: selectWordForLookup
             )
           } else {
@@ -253,7 +245,11 @@ struct PlayerLiveTranscriptPanelView: View {
     guard !word.isWhitespaceOnly else { return }
     let term = PlayerTranscriptWordLookup.normalizedTerm(from: word.text)
     guard !term.isEmpty else { return }
-    lookupSelection = PlayerTranscriptWordLookupSelection(word: word, term: term)
+    transcription.wordLookupSelection = PlayerTranscriptWordLookupSelection(
+      word: word,
+      term: term,
+      sourceLocale: transcription.transcriptionLocale
+    )
   }
 
   @ViewBuilder

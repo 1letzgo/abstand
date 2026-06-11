@@ -23,6 +23,7 @@ struct PlayerBookmarkMenuItem: Equatable, Identifiable {
 
 struct BookmarksDisclosure: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   @Binding var expanded: Bool
   let libraryItemId: String
   var onJump: (ABSAudioBookmark) -> Void
@@ -34,7 +35,8 @@ struct BookmarksDisclosure: View {
   }
 
   var body: some View {
-    DisclosureGroup(isExpanded: $expanded) {
+    let _ = themeRevision
+    return DisclosureGroup(isExpanded: $expanded) {
       VStack(alignment: .leading, spacing: 10) {
         if marks.isEmpty {
           Text(
@@ -83,6 +85,7 @@ struct BookmarksDisclosure: View {
         Text("“\(b.title)” at \(formatPlaybackTime(Double(b.time)))")
       }
     }
+    .abstandThemeRefresh()
   }
 
   private func bookmarkRow(_ mark: ABSAudioBookmark) -> some View {
@@ -144,7 +147,7 @@ struct AddBookmarkTitleSheet: View {
       .abstandScrollScreenBackground()
       .navigationTitle("Bookmark")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(AppTheme.background, for: .navigationBar)
+      .toolbarBackground(model.appearancePalette.background, for: .navigationBar)
       .toolbarColorScheme(model.resolvedInterfaceColorScheme, for: .navigationBar)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {

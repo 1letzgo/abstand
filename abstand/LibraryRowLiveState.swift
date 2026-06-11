@@ -4,6 +4,30 @@ import SwiftUI
 // MARK: - Fortschritt / Download pro Karte (ohne `@EnvironmentObject` → kein Katalog-Rebuild)
 
 enum LibraryRowLiveState {
+  static func resolveEbookProgressFraction(
+    libraryItemId: String,
+    serverEbookProgress: Double?
+  ) -> Double? {
+    let localF = EbookLocalStore.loadProgressFraction(libraryItemId: libraryItemId)
+    let f = [serverEbookProgress, localF].compactMap { $0 }.max()
+    guard let f, f > 0.005 else { return nil }
+    let clamped = min(1, max(0, f))
+    if clamped >= 0.995 { return 1.0 }
+    return clamped
+  }
+
+  static func ebookProgressLabel(for fraction: Double?) -> String? {
+    guard let f = fraction, f < 0.995 else { return nil }
+    return "\(Int((f * 100).rounded()))% read"
+  }
+
+  static func ebookOpenPillCaption(for fraction: Double?) -> String {
+    guard let f = fraction else { return "Read" }
+    if f >= 0.995 { return "Finished" }
+    if f > 0.005 { return "Continue reading" }
+    return "Read"
+  }
+
   static func progressMateriallyEqual(_ lhs: ABSUserMediaProgress?, _ rhs: ABSUserMediaProgress?) -> Bool {
     switch (lhs, rhs) {
     case (nil, nil):
@@ -27,21 +51,25 @@ final class LibraryBookRowLiveState: ObservableObject {
   @Published private(set) var isDownloading = false
   @Published private(set) var downloadProgress: Double = 0
   @Published private(set) var isPreparingEbook = false
+  @Published private(set) var ebookProgressFraction: Double?
 
   private let bookId: String
   private let observesProgress: Bool
   private let observesDownload: Bool
+  private let observesEbookProgress: Bool
   private var cancellables = Set<AnyCancellable>()
 
   init(
     bookId: String,
     model: AppModel,
     observesProgress: Bool = true,
-    observesDownload: Bool = true
+    observesDownload: Bool = true,
+    observesEbookProgress: Bool = false
   ) {
     self.bookId = bookId
     self.observesProgress = observesProgress
     self.observesDownload = observesDownload
+    self.observesEbookProgress = observesEbookProgress
     if observesProgress {
       progress = model.progressByItemId[bookId]
     }
@@ -50,6 +78,12 @@ final class LibraryBookRowLiveState: ObservableObject {
       syncDownloadState(model: model)
     }
     isPreparingEbook = model.isPreparingEbook
+    if observesEbookProgress {
+      ebookProgressFraction = LibraryRowLiveState.resolveEbookProgressFraction(
+        libraryItemId: bookId,
+        serverEbookProgress: model.progressByItemId[bookId]?.ebookProgress
+      )
+    }
     bind(model)
   }
 
@@ -88,6 +122,20 @@ final class LibraryBookRowLiveState: ObservableObject {
       .receive(on: RunLoop.main)
       .sink { [weak self] in self?.isPreparingEbook = $0 }
       .store(in: &cancellables)
+
+    if observesEbookProgress {
+      model.$progressByItemId
+        .map { [bookId] dict in
+          LibraryRowLiveState.resolveEbookProgressFraction(
+            libraryItemId: bookId,
+            serverEbookProgress: dict[bookId]?.ebookProgress
+          )
+        }
+        .removeDuplicates()
+        .receive(on: RunLoop.main)
+        .sink { [weak self] in self?.ebookProgressFraction = $0 }
+        .store(in: &cancellables)
+    }
   }
 
   private func syncDownloadState(model: AppModel, activeItemId: String? = nil, progress: Double = 0) {

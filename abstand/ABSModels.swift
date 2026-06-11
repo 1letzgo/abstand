@@ -110,6 +110,10 @@ struct ABSUserMediaProgress: Codable {
   let currentTime: Double
   let isFinished: Bool
   let lastUpdate: Int64?
+  /// E-Book-Lesefortschritt 0…1 (ABS-Web-Reader speichert ihn in derselben Progress-Zeile).
+  let ebookProgress: Double?
+  /// Lesezeichen des Web-Readers (epub.js-CFI) — wird nur durchgereicht, nicht interpretiert.
+  let ebookLocation: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -120,6 +124,8 @@ struct ABSUserMediaProgress: Codable {
     case currentTime
     case isFinished
     case lastUpdate
+    case ebookProgress
+    case ebookLocation
   }
 
   init(from decoder: Decoder) throws {
@@ -130,6 +136,8 @@ struct ABSUserMediaProgress: Codable {
     currentTime = try c.decodeIfPresent(Double.self, forKey: .currentTime) ?? 0
     isFinished = try c.decodeIfPresent(Bool.self, forKey: .isFinished) ?? false
     lastUpdate = try c.decodeIfPresent(Int64.self, forKey: .lastUpdate)
+    ebookProgress = try? c.decodeIfPresent(Double.self, forKey: .ebookProgress)
+    ebookLocation = try? c.decodeIfPresent(String.self, forKey: .ebookLocation)
 
     let explicit = try c.decodeIfPresent(String.self, forKey: .libraryItemId)
     let rawId = try c.decodeIfPresent(String.self, forKey: .id)
@@ -165,6 +173,8 @@ struct ABSUserMediaProgress: Codable {
     try c.encode(currentTime, forKey: .currentTime)
     try c.encode(isFinished, forKey: .isFinished)
     try c.encodeIfPresent(lastUpdate, forKey: .lastUpdate)
+    try c.encodeIfPresent(ebookProgress, forKey: .ebookProgress)
+    try c.encodeIfPresent(ebookLocation, forKey: .ebookLocation)
   }
 
   /// Lokaler/optimistischer Fortschritt (z. B. sofort nach Play-Start für „Continue listening“).
@@ -176,7 +186,9 @@ struct ABSUserMediaProgress: Codable {
     progress: Double,
     currentTime: Double,
     isFinished: Bool,
-    lastUpdate: Int64?
+    lastUpdate: Int64?,
+    ebookProgress: Double? = nil,
+    ebookLocation: String? = nil
   ) {
     self.mediaProgressServerId = mediaProgressServerId
     self.libraryItemId = libraryItemId
@@ -186,6 +198,8 @@ struct ABSUserMediaProgress: Codable {
     self.currentTime = currentTime
     self.isFinished = isFinished
     self.lastUpdate = lastUpdate
+    self.ebookProgress = ebookProgress
+    self.ebookLocation = ebookLocation
   }
 
   /// Schlüssel für `AppModel.progressByItemId` (Episoden: `libraryItemId-episodeId`).
@@ -889,6 +903,7 @@ struct ABSLibraryFile: Decodable {
     let filename: String?
     let ext: String?
     let format: String?
+    let size: Int64?
   }
 
   enum CodingKeys: String, CodingKey {
@@ -1138,6 +1153,79 @@ struct ABSBook: Decodable, Identifiable {
     }
     return false
   }
+
+  /// eBooks-Browse-Listen: reine eBook-Items haben `numTracks: 0` und keine Dauer —
+  /// die Hörbuch-Heuristik von `isUsableLibraryCatalogRow` würde sie verwerfen.
+  var isUsableEbookListRow: Bool {
+    if hasAttachedEbook { return true }
+    return isUsableLibraryCatalogRow
+  }
+
+  /// Autor-Detail: Hörbücher plus reine eBook-Titel (ohne Hörspuren).
+  var isUsableAuthorDetailRow: Bool {
+    if isUsableLibraryCatalogRow || isUsableEbookListRow { return true }
+    guard !isPlayableAudiobook else { return false }
+    if libraryFiles?.contains(where: \.isEbook) == true { return true }
+    let tracks = media.numTracks ?? 0
+    let dur = media.duration ?? 0
+    if tracks == 0, dur <= 0 {
+      return !displayTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    return false
+  }
+
+  /// Buch gehört zu einer Bibliotheks-Serie (für Continue-series eBooks).
+  var belongsToLibrarySeries: Bool {
+    if let arr = media.metadata.series, !arr.isEmpty { return true }
+    let sn = media.metadata.seriesName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return !sn.isEmpty
+  }
+
+  /// Reines eBook ohne Hörbuch-Spuren — in Autor-Detail als eBook-Karte darstellen.
+  var isPureEbookLibraryItem: Bool {
+    guard !isPlayableAudiobook else { return false }
+    if hasAttachedEbook || hasReadableAttachedEbook { return true }
+    if libraryFiles?.contains(where: \.isEbook) == true { return true }
+    if let fmt = media.ebookFormat?.trimmingCharacters(in: .whitespacesAndNewlines), !fmt.isEmpty {
+      return true
+    }
+    let tracks = media.numTracks ?? 0
+    let dur = media.duration ?? 0
+    return tracks == 0 && dur <= 0
+      && !displayTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  /// Autorzeile aus reicherem Stub übernehmen (z. B. Continue-reading ohne Metadaten).
+  func withAuthorLineIfMissing(_ authorLine: String) -> ABSBook {
+    let current = displayAuthorsCardLine.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard current.isEmpty || current == "—" else { return self }
+    let author = authorLine.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !author.isEmpty, author != "—" else { return self }
+    let newMeta: ABSBookMediaMetadata =
+      media.metadata.hasRichMetadata
+      ? ABSBookMediaMetadata(copying: media.metadata, title: displayTitle, authorName: author)
+      : ABSBookMediaMetadata(offlineTitle: displayTitle, authorLine: author)
+    let newMedia = ABSBookMedia(
+      metadata: newMeta,
+      duration: media.duration,
+      size: media.size,
+      numTracks: media.numTracks,
+      chapters: media.chapters,
+      tracks: media.tracks,
+      ebookFile: media.ebookFile,
+      ebookFormat: media.ebookFormat,
+      tags: media.tags
+    )
+    return ABSBook(
+      id: id,
+      libraryId: libraryId,
+      media: newMedia,
+      addedAt: addedAt,
+      updatedAt: updatedAt,
+      mediaId: mediaId,
+      libraryFiles: libraryFiles
+    )
+  }
 }
 
 extension ABSBookMediaMetadata {
@@ -1333,6 +1421,25 @@ extension ABSBook {
       }
     }
     return nil
+  }
+
+  /// Größe der angehängten E-Book-Datei(en) aus `libraryFiles` (supplementär bevorzugt).
+  var attachedEbookLibraryFileByteCount: Int64? {
+    guard let files = libraryFiles else { return nil }
+    let ebookFiles = files.filter(\.isEbook)
+    guard !ebookFiles.isEmpty else { return nil }
+    let supplementary = ebookFiles.filter { $0.isSupplementary == true }
+    let targets = supplementary.isEmpty ? ebookFiles : supplementary
+    let total = targets.compactMap(\.metadata?.size).reduce(Int64(0), +)
+    return total > 0 ? total : nil
+  }
+
+  /// E-Book-Dateigröße: lokal gecacht oder aus expandiertem `libraryFiles` — nie Hörbuch-`media.size`.
+  func resolvedAttachedEbookFileByteCount(account: URL?) -> Int64? {
+    if let local = EbookLocalStore.cachedEbookFileByteCount(account: account, libraryItemId: id) {
+      return local
+    }
+    return attachedEbookLibraryFileByteCount
   }
 }
 
@@ -2986,13 +3093,15 @@ struct ABSPodcastMediaAutoDownloadPatch: Encodable {
 }
 
 struct ABSProgressPatch: Encodable {
-  var currentTime: Double?
-  var duration: Double?
-  var progress: Double?
-  var isFinished: Bool?
+  var currentTime: Double? = nil
+  var duration: Double? = nil
+  var progress: Double? = nil
+  var isFinished: Bool? = nil
+  /// E-Book-Lesefortschritt 0…1 — eigene Spalte in der Progress-Zeile, unabhängig vom Hör-Fortschritt.
+  var ebookProgress: Double? = nil
 
   enum CodingKeys: String, CodingKey {
-    case currentTime, duration, progress, isFinished
+    case currentTime, duration, progress, isFinished, ebookProgress
   }
 
   func encode(to encoder: Encoder) throws {
@@ -3001,6 +3110,7 @@ struct ABSProgressPatch: Encodable {
     try c.encodeIfPresent(duration, forKey: .duration)
     try c.encodeIfPresent(progress, forKey: .progress)
     try c.encodeIfPresent(isFinished, forKey: .isFinished)
+    try c.encodeIfPresent(ebookProgress, forKey: .ebookProgress)
   }
 }
 

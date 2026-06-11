@@ -324,6 +324,12 @@ enum EbookLocalStore {
     return nil
   }
 
+  static func cachedEbookFileByteCount(account: URL?, libraryItemId: String) -> Int64? {
+    guard let cached = cachedEbookIfPresent(account: account, libraryItemId: libraryItemId) else { return nil }
+    let values = try? cached.url.resourceValues(forKeys: [.fileSizeKey])
+    return values?.fileSize.map(Int64.init)
+  }
+
   static func saveDownloadMeta(account: URL, meta: EbookDownloadMeta) throws {
     try ensureAccountDirs(account: account)
     let data = try ABSJSON.encoder().encode(meta)
@@ -352,14 +358,16 @@ enum EbookLocalStore {
     return try? Locator(jsonString: json)
   }
 
+  /// Seitengenauer Readium-Stand (lokal); Server bekommt parallel nur `ebookProgress`-Prozent.
   static func saveReadiumLocator(_ locator: Locator, libraryItemId: String, format: ABSEbookFormat) {
-    guard let session = requireSession(),
-      let json = try? locator.jsonString(),
-      let data = json.data(using: .utf8)
-    else { return }
+    guard let session = requireSession() else { return }
+    let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !id.isEmpty else { return }
+    if let finished = loadProgressFraction(libraryItemId: id), finished >= 0.995 { return }
+    guard let json = try? locator.jsonString() else { return }
     let url = locatorFileURL(
-      account: session.account, userId: session.userId, libraryItemId: libraryItemId, format: format)
-    try? data.write(to: url, options: .atomic)
+      account: session.account, userId: session.userId, libraryItemId: id, format: format)
+    try? json.data(using: .utf8)?.write(to: url, options: .atomic)
   }
 
   static func clearReadiumLocator(libraryItemId: String, format: ABSEbookFormat) {
@@ -370,16 +378,20 @@ enum EbookLocalStore {
     clearPageProgress(libraryItemId: libraryItemId, format: format)
   }
 
+  /// Buchweite Seiten (EPUB, gerendert) — für Listen-Metadaten und Resume-Hilfe.
   static func savePageProgress(
     current: Int, total: Int, libraryItemId: String, format: ABSEbookFormat
   ) {
     guard let session = requireSession() else { return }
-    let totalClamped = max(1, total)
-    let currentClamped = min(totalClamped, max(1, current))
-    let payload: [String: Int] = ["current": currentClamped, "total": totalClamped]
+    let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !id.isEmpty, total > 0 else { return }
+    let payload: [String: Int] = [
+      "current": min(total, max(1, current)),
+      "total": total,
+    ]
     guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
     let url = pageProgressFileURL(
-      account: session.account, userId: session.userId, libraryItemId: libraryItemId, format: format)
+      account: session.account, userId: session.userId, libraryItemId: id, format: format)
     try? data.write(to: url, options: .atomic)
   }
 
@@ -402,38 +414,53 @@ enum EbookLocalStore {
     try? fm.removeItem(at: url)
   }
 
-  /// Lesefortschritt 0…1, nil wenn kein Locator oder noch am Anfang.
-  static func readProgressFraction(libraryItemId: String, format: ABSEbookFormat) -> Double? {
-    guard let locator = loadReadiumLocator(libraryItemId: libraryItemId, format: format) else { return nil }
-    let f = ReadiumReaderProgressInfo.fraction(from: locator)
-    guard f.isFinite, f > 0.005 else { return nil }
+  private static func progressFractionFileURL(
+    account: URL, userId: String, libraryItemId: String
+  ) -> URL {
+    readingProgressDir(account: account, userId: userId)
+      .appendingPathComponent("\(libraryItemId).ebook_fraction.json", isDirectory: false)
+  }
+
+  /// On-Device-Hilfs-Fortschritt (0…1) — ergänzt Server-`ebookProgress`, kein Readium-Locator.
+  static func saveProgressFraction(_ fraction: Double, libraryItemId: String) {
+    guard let session = requireSession() else { return }
+    let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !id.isEmpty else { return }
+    let incoming = min(1, max(0, fraction))
+    if let existing = loadProgressFraction(libraryItemId: id), existing >= 0.995, incoming < 0.995 {
+      return
+    }
+    let f = incoming
+    let payload: [String: Double] = [
+      "fraction": f,
+      "updatedAt": Date().timeIntervalSince1970 * 1000,
+    ]
+    guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+    let url = progressFractionFileURL(
+      account: session.account, userId: session.userId, libraryItemId: id)
+    try? data.write(to: url, options: .atomic)
+  }
+
+  static func loadProgressFraction(libraryItemId: String) -> Double? {
+    guard let session = requireSession() else { return nil }
+    let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !id.isEmpty else { return nil }
+    let url = progressFractionFileURL(
+      account: session.account, userId: session.userId, libraryItemId: id)
+    guard let data = try? Data(contentsOf: url),
+      let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Double],
+      let f = dict["fraction"], f.isFinite, f > 0.001
+    else { return nil }
     return min(1, max(0, f))
   }
 
-  static func isInProgressReading(libraryItemId: String, format: ABSEbookFormat) -> Bool {
-    guard let f = readProgressFraction(libraryItemId: libraryItemId, format: format) else { return false }
-    return f < 0.995
-  }
-
-  /// Alle lokal gespeicherten, nicht abgeschlossenen Lesezeichen des aktiven Users.
-  static func inProgressReadingRefs() -> [(libraryItemId: String, format: ABSEbookFormat)] {
-    guard let session = requireSession() else { return [] }
-    let dir = readingProgressDir(account: session.account, userId: session.userId)
-    let urls = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-    var refs: [(String, ABSEbookFormat)] = []
-    var seen = Set<String>()
-    for url in urls where url.lastPathComponent.hasSuffix(".locator.json") {
-      let name = url.lastPathComponent.replacingOccurrences(of: ".locator.json", with: "")
-      let stem = name
-      guard let dot = stem.lastIndex(of: ".") else { continue }
-      let itemId = String(stem[..<dot])
-      let ext = String(stem[stem.index(after: dot)...])
-      guard let fmt = ABSEbookFormat(rawValue: ext), !itemId.isEmpty else { continue }
-      let key = "\(itemId)|\(fmt.rawValue)"
-      guard seen.insert(key).inserted, isInProgressReading(libraryItemId: itemId, format: fmt) else { continue }
-      refs.append((itemId, fmt))
-    }
-    return refs
+  static func clearProgressFraction(libraryItemId: String) {
+    guard let session = requireSession() else { return }
+    let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !id.isEmpty else { return }
+    let url = progressFractionFileURL(
+      account: session.account, userId: session.userId, libraryItemId: id)
+    try? fm.removeItem(at: url)
   }
 }
 
@@ -455,65 +482,3 @@ struct EbookPageDisplayInfo {
   }
 }
 
-extension ABSBook {
-  private func primaryEbookFormatForProgress() -> ABSEbookFormat? {
-    if let ef = readableAttachedEbook?.format { return ef }
-    if let fmt = attachedEbookFormats.first { return fmt }
-    return EbookLocalStore.knownFormat(libraryItemId: id)
-  }
-
-  /// Gespeicherte Seitenzahl (nach Lesen im Reader); nil wenn noch keine Paginierung bekannt.
-  func ebookPageDisplayInfo() -> EbookPageDisplayInfo? {
-    var formats = attachedEbookFormats
-    if let known = EbookLocalStore.knownFormat(libraryItemId: id) { formats.insert(known) }
-    if formats.isEmpty, let primary = primaryEbookFormatForProgress() { formats.insert(primary) }
-
-    for fmt in formats {
-      guard let saved = EbookLocalStore.loadPageProgress(libraryItemId: id, format: fmt) else { continue }
-      let inProgress = EbookLocalStore.isInProgressReading(libraryItemId: id, format: fmt)
-      let current: Int? = inProgress ? saved.current : nil
-      return EbookPageDisplayInfo(current: current, total: saved.total)
-    }
-    return nil
-  }
-  /// Lokaler Readium-Fortschritt (0…1), nil wenn noch nicht begonnen.
-  func ebookReadProgressFraction() -> Double? {
-    if let ef = readableAttachedEbook?.format,
-      let f = EbookLocalStore.readProgressFraction(libraryItemId: id, format: ef)
-    {
-      return f
-    }
-    for fmt in attachedEbookFormats {
-      if let f = EbookLocalStore.readProgressFraction(libraryItemId: id, format: fmt) { return f }
-    }
-    if let known = EbookLocalStore.knownFormat(libraryItemId: id),
-      let f = EbookLocalStore.readProgressFraction(libraryItemId: id, format: known)
-    {
-      return f
-    }
-    return nil
-  }
-
-  /// Für Home-Regal „Continue reading“: angefangen, aber nicht abgeschlossen.
-  var isEbookContinueReadingCandidate: Bool {
-    var formats = attachedEbookFormats
-    if let known = EbookLocalStore.knownFormat(libraryItemId: id) { formats.insert(known) }
-    for fmt in formats where EbookLocalStore.isInProgressReading(libraryItemId: id, format: fmt) {
-      return true
-    }
-    for fmt in ABSEbookFormat.allCases where EbookLocalStore.isInProgressReading(libraryItemId: id, format: fmt) {
-      return true
-    }
-    return false
-  }
-
-  var ebookOpenPillCaption: String {
-    if let f = ebookReadProgressFraction(), f >= 0.99 {
-      return "Finished"
-    }
-    if let f = ebookReadProgressFraction(), f > 0.02 {
-      return "Continue reading"
-    }
-    return "Read"
-  }
-}

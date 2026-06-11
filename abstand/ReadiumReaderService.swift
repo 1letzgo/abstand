@@ -41,7 +41,9 @@ final class ReadiumReaderService {
   func makeReader(
     localFileURL: URL,
     libraryItemId: String,
-    format: ABSEbookFormat
+    format: ABSEbookFormat,
+    resumeLocator: Locator? = nil,
+    resumeProgression: Double? = nil
   ) async throws -> UIViewController {
     guard let absolute = FileURL(url: localFileURL) else {
       throw ReadiumReaderError.invalidFileURL
@@ -59,9 +61,14 @@ final class ReadiumReaderService {
       throw ReadiumReaderError.openFailed(err.localizedDescription)
     }
 
-    let locator = EbookLocalStore.loadReadiumLocator(libraryItemId: libraryItemId, format: format)
-    let positionCount = try? await publication.positions().get().count
-    ReadiumReaderDelegate.shared.setPositionCount(positionCount)
+    let positions = try? await publication.positions().get()
+    ReadiumReaderDelegate.shared.setPositionCount(positions?.count)
+    let locator = await resolveInitialLocator(
+      publication: publication,
+      positions: positions ?? [],
+      resumeLocator: resumeLocator,
+      resumeProgression: resumeProgression
+    )
 
     if publication.conforms(to: .epub) {
       return try makeEPUBNavigator(publication: publication, locator: locator)
@@ -238,23 +245,11 @@ final class ReadiumReaderService {
     locator: Locator, format: ABSEbookFormat, bookPages: BookPageProgress?
   ) {
     guard let libraryItemId = ReadiumReaderDelegate.shared.resolvedLibraryItemId else { return }
+    EbookLocalStore.saveReadiumLocator(locator, libraryItemId: libraryItemId, format: format)
     if let bookPages {
       EbookLocalStore.savePageProgress(
         current: bookPages.current,
         total: bookPages.total,
-        libraryItemId: libraryItemId,
-        format: format
-      )
-      return
-    }
-    if format == .pdf,
-      let position = locator.locations.position,
-      let total = ReadiumReaderDelegate.shared.positionCountForDisplay,
-      total > 0
-    {
-      EbookLocalStore.savePageProgress(
-        current: position,
-        total: total,
         libraryItemId: libraryItemId,
         format: format
       )
@@ -268,25 +263,60 @@ final class ReadiumReaderService {
     libraryItemId: String,
     format: ABSEbookFormat
   ) async {
-    EbookLocalStore.clearReadiumLocator(libraryItemId: libraryItemId, format: format)
+    _ = libraryItemId
+    _ = format
     guard let locator = await startLocator(for: navigator.publication) else { return }
     _ = await navigator.go(to: locator)
     await publishProgressAfterNavigation(navigator: navigator, format: format)
   }
 
+  /// Start-Locator: zuerst gespeicherter Readium-Stand, sonst Server-/Hilfs-Prozent.
+  private func resolveInitialLocator(
+    publication: Publication,
+    positions: [Locator],
+    resumeLocator: Locator?,
+    resumeProgression: Double?
+  ) async -> Locator? {
+    if let saved = resumeLocator {
+      if let located = await publication.locate(saved) {
+        return located
+      }
+      return saved
+    }
+    guard let raw = resumeProgression, raw > 0.005, raw < 0.995 else { return nil }
+    let fraction = min(1, max(0, raw))
+    if let located = await publication.locate(progression: fraction) {
+      return located
+    }
+    guard positions.count > 1 else { return positions.first }
+    let index = min(positions.count - 1, max(0, Int((fraction * Double(positions.count - 1)).rounded())))
+    return positions[index]
+  }
+
   /// Springt zu einer Stelle im Buch (0…1 Gesamtfortschritt), z. B. per Fortschritts-Slider.
   @MainActor
+  @discardableResult
   func seekToProgression(
     navigator: Navigator,
     libraryItemId: String,
     format: ABSEbookFormat,
-    progression: Double
-  ) async {
+    progression: Double,
+    maxAttempts: Int = 6
+  ) async -> Bool {
     let fraction = min(1, max(0, progression))
-    guard let locator = await navigator.publication.locate(progression: fraction) else { return }
-    _ = await navigator.go(to: locator)
-    EbookLocalStore.saveReadiumLocator(locator, libraryItemId: libraryItemId, format: format)
-    await publishProgressAfterNavigation(navigator: navigator, format: format)
+    _ = libraryItemId
+    for attempt in 0 ..< maxAttempts {
+      if let locator = await navigator.publication.locate(progression: fraction) {
+        if await navigator.go(to: locator) {
+          await publishProgressAfterNavigation(navigator: navigator, format: format)
+          return true
+        }
+      }
+      if attempt < maxAttempts - 1 {
+        try? await Task.sleep(nanoseconds: UInt64(100_000_000 + attempt * 100_000_000))
+      }
+    }
+    return false
   }
 
   private func publishProgressAfterNavigation(navigator: Navigator, format: ABSEbookFormat) async {
@@ -395,8 +425,14 @@ final class ReadiumReaderDelegate: NSObject, EPUBNavigatorDelegate, PDFNavigator
   }
 
   func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
-    guard let libraryItemId, let format else { return }
-    EbookLocalStore.saveReadiumLocator(locator, libraryItemId: libraryItemId, format: format)
+    guard let format else { return }
+    if let libraryItemId {
+      let fraction = ReadiumReaderProgressInfo.fraction(from: locator)
+      if fraction > 0.001 {
+        EbookLocalStore.saveProgressFraction(fraction, libraryItemId: libraryItemId)
+      }
+      EbookLocalStore.saveReadiumLocator(locator, libraryItemId: libraryItemId, format: format)
+    }
     if format == .epub, let epub = navigator as? EPUBNavigatorViewController {
       Task {
         await ReadiumReaderService.shared.publishProgressUpdate(

@@ -7,8 +7,11 @@ import UIKit
 struct PlayerTranscriptWordLookupSelection: Identifiable, Equatable {
   let word: PlayerTranscriptWord
   let term: String
+  /// Beim Tippen eingefroren — bleibt gültig, auch wenn die Transkription stoppt.
+  let sourceLocale: Locale?
 
-  var id: String { word.id }
+  /// Zeitanker statt volatiler Wort-IDs aus dem Live-Transkript.
+  var id: String { "\(term)|\(word.globalStart)" }
 }
 
 enum PlayerTranscriptWordLookup {
@@ -60,6 +63,9 @@ struct PlayerTranscriptWordLookupSheet: View {
   @State private var translatedText: String?
   @State private var translationError: String?
   @State private var isTranslating = false
+  /// Sprachpaket fehlt — Download nur auf expliziten Nutzer-Tap (nie automatisch).
+  @State private var needsLanguageDownload = false
+  @State private var languageDownloadApproved = false
 
   init(
     selection: PlayerTranscriptWordLookupSelection,
@@ -105,7 +111,17 @@ struct PlayerTranscriptWordLookupSheet: View {
         }
         .task(id: selection.id) {
           dictionaryAvailable = PlayerTranscriptWordLookup.hasDictionaryDefinition(for: selection.term)
+          // Sheet-Einblendung abwarten: startet die Translation-Session während der
+          // Präsentations-Transition, crasht UIKit beim Andocken des Remote-Sheets
+          // (`_tryToConnectToRemoteSheet:` → unrecognized selector).
+          try? await Task.sleep(for: .milliseconds(650))
+          guard !Task.isCancelled else { return }
           requestTranslationIfNeeded()
+        }
+        .onDisappear {
+          // Laufende Übersetzung abbrechen — Session nach Sheet-Schließen nicht mehr anfassen.
+          translationRequestGeneration += 1
+          isTranslating = false
         }
     }
     .sheet(isPresented: $showDictionary) {
@@ -150,6 +166,27 @@ struct PlayerTranscriptWordLookupSheet: View {
           title: String(localized: "Translation", comment: "Teleprompter word lookup result label"),
           body: translatedText
         )
+      }
+
+      if needsLanguageDownload {
+        lookupActionButton(
+          icon: "arrow.down.circle",
+          title: String(
+            localized: "Download translation language",
+            comment: "Teleprompter word lookup download button"
+          )
+        ) {
+          languageDownloadApproved = true
+          requestTranslationIfNeeded()
+        }
+        Text(
+          String(
+            localized: "The language pack for this pair is not installed yet.",
+            comment: "Teleprompter word lookup download hint"
+          )
+        )
+        .font(.caption)
+        .foregroundStyle(AppTheme.textSecondary)
       }
 
       if let translationError {
@@ -222,6 +259,7 @@ struct PlayerTranscriptWordLookupSheet: View {
         .pickerStyle(.menu)
         .labelsHidden()
         .tint(model.appearanceAccentColor)
+        .disabled(isTranslating)
       }
       .padding(.horizontal, 14)
       .padding(.vertical, 12)
@@ -235,6 +273,8 @@ struct PlayerTranscriptWordLookupSheet: View {
         if model.translationTargetLanguageCode != normalized {
           model.translationTargetLanguageCode = normalized
         }
+        // Neues Sprachpaar — Download wieder nur nach explizitem Tap.
+        languageDownloadApproved = false
         requestTranslationIfNeeded()
       }
     }
@@ -261,46 +301,85 @@ struct PlayerTranscriptWordLookupSheet: View {
       translatedText = nil
       translationError = nil
       isTranslating = false
-      translationConfiguration = nil
       return
     }
+    let term = selection.term.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !term.isEmpty else {
+      translatedText = nil
+      translationError = nil
+      isTranslating = false
+      return
+    }
+
     translatedText = nil
     translationError = nil
+    needsLanguageDownload = false
     isTranslating = true
     translationRequestGeneration += 1
-    translationConfiguration = TranslationSession.Configuration(
-      source: sourceLanguage,
-      target: targetLanguage
-    )
+    scheduleTranslationSessionRequest()
+  }
+
+  /// Bestehende Config mutieren / `invalidate()` — kein `nil` setzen (Re-Entrancy/fatalError).
+  @MainActor
+  private func scheduleTranslationSessionRequest() {
+    let source = sourceLanguage
+    let target = targetLanguage
+
+    if var config = translationConfiguration {
+      let languagesChanged = config.source != source || config.target != target
+      if languagesChanged {
+        config.source = source
+        config.target = target
+        translationConfiguration = config
+      } else {
+        config.invalidate()
+        translationConfiguration = config
+      }
+    } else {
+      translationConfiguration = TranslationSession.Configuration(
+        source: source,
+        target: target
+      )
+    }
   }
 
   @MainActor
   private func runTranslation(using session: TranslationSession) async {
-    guard translationConfiguration != nil else {
-      isTranslating = false
+    let generation = translationRequestGeneration
+    let term = selection.term.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !term.isEmpty else {
+      if translationRequestIsCurrent(generation) { isTranslating = false }
       return
     }
-    let generation = translationRequestGeneration
 
     do {
       let pairingStatus = try await translationPairingStatus()
-      guard generation == translationRequestGeneration else { return }
+      guard translationRequestIsCurrent(generation) else { return }
 
       switch pairingStatus {
       case .installed:
         break
       case .supported:
+        // Download-Dialog (Remote-Sheet) nur nach explizitem Nutzer-Tap präsentieren —
+        // automatisch während/kurz nach der Sheet-Transition crasht UIKit.
+        guard languageDownloadApproved else {
+          translatedText = nil
+          translationError = nil
+          isTranslating = false
+          needsLanguageDownload = true
+          return
+        }
         do {
           try await session.prepareTranslation()
         } catch {
-          guard generation == translationRequestGeneration else { return }
+          guard translationRequestIsCurrent(generation) else { return }
           applyTranslationFailure(
             generation: generation,
             message: translationErrorMessage(for: error)
           )
           return
         }
-        guard generation == translationRequestGeneration else { return }
+        guard translationRequestIsCurrent(generation) else { return }
       case .unsupported:
         applyTranslationFailure(
           generation: generation,
@@ -322,15 +401,24 @@ struct PlayerTranscriptWordLookupSheet: View {
         return
       }
 
-      let response = try await session.translate(selection.term)
-      guard generation == translationRequestGeneration else { return }
+      guard translationRequestIsCurrent(generation) else { return }
+      let response = try await session.translate(term)
+      guard translationRequestIsCurrent(generation) else { return }
       translatedText = response.targetText
       translationError = nil
       isTranslating = false
     } catch {
-      guard generation == translationRequestGeneration else { return }
+      guard translationRequestIsCurrent(generation) else { return }
+      if Task.isCancelled || error is CancellationError {
+        isTranslating = false
+        return
+      }
       applyTranslationFailure(generation: generation, message: translationErrorMessage(for: error))
     }
+  }
+
+  private func translationRequestIsCurrent(_ generation: Int) -> Bool {
+    !Task.isCancelled && generation == translationRequestGeneration
   }
 
   private func translationPairingStatus() async throws -> LanguageAvailability.Status {
@@ -343,15 +431,10 @@ struct PlayerTranscriptWordLookupSheet: View {
 
   @MainActor
   private func applyTranslationFailure(generation: Int, message: String) {
-    guard generation == translationRequestGeneration else { return }
+    guard translationRequestIsCurrent(generation) else { return }
     translatedText = nil
-    translationError = message
+    translationError = message.isEmpty ? nil : message
     isTranslating = false
-    // Konfiguration nicht im translationTask-Closure nil setzen — verzögert, sonst Re-Entrancy-Crash.
-    Task { @MainActor in
-      guard generation == translationRequestGeneration else { return }
-      translationConfiguration = nil
-    }
   }
 
   private func translationErrorMessage(for error: Error) -> String {

@@ -10,6 +10,8 @@ struct EbookReaderPresentation: Identifiable {
   let libraryItemId: String
   let localFileURL: URL
   let format: ABSEbookFormat
+  /// Server-Lesefortschritt (0…1) als Startposition, wenn lokal kein Lesezeichen existiert.
+  var serverResumeProgression: Double? = nil
 }
 
 struct ReadiumReaderView: View {
@@ -18,6 +20,9 @@ struct ReadiumReaderView: View {
   let libraryItemId: String
   let localFileURL: URL
   let format: ABSEbookFormat
+  /// Server-Lesefortschritt als Startposition (nur gesetzt, wenn lokal kein Lesezeichen existiert).
+  var serverResumeProgression: Double? = nil
+  @EnvironmentObject private var model: AppModel
   @Environment(\.dismiss) private var dismiss
   @Environment(\.themeAccent) private var themeAccent
   @State private var readerTheme = EpubReaderSettings.loadTheme()
@@ -34,8 +39,11 @@ struct ReadiumReaderView: View {
   @State private var bookPageProgress: BookPageProgress?
   @State private var readerActionInProgress = false
   @State private var confirmResetReadingPosition = false
+  @State private var confirmMarkAsFinished = false
   @State private var isScrubbingProgress = false
   @State private var scrubProgress: Double = 0
+  /// Verhindert Sync mit Anfangs-Locator, bevor Server-Resume oder gespeicherte Position gilt.
+  @State private var isInitialReaderLoad = true
 
   private var chromeColorScheme: ColorScheme {
     readerTheme == .dark ? .dark : .light
@@ -88,10 +96,14 @@ struct ReadiumReaderView: View {
       }
     }
     .onReceive(NotificationCenter.default.publisher(for: .readiumReaderProgressDidChange)) { note in
-      guard !isScrubbingProgress else { return }
+      guard !isScrubbingProgress, !isInitialReaderLoad else { return }
       guard let locator = note.userInfo?[ReadiumReaderProgressInfo.locatorKey] as? Locator else { return }
       let pages = note.userInfo?[ReadiumReaderProgressInfo.bookPageProgressKey] as? BookPageProgress
       applyProgress(from: locator, bookPages: pages)
+      model.scheduleEbookProgressSync(
+        libraryItemId: libraryItemId,
+        fraction: ReadiumReaderProgressInfo.fraction(from: locator)
+      )
     }
     .task(id: localFileURL.path) {
       fontSize = EpubReaderSettings.loadFontSize()
@@ -106,6 +118,18 @@ struct ReadiumReaderView: View {
     } message: {
       Text("This removes your saved position for this book. You cannot undo this.")
     }
+    .alert("Mark as finished?", isPresented: $confirmMarkAsFinished) {
+      Button("Cancel", role: .cancel) {}
+      Button("Mark as finished") {
+        Task { await markAsFinishedReading() }
+      }
+    } message: {
+      Text("Your reading progress will be saved as complete.")
+    }
+  }
+
+  private var isEbookMarkedFinished: Bool {
+    (model.ebookDisplayProgressFraction(libraryItemId: libraryItemId) ?? 0) >= 0.995
   }
 
   private var readerChromeOverlay: some View {
@@ -208,6 +232,18 @@ struct ReadiumReaderView: View {
           }
           .accessibilityLabel("Reading theme")
           .accessibilityValue(readerTheme.rawValue.capitalized)
+
+          Button {
+            confirmMarkAsFinished = true
+          } label: {
+            Image(systemName: isEbookMarkedFinished ? "checkmark.circle.fill" : "checkmark.circle")
+              .font(.body)
+              .frame(width: 36, height: 36)
+          }
+          .disabled(readerActionInProgress || isEbookMarkedFinished)
+          .accessibilityLabel(
+            isEbookMarkedFinished ? "Finished reading" : "Mark as finished"
+          )
 
           Button {
             confirmResetReadingPosition = true
@@ -322,27 +358,68 @@ struct ReadiumReaderView: View {
     guard let navigator: Navigator = epubNavigator ?? pdfNavigator else { return }
     readerActionInProgress = true
     defer { readerActionInProgress = false }
+    await model.resetEbookReadingProgress(libraryItemId: libraryItemId, format: format)
     await ReadiumReaderService.shared.resetReadingPosition(
       navigator: navigator,
       libraryItemId: libraryItemId,
       format: format
     )
+    readProgress = 0
+    readProgressLabel = "0 %"
+    bookPageProgress = nil
+  }
+
+  @MainActor
+  private func markAsFinishedReading() async {
+    readerActionInProgress = true
+    defer { readerActionInProgress = false }
+    await model.markEbookAsFinished(libraryItemId: libraryItemId, format: format)
   }
 
   @MainActor
   private func loadNavigator() async {
     isLoading = true
+    isInitialReaderLoad = true
     loadError = nil
     ReadiumReaderDelegate.shared.configure(libraryItemId: libraryItemId, format: format)
+    let savedLocator = model.ebookResumeLocatorForReader(
+      libraryItemId: libraryItemId, format: format)
+    let resumeTarget =
+      savedLocator == nil
+      ? (serverResumeProgression
+        ?? model.ebookResumeProgressionForReader(libraryItemId: libraryItemId))
+      : nil
+    defer { isInitialReaderLoad = false }
     do {
       let vc = try await ReadiumReaderService.shared.makeReader(
         localFileURL: localFileURL,
         libraryItemId: libraryItemId,
-        format: format
+        format: format,
+        resumeLocator: savedLocator,
+        resumeProgression: resumeTarget
       )
       navigatorController = vc
       epubNavigator = vc as? EPUBNavigatorViewController
       pdfNavigator = vc as? PDFNavigatorViewController
+      // Ohne gespeicherten Locator: EPUB-WebView oft erst nach Layout bereit — ggf. erneut springen.
+      if savedLocator == nil, let target = resumeTarget, format == .epub, let epub = epubNavigator {
+        let atStart = (epub.currentLocation.map { ReadiumReaderProgressInfo.fraction(from: $0) } ?? 0) < target * 0.5
+        if atStart {
+          _ = await ReadiumReaderService.shared.seekToProgression(
+            navigator: epub,
+            libraryItemId: libraryItemId,
+            format: format,
+            progression: target
+          )
+        }
+      } else if savedLocator == nil, let target = resumeTarget, pdfNavigator != nil {
+        _ = await ReadiumReaderService.shared.seekToProgression(
+          navigator: pdfNavigator!,
+          libraryItemId: libraryItemId,
+          format: format,
+          progression: target
+        )
+      }
       if format == .epub, let epub = epubNavigator {
         if let current = epub.currentLocation {
           applyProgress(from: current)
@@ -350,10 +427,6 @@ struct ReadiumReaderView: View {
         await ReadiumReaderService.shared.refreshEpubProgressDisplay(epub: epub)
       } else if let current = pdfNavigator?.currentLocation {
         applyProgress(from: current)
-      } else if let cached = EbookLocalStore.loadReadiumLocator(
-        libraryItemId: libraryItemId, format: format)
-      {
-        applyProgress(from: cached)
       }
       isLoading = false
     } catch {

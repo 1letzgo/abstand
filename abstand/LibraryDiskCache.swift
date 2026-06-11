@@ -106,6 +106,20 @@ enum LibraryDiskCache {
     return try? Data(contentsOf: u)
   }
 
+  /// `GET /api/me/items-in-progress` — Continue listening / Continue reading auf Home.
+  static func saveItemsInProgress(account: URL, libraryId: String, data: Data) throws {
+    let dir = account.appendingPathComponent("itemsInProgress", isDirectory: true)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    try data.write(to: dir.appendingPathComponent("\(libraryId).json"), options: .atomic)
+  }
+
+  static func loadItemsInProgress(account: URL, libraryId: String) -> Data? {
+    let u = account.appendingPathComponent("itemsInProgress", isDirectory: true)
+      .appendingPathComponent("\(libraryId).json")
+    guard fm.fileExists(atPath: u.path) else { return nil }
+    return try? Data(contentsOf: u)
+  }
+
   static func saveFilterData(account: URL, libraryId: String, data: Data) throws {
     let dir = account.appendingPathComponent("filterdata", isDirectory: true)
     try fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -455,7 +469,7 @@ enum LibraryDiskCache {
       guard let data = try? Data(contentsOf: url) else { continue }
       guard let page = try? decoder.decode(ABSPage<ABSBook>.self, from: data) else { continue }
       total = page.total
-      all.append(contentsOf: page.results.filter(\.isUsableLibraryCatalogRow))
+      all.append(contentsOf: page.results.filter(\.isUsableEbookListRow))
     }
     let supURL = dir.appendingPathComponent("supplementary.json")
     if fm.fileExists(atPath: supURL.path),
@@ -463,12 +477,53 @@ enum LibraryDiskCache {
       let spage = try? decoder.decode(ABSPage<ABSBook>.self, from: sdata)
     {
       var seen = Set(all.map(\.id))
-      for book in spage.results.filter(\.isUsableLibraryCatalogRow) where seen.insert(book.id).inserted {
+      for book in spage.results.filter(\.isUsableEbookListRow) where seen.insert(book.id).inserted {
         all.append(book)
       }
     }
     guard !all.isEmpty else { return nil }
     return (all, total, sorted.count)
+  }
+
+  /// eBooks-Browse-Sektion: primäre eBooks (paginiert) und supplementäre getrennt zurückgeben.
+  static func loadBrowseEbooksSplit(
+    account: URL,
+    libraryId: String,
+    sort: String,
+    descending: Bool,
+    decoder: JSONDecoder
+  ) -> (ebooks: [ABSBook], supplementary: [ABSBook], total: Int, nextPage: Int)? {
+    let dir = browseEbooksSlugURL(account: account, libraryId: libraryId, sort: sort, descending: descending)
+    guard fm.fileExists(atPath: dir.path) else { return nil }
+    let files = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+    let pageFiles = files.filter { $0.pathExtension == "json" && $0.lastPathComponent.hasPrefix("page_") }
+
+    func pageIndex(_ url: URL) -> Int {
+      let base = url.deletingPathExtension().lastPathComponent
+      let parts = base.split(separator: "_")
+      return Int(parts.last ?? "0") ?? 0
+    }
+    let sorted = pageFiles.sorted { pageIndex($0) < pageIndex($1) }
+
+    var ebooks: [ABSBook] = []
+    var total = 0
+    for url in sorted {
+      guard let data = try? Data(contentsOf: url) else { continue }
+      guard let page = try? decoder.decode(ABSPage<ABSBook>.self, from: data) else { continue }
+      total = page.total
+      ebooks.append(contentsOf: page.results.filter(\.isUsableEbookListRow))
+    }
+    var supplementary: [ABSBook] = []
+    let supURL = dir.appendingPathComponent("supplementary.json")
+    if fm.fileExists(atPath: supURL.path),
+      let sdata = try? Data(contentsOf: supURL),
+      let spage = try? decoder.decode(ABSPage<ABSBook>.self, from: sdata)
+    {
+      // Nur ergänzende eBooks zu Hörbüchern — reine eBook-Items gehören in die primäre Liste.
+      supplementary = spage.results.filter(\.isPlayableAudiobook)
+    }
+    guard !ebooks.isEmpty || !supplementary.isEmpty else { return nil }
+    return (ebooks, supplementary, total, sorted.count)
   }
 
   private static func browseCollectionsURL(account: URL, libraryId: String) -> URL {

@@ -4,6 +4,7 @@ import SwiftUI
 /// Equatable: kein Re-Render bei unrelated `AppModel`-Updates (verhindert Menü-Flackern).
 struct BooksCatalogFilterToolbarMenu: View, Equatable {
   @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   var isActive: Bool
   var libraryCatalogQuickFilter: LibraryCatalogQuickFilter?
   var isAllFilterActive: Bool
@@ -17,7 +18,8 @@ struct BooksCatalogFilterToolbarMenu: View, Equatable {
   }
 
   var body: some View {
-    Menu {
+    let _ = themeRevision
+    return Menu {
       filterRow(title: "All", systemImage: "line.3.horizontal.decrease.circle", isSelected: isAllFilterActive) {
         onClear()
       }
@@ -28,7 +30,6 @@ struct BooksCatalogFilterToolbarMenu: View, Equatable {
 
       Divider()
 
-      filterButton(.ebook)
       filterButton(.downloaded)
     } label: {
       Image(

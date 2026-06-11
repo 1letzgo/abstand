@@ -59,6 +59,34 @@ enum LibraryBookCardStyle: String, CaseIterable, Identifiable, Hashable {
   }
 }
 
+/// Darstellung im eBooks-Tab (eBooks + Supplementary): kompakte Zeile oder Cover-Karte.
+enum LibraryEbookCardStyle: String, CaseIterable, Identifiable, Hashable {
+  case compact
+  case heroCover
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .compact: "Compact row"
+    case .heroCover: "Cover card"
+    }
+  }
+
+  private static let storageKey = "abstand_ebooks_tab_card_style"
+
+  static func load(from defaults: UserDefaults = .standard) -> LibraryEbookCardStyle {
+    guard let raw = defaults.string(forKey: storageKey),
+      let style = LibraryEbookCardStyle(rawValue: raw)
+    else { return .compact }
+    return style
+  }
+
+  func persist(to defaults: UserDefaults = .standard) {
+    defaults.set(rawValue, forKey: Self.storageKey)
+  }
+}
+
 /// Darstellung von Podcast-Episoden in Library und Downloads.
 enum LibraryPodcastCardStyle: String, CaseIterable, Identifiable, Hashable {
   case compact
@@ -176,6 +204,8 @@ struct AppColorPalette: Equatable {
   let heroCardShadow: Color
   /// Schatten für Listen- und Gruppen-Karten.
   let cardShadow: Color
+  /// Play-/Read-Badge auf Cover-Thumbnails (Library-Zeilen).
+  let coverPlayBadgeBackground: Color
 
   static func palette(
     for mode: AppearanceMode,
@@ -223,7 +253,8 @@ struct AppColorPalette: Equatable {
       heroPlayPillBackground: Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255),
       heroPlayPillForeground: .white,
       heroCardShadow: Color.black.opacity(0.1),
-      cardShadow: Color.black.opacity(0.1)
+      cardShadow: Color.black.opacity(0.1),
+      coverPlayBadgeBackground: Color(white: 0.38, opacity: 0.88)
     )
   }
 
@@ -242,7 +273,8 @@ struct AppColorPalette: Equatable {
       heroPlayPillBackground: .white,
       heroPlayPillForeground: .white,
       heroCardShadow: Color.black.opacity(0.32),
-      cardShadow: Color.black.opacity(0.36)
+      cardShadow: Color.black.opacity(0.36),
+      coverPlayBadgeBackground: Color(white: 0.38, opacity: 0.88)
     )
   }
 

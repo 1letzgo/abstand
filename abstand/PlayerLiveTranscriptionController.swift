@@ -83,6 +83,9 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   @Published private(set) var localeFallbackNotice: String?
   /// `false` auf Geräten ohne `SpeechTranscriber` (z. B. iPhone 11).
   @Published private(set) var isReadAlongAvailable = SpeechTranscriber.isAvailable
+  /// Wort-Lookup-Sheet wird am stabilen Vollplayer-Root präsentiert — nicht an der
+  /// volatilen Teleprompter-View (Translation-Session crasht, wenn ihre Anker-View verschwindet).
+  @Published var wordLookupSelection: PlayerTranscriptWordLookupSelection?
 
   /// Sprache der laufenden Transkription (für Wort-Übersetzung).
   var transcriptionLocale: Locale? { activeContext?.locale }
@@ -278,6 +281,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     do {
       try await startSession(player: player)
     } catch {
+      guard !AbstandErrorFilter.isBenignCancellation(error) else { return }
       errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
   }
@@ -349,6 +353,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
         }
       }
     } catch {
+      guard !AbstandErrorFilter.isBenignCancellation(error) else { return }
       await MainActor.run {
         if self.isEnabled {
           self.errorMessage = error.localizedDescription
@@ -624,9 +629,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
         localStartSeconds: localStartSeconds,
         targetFormat: targetFormat
       )
-    } catch is CancellationError {
-      return
     } catch {
+      guard !AbstandErrorFilter.isBenignCancellation(error) else { return }
       await MainActor.run {
         if self.isEnabled {
           self.errorMessage = error.localizedDescription

@@ -740,10 +740,6 @@ struct NowPlayingDetailView: View {
 
   @State private var readAlongDownloadWarningPresented = false
 
-  private var showIdlePlaceholder: Bool {
-    player.showMiniPlayerPlaceholder && player.activeBook == nil && !model.isPlayerConnectionLoading
-  }
-
   private var showsConnectionLoading: Bool {
     model.isPlayerConnectionLoading && player.activeBook == nil
   }
@@ -769,9 +765,26 @@ struct NowPlayingDetailView: View {
       await player.liveTranscription.refreshReadAlongAvailability()
     }
     .onDisappear {
+      player.liveTranscription.wordLookupSelection = nil
       if player.liveTranscription.isEnabled {
         player.liveTranscription.disable()
       }
+    }
+    // Am stabilen Player-Root statt in der Teleprompter-View: die Translation-Session
+    // crasht (fatalError), wenn ihre Anker-View verschwindet (Rotation, Card-Swap).
+    .sheet(
+      item: Binding(
+        get: { player.liveTranscription.wordLookupSelection },
+        set: { player.liveTranscription.wordLookupSelection = $0 }
+      )
+    ) { selection in
+      PlayerTranscriptWordLookupSheet(
+        selection: selection,
+        sourceLocale: selection.sourceLocale,
+        model: model
+      )
+      .presentationDetents([.medium, .large])
+      .presentationDragIndicator(.visible)
     }
     .alert(
       String(localized: "Download required", comment: "Read along alert title"),
@@ -809,7 +822,7 @@ struct NowPlayingDetailView: View {
         fullPlayerPortraitLayout(book: b)
       } else if showsConnectionLoading {
         connectionLoadingPlaceholder
-      } else if showIdlePlaceholder {
+      } else {
         idlePlaceholder
       }
     }
@@ -819,15 +832,16 @@ struct NowPlayingDetailView: View {
   private func fullPlayerPortraitLayout(book: ABSBook) -> some View {
     VStack(spacing: 0) {
       playerHeaderArea(book: book)
-      Spacer(minLength: 24)
-      VStack(spacing: 32) {
+      VStack(spacing: 0) {
+        Spacer(minLength: 0)
         chapterTitleArea(book: book)
+        Spacer(minLength: 0)
         TimelineView(.periodic(from: .now, by: 0.5)) { _ in
           playbackColumn(book: book)
         }
       }
       .frame(maxWidth: 800)
-      Spacer(minLength: 24)
+      .frame(maxHeight: .infinity)
       fullPlayerUtilityBar
       Spacer(minLength: 8)
     }
@@ -848,16 +862,17 @@ struct NowPlayingDetailView: View {
     HStack(alignment: .top, spacing: MiniPlayerMetrics.fullPlayerCoverInset) {
       playerHeaderArea(book: book)
         .containerRelativeFrame(.horizontal) { w, _ in w * 0.48 }
-      VStack(spacing: 24) {
-        Spacer()
+      VStack(spacing: 0) {
+        Spacer(minLength: 0)
         chapterTitleArea(book: book)
+        Spacer(minLength: 0)
         TimelineView(.periodic(from: .now, by: 0.5)) { _ in
           playbackColumn(book: book)
         }
         fullPlayerUtilityBar
-        Spacer()
+        Spacer(minLength: 8)
       }
-      .frame(maxWidth: .infinity)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
   }
 
@@ -865,14 +880,16 @@ struct NowPlayingDetailView: View {
     Group {
       if showsConnectionLoading {
         connectionLoadingPlaceholder
-      } else if showIdlePlaceholder {
+      } else {
         idlePlaceholder
       }
     }
   }
 
+  /// Titel, Autor und Kapitel unter dem Cover.
   private func chapterTitleArea(book: ABSBook) -> some View {
     let authors = book.displayAuthors.trimmingCharacters(in: .whitespacesAndNewlines)
+    let chapter = scrubberCenterCaption(book: book)
     return VStack(alignment: .center, spacing: 8) {
       Text(book.displayTitle)
         .font(.title2.weight(.bold))
@@ -887,6 +904,16 @@ struct NowPlayingDetailView: View {
           .multilineTextAlignment(.center)
           .lineLimit(2)
           .frame(maxWidth: .infinity)
+      }
+      if !chapter.isEmpty {
+        Text(chapter)
+          .font(.title3.weight(.semibold))
+          .foregroundStyle(AppTheme.textPrimary)
+          .multilineTextAlignment(.center)
+          .lineLimit(2)
+          .frame(maxWidth: .infinity)
+          .accessibilityLabel("Chapter")
+          .accessibilityValue(chapter)
       }
     }
     .frame(maxWidth: .infinity)
@@ -935,7 +962,7 @@ struct NowPlayingDetailView: View {
       }
       Task { @MainActor in
         await tx.toggle(player: player)
-        if let err = tx.errorMessage {
+        if let err = tx.errorMessage, !AbstandErrorFilter.isBenignCancellationMessage(err) {
           model.errorMessage = err
         }
       }
@@ -1037,7 +1064,7 @@ struct NowPlayingDetailView: View {
   private func scrubberSection(book: ABSBook) -> some View {
     FullPlayerScrubberSection(
       player: player,
-      centerCaption: scrubberCenterCaption(book: book)
+      centerCaption: ""
     )
   }
 
@@ -1673,171 +1700,240 @@ struct OfflineHomeMiniPlayerCard: View {
       cornerRadius: AppTheme.Layout.libraryRowCornerRadius, style: .continuous)
     let palette = model.appearancePalette
 
-    return VStack(alignment: .leading, spacing: 0) {
-      VStack(alignment: .leading, spacing: inset) {
-        Button {
-          chrome.openNowPlaying()
-        } label: {
-          HStack(alignment: .top, spacing: inset) {
-            offlineCover
-            metadataColumn
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
+    // Winamp-Anmutung: LCD-Panel oben, Seek-Leiste, eckige Transport-Knopfleiste unten.
+    return VStack(alignment: .leading, spacing: inset) {
+      Button {
+        chrome.openNowPlaying()
+      } label: {
+        lcdPanel
           .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Open now playing")
-        .accessibilityHint("Shows the full player")
-
-        if showsTransport {
-          offlineTransportRow
-        } else if snapshot.showsConnectionLoading {
-          HStack(spacing: 8) {
-            ProgressView()
-              .tint(themeAccent)
-            Text("Loading…")
-              .font(.subheadline)
-              .foregroundStyle(palette.textSecondary)
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-        }
-
-        if showsProgress {
-          offlineProgressTimeRow(
-            totalDuration: max(player.totalDuration, 1),
-            position: min(max(0, player.globalPosition), max(player.totalDuration, 1))
-          )
-        }
       }
-      .padding(inset)
-      .overlay(alignment: .topTrailing) {
-        HStack(spacing: 6) {
-          offlineMarkFinishedCornerButton
-          offlineAirPlayCornerButton
-          offlineSleepTimerCornerButton
-        }
-        .padding(inset)
-      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Open now playing")
+      .accessibilityHint("Shows the full player")
 
       if showsProgress {
-        AbstandCardBottomProgress(value: player.globalPosition / max(player.totalDuration, 1))
-          .allowsHitTesting(false)
-          .accessibilityLabel("Playback progress")
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+          VStack(alignment: .leading, spacing: 6) {
+            winampSeekBar
+            offlineProgressTimeRow(
+              totalDuration: max(player.totalDuration, 1),
+              position: min(max(0, player.globalPosition), max(player.totalDuration, 1))
+            )
+          }
+        }
+      }
+
+      if showsTransport {
+        winampTransportRow
       }
     }
+    .padding(inset)
     .fixedSize(horizontal: false, vertical: true)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(palette.card)
     .clipShape(shape)
     .contentShape(shape)
+    .abstandCardElevation(.standard)
+  }
+
+  /// Winamp-„LCD“: Cover-Daumen, große Monospace-Zeit, Pseudo-Spektrum und Laufschrift.
+  private var lcdPanel: some View {
+    HStack(alignment: .center, spacing: 10) {
+      lcdCoverThumb
+      VStack(alignment: .leading, spacing: 6) {
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+          HStack(alignment: .center, spacing: 10) {
+            lcdPrimaryReadout
+            Spacer(minLength: 8)
+            WinampVisualizerBars(isPlaying: snapshot.isPlaying, color: themeAccent)
+              .frame(width: 64)
+              .accessibilityHidden(true)
+          }
+        }
+        WinampMarqueeText(text: lcdMarqueeLine, color: AppTheme.textPrimary)
+          .frame(height: 14)
+      }
+    }
+    .padding(10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(model.appearancePalette.background)
+    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .strokeBorder(AppTheme.textSecondary.opacity(0.28), lineWidth: 1)
+    }
+  }
+
+  @ViewBuilder
+  private var lcdPrimaryReadout: some View {
+    if player.activeBook != nil {
+      Text(formatPlaybackTime(min(max(0, player.globalPosition), max(player.totalDuration, 1))))
+        .font(.system(size: 26, weight: .semibold, design: .monospaced))
+        .foregroundStyle(themeAccent)
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+        .accessibilityLabel("Elapsed time")
+    } else if snapshot.showsConnectionLoading {
+      HStack(spacing: 8) {
+        ProgressView()
+          .tint(themeAccent)
+        Text("Loading…")
+          .font(.subheadline)
+          .foregroundStyle(AppTheme.textSecondary)
+      }
+    } else {
+      Text(snapshot.primaryLine)
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(AppTheme.textPrimary)
+        .lineLimit(1)
+    }
+  }
+
+  /// Inhalt der Laufschrift: Titel ··· Autor ··· Kapitel.
+  private var lcdMarqueeLine: String {
+    guard let book = player.activeBook else { return snapshot.primaryLine }
+    var parts: [String] = [book.displayTitle]
+    let author = book.displayAuthorsCardLine.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !author.isEmpty, author != "—" { parts.append(author) }
+    if let chapter = offlineChapterCaption { parts.append(chapter) }
+    return parts.joined(separator: "  ···  ")
+  }
+
+  /// Schmale, nicht-interaktive Seek-Leiste mit Thumb (Winamp-Slider-Optik).
+  private var winampSeekBar: some View {
+    let dur = max(player.totalDuration, 1)
+    let t = min(1, max(0, player.globalPosition / dur))
+    return GeometryReader { geo in
+      ZStack(alignment: .leading) {
+        Capsule(style: .continuous)
+          .fill(AppTheme.progressTrack)
+          .frame(height: 4)
+        Capsule(style: .continuous)
+          .fill(themeAccent)
+          .frame(width: max(4, geo.size.width * t), height: 4)
+        RoundedRectangle(cornerRadius: 2, style: .continuous)
+          .fill(themeAccent)
+          .frame(width: 10, height: 14)
+          .offset(x: min(max(0, geo.size.width * t - 5), geo.size.width - 10))
+      }
+      .frame(maxHeight: .infinity, alignment: .center)
+    }
+    .frame(height: 16)
+    .accessibilityLabel("Playback progress")
+    .accessibilityValue("\(Int(t * 100)) percent")
   }
 
   private var showsTransport: Bool {
     player.activeBook != nil || snapshot.showsConnectionLoading
   }
 
-  private var offlineTransportRow: some View {
+  /// Winamp-Knopfleiste: eckige, gleichgroße Buttons nebeneinander; rechts Zusatzfunktionen.
+  private var winampTransportRow: some View {
     let hasChapters = player.chapterCount > 0
     let isBusy = player.activeBook != nil && player.isBuffering
-    let playDiameter = MiniPlayerMetrics.miniPlayerPlayOrb
-    let sideSlot = MiniPlayerMetrics.controlMinHeight
-    let rowHeight = max(playDiameter, sideSlot)
-    let onAccent = model.appearancePalette.foregroundOnAccent(themeAccent)
-    return HStack(alignment: .center, spacing: 0) {
-      offlineTransportChapterSlot(
-        isLeading: true,
-        hasChapters: hasChapters,
-        side: sideSlot
-      )
-      .frame(maxWidth: .infinity, maxHeight: rowHeight)
+    let noBook = player.activeBook == nil
+    return HStack(spacing: 4) {
+      if hasChapters {
+        winampButton(
+          systemName: "backward.end.fill",
+          label: "Previous chapter",
+          disabled: !player.canSkipToPreviousChapter
+        ) {
+          player.skipToPreviousChapter()
+        }
+      }
 
-      offlineTransportControlButton(
+      winampButton(
         systemName: PlaybackController.gobackwardSystemImage(seconds: player.skipBackwardSeconds),
         label: PlaybackController.skipAccessibilityLabel(
           backward: true, seconds: player.skipBackwardSeconds),
-        disabled: isBusy || player.activeBook == nil
+        disabled: isBusy || noBook
       ) {
         player.skip(seconds: -Double(player.skipBackwardSeconds))
       }
-      .frame(maxWidth: .infinity, maxHeight: rowHeight)
 
-      Button {
-        chrome.togglePlayPause()
-      } label: {
-        ZStack {
-          Circle()
-            .fill(themeAccent)
-            .frame(width: playDiameter, height: playDiameter)
-          if isBusy {
-            ProgressView()
-              .progressViewStyle(.circular)
-              .tint(onAccent)
-              .scaleEffect(0.85)
-          } else {
-            Image(systemName: snapshot.isPlaying ? "pause.fill" : "play.fill")
-              .font(.system(size: 18, weight: .semibold))
-              .foregroundStyle(onAccent)
-          }
-        }
-      }
-      .buttonStyle(.plain)
-      .disabled(!snapshot.canTogglePlayback)
-      .accessibilityLabel(snapshot.isPlaying ? "Pause" : "Play")
-      .frame(maxWidth: .infinity, maxHeight: rowHeight)
+      winampPlayButton(isBusy: isBusy)
 
-      offlineTransportControlButton(
+      winampButton(
         systemName: PlaybackController.goforwardSystemImage(seconds: player.skipForwardSeconds),
         label: PlaybackController.skipAccessibilityLabel(
           backward: false, seconds: player.skipForwardSeconds),
-        disabled: isBusy || player.activeBook == nil
+        disabled: isBusy || noBook
       ) {
         player.skip(seconds: Double(player.skipForwardSeconds))
       }
-      .frame(maxWidth: .infinity, maxHeight: rowHeight)
 
-      offlineTransportChapterSlot(
-        isLeading: false,
-        hasChapters: hasChapters,
-        side: sideSlot
-      )
-      .frame(maxWidth: .infinity, maxHeight: rowHeight)
-    }
-    .frame(maxWidth: .infinity)
-    .frame(height: rowHeight)
-  }
-
-  @ViewBuilder
-  private func offlineTransportChapterSlot(isLeading: Bool, hasChapters: Bool, side: CGFloat) -> some View {
-    HStack {
-      Spacer(minLength: 0)
-      Group {
-        if hasChapters {
-          if isLeading {
-            offlineTransportControlButton(
-              systemName: "backward.end.fill",
-              label: "Previous chapter",
-              disabled: !player.canSkipToPreviousChapter
-            ) {
-              player.skipToPreviousChapter()
-            }
-          } else {
-            offlineTransportControlButton(
-              systemName: "forward.end.fill",
-              label: "Next chapter",
-              disabled: !player.canSkipToNextChapter
-            ) {
-              player.skipToNextChapter()
-            }
-          }
-        } else {
-          Color.clear
-            .frame(width: side, height: side)
-            .accessibilityHidden(true)
+      if hasChapters {
+        winampButton(
+          systemName: "forward.end.fill",
+          label: "Next chapter",
+          disabled: !player.canSkipToNextChapter
+        ) {
+          player.skipToNextChapter()
         }
       }
-      Spacer(minLength: 0)
+
+      Spacer(minLength: 8)
+
+      offlineMarkFinishedCornerButton
+      offlineAirPlayCornerButton
+      offlineSleepTimerCornerButton
     }
-    .frame(height: side)
+    .frame(maxWidth: .infinity)
+  }
+
+  /// Play/Pause als hervorgehobener Winamp-Knopf (Akzentfläche statt Kreis-Orb).
+  private func winampPlayButton(isBusy: Bool) -> some View {
+    let onAccent = model.appearancePalette.foregroundOnAccent(themeAccent)
+    return Button {
+      chrome.togglePlayPause()
+    } label: {
+      Group {
+        if isBusy {
+          ProgressView()
+            .progressViewStyle(.circular)
+            .tint(onAccent)
+            .scaleEffect(0.8)
+        } else {
+          Image(systemName: snapshot.isPlaying ? "pause.fill" : "play.fill")
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(onAccent)
+        }
+      }
+      .frame(width: 52, height: 36)
+      .background(themeAccent)
+      .clipShape(RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(!snapshot.canTogglePlayback)
+    .opacity(snapshot.canTogglePlayback ? 1 : 0.5)
+    .accessibilityLabel(snapshot.isPlaying ? "Pause" : "Play")
+  }
+
+  /// Eckiger Transport-Knopf mit Rahmen (Winamp-Optik), gleiche Maße wie Corner-Buttons.
+  private func winampButton(
+    systemName: String,
+    label: String,
+    disabled: Bool,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      Image(systemName: systemName)
+        .font(.footnote.weight(.semibold))
+        .foregroundStyle(AppTheme.textPrimary)
+        .frame(width: 36, height: 36)
+        .overlay {
+          RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
+            .strokeBorder(AppTheme.textSecondary.opacity(0.42), lineWidth: 1)
+        }
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(disabled)
+    .opacity(disabled ? 0.35 : 1)
+    .accessibilityLabel(label)
   }
 
   private var offlineActiveAudiobookId: String? {
@@ -1938,33 +2034,11 @@ struct OfflineHomeMiniPlayerCard: View {
     .accessibilityHint(sleepActive ? "Timer active" : "Set sleep timer")
   }
 
-  private func offlineTransportControlButton(
-    systemName: String,
-    label: String,
-    disabled: Bool,
-    action: @escaping () -> Void
-  ) -> some View {
-    HStack {
-      Spacer(minLength: 0)
-      Button(action: action) {
-        Image(systemName: systemName)
-          .font(.title3.weight(.medium))
-          .foregroundStyle(AppTheme.textPrimary)
-          .frame(width: MiniPlayerMetrics.controlMinHeight, height: MiniPlayerMetrics.controlMinHeight)
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .disabled(disabled)
-      .opacity(disabled ? 0.35 : 1)
-      .accessibilityLabel(label)
-      Spacer(minLength: 0)
-    }
-  }
-
+  /// Kleines Cover links im LCD-Panel.
   @ViewBuilder
-  private var offlineCover: some View {
-    let side = AppTheme.Layout.libraryRowCoverSide
-    let radius = AppTheme.Layout.libraryRowCornerRadius
+  private var lcdCoverThumb: some View {
+    let side: CGFloat = 52
+    let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
     if let id = snapshot.activeBookId {
       CoverImageView(
         url: snapshot.coverURL,
@@ -1975,82 +2049,21 @@ struct OfflineHomeMiniPlayerCard: View {
       )
       .frame(width: side, height: side)
       .scaledToFill()
-      .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+      .clipShape(shape)
     } else if snapshot.showsRestoringCover {
-      RoundedRectangle(cornerRadius: radius, style: .continuous)
-        .fill(AppTheme.background)
+      shape
+        .fill(AppTheme.card)
         .frame(width: side, height: side)
         .overlay { ProgressView().tint(themeAccent) }
     } else {
-      RoundedRectangle(cornerRadius: radius, style: .continuous)
-        .fill(AppTheme.background)
+      shape
+        .fill(AppTheme.card)
         .frame(width: side, height: side)
         .overlay {
           Image(systemName: "waveform")
             .font(.title3)
             .foregroundStyle(AppTheme.textSecondary)
         }
-    }
-  }
-
-  private var metadataColumn: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      if let book = player.activeBook {
-        offlineTitleLine(book: book)
-        offlineAuthorLine(book: book)
-        if let chapter = offlineChapterCaption {
-          Text(chapter)
-            .font(.footnote)
-            .foregroundStyle(AppTheme.textSecondary)
-            .lineLimit(2)
-            .minimumScaleFactor(0.88)
-        }
-      } else {
-        Text(snapshot.primaryLine)
-          .font(.headline.weight(.semibold))
-          .foregroundStyle(AppTheme.textPrimary)
-          .lineLimit(2)
-      }
-      if !showsProgress, let subtitle = snapshot.subtitleText {
-        Text(subtitle)
-          .font(.caption.monospacedDigit())
-          .foregroundStyle(themeAccent)
-          .lineLimit(1)
-      }
-    }
-    .frame(maxWidth: .infinity, alignment: .topLeading)
-    .padding(.trailing, player.activeBook != nil ? 122 : 0)
-  }
-
-  /// Wie `BookRowCard.libraryRowTitleText`.
-  private func offlineTitleLine(book: ABSBook) -> some View {
-    Text(book.displayTitle)
-      .font(.headline.weight(.semibold))
-      .foregroundStyle(AppTheme.textPrimary)
-      .lineLimit(1)
-      .truncationMode(.tail)
-      .minimumScaleFactor(0.85)
-      .fixedSize(horizontal: false, vertical: true)
-      .frame(maxWidth: .infinity, alignment: .leading)
-  }
-
-  /// Wie `BookCollapsedAuthorLine` in Library-Zeilen (`.footnote`).
-  @ViewBuilder
-  private func offlineAuthorLine(book: ABSBook) -> some View {
-    let author = book.displayAuthorsCardLine.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !author.isEmpty, author != "—" {
-      HStack(alignment: .firstTextBaseline, spacing: 6) {
-        Text("Author")
-          .font(.footnote.weight(.semibold))
-          .foregroundStyle(AppTheme.textSecondary)
-          .textCase(.uppercase)
-        Text(author)
-          .font(.footnote)
-          .foregroundStyle(AppTheme.textPrimary)
-          .lineLimit(2)
-          .minimumScaleFactor(0.88)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
     }
   }
 
@@ -2067,11 +2080,11 @@ struct OfflineHomeMiniPlayerCard: View {
 
   private func offlineProgressTimeRow(totalDuration dur: Double, position pos: Double) -> some View {
     HStack(alignment: .firstTextBaseline, spacing: 6) {
-      Text(formatPlaybackTime(dur))
+      Text(formatPlaybackTime(max(0, dur - pos)))
         .frame(maxWidth: .infinity, alignment: .leading)
       offlineSleepTimerCountdownLabel
         .frame(minWidth: 52)
-      Text(formatPlaybackTime(max(0, dur - pos)))
+      Text(formatPlaybackTime(dur))
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
     .font(.subheadline.monospacedDigit())
@@ -2101,6 +2114,96 @@ struct OfflineHomeMiniPlayerCard: View {
         .frame(minWidth: 52, minHeight: 1)
         .accessibilityHidden(true)
     }
+  }
+}
+
+// MARK: - Winamp-Bausteine (Offline-Miniplayer)
+
+/// Pseudo-Spektrum wie die Winamp-Visualizer-Balken; deterministisch aus der Zeit abgeleitet.
+private struct WinampVisualizerBars: View {
+  let isPlaying: Bool
+  let color: Color
+  var barCount: Int = 10
+
+  var body: some View {
+    TimelineView(.periodic(from: .now, by: 0.12)) { timeline in
+      let phase = timeline.date.timeIntervalSinceReferenceDate
+      HStack(alignment: .bottom, spacing: 2) {
+        ForEach(0..<barCount, id: \.self) { idx in
+          RoundedRectangle(cornerRadius: 1, style: .continuous)
+            .fill(color.opacity(isPlaying ? 0.9 : 0.35))
+            .frame(height: barHeight(index: idx, phase: phase))
+        }
+      }
+      .frame(height: 22, alignment: .bottom)
+      .animation(.linear(duration: 0.12), value: isPlaying)
+    }
+  }
+
+  private func barHeight(index: Int, phase: TimeInterval) -> CGFloat {
+    guard isPlaying else { return 3 }
+    // Überlagerte Sinuswellen — wirkt zufällig, braucht aber keinen State.
+    let i = Double(index)
+    let v = abs(sin(phase * 3.1 + i * 1.7)) * 0.6 + abs(sin(phase * 5.3 + i * 0.9)) * 0.4
+    return CGFloat(4 + v * 18)
+  }
+}
+
+/// Laufschrift wie der Winamp-Songtitel: scrollt zyklisch, wenn der Text nicht passt.
+private struct WinampMarqueeText: View {
+  let text: String
+  let color: Color
+  var font: Font = .system(.caption, design: .monospaced).weight(.semibold)
+  /// Punkte pro Sekunde.
+  var speed: Double = 30
+  /// Pause am Zyklusanfang (s).
+  var holdSeconds: Double = 1.6
+
+  @State private var textWidth: CGFloat = 0
+  @State private var containerWidth: CGFloat = 0
+
+  private var needsScrolling: Bool { textWidth > containerWidth + 1 }
+  private let gap: CGFloat = 48
+
+  var body: some View {
+    GeometryReader { geo in
+      Group {
+        if needsScrolling {
+          TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { timeline in
+            let cycle = Double(textWidth + gap) / speed + holdSeconds
+            let t = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle)
+            let travel = max(0, t - holdSeconds) * speed
+            HStack(spacing: gap) {
+              marqueeLabel
+              marqueeLabel
+            }
+            .offset(x: -CGFloat(travel))
+          }
+        } else {
+          marqueeLabel
+        }
+      }
+      .frame(maxHeight: .infinity, alignment: .center)
+      .onAppear { containerWidth = geo.size.width }
+      .onChange(of: geo.size.width) { _, w in containerWidth = w }
+    }
+    .clipped()
+    .accessibilityLabel(text)
+  }
+
+  private var marqueeLabel: some View {
+    Text(text)
+      .font(font)
+      .foregroundStyle(color)
+      .lineLimit(1)
+      .fixedSize()
+      .background {
+        GeometryReader { geo in
+          Color.clear
+            .onAppear { textWidth = geo.size.width }
+            .onChange(of: geo.size.width) { _, w in textWidth = w }
+        }
+      }
   }
 }
 

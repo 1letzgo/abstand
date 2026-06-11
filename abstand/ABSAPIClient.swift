@@ -445,9 +445,12 @@ actor ABSAPIClient {
         for e in entities {
           if let mt = e["mediaType"] as? String, mt != "book" { continue }
           guard let sub = try? JSONSerialization.data(withJSONObject: e),
-            let book = try? dec.decode(ABSBook.self, from: sub),
-            book.isPlayableAudiobook
+            let book = try? dec.decode(ABSBook.self, from: sub)
           else { continue }
+          let include =
+            book.isPlayableAudiobook
+            || (category == "continueSeries" && book.isPureEbookLibraryItem)
+          guard include else { continue }
           books.append(book)
         }
         guard !books.isEmpty else { continue }
@@ -457,21 +460,41 @@ actor ABSAPIClient {
             id: sid, category: category, displayTitle: title, books: books, podcastEpisodes: [],
             authors: []))
       } else if type == "series" {
+        let isContinueSeries = category == "continueSeries"
         var series: [ABSLibrarySeriesListItem] = []
+        var extractedEbooks: [ABSBook] = []
+        var seenEbookIds = Set<String>()
         for ser in entities {
           guard let sub = try? JSONSerialization.data(withJSONObject: ser),
             let item = try? dec.decode(ABSLibrarySeriesListItem.self, from: sub)
           else { continue }
+          if isContinueSeries {
+            let books = item.books ?? []
+            let audiobooks = books.filter(\.isPlayableAudiobook)
+            for book in books where !book.isPlayableAudiobook && book.isPureEbookLibraryItem {
+              guard seenEbookIds.insert(book.id).inserted else { continue }
+              extractedEbooks.append(book)
+            }
+            if !audiobooks.isEmpty {
+              series.append(item)
+            } else if extractedEbooks.isEmpty,
+              !item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            {
+              series.append(item)
+            }
+            continue
+          }
           let playable = (item.books ?? []).contains(where: \.isPlayableAudiobook)
-          if playable || !(item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+          let hasEbook = (item.books ?? []).contains(where: \.isUsableEbookListRow)
+          if playable || hasEbook || !(item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
             series.append(item)
           }
         }
-        guard !series.isEmpty else { continue }
+        guard !series.isEmpty || !extractedEbooks.isEmpty else { continue }
         let title = ABSStartShelfLocalization.displayTitle(category: category, serverLabel: label)
         out.append(
           ABSStartShelfSection(
-            id: sid, category: category, displayTitle: title, series: series))
+            id: sid, category: category, displayTitle: title, books: extractedEbooks, series: series))
       } else if type == "authors" {
         var authors: [ABSAuthorShelfEntity] = []
         for e in entities {
@@ -493,16 +516,23 @@ actor ABSAPIClient {
 
   /// Laufende Titel (Bücher + Podcast-Folgen mit Fortschritt), vgl. `GET /api/me/items-in-progress`.
   func itemsInProgress(limit: Int = 50) async throws -> ABSItemsInProgressPayload {
+    try await itemsInProgressWithRawData(limit: limit).payload
+  }
+
+  /// Wie `itemsInProgress`, zusätzlich Roh-JSON für den Disk-Cache (Continue listening).
+  func itemsInProgressWithRawData(limit: Int = 50) async throws -> (
+    payload: ABSItemsInProgressPayload, rawData: Data
+  ) {
     let req = try authorizedRequest(path: "api/me/items-in-progress", query: ["limit": "\(limit)"])
     let (data, resp) = try await urlSession.data(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     guard (200 ..< 300).contains(http.statusCode) else {
       throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
     }
-    return Self.decodeInProgressPayload(from: data)
+    return (Self.decodeInProgressPayload(from: data), data)
   }
 
-  nonisolated private static func decodeInProgressPayload(from data: Data) -> ABSItemsInProgressPayload {
+  nonisolated static func decodeInProgressPayload(from data: Data) -> ABSItemsInProgressPayload {
     guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
       let items = root["libraryItems"] as? [[String: Any]]
     else {

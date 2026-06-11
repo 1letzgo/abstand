@@ -22,6 +22,7 @@ enum AppTheme {
   }
   static var heroCardShadow: Color { palette.heroCardShadow }
   static var cardShadow: Color { palette.cardShadow }
+  static var coverPlayBadgeBackground: Color { palette.coverPlayBadgeBackground }
 
   /// Schatten-Metriken (Farbe kommt aus `AppColorPalette`).
   enum CardElevation {
@@ -179,6 +180,10 @@ enum AppTheme {
       GridItem(.flexible(), spacing: withinSectionSpacing),
       GridItem(.flexible(), spacing: withinSectionSpacing),
     ]
+    /// Hero-Raster (Library + eBooks): drei große Cover-Karten pro Zeile.
+    static let heroCoverColumnsPerRow = 3
+    /// Seitenverhältnis eBook-Cover in Hero-Raster (typisches Buch-Hochformat).
+    static let ebookHeroCoverAspectRatio: CGFloat = 10 / 16
     /// Metadaten unter dem Cover ohne Play-Pille (wie Continue-Hero-Textblock).
     static let libraryHeroMetadataBlockHeight: CGFloat =
       continueHeroMetadataVerticalPadding
@@ -575,6 +580,8 @@ struct AbstandBrowseStripIconMenu: View {
 
 /// Großtitel → fixer Browse-Menüstreifen → scrollender Inhalt (einheitlich auf Library, Stats, Podcasts).
 struct AbstandFixedBrowseStripTabLayout<Strip: View, ScrollBody: View>: View {
+  @EnvironmentObject private var model: AppModel
+
   var showsStrip: Bool = true
   let scrollBottomInset: CGFloat
   var onRefresh: (() async -> Void)?
@@ -594,6 +601,7 @@ struct AbstandFixedBrowseStripTabLayout<Strip: View, ScrollBody: View>: View {
 
   @ViewBuilder
   private var scrollView: some View {
+    let screenBackground = model.appearancePalette.background
     let base = ScrollView {
       scrollBody()
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -603,8 +611,10 @@ struct AbstandFixedBrowseStripTabLayout<Strip: View, ScrollBody: View>: View {
           showsStrip ? 0 : AppTheme.Layout.tabTitleToHeaderBlockSpacing
         )
         .padding(.bottom, scrollBottomInset)
+        .background(screenBackground)
     }
     .scrollContentBackground(.hidden)
+    .background(screenBackground)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
     if let onRefresh {
@@ -618,9 +628,13 @@ struct AbstandFixedBrowseStripTabLayout<Strip: View, ScrollBody: View>: View {
 /// Wie `AbstandFixedBrowseStripTabLayout`, aber je Sektion ein eigener `ScrollView` (Scrollposition bleibt erhalten).
 /// Nur bereits besuchte Sektionen werden aufgebaut — verhindert N× schwere Listen (z. B. jede Podcast-Sendung).
 struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content: View>: View {
+  @EnvironmentObject private var model: AppModel
+
   var showsStrip: Bool = true
   /// `false`: nur aktive Sektion (schneller Wechsel, z. B. Settings); `true`: besuchte Sektionen behalten Scroll-Position.
   var retainOffscreenSections: Bool = true
+  /// Tab-Wechsel o. Ä.: gespeicherte Scroll-Position erneut anwenden, damit Lazy-Inhalte layouten.
+  var relayoutTrigger: AnyHashable?
   let selection: ID
   let sectionIDs: [ID]
   let scrollBottomInset: CGFloat
@@ -629,17 +643,18 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
   @ViewBuilder var sectionBody: (ID) -> Content
 
   @State private var mountedSectionIDs: Set<ID> = []
+  @State private var sectionScrollPositions: [ID: ScrollPosition] = [:]
 
   var body: some View {
+    let screenBackground = model.appearancePalette.background
     VStack(spacing: 0) {
       if showsStrip {
         strip().abstandFixedBrowseStripHeaderChrome()
       }
       ZStack {
-        ForEach(sectionIDs, id: \.self) { sectionID in
-          if shouldRenderSection(sectionID) {
-            sectionScrollView(for: sectionID)
-          }
+        screenBackground
+        if shouldRenderSection(selection) {
+          sectionScrollView(for: selection, screenBackground: screenBackground)
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -656,6 +671,10 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
         mountedSectionIDs.insert(newSelection)
       }
     }
+    .onChange(of: relayoutTrigger) { _, _ in
+      guard relayoutTrigger != nil else { return }
+      reapplyScrollPosition(for: selection)
+    }
   }
 
   private func shouldRenderSection(_ sectionID: ID) -> Bool {
@@ -664,27 +683,46 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
       : selection == sectionID
   }
 
+  private func scrollPositionBinding(for sectionID: ID) -> Binding<ScrollPosition> {
+    Binding(
+      get: { sectionScrollPositions[sectionID] ?? ScrollPosition(edge: .top) },
+      set: { sectionScrollPositions[sectionID] = $0 }
+    )
+  }
+
+  /// Nach Tab-Wechsel: gespeicherte Offset-Position erneut setzen → Lazy-Inhalte layouten.
+  private func reapplyScrollPosition(for sectionID: ID) {
+    let saved = sectionScrollPositions[sectionID]
+    sectionScrollPositions[sectionID] = nil
+    Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 32_000_000)
+      sectionScrollPositions[sectionID] = saved ?? ScrollPosition(edge: .top)
+    }
+  }
+
   @ViewBuilder
-  private func sectionScrollView(for sectionID: ID) -> some View {
-    let isSelected = selection == sectionID
+  private func sectionScrollView(for sectionID: ID, screenBackground: Color) -> some View {
+    // Horizontales Inset per `contentMargins` — nicht als Padding auf `scrollTargetLayout`,
+    // sonst falsche Scroll-Breite (Settings-Karten ragen links aus dem Rand).
     let base = ScrollView {
       sectionBody(sectionID)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
         .padding(
           .top,
           showsStrip ? 0 : AppTheme.Layout.tabTitleToHeaderBlockSpacing
         )
         .padding(.bottom, scrollBottomInset)
+        .background(screenBackground)
+        .scrollTargetLayout()
     }
+    .contentMargins(.horizontal, AppTheme.Layout.tabPaddingH, for: .scrollContent)
+    .scrollPosition(scrollPositionBinding(for: sectionID))
     .scrollContentBackground(.hidden)
+    .background(screenBackground)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .opacity(isSelected ? 1 : 0)
-    .allowsHitTesting(isSelected)
-    .accessibilityHidden(!isSelected)
-    .zIndex(isSelected ? 1 : 0)
+    .id(sectionID)
 
-    if let onRefresh, isSelected {
+    if let onRefresh {
       base.refreshable { await onRefresh() }
     } else {
       base
