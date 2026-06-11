@@ -961,6 +961,8 @@ final class AppModel: ObservableObject {
   @Published private(set) var isServerConnectionProbeInProgress = false
   /// App-Start (Bootstrap): Ampel bleibt gelb bis Katalog, Podcasts und Player-Restore fertig sind.
   @Published private(set) var isAppBootstrapInProgress = false
+  /// Nutzer hat „Go offline“ während Bootstrap — laufenden Server-Sync abbrechen.
+  private var bootstrapSupersededByOffline = false
 
   var serverConnectionIndicatorState: ServerConnectionIndicatorState {
     if offlineHomeUIActive { return .offline }
@@ -987,6 +989,19 @@ final class AppModel: ObservableObject {
 
   func cancelEnterOfflineHomeModeConfirmation() {
     showOfflineModeConfirmation = false
+  }
+
+  /// Start-Overlay: Bootstrap abbrechen und manuell offline starten (ohne Bestätigungsdialog).
+  func goOfflineDuringBootstrap() {
+    guard isAppBootstrapInProgress, !offlineHomeUIActive else { return }
+    bootstrapSupersededByOffline = true
+    isAppBootstrapInProgress = false
+    offlineHomeMode = true
+    mainTab = .start
+    isServerReachable = false
+    player.suspendServerNetworkingForOfflineMode()
+    client = nil
+    Task { await bootstrapLocalSessionOnly() }
   }
 
   func clampMainTabForOfflineHomeIfNeeded() {
@@ -3242,6 +3257,7 @@ final class AppModel: ObservableObject {
 
   func bootstrapFromStoredCredentials() async {
     guard ABSAPIClient.normalizeServerURL(serverURL) != nil, !token.isEmpty else { return }
+    bootstrapSupersededByOffline = false
     defer { refreshDownloadedShelfFromManifests() }
 
     if offlineHomeMode {
@@ -3252,7 +3268,12 @@ final class AppModel: ObservableObject {
 
     // `restoreAllFromDiskOnLaunch()` in init — Home/Katalog sofort aus Cache.
     isAppBootstrapInProgress = true
-    defer { isAppBootstrapInProgress = false }
+    defer {
+      if !bootstrapSupersededByOffline {
+        isAppBootstrapInProgress = false
+      }
+      bootstrapSupersededByOffline = false
+    }
     restoreServerClientIfNeeded()
     await refreshBootstrapFromServer()
   }
@@ -3260,6 +3281,7 @@ final class AppModel: ObservableObject {
   /// Netz-Sync nach Kaltstart (Cache aus init ist schon sichtbar).
   private func refreshBootstrapFromServer() async {
     await waitForInitialNetworkReachability()
+    if bootstrapSupersededByOffline || offlineHomeMode { return }
     if !isNetworkReachable {
       isServerReachable = false
       if hasCachedBootstrapContent {
@@ -3280,6 +3302,7 @@ final class AppModel: ObservableObject {
     var serverSessionEstablished = false
     do {
       let auth = try await c.authorize()
+      if bootstrapSupersededByOffline || offlineHomeMode { return }
       serverSessionEstablished = true
       offlineHomeModeAuto = false
       applyAuthorizeSession(auth)
@@ -3288,11 +3311,14 @@ final class AppModel: ObservableObject {
       await c.setToken(token)
       isServerReachable = true
       libraries = try await c.libraries()
+      if bootstrapSupersededByOffline || offlineHomeMode { return }
       await resolveLibrariesAfterServerFetch(userDefaultLibraryId: auth.userDefaultLibraryId)
+      if bootstrapSupersededByOffline || offlineHomeMode { return }
       scheduleDeferredCatalogReloadAfterBootstrap()
       refreshHomeDashboardFromServerAfterBootstrap()
       await restoreLastPlayedOnLaunch()
     } catch {
+      if bootstrapSupersededByOffline || offlineHomeMode { return }
       isRestoringLaunchPlayback = false
       player.setMiniPlayerPlaceholder(player.activeBook == nil)
       publishErrorUnlessBenignCancellation(error)
@@ -3323,7 +3349,8 @@ final class AppModel: ObservableObject {
   /// Home-Regale nach Login/Kaltstart: Cache sofort (init), Server-Refresh im Hintergrund.
   private func refreshHomeDashboardFromServerAfterBootstrap() {
     Task { @MainActor [weak self] in
-      await self?.loadStartDashboard(skipAuthorizeRefresh: true, force: true)
+      guard let self, !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
+      await loadStartDashboard(skipAuthorizeRefresh: true, force: true)
     }
   }
 
@@ -3332,6 +3359,7 @@ final class AppModel: ObservableObject {
     guard !isNetworkReachable else { return }
     let attempts = hasCachedBootstrapContent ? 8 : 30
     for _ in 0..<attempts {
+      if bootstrapSupersededByOffline || offlineHomeMode { return }
       if isNetworkReachable { return }
       try? await Task.sleep(nanoseconds: 100_000_000)
     }
@@ -3340,7 +3368,7 @@ final class AppModel: ObservableObject {
   /// Bibliotheks-Kataloge nach Home/Login im Hintergrund — blockiert den App-Start nicht.
   private func scheduleDeferredCatalogReloadAfterBootstrap() {
     Task { @MainActor [weak self] in
-      guard let self else { return }
+      guard let self, !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
       async let books: Void = reloadLibrary(reset: true)
       async let podcasts: Void = reloadPodcastLibrary(reset: true)
       if showEbooksTab {
@@ -3406,13 +3434,20 @@ final class AppModel: ObservableObject {
       errorMessage = "Please enter a valid server URL."
       return
     }
+    bootstrapSupersededByOffline = false
     defer { refreshDownloadedShelfFromManifests() }
     isAppBootstrapInProgress = true
-    defer { isAppBootstrapInProgress = false }
+    defer {
+      if !bootstrapSupersededByOffline {
+        isAppBootstrapInProgress = false
+      }
+      bootstrapSupersededByOffline = false
+    }
     offlineHomeModeAuto = false
     var serverSessionEstablished = false
     do {
       let res = try await ABSAPIClient.login(server: url, username: username, password: password)
+      if bootstrapSupersededByOffline || offlineHomeMode { return }
       token = res.user.token
       serverURL = server.trimmingCharacters(in: .whitespacesAndNewlines)
       UserDefaults.standard.set(serverURL, forKey: Keys.server)
@@ -3424,12 +3459,15 @@ final class AppModel: ObservableObject {
       applyAuthorizeSession(res)
       isServerReachable = true
       libraries = try await c.libraries()
+      if bootstrapSupersededByOffline || offlineHomeMode { return }
       await resolveLibrariesAfterServerFetch(userDefaultLibraryId: res.userDefaultLibraryId)
+      if bootstrapSupersededByOffline || offlineHomeMode { return }
       mainTab = .start
       await loadStartDashboard(skipAuthorizeRefresh: true, force: true)
       scheduleDeferredCatalogReloadAfterBootstrap()
       await restoreLastPlayedOnLaunch()
     } catch {
+      if bootstrapSupersededByOffline || offlineHomeMode { return }
       isRestoringLaunchPlayback = false
       player.setMiniPlayerPlaceholder(true)
       publishErrorUnlessBenignCancellation(error)
