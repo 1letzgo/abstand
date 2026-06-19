@@ -45,9 +45,6 @@ private struct AppRootContainer: View {
         .onChange(of: model.nowPlayingSheetPresentationCounter) { _, _ in
           nowPlayingSheetPresented = true
         }
-        .onChange(of: model.nowPlayingSheetDismissCounter) { _, _ in
-          nowPlayingSheetPresented = false
-        }
       } else {
         LoginView()
       }
@@ -77,21 +74,5 @@ private struct AppRootContainer: View {
         model.player.refreshPlaybackStateFromEngine()
       }
     }
-    .alert(
-      String(localized: "Connecting to Server", comment: "Bootstrap alert title"),
-      isPresented: bootstrapConnectingAlertPresented
-    ) {
-      Button(String(localized: "Go offline", comment: "Bootstrap alert offline action")) {
-        model.goOfflineDuringBootstrap()
-      }
-    }
-  }
-
-  /// Nur lesbar — Schließen erfolgt über Bootstrap-Ende oder „Go offline“.
-  private var bootstrapConnectingAlertPresented: Binding<Bool> {
-    Binding(
-      get: { model.isLoggedIn && model.isAppBootstrapInProgress },
-      set: { _ in }
-    )
   }
 }
