@@ -1055,16 +1055,21 @@ final class PlaybackController: NSObject, ObservableObject {
 
   /// Frische Abspielposition (AVPlayer + Track-Offset), z. B. für Lesezeichen — nicht nur gecachtes `globalPosition`.
   func snapshotPlaybackTimeSeconds() -> Int {
+    max(0, Int(liveGlobalPlaybackPosition.rounded(.down)))
+  }
+
+  /// Live-Position für Read-Along (AVPlayer), falls verfügbar — sonst `globalPosition`.
+  var liveGlobalPlaybackPosition: Double {
     if let p = player, p.currentItem != nil {
       let local = p.currentTime().seconds
       if local.isFinite {
         let g = globalTime(trackIndex: currentTrackIndex, localSeconds: local)
-        if g.isFinite, g >= 0 { return max(0, Int(g.rounded(.down))) }
+        if g.isFinite, g >= 0 { return g }
       }
     }
     let raw = globalPosition
     guard raw.isFinite, raw >= 0 else { return 0 }
-    return max(0, Int(raw.rounded(.down)))
+    return raw
   }
 
   private func advanceToNextTrack() {
@@ -1682,12 +1687,17 @@ final class PlaybackController: NSObject, ObservableObject {
 
   func transcriptionLocalStartSeconds(preRoll: Double) -> Double {
     let offset = trackStarts[safe: currentTrackIndex] ?? 0
-    let local = max(0, globalPosition - offset)
-    return max(0, local - preRoll)
+    let playbackGlobal = liveGlobalPlaybackPosition
+    return max(0, playbackGlobal - preRoll - offset)
+  }
+
+  /// AVPlayer-Zeit in `globalPosition` übernehmen (Read-Along nach Pause/Neustart).
+  func syncGlobalPositionFromPlayer() {
+    refreshGlobalFromPlayer()
   }
 
   func transcriptionLocalPlaybackSeconds(trackGlobalOffset: Double) -> Double {
-    max(0, globalPosition - trackGlobalOffset)
+    max(0, liveGlobalPlaybackPosition - trackGlobalOffset)
   }
 
   func makeTranscriptionAudioContext() async -> PlayerTranscriptionAudioContext? {

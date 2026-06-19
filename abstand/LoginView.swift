@@ -2,6 +2,9 @@ import SwiftUI
 
 struct LoginView: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.dismiss) private var dismiss
+  /// Sheet-Modus: weiteren Account hinzufügen (Felder leer, nach Erfolg schließen).
+  var addAccountMode: Bool = false
   @State private var server = ""
   @State private var username = ""
   @State private var password = ""
@@ -13,15 +16,21 @@ struct LoginView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 24) {
           VStack(alignment: .leading, spacing: 6) {
-            Text("Abstand")
+            Text(addAccountMode ? "Add account" : "Abstand")
               .font(.largeTitle.bold())
               .foregroundStyle(model.appearancePalette.textPrimary)
-            Text("Audiobookshelf")
-              .font(.title3.weight(.semibold))
-              .abstandAccentForeground()
-            Text("Sign in with your Audiobookshelf account.")
-              .font(.subheadline)
-              .foregroundStyle(model.appearancePalette.textSecondary)
+            if !addAccountMode {
+              Text("Audiobookshelf")
+                .font(.title3.weight(.semibold))
+                .abstandAccentForeground()
+            }
+            Text(
+              addAccountMode
+                ? "Sign in with another Audiobookshelf account."
+                : "Sign in with your Audiobookshelf account."
+            )
+            .font(.subheadline)
+            .foregroundStyle(model.appearancePalette.textSecondary)
           }
 
           VStack(spacing: 14) {
@@ -30,7 +39,13 @@ struct LoginView: View {
             AbstandLabeledTextField(title: "Password", text: $password, isSecure: true)
           }
           .onAppear {
-            if server.isEmpty { server = model.serverURL }
+            if addAccountMode {
+              server = ""
+              username = ""
+              password = ""
+            } else if server.isEmpty {
+              server = model.serverURL
+            }
           }
 
           if let err = model.errorMessage {
@@ -43,12 +58,18 @@ struct LoginView: View {
             Task {
               busy = true
               defer { busy = false }
-              await model.login(server: server, username: username, password: password)
+              if addAccountMode {
+                let ok = await model.addStoredAccount(
+                  server: server, username: username, password: password)
+                if ok { dismiss() }
+              } else {
+                await model.login(server: server, username: username, password: password)
+              }
             }
           } label: {
             HStack(spacing: 8) {
               if busy { ProgressView().tint(Color.black.opacity(0.85)) }
-              Text("Sign in")
+              Text(addAccountMode ? "Add account" : "Sign in")
             }
           }
           .buttonStyle(AbstandPrimaryButtonStyle())
@@ -59,7 +80,9 @@ struct LoginView: View {
       }
       .abstandScrollScreenBackground()
       .refreshable {
-        await model.bootstrapFromStoredCredentials()
+        if !addAccountMode {
+          await model.bootstrapFromStoredCredentials()
+        }
       }
     }
     .abstandThemeRefresh()

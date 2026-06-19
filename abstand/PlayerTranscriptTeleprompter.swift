@@ -155,16 +155,16 @@ enum PlayerTeleprompterMetrics {
 
 struct PlayerLiveTranscriptPanelView: View {
   @Environment(\.appearanceThemeRevision) private var themeRevision
+  @ObservedObject var player: PlaybackController
   @ObservedObject var transcription: PlayerLiveTranscriptionController
-  let globalPlaybackTime: Double
-  var isPlaying: Bool = false
-  var playbackRate: Double = 1
   /// Volle Kartenhöhe/-breite (Cover 1:1); sonst Standardmaße.
   var viewportSize: CGSize?
   /// Gespeicherte Nutzer-Schriftgröße (nil = Auto-Fit bzw. noch kein Override).
   var userFontSize: CGFloat?
 
   @State private var playbackClock = ReadAlongPlaybackClock()
+
+  private var livePlaybackTime: Double { player.liveGlobalPlaybackPosition }
 
   private var teleprompterLayout: PlayerTeleprompterLayout {
     guard let viewportSize, viewportSize.height > 0 else {
@@ -180,23 +180,14 @@ struct PlayerLiveTranscriptPanelView: View {
 
   var body: some View {
     let _ = themeRevision
-    return ZStack(alignment: .topLeading) {
-      if transcription.transcriptLines.isEmpty {
-        HStack(spacing: 10) {
-          ProgressView()
-            .controlSize(.small)
-          Text(placeholderText)
-            .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-      } else {
+    return ZStack {
+      if showsTeleprompterContent {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { timeline in
           let displayTime = playbackClock.displayedTime(
             at: timeline.date,
-            target: globalPlaybackTime,
-            isPlaying: isPlaying,
-            playbackRate: playbackRate
+            target: livePlaybackTime,
+            isPlaying: player.isPlaying,
+            playbackRate: Double(player.playbackRate)
           )
           GeometryReader { geo in
             let layout = teleprompterLayout
@@ -223,6 +214,10 @@ struct PlayerLiveTranscriptPanelView: View {
         }
       }
 
+      if showsLoadingOverlay {
+        teleprompterLoadingOverlay
+      }
+
       if let notice = transcription.localeFallbackNotice {
         Text(notice)
           .font(.caption)
@@ -235,8 +230,26 @@ struct PlayerLiveTranscriptPanelView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .onAppear {
-      playbackClock.hardReset(to: globalPlaybackTime)
+      alignTeleprompterToLivePlayback(force: true)
       syncTeleprompterLayout()
+    }
+    .onChange(of: livePlaybackTime) { _, newTime in
+      if abs(newTime - playbackClock.lastSyncedTarget) > 2 {
+        playbackClock.hardReset(to: newTime)
+      }
+    }
+    .onChange(of: transcription.teleprompterSyncGeneration) { _, _ in
+      playbackClock.hardReset(to: transcription.teleprompterSyncedPlaybackTime)
+    }
+    .onChange(of: transcription.isTeleprompterReady) { _, ready in
+      if ready {
+        alignTeleprompterToLivePlayback(force: true)
+      }
+    }
+    .onChange(of: transcription.isEnabled) { _, enabled in
+      if enabled {
+        alignTeleprompterToLivePlayback(force: true)
+      }
     }
     .onChange(of: viewportSize) { _, _ in
       syncTeleprompterLayout()
@@ -259,6 +272,46 @@ struct PlayerLiveTranscriptPanelView: View {
     if resolvedWidth > 0 {
       transcription.updateTeleprompterContentWidth(resolvedWidth, layout: teleprompterLayout)
     }
+  }
+
+  private var showsTeleprompterContent: Bool {
+    transcription.isTeleprompterReady && !transcription.transcriptLines.isEmpty
+  }
+
+  private var showsLoadingOverlay: Bool {
+    transcription.isEnabled && !showsTeleprompterContent
+  }
+
+  private var teleprompterLoadingOverlay: some View {
+    VStack(spacing: 12) {
+      ProgressView()
+        .controlSize(.regular)
+      if !loadingHintText.isEmpty {
+        Text(loadingHintText)
+          .font(.subheadline)
+          .foregroundStyle(AppTheme.textSecondary)
+          .multilineTextAlignment(.center)
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  private var loadingHintText: String {
+    if transcription.modelDownloadProgress != nil {
+      return String(localized: "Downloading speech model…", comment: "Live transcript placeholder")
+    }
+    if transcription.isPreparing {
+      return String(localized: "Preparing transcript…", comment: "Live transcript placeholder")
+    }
+    return String(localized: "Transcribing audio…", comment: "Live transcript placeholder")
+  }
+
+  /// Teleprompter an Live-Wiedergabe ausrichten und Uhr zurücksetzen.
+  private func alignTeleprompterToLivePlayback(force: Bool) {
+    player.syncGlobalPositionFromPlayer()
+    let live = player.liveGlobalPlaybackPosition
+    transcription.syncTeleprompterToPlayback(at: live, force: force)
+    playbackClock.hardReset(to: live)
   }
 
   private func teleprompterStack(at time: Double) -> some View {
@@ -386,26 +439,18 @@ struct PlayerLiveTranscriptPanelView: View {
       : PlayerTeleprompterMetrics.inactiveLineTextOpacity
     return AppTheme.textPrimary.opacity(opacity)
   }
-
-  private var placeholderText: String {
-    if transcription.modelDownloadProgress != nil {
-      return String(localized: "Downloading speech model…", comment: "Live transcript placeholder")
-    }
-    if transcription.isPreparing {
-      return String(localized: "Preparing transcript…", comment: "Live transcript placeholder")
-    }
-    return String(localized: "Transcribing audio…", comment: "Live transcript placeholder")
-  }
 }
 
 // MARK: - Smooth time (60 fps)
 
-/// Extrapoliert zwischen Player-Ticks (≈0,35 s) mit konstanter Rate — ohne pro-Frame `.task`.
+/// Während Wiedergabe direkt AVPlayer-Ziel — keine Extrapolation (verhindert Nachhängen).
 private final class ReadAlongPlaybackClock {
   private var anchorTime: Double = 0
   private var anchorInstant: TimeInterval = 0
   private var lastTarget: Double = -1
   private var hasAnchor = false
+
+  var lastSyncedTarget: Double { lastTarget }
 
   func hardReset(to target: Double) {
     anchorTime = target
@@ -421,7 +466,14 @@ private final class ReadAlongPlaybackClock {
     playbackRate: Double
   ) -> Double {
     let now = instant.timeIntervalSinceReferenceDate
-    let rate = max(0.25, min(3, playbackRate))
+
+    if isPlaying {
+      lastTarget = target
+      anchorTime = target
+      anchorInstant = now
+      hasAnchor = true
+      return target
+    }
 
     if !hasAnchor || abs(target - lastTarget) > 2 {
       anchorTime = target
@@ -431,31 +483,9 @@ private final class ReadAlongPlaybackClock {
       return target
     }
 
-    if !isPlaying {
-      anchorTime = target
-      anchorInstant = now
-      lastTarget = target
-      return target
-    }
-
-    if target != lastTarget {
-      let extrapolated = anchorTime + (now - anchorInstant) * rate
-      anchorTime = extrapolated
-      anchorInstant = now
-      lastTarget = target
-    }
-
-    let extrapolated = anchorTime + (now - anchorInstant) * rate
-    let drift = target - extrapolated
-    if abs(drift) > 0.4 {
-      anchorTime = target
-      anchorInstant = now
-      return target
-    }
-    if abs(drift) > 0.04 {
-      anchorTime += drift * 0.18
-      anchorInstant = now
-    }
-    return anchorTime + (now - anchorInstant) * rate
+    anchorTime = target
+    anchorInstant = now
+    lastTarget = target
+    return target
   }
 }

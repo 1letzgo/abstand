@@ -49,23 +49,33 @@ enum FullPlayerUtilityBarLayout {
 /// Kapitel- und Sekunden-Buttons links/rechts vom Play-Orb.
 private enum FullPlayerTransportLayout {
   static let auxiliarySymbolFont: Font = .system(size: 30, weight: .medium)
+  /// Abstand unter Scrubber- bzw. Teleprompter-Karte bis zur Play-Button-Reihe.
+  static let spacingAbovePlayRow: CGFloat = 24
+  /// Abstand Play-Button-Reihe bis Utility-Bar (Speed, Download, …).
+  static let spacingBelowPlayRow: CGFloat = 20
 }
 
 /// Fortschrittsbalken im Vollplayer — Anzeige; Scrub per Long-Press + Ziehen.
 private enum FullPlayerProgressLayout {
-  /// Feste Zeilenhöhe — mit/ohne Kapitelmarker identisch.
-  static let rowHeight: CGFloat = 8
-  static let trackHeight: CGFloat = 6
-  static let scrubThumbDiameter: CGFloat = 14
-  /// Touch-Ziel um den schmalen Balken.
-  static let scrubHitHeight: CGFloat = 36
+  /// Gemeinsame Zeilenhöhe für Buch- und Kapitel-Scrubber.
+  static let rowHeight: CGFloat = 14
+  static let trackHeight: CGFloat = 12
+  static let scrubThumbDiameter: CGFloat = 16
 }
 
-/// Eine Kartenfläche für Buch- und Kapitel-Scrubber (kein Hintergrund zwischen den Blöcken).
+/// Eine Kartenfläche für Buch- und Kapitel-Scrubber.
 private enum FullPlayerScrubberCardLayout {
   static let insetH: CGFloat = 14
   static let insetV: CGFloat = 12
-  static let sectionSpacing: CGFloat = 10
+  static let blockSpacing: CGFloat = 10
+  /// Freiraum oberhalb des sichtbaren Balkens (pro Scrubber-Zeile).
+  static let paddingAboveBar: CGFloat = 14
+  /// Abstand Fortschrittsbalken → Laufzeiten.
+  static let barToTimeSpacing: CGFloat = 2
+
+  static var scrubTrackBlockHeight: CGFloat {
+    paddingAboveBar + FullPlayerProgressLayout.rowHeight
+  }
 }
 
 private struct FullPlayerProgressTrack: View {
@@ -187,7 +197,7 @@ private struct FullPlayerScrubberSection: View {
       if showsChapterProgress, let chapter = chapterProgressForDisplay() {
         Divider()
           .overlay(palette.textSecondary.opacity(0.22))
-          .padding(.vertical, FullPlayerScrubberCardLayout.sectionSpacing)
+          .padding(.vertical, FullPlayerScrubberCardLayout.blockSpacing)
 
         chapterProgressSection(chapter: chapter)
       }
@@ -200,20 +210,24 @@ private struct FullPlayerScrubberSection: View {
   }
 
   private func bookScrubberBlock(pos: Double, dur: Double) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: FullPlayerScrubberCardLayout.barToTimeSpacing) {
       GeometryReader { geo in
         let trackWidth = max(geo.size.width, 1)
-        FullPlayerProgressTrack(
-          value: pos,
-          total: dur,
-          chapterMarkers: player.chapterMarkerFractions,
-          showsScrubThumb: isScrubbing
-        )
-        .frame(maxHeight: .infinity, alignment: .center)
+        VStack(spacing: 0) {
+          Spacer(minLength: 0)
+            .frame(height: FullPlayerScrubberCardLayout.paddingAboveBar)
+          FullPlayerProgressTrack(
+            value: pos,
+            total: dur,
+            chapterMarkers: player.chapterMarkerFractions,
+            showsScrubThumb: isScrubbing
+          )
+        }
+        .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
         .contentShape(Rectangle())
         .gesture(scrubEnabled ? bookScrubGesture(trackWidth: trackWidth) : nil)
       }
-      .frame(height: FullPlayerProgressLayout.scrubHitHeight)
+      .frame(height: FullPlayerScrubberCardLayout.scrubTrackBlockHeight)
 
       HStack {
         Text(formatPlaybackTime(pos))
@@ -245,37 +259,39 @@ private struct FullPlayerScrubberSection: View {
     chapter: (position: Double, duration: Double, start: Double)
   ) -> some View {
     let chPos = min(max(0, chapter.position), chapter.duration)
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: FullPlayerScrubberCardLayout.barToTimeSpacing) {
       GeometryReader { geo in
         let trackWidth = max(geo.size.width, 1)
-        FullPlayerProgressTrack(
-          value: chPos,
-          total: chapter.duration,
-          showsScrubThumb: isChapterScrubbing,
-          trackHeight: 4,
-          rowHeight: 6,
-          accessibilityLabelText: "Chapter position"
-        )
-        .frame(maxHeight: .infinity, alignment: .center)
+        VStack(spacing: 0) {
+          Spacer(minLength: 0)
+            .frame(height: FullPlayerScrubberCardLayout.paddingAboveBar)
+          FullPlayerProgressTrack(
+            value: chPos,
+            total: chapter.duration,
+            showsScrubThumb: isChapterScrubbing,
+            accessibilityLabelText: "Chapter position"
+          )
+        }
+        .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
         .contentShape(Rectangle())
         .gesture(scrubEnabled ? chapterScrubGesture(trackWidth: trackWidth, chapter: chapter) : nil)
       }
-      .frame(height: 28)
+      .frame(height: FullPlayerScrubberCardLayout.scrubTrackBlockHeight)
 
       HStack {
         Text(formatPlaybackTime(chPos))
-          .font(.caption2)
+          .font(.caption)
           .foregroundStyle(AppTheme.textSecondary)
         Spacer()
         Text(chapterCaption)
-          .font(.footnote.weight(.semibold))
+          .font(.caption)
           .foregroundStyle(AppTheme.textPrimary)
           .lineLimit(1)
           .accessibilityLabel("Chapter")
           .accessibilityValue(chapterCaption)
         Spacer()
         Text(formatPlaybackTime(max(0, chapter.duration - chPos)))
-          .font(.caption2)
+          .font(.caption)
           .foregroundStyle(AppTheme.textSecondary)
       }
       .monospacedDigit()
@@ -957,27 +973,28 @@ struct NowPlayingDetailView: View {
   private func fullPlayerPortraitLayout(book: ABSBook) -> some View {
     let teleprompterActive = isTeleprompterActive
     VStack(spacing: 0) {
-      playerHeaderArea(book: book)
-        .frame(maxHeight: teleprompterActive ? .infinity : nil, alignment: .top)
-
-      if !teleprompterActive {
+      if teleprompterActive {
+        playerHeaderArea(book: book)
+          .frame(maxWidth: .infinity)
+          .frame(maxHeight: .infinity, alignment: .top)
+          .layoutPriority(1)
+      } else {
         VStack(spacing: 0) {
+          playerHeaderArea(book: book)
+            .frame(maxWidth: .infinity, alignment: .top)
           Spacer(minLength: 0)
           chapterTitleArea(book: book)
           Spacer(minLength: 0)
           TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-            playbackColumn(book: book)
+            scrubberSection(book: book)
           }
         }
         .frame(maxWidth: 800)
         .frame(maxHeight: .infinity)
-      } else {
-        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-          transportControls
-            .padding(.top, 12)
-        }
-        .frame(maxWidth: 800)
       }
+
+      fullPlayerTransportRow
+        .frame(maxWidth: 800)
 
       fullPlayerUtilityBar
       Spacer(minLength: 8)
@@ -1002,21 +1019,18 @@ struct NowPlayingDetailView: View {
     HStack(alignment: .top, spacing: MiniPlayerMetrics.fullPlayerCoverInset) {
       playerHeaderArea(book: book)
         .containerRelativeFrame(.horizontal) { w, _ in w * 0.48 }
-        .frame(maxHeight: teleprompterActive ? .infinity : nil, alignment: .top)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .layoutPriority(teleprompterActive ? 1 : 0)
       VStack(spacing: 0) {
         if !teleprompterActive {
-          Spacer(minLength: 0)
           chapterTitleArea(book: book)
-          Spacer(minLength: 0)
           TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-            playbackColumn(book: book)
+            scrubberSection(book: book)
           }
         } else {
           Spacer(minLength: 0)
-          TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-            transportControls
-          }
         }
+        fullPlayerTransportRow
         fullPlayerUtilityBar
         Spacer(minLength: 8)
       }
@@ -1065,40 +1079,51 @@ struct NowPlayingDetailView: View {
     let pos = player.globalPosition
     let pct = min(100, max(0, Int((pos / dur * 100).rounded())))
 
-    Group {
-      if player.liveTranscription.isEnabled {
-        readAlongKaraokeCard()
-      } else {
-        fullPlayerArtwork(book: book)
-      }
+    if player.liveTranscription.isEnabled {
+      readAlongKaraokeCard()
+        .overlay(alignment: .topLeading) {
+          fullPlayerBookmarkOverlay()
+        }
+        .overlay(alignment: .topTrailing) {
+          fullPlayerProgressOverlay(percent: pct)
+        }
+        .overlay(alignment: .bottomLeading) {
+          teleprompterFontSizeControls
+            .fullPlayerCoverCornerOverlayPadding(bottom: true, leading: true)
+            .contentShape(Rectangle())
+        }
+        .overlay(alignment: .bottomTrailing) {
+          fullPlayerReadAlongOverlay()
+        }
+    } else {
+      fullPlayerArtwork(book: book, progressPercent: pct)
     }
-    .overlay(alignment: .topLeading) {
-      if let audiobookId = activeAudiobookBookmarkId {
-        PlayerBookmarkCoverControl(
-          activeAudiobookId: audiobookId,
-          menuItems: model.bookmarks(for: audiobookId).map(PlayerBookmarkMenuItem.init)
-        )
-        .fullPlayerCoverCornerOverlayPadding(top: true, leading: true)
-      }
+  }
+
+  @ViewBuilder
+  private func fullPlayerBookmarkOverlay() -> some View {
+    if let audiobookId = activeAudiobookBookmarkId {
+      PlayerBookmarkCoverControl(
+        activeAudiobookId: audiobookId,
+        menuItems: model.bookmarks(for: audiobookId).map(PlayerBookmarkMenuItem.init)
+      )
+      .fullPlayerCoverCornerOverlayPadding(top: true, leading: true)
     }
-    .overlay(alignment: .topTrailing) {
-      TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-        playbackProgressBadge(percent: pct)
-      }
-      .fullPlayerCoverCornerOverlayPadding(top: true, trailing: true)
+  }
+
+  @ViewBuilder
+  private func fullPlayerProgressOverlay(percent: Int) -> some View {
+    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+      playbackProgressBadge(percent: percent)
     }
-    .overlay(alignment: .bottomLeading) {
-      if player.liveTranscription.isEnabled {
-        teleprompterFontSizeControls
-          .fullPlayerCoverCornerOverlayPadding(bottom: true, leading: true)
-          .contentShape(Rectangle())
-      }
-    }
-    .overlay(alignment: .bottomTrailing) {
-      if player.liveTranscription.isReadAlongAvailable {
-        readAlongCoverPill
-          .fullPlayerCoverCornerOverlayPadding(bottom: true, trailing: true)
-      }
+    .fullPlayerCoverCornerOverlayPadding(top: true, trailing: true)
+  }
+
+  @ViewBuilder
+  private func fullPlayerReadAlongOverlay() -> some View {
+    if player.liveTranscription.isReadAlongAvailable {
+      readAlongCoverPill
+        .fullPlayerCoverCornerOverlayPadding(bottom: true, trailing: true)
     }
   }
 
@@ -1191,10 +1216,8 @@ struct NowPlayingDetailView: View {
         GeometryReader { geo in
           let pad = PlayerTeleprompterMetrics.cardContentPadding
           PlayerLiveTranscriptPanelView(
+            player: player,
             transcription: player.liveTranscription,
-            globalPlaybackTime: player.globalPosition,
-            isPlaying: player.isPlaying,
-            playbackRate: Double(player.playbackRate),
             viewportSize: CGSize(
               width: max(0, geo.size.width - pad * 2),
               height: max(0, geo.size.height - pad * 2)
@@ -1228,30 +1251,46 @@ struct NowPlayingDetailView: View {
       .accessibilityLabel("Fortschritt \(percent) Prozent")
   }
 
-  private func fullPlayerArtwork(book: ABSBook) -> some View {
+  private func fullPlayerArtwork(book: ABSBook, progressPercent: Int) -> some View {
     let corner: CGFloat = 24
-    return CoverImageView(
-      url: model.coverURL(for: book.id),
-      token: model.token,
-      itemId: book.id,
-      cacheAccount: model.coverImageCacheAccountDirectory(),
-      cacheRevision: model.coverImageCacheRevision,
-      contentMode: .fit
-    )
-    .fullPlayerHeaderSquareFrame()
-    .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-    .overlay {
-      RoundedRectangle(cornerRadius: corner, style: .continuous)
-        .strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
-    }
-    .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
+    let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
+    // 1:1-Card volle Breite; .fit zeigt das Cover vollständig (kein Beschnitt links/rechts).
+    return Color.clear
+      .aspectRatio(1, contentMode: .fit)
+      .frame(maxWidth: .infinity, alignment: .top)
+      .background(AppTheme.card, in: shape)
+      .overlay {
+        CoverImageView(
+          url: model.coverURL(for: book.id),
+          token: model.token,
+          itemId: book.id,
+          cacheAccount: model.coverImageCacheAccountDirectory(),
+          cacheRevision: model.coverImageCacheRevision,
+          contentMode: .fit
+        )
+      }
+      .clipShape(shape)
+      .overlay {
+        shape.strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
+      }
+      .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
+      .overlay(alignment: .topLeading) {
+        fullPlayerBookmarkOverlay()
+      }
+      .overlay(alignment: .topTrailing) {
+        fullPlayerProgressOverlay(percent: progressPercent)
+      }
+      .overlay(alignment: .bottomTrailing) {
+        fullPlayerReadAlongOverlay()
+      }
   }
 
-  private func playbackColumn(book: ABSBook) -> some View {
-    VStack(spacing: 32) {
-      scrubberSection(book: book)
-      transportControls
-    }
+  /// Stabile Play-Row — nicht in Cover/Teleprompter-Zweigen duplizieren (vermeidet Flackern).
+  private var fullPlayerTransportRow: some View {
+    transportControls
+      .padding(.top, FullPlayerTransportLayout.spacingAbovePlayRow)
+      .padding(.bottom, FullPlayerTransportLayout.spacingBelowPlayRow)
+      .animation(nil, value: isTeleprompterActive)
   }
 
   private func scrubberSection(book: ABSBook) -> some View {
@@ -1295,11 +1334,11 @@ struct NowPlayingDetailView: View {
                 .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
           }
         }
-        .frame(width: 64, height: 64)
+        .frame(width: 72, height: 44)
       }
       .buttonStyle(.borderedProminent)
       .controlSize(.large)
-      .clipShape(Circle())
+      .clipShape(Capsule(style: .continuous))
       .tint(themeAccent)
       .disabled(player.activeBook == nil)
       .frame(maxWidth: .infinity)
@@ -1704,7 +1743,8 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
   private var transportControls: some View {
     let _ = themeRevision
     let busy = snapshot.canTogglePlayback && snapshot.isBuffering
-    let playDiameter: CGFloat = 36
+    let playWidth: CGFloat = 52
+    let playHeight: CGFloat = 36
     return HStack(spacing: 8) {
       Button {
         chrome.skipBackward()
@@ -1727,9 +1767,9 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
         chrome.togglePlayPause()
       } label: {
         ZStack {
-          Circle()
+          Capsule(style: .continuous)
             .fill(themeAccent)
-            .frame(width: playDiameter, height: playDiameter)
+            .frame(width: playWidth, height: playHeight)
           if busy {
             ProgressView()
               .progressViewStyle(.circular)
@@ -2503,17 +2543,6 @@ private struct TeleprompterFontSizeCoverButton: View {
         ? String(localized: "Increase teleprompter text size", comment: "Accessibility")
         : String(localized: "Decrease teleprompter text size", comment: "Accessibility")
     )
-  }
-}
-
-// MARK: - Full player header (1:1)
-
-private extension View {
-  /// Gleicher 1:1-Rahmen für Cover und Read-along-Karte.
-  func fullPlayerHeaderSquareFrame() -> some View {
-    aspectRatio(1, contentMode: .fit)
-      .frame(maxWidth: 400)
-      .frame(maxWidth: .infinity)
   }
 }
 

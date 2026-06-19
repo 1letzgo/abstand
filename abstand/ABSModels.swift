@@ -1675,6 +1675,17 @@ enum ABSStartShelfLocalization {
     String(localized: "Recent", comment: "Home browse strip: combined newest shelves")
   }
 
+  /// Statistik-Bereich auf Home (nicht mehr unter Settings).
+  static let homeBrowseStatsSectionID = "stats"
+
+  static func isHomeBrowseStatsCategory(_ category: String) -> Bool {
+    category == homeBrowseStatsSectionID
+  }
+
+  static var homeBrowseStatsStripLabel: String {
+    String(localized: "Stats", comment: "Home browse strip: listening statistics")
+  }
+
   static let categoryTitles: [String: String] = [
     "recentlyListened": "Continue listening",
     "continueEbooks": "Continue reading",
@@ -1706,6 +1717,7 @@ enum ABSStartShelfLocalization {
     case "continueEbooks": return "book.closed.fill"
     case "continueSeries": return "rectangle.stack.fill"
     case homeBrowseRecentSectionID, "newestItems": return "sparkles"
+    case homeBrowseStatsSectionID: return "chart.bar.fill"
     case "newestSeries": return "books.vertical.fill"
     case "recommended": return "lightbulb.fill"
     case "recentlyFinished": return "arrow.counterclockwise"

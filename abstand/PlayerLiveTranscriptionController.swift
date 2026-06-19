@@ -72,9 +72,15 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   static let preRollSeconds: Double = 4
   /// Audio weit voraus transkribieren, damit Zeilen fertig sind bevor sie im Teleprompter erscheinen.
   static let leadBufferSeconds: Double = 120
+  /// Mindestens so viele fertige Zeilen, bevor der Teleprompter sichtbar wird.
+  static let minClosedLinesForDisplay = 4
+  /// Transkript muss mindestens so viele Sekunden vor der Wiedergabe liegen.
+  static let minSecondsBufferedAheadOfPlayback: Double = 14
 
   @Published private(set) var isEnabled = false
   @Published private(set) var isPreparing = false
+  /// Erst true, wenn genug finalisierter Text vorgepuffert ist — bis dahin Spinner in der Karte.
+  @Published private(set) var isTeleprompterReady = false
   @Published private(set) var errorMessage: String?
   @Published private(set) var words: [PlayerTranscriptWord] = []
   @Published private(set) var transcriptLines: [PlayerTranscriptLine] = []
@@ -86,20 +92,23 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   /// Wort-Lookup-Sheet wird am stabilen Vollplayer-Root präsentiert — nicht an der
   /// volatilen Teleprompter-View (Translation-Session crasht, wenn ihre Anker-View verschwindet).
   @Published var wordLookupSelection: PlayerTranscriptWordLookupSelection?
+  /// Erhöht nach Teleprompter-Start-Sync — View setzt die Anzeige-Uhr zurück.
+  @Published private(set) var teleprompterSyncGeneration: UInt = 0
+  /// Zielzeit für Teleprompter-Highlight nach Start-Sync (= Wiedergabe).
+  @Published private(set) var teleprompterSyncedPlaybackTime: Double = 0
 
   /// Sprache der laufenden Transkription (für Wort-Übersetzung).
   var transcriptionLocale: Locale? { activeContext?.locale }
 
   private var finalizedWords: [PlayerTranscriptWord] = []
-  /// Vorläufige Wörter bis zum nächsten Final-Ergebnis — schließt Lücken in der Anzeige.
-  private var volatileTailWords: [PlayerTranscriptWord] = []
   private let lineAccumulator = PlayerTranscriptLineAccumulator()
   /// Letztes Teleprompter-Layout für Reflow bei Schriftgrößenwechsel.
   private var teleprompterReflowFontSize: CGFloat = 0
   private var teleprompterReflowWidth: CGFloat = 0
   /// Nur neue Final-Segmente anhängen (keine Duplikate bei kumulativen Ergebnissen).
   private var appendedThroughGlobalTime: Double = 0
-  private var sessionTimeOffset: Double = 0
+  /// Offset für Wort-Timestamps — pro Feed-Segment fix, bis späte Ergebnisse eingetroffen sind.
+  private var wordsTimeOffset: Double = 0
   private var activeContext: PlayerTranscriptionAudioContext?
 
   private var transcriber: SpeechTranscriber?
@@ -114,6 +123,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   private var lastFeedTrackKey: String?
   /// Wird bei Track-Wechsel erhöht — Feed-Schleife startet nächste Datei ohne Session-Neustart.
   private var feedTrackGeneration = 0
+
+  /// Letzte Wiedergabezeit mit aktivem Teleprompter (für Start-Abgleich).
+  private var lastTeleprompterPlaybackTime: Double = 0
+  /// Erste Player-Ticks nach Enable: Position erneut syncen (Seek nach App-Start).
+  private var pendingStartupSyncTicks = 0
 
   /// Vom Player bei Kapitel-/Track-Wechsel aufrufen (schneller Handoff).
   func notifyPlaybackTrackAdvanced() {
@@ -143,8 +157,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     isPreparing = true
     defer { isPreparing = false }
     do {
+      player.syncGlobalPositionFromPlayer()
       try await startSession(player: player)
       setEnabled(true)
+      pendingStartupSyncTicks = 15
+      syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition, force: true)
     } catch {
       let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
       stopSession()
@@ -157,9 +174,15 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   }
 
   func disable() {
+    if let player = boundPlayer {
+      lastTeleprompterPlaybackTime = player.liveGlobalPlaybackPosition
+    }
     setEnabled(false)
     stopSession()
     resetTranscriptContent()
+    isTeleprompterReady = false
+    teleprompterSyncGeneration = 0
+    teleprompterSyncedPlaybackTime = 0
     modelDownloadProgress = nil
     localeFallbackNotice = nil
     errorMessage = nil
@@ -168,6 +191,13 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   func handlePlaybackTick(player: PlaybackController) {
     guard isEnabled else { return }
     boundPlayer = player
+    if !isTeleprompterReady {
+      publishWords()
+    }
+    if pendingStartupSyncTicks > 0 {
+      pendingStartupSyncTicks -= 1
+      syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition, force: true)
+    }
   }
 
   func playbackDidStop() {
@@ -210,6 +240,10 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     resetTranscriptContent()
     feedTrackGeneration = 0
     boundPlayer = player
+    player.syncGlobalPositionFromPlayer()
+    guard player.activeBook != nil else {
+      throw PlayerLiveTranscriptionError.noActivePlayback
+    }
     guard let context = await player.makeTranscriptionAudioContext() else {
       if player.isPlaybackFromOfflineDownload, !player.isUsingLocalTrackFiles {
         throw PlayerLiveTranscriptionError.streamingPlaybackUnavailable
@@ -273,11 +307,12 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     }
 
     let localStart = player.transcriptionLocalStartSeconds(preRoll: Self.preRollSeconds)
-    sessionTimeOffset = context.trackGlobalOffset + localStart
+    wordsTimeOffset = context.trackGlobalOffset + localStart
+    publishWords()
+    syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition, force: true)
     feedTask = Task { [weak self] in
       await self?.continuousFeedLoop(targetFormat: format)
     }
-    publishWords()
   }
 
   private enum TrackFeedOutcome {
@@ -302,7 +337,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     analyzerFormat = nil
     audioConverter = nil
     activeContext = nil
-    sessionTimeOffset = 0
+    wordsTimeOffset = 0
   }
 
   private func ensureSpeechModel(locale: Locale) async throws {
@@ -362,33 +397,16 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   }
 
   private func applyTranscriptionResult(_ result: SpeechTranscriber.Result) {
-    if result.isFinal {
-      applyFinalTranscriptionResult(result)
-    } else {
-      applyVolatileTranscriptionResult(result)
-    }
+    guard result.isFinal else { return }
+    applyFinalTranscriptionResult(result)
   }
 
   private func applyFinalTranscriptionResult(_ result: SpeechTranscriber.Result) {
     let parsed = words(from: result.text, isVolatile: false)
     let fresh = deduplicatedNewFinalWords(parsed)
-    volatileTailWords = []
-    guard !fresh.isEmpty else {
-      publishWords()
-      return
-    }
+    guard !fresh.isEmpty else { return }
     finalizedWords.append(contentsOf: fresh)
     lineAccumulator.appendFinalizedWords(fresh)
-    publishWords()
-  }
-
-  private func applyVolatileTranscriptionResult(_ result: SpeechTranscriber.Result) {
-    let parsed = words(from: result.text, isVolatile: true)
-    let cutoff = max(0, appendedThroughGlobalTime - 0.05)
-    let tail = parsed.filter { word in
-      !word.isWhitespaceOnly && word.globalStart >= cutoff
-    }
-    volatileTailWords = tail
     publishWords()
   }
 
@@ -415,17 +433,17 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   private func resetTranscriptContent() {
     finalizedWords = []
-    volatileTailWords = []
     lineAccumulator.reset()
     appendedThroughGlobalTime = 0
     words = []
     transcriptLines = []
+    isTeleprompterReady = false
     teleprompterReflowFontSize = 0
     teleprompterReflowWidth = 0
   }
 
   private func words(from text: AttributedString, isVolatile: Bool) -> [PlayerTranscriptWord] {
-    let offset = sessionTimeOffset
+    let offset = wordsTimeOffset
     var out: [PlayerTranscriptWord] = []
     for run in text.runs {
       guard let tr = run.audioTimeRange else { continue }
@@ -500,18 +518,31 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   }
 
   func publishWords() {
-    words = finalizedWords + volatileTailWords
-    var lines = lineAccumulator.publishedLines()
-    if !volatileTailWords.isEmpty {
-      lines.append(
-        contentsOf: PlayerTranscriptLineAccumulator.makeLines(
-          from: volatileTailWords,
-          maxCharactersPerLine: lineAccumulator.maxCharactersPerLine,
-          volatile: true
-        )
-      )
+    refreshTeleprompterReadiness()
+    words = finalizedWords
+    transcriptLines = isTeleprompterReady ? lineAccumulator.publishedLines() : []
+  }
+
+  /// Puffer prüfen: genug finalisierte Zeilen und Vorsprung zur Wiedergabe.
+  private func refreshTeleprompterReadiness() {
+    guard isEnabled, let player = boundPlayer else {
+      if isTeleprompterReady { isTeleprompterReady = false }
+      return
     }
-    transcriptLines = lines
+
+    let playback = player.liveGlobalPlaybackPosition
+    let closedLines = lineAccumulator.publishedLines().count
+    let bufferAhead = appendedThroughGlobalTime - playback
+    let ready =
+      closedLines >= Self.minClosedLinesForDisplay
+      && bufferAhead >= Self.minSecondsBufferedAheadOfPlayback
+      && appendedThroughGlobalTime > 0.5
+
+    guard ready != isTeleprompterReady else { return }
+    isTeleprompterReady = ready
+    if ready {
+      syncTeleprompterToPlayback(at: playback, force: true)
+    }
   }
 
   /// Zeilenumbruch an Display-Breite und Schriftgröße anpassen; bestehende Zeilen neu umbrechen.
@@ -584,14 +615,13 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     )
   }
 
-  /// Aktuelles Wort zur Wiedergabezeit — inkl. volatiler Schwanzzeile.
+  /// Aktuelles Wort zur Wiedergabezeit.
   func activeWord(at globalTime: Double) -> PlayerTranscriptWord? {
     let lines = transcriptLines
     if let idx = lines.firstIndex(where: { globalTime >= $0.globalStart && globalTime < $0.globalEnd }) {
       return activeWord(in: lines[idx], at: globalTime)
     }
-    let spoken = volatileTailWords.filter { !$0.isWhitespaceOnly }
-    return spoken.first { globalTime >= $0.globalStart && globalTime < $0.globalEnd }
+    return nil
   }
 
   func activeWord(in line: PlayerTranscriptLine, at globalTime: Double) -> PlayerTranscriptWord? {
@@ -608,6 +638,42 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     return lineProgress(in: lines, lineIndex: idx, at: globalTime)
   }
 
+  /// Teleprompter beim Start an die aktuelle Wiedergabe ausrichten.
+  func syncTeleprompterToPlayback(at playbackGlobalTime: Double, force: Bool = false) {
+    let playback = max(0, playbackGlobalTime)
+
+    let transcriptImplied = impliedTranscriptCenterTime(near: playback)
+    let driftFromTranscript = abs(playback - transcriptImplied)
+    let driftFromLastSession =
+      lastTeleprompterPlaybackTime > 0
+      ? abs(playback - lastTeleprompterPlaybackTime)
+      : 0
+
+    let needsJump =
+      force
+      || driftFromTranscript > 0.5
+      || driftFromLastSession > 0.5
+
+    teleprompterSyncedPlaybackTime = playback
+    lastTeleprompterPlaybackTime = playback
+    if needsJump || !transcriptLines.isEmpty {
+      teleprompterSyncGeneration &+= 1
+    }
+    publishWords()
+  }
+
+  /// Mitte der Zeile/Wortposition, die der Teleprompter ohne Sync anzeigen würde.
+  private func impliedTranscriptCenterTime(near playback: Double) -> Double {
+    if let word = activeWord(at: playback) {
+      return (word.globalStart + word.globalEnd) * 0.5
+    }
+    let lines = transcriptLines
+    guard !lines.isEmpty else { return 0 }
+    let idx = activeLineIndex(in: lines, at: playback)
+    let line = lines[idx]
+    return (line.globalStart + line.globalEnd) * 0.5
+  }
+
   /// Fortlaufende Zeilenposition (Ganzzahl = Zeilenanfang, Nachkomma = Fortschritt in der Zeile).
   func fractionalActiveLinePosition(at globalTime: Double) -> Double {
     fractionalActiveLinePosition(in: transcriptLines, at: globalTime)
@@ -622,10 +688,13 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
     let lastIdx = lines.count - 1
     if globalTime >= lines[lastIdx].globalEnd {
-      // Kein Sprung in leere Zeilen — langsam auf der letzten Zeile weiter scrollen.
+      let gap = globalTime - lines[lastIdx].globalEnd
       let span = max(0.35, lines[lastIdx].globalEnd - lines[lastIdx].globalStart)
-      let overshoot = globalTime - lines[lastIdx].globalEnd
-      return Double(lastIdx) + min(0.92, overshoot / span)
+      // Wiedergabe voraus: in leeren Bereich hinter letzter Zeile scrollen (nicht alten Text zentrieren).
+      if gap > 0.25 {
+        return Double(lastIdx + 1) + min(2.5, gap / span)
+      }
+      return Double(lastIdx) + min(0.92, gap / span)
     }
 
     for i in lines.indices {
@@ -695,7 +764,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       let trackKey = player.transcriptionTrackKey
       lastFeedTrackKey = trackKey
       let localStart = player.transcriptionLocalStartSeconds(preRoll: Self.preRollSeconds)
-      sessionTimeOffset = context.trackGlobalOffset + localStart
+      let feedOffset = context.trackGlobalOffset + localStart
+      wordsTimeOffset = feedOffset
       if let active = activeContext {
         activeContext = PlayerTranscriptionAudioContext(
           assetURL: context.assetURL,
@@ -824,6 +894,9 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   }
 
   private func throttleFeed(fedLocalSeconds: Double, trackGlobalOffset: Double) async throws {
+    // Beim Aufbau des Puffers schnell voraus füttern — nicht an Wiedergabe drosseln.
+    guard isTeleprompterReady else { return }
+
     let maxLead = Self.preRollSeconds + Self.leadBufferSeconds
     while !Task.isCancelled {
       let playbackLocal: Double

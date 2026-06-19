@@ -1147,6 +1147,11 @@ final class AppModel: ObservableObject {
 
   private(set) var token: String = UserDefaults.standard.string(forKey: Keys.token) ?? ""
 
+  /// Gespeicherte Accounts für schnellen Wechsel ohne erneute Passwort-Eingabe.
+  @Published private(set) var storedAccounts: [ABSStoredAccount] = []
+  @Published private(set) var activeAccountKey: String?
+  @Published private(set) var isSwitchingAccount = false
+
   let player = PlaybackController()
   let downloads = DownloadManager()
   /// Nur Player-Chrome — entkoppelt `tabViewBottomAccessory` von übrigen `@Published`-Feldern in `AppModel`.
@@ -1319,6 +1324,9 @@ final class AppModel: ObservableObject {
       }
     }
     floatingChrome.bind(model: self)
+    let accountBootstrap = Self.bootstrapStoredAccountsState()
+    storedAccounts = accountBootstrap.accounts
+    activeAccountKey = accountBootstrap.activeKey
     // Nur Home-Regale synchron — erster Frame vollständig; Katalog/Podcasts/Downloads deferred.
     restoreHomeLaunchStateFromDisk()
     if offlineHomeUIActive {
@@ -2294,6 +2302,11 @@ final class AppModel: ObservableObject {
         rows.append((row.category, row.label))
       }
     }
+    rows.append(
+      (
+        ABSStartShelfLocalization.homeBrowseStatsSectionID,
+        ABSStartShelfLocalization.homeBrowseStatsStripLabel
+      ))
     return rows
   }
 
@@ -3836,6 +3849,9 @@ final class AppModel: ObservableObject {
       errorMessage = "Please enter a valid server URL."
       return
     }
+    if isLoggedIn {
+      syncStoredAccountFromSession()
+    }
     defer { refreshDownloadedShelfFromManifests() }
     bootstrapSupersededByOffline = false
     isAppBootstrapInProgress = true
@@ -3859,6 +3875,7 @@ final class AppModel: ObservableObject {
       client = c
       serverSessionEstablished = true
       applyAuthorizeSession(res)
+      syncStoredAccountFromSession()
       isServerReachable = true
       libraries = try await c.libraries()
       if bootstrapSupersededByOffline || offlineHomeMode { return }
@@ -3882,9 +3899,234 @@ final class AppModel: ObservableObject {
     }
   }
 
+  /// Entfernt den aktiven Account und wechselt zum nächsten gespeicherten — oder zeigt Login.
   func logout() {
-    mainTab = .start
+    syncStoredAccountFromSession()
+    let keyToRemove = activeAccountKey ?? resolvedStoredAccountKey()
+    if let keyToRemove {
+      storedAccounts.removeAll { $0.accountKey == keyToRemove }
+      persistStoredAccounts()
+    }
+    let remaining = storedAccounts
+    if let next = remaining.first {
+      Task { await switchToAccount(next.accountKey) }
+      return
+    }
+    activeAccountKey = nil
+    ABSStoredAccountsPersistence.saveActiveAccountKey(nil)
+    clearInMemorySessionState(clearCredentials: true)
+  }
+
+  func isActiveStoredAccount(_ account: ABSStoredAccount) -> Bool {
+    account.accountKey == activeAccountKey
+  }
+
+  func switchToAccount(_ accountKey: String) async {
+    guard !isSwitchingAccount else { return }
+    guard accountKey != activeAccountKey,
+      let account = storedAccounts.first(where: { $0.accountKey == accountKey })
+    else { return }
+    isSwitchingAccount = true
+    defer { isSwitchingAccount = false }
+    syncStoredAccountFromSession()
     clearCoverImageCache()
+    clearInMemorySessionState(clearCredentials: false)
+    serverURL = account.serverURL
+    token = account.token
+    UserDefaults.standard.set(serverURL, forKey: Keys.server)
+    UserDefaults.standard.set(token, forKey: Keys.token)
+    activeAccountKey = accountKey
+    ABSStoredAccountsPersistence.saveActiveAccountKey(accountKey)
+    applyLibraryPreferencesFromStoredAccount(account)
+    restoreHomeLaunchStateFromDisk()
+    isAppBootstrapInProgress = true
+    await bootstrapFromStoredCredentials()
+  }
+
+  private static func bootstrapStoredAccountsState() -> (accounts: [ABSStoredAccount], activeKey: String?) {
+    var accounts = ABSStoredAccountsPersistence.loadAccounts()
+    if accounts.isEmpty {
+      accounts = migrateLegacySingleAccountIntoStore()
+    }
+    var activeKey = ABSStoredAccountsPersistence.loadActiveAccountKey()
+    if activeKey == nil, let first = accounts.first {
+      activeKey = first.accountKey
+      ABSStoredAccountsPersistence.saveActiveAccountKey(activeKey)
+    }
+    if let currentKey = activeKey, !accounts.contains(where: { $0.accountKey == currentKey }),
+      let fallback = accounts.first
+    {
+      activeKey = fallback.accountKey
+      ABSStoredAccountsPersistence.saveActiveAccountKey(activeKey)
+    }
+    return (accounts, activeKey)
+  }
+
+  private static func migrateLegacySingleAccountIntoStore() -> [ABSStoredAccount] {
+    let server = UserDefaults.standard.string(forKey: Keys.server)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let token = UserDefaults.standard.string(forKey: Keys.token)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let userId = UserDefaults.standard.string(forKey: Keys.sessionUserId)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard ABSAPIClient.normalizeServerURL(server) != nil, !token.isEmpty, !userId.isEmpty else { return [] }
+    let account = ABSStoredAccount(
+      accountKey: ABSStoredAccount.makeKey(serverURL: server, userId: userId),
+      serverURL: server,
+      token: token,
+      userId: userId,
+      username: "",
+      userType: nil,
+      booksLibraryId: UserDefaults.standard.string(forKey: Keys.booksLibrary),
+      podcastsLibraryId: UserDefaults.standard.string(forKey: Keys.podcastsLibrary),
+      ebooksLibraryId: UserDefaults.standard.string(forKey: Keys.ebooksLibrary),
+      lastUsedAt: Date()
+    )
+    ABSStoredAccountsPersistence.saveAccounts([account])
+    ABSStoredAccountsPersistence.saveActiveAccountKey(account.accountKey)
+    return [account]
+  }
+
+  func syncStoredAccountFromSession() {
+    syncStoredAccountFromSession(markActive: true)
+  }
+
+  private func syncStoredAccountFromSession(markActive: Bool) {
+    guard ABSAPIClient.normalizeServerURL(serverURL) != nil, !token.isEmpty else { return }
+    let userId = sessionUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !userId.isEmpty else { return }
+    let key = ABSStoredAccount.makeKey(serverURL: serverURL, userId: userId)
+    let booksLib = UserDefaults.standard.string(forKey: Keys.booksLibrary)
+    let podcastsLib = UserDefaults.standard.string(forKey: Keys.podcastsLibrary)
+    let ebooksLib = UserDefaults.standard.string(forKey: Keys.ebooksLibrary)
+    if let idx = storedAccounts.firstIndex(where: { $0.accountKey == key }) {
+      storedAccounts[idx].token = token
+      storedAccounts[idx].serverURL = serverURL
+      storedAccounts[idx].userId = userId
+      storedAccounts[idx].username = sessionUsername
+      storedAccounts[idx].userType = sessionUserType.isEmpty ? nil : sessionUserType
+      storedAccounts[idx].booksLibraryId = booksLib
+      storedAccounts[idx].podcastsLibraryId = podcastsLib
+      storedAccounts[idx].ebooksLibraryId = ebooksLib
+    } else if let legacyIdx = activeAccountKey.flatMap({ key in storedAccounts.firstIndex(where: { $0.accountKey == key }) }),
+      storedAccounts[legacyIdx].userId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      // Migration: userId war beim ersten Speichern noch leer — Eintrag umbenennen.
+      storedAccounts[legacyIdx].accountKey = key
+      storedAccounts[legacyIdx].token = token
+      storedAccounts[legacyIdx].serverURL = serverURL
+      storedAccounts[legacyIdx].userId = userId
+      storedAccounts[legacyIdx].username = sessionUsername
+      storedAccounts[legacyIdx].userType = sessionUserType.isEmpty ? nil : sessionUserType
+      storedAccounts[legacyIdx].booksLibraryId = booksLib
+      storedAccounts[legacyIdx].podcastsLibraryId = podcastsLib
+      storedAccounts[legacyIdx].ebooksLibraryId = ebooksLib
+    } else {
+      storedAccounts.append(
+        ABSStoredAccount(
+          accountKey: key,
+          serverURL: serverURL,
+          token: token,
+          userId: userId,
+          username: sessionUsername,
+          userType: sessionUserType.isEmpty ? nil : sessionUserType,
+          booksLibraryId: booksLib,
+          podcastsLibraryId: podcastsLib,
+          ebooksLibraryId: ebooksLib,
+          lastUsedAt: Date()
+        ))
+    }
+    if markActive {
+      activeAccountKey = key
+      ABSStoredAccountsPersistence.saveActiveAccountKey(key)
+    }
+    persistStoredAccounts()
+  }
+
+  /// Neuen Account speichern, ohne die aktuelle Session zu wechseln.
+  func addStoredAccount(server: String, username: String, password: String) async -> Bool {
+    errorMessage = nil
+    guard let url = ABSAPIClient.normalizeServerURL(server) else {
+      errorMessage = "Please enter a valid server URL."
+      return false
+    }
+    syncStoredAccountFromSession()
+    let preserveActiveKey = activeAccountKey
+    do {
+      let res = try await ABSAPIClient.login(server: url, username: username, password: password)
+      upsertStoredAccountFromUser(
+        res.user,
+        serverURL: server.trimmingCharacters(in: .whitespacesAndNewlines),
+        markActive: false
+      )
+      activeAccountKey = preserveActiveKey
+      ABSStoredAccountsPersistence.saveActiveAccountKey(preserveActiveKey)
+      persistStoredAccounts()
+      return true
+    } catch {
+      publishErrorUnlessBenignCancellation(error)
+      return false
+    }
+  }
+
+  private func upsertStoredAccountFromUser(_ user: ABSUser, serverURL: String, markActive: Bool) {
+    let userId = user.id.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !userId.isEmpty else { return }
+    let key = ABSStoredAccount.makeKey(serverURL: serverURL, userId: userId)
+    if let idx = storedAccounts.firstIndex(where: { $0.accountKey == key }) {
+      storedAccounts[idx].token = user.token
+      storedAccounts[idx].serverURL = serverURL
+      storedAccounts[idx].userId = userId
+      storedAccounts[idx].username = user.username
+      storedAccounts[idx].userType = user.type
+    } else {
+      storedAccounts.append(
+        ABSStoredAccount(
+          accountKey: key,
+          serverURL: serverURL,
+          token: user.token,
+          userId: userId,
+          username: user.username,
+          userType: user.type,
+          booksLibraryId: nil,
+          podcastsLibraryId: nil,
+          ebooksLibraryId: nil,
+          lastUsedAt: Date()
+        ))
+    }
+    if markActive {
+      activeAccountKey = key
+      ABSStoredAccountsPersistence.saveActiveAccountKey(key)
+    }
+    persistStoredAccounts()
+  }
+
+  private func resolvedStoredAccountKey() -> String? {
+    let userId = sessionUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !userId.isEmpty else { return activeAccountKey }
+    return ABSStoredAccount.makeKey(serverURL: serverURL, userId: userId)
+  }
+
+  private func persistStoredAccounts() {
+    ABSStoredAccountsPersistence.saveAccounts(storedAccounts)
+  }
+
+  private func applyLibraryPreferencesFromStoredAccount(_ account: ABSStoredAccount) {
+    applyStoredLibraryPreference(account.booksLibraryId, key: Keys.booksLibrary)
+    applyStoredLibraryPreference(account.podcastsLibraryId, key: Keys.podcastsLibrary)
+    applyStoredLibraryPreference(account.ebooksLibraryId, key: Keys.ebooksLibrary)
+  }
+
+  private func applyStoredLibraryPreference(_ value: String?, key: String) {
+    if let value, !value.isEmpty {
+      UserDefaults.standard.set(value, forKey: key)
+    } else {
+      UserDefaults.standard.removeObject(forKey: key)
+    }
+  }
+
+  private func clearInMemorySessionState(clearCredentials: Bool) {
+    mainTab = .start
+    if clearCredentials {
+      clearCoverImageCache()
+    }
     suppressOfflineModeSideEffects = true
     offlineHomeMode = false
     offlineHomeModeAuto = false
@@ -3894,11 +4136,15 @@ final class AppModel: ObservableObject {
     pendingLocalProgressSyncKeys = []
     UserDefaults.standard.removeObject(forKey: Keys.pendingOfflineListeningSeconds)
     suppressOfflineModeSideEffects = false
-    token = ""
+    if clearCredentials {
+      token = ""
+      serverURL = ""
+      UserDefaults.standard.removeObject(forKey: Keys.token)
+      UserDefaults.standard.removeObject(forKey: Keys.server)
+    }
     isServerAdmin = false
     isServerRoot = false
     serverSettings = nil
-    UserDefaults.standard.removeObject(forKey: Keys.token)
     client = nil
     libraries = []
     selectedBooksLibrary = nil
@@ -3947,23 +4193,24 @@ final class AppModel: ObservableObject {
     sessionUsername = ""
     sessionUserType = ""
     UserDefaults.standard.removeObject(forKey: Keys.sessionUserId)
-    EbookLocalStore.updateActiveSession(account: nil, userId: nil)
+    EbookLocalStore.updateActiveSession(account: clearCredentials ? nil : cacheAccountURL(), userId: nil)
     listeningStats = nil
     listeningStatsFetchedAt = nil
     listeningAchievementsRebuildTask?.cancel()
     listeningAchievementsSnapshot = .empty
     listeningOneTimeSnapshot = .empty
     UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
-    UserDefaults.standard.removeObject(forKey: Keys.booksLibrary)
-    UserDefaults.standard.removeObject(forKey: Keys.ebooksLibrary)
-    UserDefaults.standard.removeObject(forKey: Keys.podcastsLibrary)
-    UserDefaults.standard.removeObject(forKey: Keys.library)
+    if clearCredentials {
+      UserDefaults.standard.removeObject(forKey: Keys.booksLibrary)
+      UserDefaults.standard.removeObject(forKey: Keys.ebooksLibrary)
+      UserDefaults.standard.removeObject(forKey: Keys.podcastsLibrary)
+      UserDefaults.standard.removeObject(forKey: Keys.library)
+    }
     UserDefaults.standard.removeObject(forKey: "abstand_podcast_show_settings_v1")
     player.tearDownPlayer()
     downloadedShelfBooks = []
     isRestoringLaunchPlayback = false
     isPreparingPlayback = false
-    LibraryDiskCache.clearEverything()
     libraryEntityDetailNav = nil
     homeEntityDetailNav = nil
     searchEntityDetailNav = nil
@@ -3985,6 +4232,7 @@ final class AppModel: ObservableObject {
     browseEbooksNextPage = 0
     selectedEbooksLibrary = lib
     UserDefaults.standard.set(lib.id, forKey: Keys.ebooksLibrary)
+    syncStoredAccountFromSession()
     setShowEbooksTab(true)
     if navigateToCatalog, showEbooksTab { mainTab = .ebooks }
     restoreBrowseEbooksFromDisk(libraryIdOverride: lib.id)
@@ -3994,6 +4242,7 @@ final class AppModel: ObservableObject {
   func clearEbooksLibrarySelection() {
     clearEbooksLibraryStateWithoutPersistingNone()
     UserDefaults.standard.set(Keys.librarySelectionNone, forKey: Keys.ebooksLibrary)
+    syncStoredAccountFromSession()
     setShowEbooksTab(false)
     Task { await loadStartDashboard() }
   }
@@ -4022,6 +4271,7 @@ final class AppModel: ObservableObject {
     resetBooksBrowseLists()
     selectedBooksLibrary = lib
     UserDefaults.standard.set(lib.id, forKey: Keys.booksLibrary)
+    syncStoredAccountFromSession()
     if navigateToCatalog { mainTab = .library }
     restoreBooksCatalogAndHomeFromDisk(libraryIdOverride: lib.id)
     restoreAllBrowseListsFromDisk()
@@ -4040,6 +4290,7 @@ final class AppModel: ObservableObject {
     podcastFilteredEpisodes = []
     selectedPodcastLibrary = lib
     UserDefaults.standard.set(lib.id, forKey: Keys.podcastsLibrary)
+    syncStoredAccountFromSession()
     setShowPodcastsTab(true)
     if navigateToCatalog, showPodcastsTab { mainTab = .podcasts }
     restorePodcastCatalogFromDisk(libraryIdOverride: lib.id)
@@ -4055,6 +4306,7 @@ final class AppModel: ObservableObject {
     libraryPage = 0
     libraryTotal = 0
     UserDefaults.standard.set(Keys.librarySelectionNone, forKey: Keys.booksLibrary)
+    syncStoredAccountFromSession()
     if mainTab == .library { mainTab = .start }
     Task { await loadStartDashboard() }
   }
@@ -4062,6 +4314,7 @@ final class AppModel: ObservableObject {
   func clearPodcastLibrarySelection() {
     clearPodcastLibraryStateWithoutPersistingNone()
     UserDefaults.standard.set(Keys.librarySelectionNone, forKey: Keys.podcastsLibrary)
+    syncStoredAccountFromSession()
     setShowPodcastsTab(false)
     Task { await loadStartDashboard() }
   }
@@ -4847,8 +5100,14 @@ final class AppModel: ObservableObject {
     }
   }
 
-  /// Pull-to-Refresh: Start-Tab (Regale / Offline-Reconnect).
+  /// Pull-to-Refresh: Start-Tab (Regale / Stats / Offline-Reconnect).
   func refreshStartTabPullToRefresh() async {
+    if ABSStartShelfLocalization.isHomeBrowseStatsCategory(homeBrowseCategory) {
+      await performPullToRefresh { [self] in
+        await loadListeningStats()
+      }
+      return
+    }
     await performPullToRefresh { [self] in
       await loadStartDashboard(skipAuthorizeRefresh: true, force: true)
     }
@@ -8703,6 +8962,9 @@ final class AppModel: ObservableObject {
     applyAuthorizeUser(auth.user, persistToDisk: persistToDisk)
     if let settings = auth.serverSettings {
       serverSettings = settings
+    }
+    if persistToDisk {
+      syncStoredAccountFromSession()
     }
   }
 

@@ -1113,6 +1113,12 @@ private struct StartDashboardView: View {
     .onChange(of: model.startSettingsCategoryList.count) { _, _ in
       model.clampHomeBrowseSectionIfNeeded()
     }
+    .task(id: model.homeBrowseCategory) {
+      guard ABSStartShelfLocalization.isHomeBrowseStatsCategory(model.homeBrowseCategory) else { return }
+      guard !model.offlineHomeUIActive else { return }
+      model.prepareListeningAchievementsForStatsTab()
+      await model.loadListeningStats()
+    }
   }
 
   private var homeBrowseSectionStrip: some View {
@@ -1138,7 +1144,9 @@ private struct StartDashboardView: View {
 
   private func startDashboardSectionScrollContent(category: String) -> some View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-      if category == ABSStartShelfLocalization.homeBrowseContinueSectionID {
+      if ABSStartShelfLocalization.isHomeBrowseStatsCategory(category) {
+        HomeListeningStatsSectionView()
+      } else if category == ABSStartShelfLocalization.homeBrowseContinueSectionID {
         startDashboardContinueCombinedContent()
       } else if category == ABSStartShelfLocalization.homeBrowseRecentSectionID {
         startDashboardRecentCombinedContent()
@@ -4728,6 +4736,32 @@ private enum DetailActionRowMetrics {
   static var corner: RoundedRectangle {
     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
   }
+
+  @ViewBuilder
+  static func progressFill(
+    width: CGFloat,
+    height: CGFloat,
+    fillAmount: Double,
+    isFinished: Bool,
+    color: Color
+  ) -> some View {
+    let roundTrailing = isFinished || fillAmount >= 0.999
+    if roundTrailing {
+      corner
+        .fill(color)
+        .frame(width: width, height: height)
+    } else {
+      UnevenRoundedRectangle(
+        topLeadingRadius: cornerRadius,
+        bottomLeadingRadius: cornerRadius,
+        bottomTrailingRadius: 0,
+        topTrailingRadius: 0,
+        style: .continuous
+      )
+      .fill(color)
+      .frame(width: width, height: height)
+    }
+  }
 }
 
 /// Apple-Music-ähnliches Detail-Hero: Cover, Titel und Aktionszeile.
@@ -4797,7 +4831,7 @@ private struct DetailHeroCircularButton: View {
   }
 }
 
-/// Zentrale Play-/Read-Pille: Play in Appearance-Akzent, Read hell.
+/// Zentrale Play-/Read-Pille: beide in Appearance-Akzent.
 private struct DetailHeroPrimaryButton: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
@@ -4875,7 +4909,7 @@ private struct DetailHeroPrimaryButton: View {
   }
 
   @ViewBuilder
-  private func playLabelColored(fillWidth: CGFloat, in size: CGSize) -> some View {
+  private func accentLabelColored(fillWidth: CGFloat, in size: CGSize) -> some View {
     let masked = actionLabel
       .foregroundStyle(labelOnAccent)
       .frame(width: size.width, height: size.height)
@@ -4891,26 +4925,21 @@ private struct DetailHeroPrimaryButton: View {
 
   @ViewBuilder
   private var buttonLabel: some View {
-    switch kind {
-    case .read:
-      actionLabel.foregroundStyle(AppTheme.background)
-    case .play:
-      if isFinished {
-        actionLabel.foregroundStyle(labelOnAccent)
-      } else {
-        GeometryReader { geo in
-          playLabelColored(
-            fillWidth: geo.size.width * fillAmount,
-            in: geo.size
-          )
-          .frame(width: geo.size.width, height: geo.size.height)
-        }
+    if isFinished {
+      actionLabel.foregroundStyle(labelOnAccent)
+    } else {
+      GeometryReader { geo in
+        accentLabelColored(
+          fillWidth: geo.size.width * fillAmount,
+          in: geo.size
+        )
+        .frame(width: geo.size.width, height: geo.size.height)
       }
     }
   }
 
   @ViewBuilder
-  private var playButtonChrome: some View {
+  private var primaryButtonChrome: some View {
     ZStack {
       if isFinished {
         Capsule(style: .continuous)
@@ -4919,31 +4948,23 @@ private struct DetailHeroPrimaryButton: View {
         Capsule(style: .continuous)
           .stroke(themeAccent, lineWidth: DetailActionRowMetrics.borderWidth)
         if !isEmptyProgress {
-          GeometryReader { geo in
-            Capsule(style: .continuous)
-              .fill(themeAccent)
-              .frame(width: max(0, geo.size.width * fillAmount))
-              .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-          }
+          capsuleProgressFill(color: themeAccent)
         }
       }
     }
   }
 
+  /// Fortschrittsfüllung in Pillenform — an Capsule-Umriss ausgerichtet (nicht abgeschnitten).
   @ViewBuilder
-  private var readButtonChrome: some View {
-    ZStack {
-      Capsule(style: .continuous)
-        .fill(AppTheme.textPrimary)
-      if !isFinished, !isEmptyProgress {
+  private func capsuleProgressFill(color: Color) -> some View {
+    Capsule(style: .continuous)
+      .fill(color)
+      .mask(alignment: .leading) {
         GeometryReader { geo in
-          Capsule(style: .continuous)
-            .fill(AppTheme.textSecondary.opacity(0.28))
+          Rectangle()
             .frame(width: max(0, geo.size.width * fillAmount))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
       }
-    }
   }
 
   private var controlHeight: CGFloat {
@@ -4955,15 +4976,13 @@ private struct DetailHeroPrimaryButton: View {
   var body: some View {
     Button(action: action) {
       ZStack {
-        switch kind {
-        case .play: playButtonChrome
-        case .read: readButtonChrome
-        }
+        primaryButtonChrome
         buttonLabel
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .frame(height: controlHeight)
       .contentShape(Capsule(style: .continuous))
+      .clipShape(Capsule(style: .continuous))
     }
     .buttonStyle(.plain)
     .disabled(!enabled)
@@ -5085,9 +5104,12 @@ private struct DetailActionControlChrome: View {
           themeAccent, lineWidth: DetailActionRowMetrics.borderWidth)
         if !isEmptyProgress {
           GeometryReader { geo in
-            progressFillBar(
+            DetailActionRowMetrics.progressFill(
               width: max(0, geo.size.width * fillAmount),
-              height: geo.size.height
+              height: geo.size.height,
+              fillAmount: fillAmount,
+              isFinished: isFinished,
+              color: themeAccent
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
           }
@@ -5095,27 +5117,6 @@ private struct DetailActionControlChrome: View {
       }
     }
     .clipShape(DetailActionRowMetrics.corner)
-  }
-
-  @ViewBuilder
-  private func progressFillBar(width: CGFloat, height: CGFloat) -> some View {
-    let r = DetailActionRowMetrics.cornerRadius
-    let roundTrailing = isFinished || fillAmount >= 0.999
-    if roundTrailing {
-      DetailActionRowMetrics.corner
-        .fill(themeAccent)
-        .frame(width: width, height: height)
-    } else {
-      UnevenRoundedRectangle(
-        topLeadingRadius: r,
-        bottomLeadingRadius: r,
-        bottomTrailingRadius: 0,
-        topTrailingRadius: 0,
-        style: .continuous
-      )
-      .fill(themeAccent)
-      .frame(width: width, height: height)
-    }
   }
 }
 
