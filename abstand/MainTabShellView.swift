@@ -12,8 +12,6 @@ struct MainTabShellView<Content: View>: View {
   @State private var keyboardVisible = false
 
   var body: some View {
-    // `tabViewBottomAccessory` immer am Baum lassen — sonst baut SwiftUI die ganze TabView neu,
-    // sobald nach dem Start `activeBook` gesetzt wird (sichtbarer Flackern).
     // Offline: kein Tab-Zubehör — Mini-Player sitzt in der Home-Scroll-Ansicht.
     Group {
       if model.offlineHomeUIActive {
@@ -39,7 +37,7 @@ struct MainTabShellView<Content: View>: View {
   }
 }
 
-/// `tabViewBottomAccessory` nur bei geladenem Titel — sonst leere System-Leiste.
+/// `tabViewBottomAccessory` nur bei geladenem Titel — sonst leere System-Leiste (iOS 26).
 private struct FloatingTabBottomAccessoryModifier: ViewModifier {
   @ObservedObject var gate: FloatingAccessoryGate
   let chrome: FloatingPlayerChromeController
@@ -47,6 +45,7 @@ private struct FloatingTabBottomAccessoryModifier: ViewModifier {
   let keyboardVisible: Bool
 
   func body(content: Content) -> some View {
+    // Nur bei geladenem Titel — sonst reserviert iOS 26 eine leere Accessory-Leiste.
     if gate.chromeVisible {
       content.tabViewBottomAccessory {
         FloatingAccessoryLayer(
@@ -55,7 +54,6 @@ private struct FloatingTabBottomAccessoryModifier: ViewModifier {
           sheetPresented: sheetPresented,
           keyboardVisible: keyboardVisible
         )
-        .id("abstand-floating-player")
       }
     } else {
       content

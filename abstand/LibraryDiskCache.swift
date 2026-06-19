@@ -120,6 +120,38 @@ enum LibraryDiskCache {
     return try? Data(contentsOf: u)
   }
 
+  /// Kompakte Home-Regale „Continue reading“ / eBook-Zeilen in „Continue series“ (ohne Readium beim Kaltstart).
+  struct EbookContinueShelfCacheBook: Codable {
+    let id: String
+    let libraryId: String?
+    let title: String
+    let authorLine: String
+    let seriesName: String?
+  }
+
+  struct EbookContinueShelvesCachePayload: Codable {
+    let continueReading: [EbookContinueShelfCacheBook]
+    let continueSeriesInjected: [EbookContinueShelfCacheBook]
+  }
+
+  static func saveEbookContinueShelves(
+    account: URL, libraryId: String, payload: EbookContinueShelvesCachePayload
+  ) throws {
+    let dir = account.appendingPathComponent("ebookContinueShelves", isDirectory: true)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let data = try ABSJSON.encoder().encode(payload)
+    try data.write(to: dir.appendingPathComponent("\(libraryId).json"), options: .atomic)
+  }
+
+  static func loadEbookContinueShelves(
+    account: URL, libraryId: String
+  ) -> EbookContinueShelvesCachePayload? {
+    let u = account.appendingPathComponent("ebookContinueShelves", isDirectory: true)
+      .appendingPathComponent("\(libraryId).json")
+    guard fm.fileExists(atPath: u.path), let data = try? Data(contentsOf: u) else { return nil }
+    return try? ABSJSON.decoder().decode(EbookContinueShelvesCachePayload.self, from: data)
+  }
+
   static func saveFilterData(account: URL, libraryId: String, data: Data) throws {
     let dir = account.appendingPathComponent("filterdata", isDirectory: true)
     try fm.createDirectory(at: dir, withIntermediateDirectories: true)

@@ -7,8 +7,11 @@ struct MainRootView: View {
   @Binding var nowPlayingSheetPresented: Bool
   @StateObject private var booksLibraryToolbarState = BooksLibraryToolbarState()
   @StateObject private var podcastCatalogToolbarState = PodcastCatalogToolbarState()
-  /// Tabs erst bei erstem Besuch aufbauen — Home sofort, Rest lazy.
+  /// Tabs erst bei erstem Besuch aufbauen — Home sofort, Rest lazy (Prewarm nach Bootstrap).
   @State private var activatedTabs: Set<AppModel.MainTab> = [.start]
+  @State private var libraryRelayoutEpoch = 0
+  @State private var ebooksRelayoutEpoch = 0
+  @State private var podcastsRelayoutEpoch = 0
 
   var body: some View {
     let _ = model.appearanceThemeRevision
@@ -36,12 +39,33 @@ struct MainRootView: View {
     }
     .onChange(of: model.mainTab) { _, tab in
       activatedTabs.insert(tab)
+      switch tab {
+      case .library:
+        libraryRelayoutEpoch += 1
+      case .ebooks:
+        ebooksRelayoutEpoch += 1
+      case .podcasts:
+        podcastsRelayoutEpoch += 1
+      default:
+        break
+      }
       if tab == .start, model.startShelves.isEmpty, !model.offlineHomeUIActive {
         Task { await model.loadStartDashboard() }
       }
       if tab == .ebooks, model.browseEbooks.isEmpty, model.browseEbooksSupplementary.isEmpty {
         Task { await model.ensureBrowseEbooksLoaded() }
       }
+    }
+    .onChange(of: model.shouldPrewarmSecondaryTabs) { _, prewarm in
+      guard prewarm else { return }
+      var tabs: Set<AppModel.MainTab> = [.library, .settings]
+      if model.showPodcastsTab {
+        tabs.insert(.podcasts)
+      }
+      if model.showEbooksTab {
+        tabs.insert(.ebooks)
+      }
+      activatedTabs.formUnion(tabs)
     }
     .onChange(of: model.offlineHomeMode) { _, _ in
       model.clampMainTabForOfflineHomeIfNeeded()
@@ -63,9 +87,21 @@ struct MainRootView: View {
       }
     }
     .onChange(of: model.selectedPodcastLibrary?.id) { _, _ in
-      if model.selectedPodcastLibrary == nil && model.mainTab == .podcasts {
+      model.clampMainTabForPodcastsTabIfNeeded()
+    }
+    .onChange(of: model.showPodcastsTab) { _, _ in
+      model.clampMainTabForPodcastsTabIfNeeded()
+    }
+    .onChange(of: model.selectedEbooksLibrary?.id) { _, _ in
+      if model.selectedEbooksLibrary == nil,
+        model.mainTab == .ebooks
+      {
         model.mainTab = .start
       }
+      model.clampMainTabForEbooksTabIfNeeded()
+    }
+    .onChange(of: model.showEbooksTab) { _, _ in
+      model.clampMainTabForEbooksTabIfNeeded()
     }
     .alert(
       "Error",
@@ -96,7 +132,7 @@ struct MainRootView: View {
     Group {
       if model.offlineHomeUIActive {
         // Keine TabView — sonst bleibt eine Ein-Tab-Leiste sichtbar.
-        homeTabRoot
+        HomeTabRootView()
       } else {
         onlineTabView
       }
@@ -106,24 +142,41 @@ struct MainRootView: View {
   private var onlineTabView: some View {
     TabView(selection: $model.mainTab) {
       Tab(AppModel.MainTab.start.rawValue, systemImage: "house.fill", value: AppModel.MainTab.start) {
-        homeTabRoot
+        HomeTabRootView()
       }
 
-      if model.selectedBooksLibrary != nil {
-        Tab(AppModel.MainTab.library.rawValue, systemImage: "books.vertical", value: AppModel.MainTab.library) {
-          lazyTabContent(.library) { libraryTabRoot }
+      // Tabs immer registrieren — sonst baut TabView beim Bootstrap neu (Ampel flackert).
+      Tab(AppModel.MainTab.library.rawValue, systemImage: "books.vertical", value: AppModel.MainTab.library) {
+        lazyTabContent(.library) {
+          if model.selectedBooksLibrary != nil {
+            libraryTabRoot
+          } else {
+            tabLibraryBootstrapPlaceholder
+          }
         }
       }
 
-      if model.selectedBooksLibrary != nil, model.showEbooksTab {
+      if model.showEbooksTab {
         Tab(AppModel.MainTab.ebooks.rawValue, systemImage: "book.closed", value: AppModel.MainTab.ebooks) {
-          lazyTabContent(.ebooks) { ebooksTabRoot }
+          lazyTabContent(.ebooks) {
+            if model.selectedEbooksLibrary != nil {
+              ebooksTabRoot
+            } else {
+              tabLibraryBootstrapPlaceholder
+            }
+          }
         }
       }
 
-      if model.selectedPodcastLibrary != nil {
+      if model.showPodcastsTab {
         Tab(AppModel.MainTab.podcasts.rawValue, systemImage: "mic.fill", value: AppModel.MainTab.podcasts) {
-          lazyTabContent(.podcasts) { podcastsTabRoot }
+          lazyTabContent(.podcasts) {
+            if model.selectedPodcastLibrary != nil {
+              podcastsTabRoot
+            } else {
+              tabLibraryBootstrapPlaceholder
+            }
+          }
         }
       }
 
@@ -132,6 +185,13 @@ struct MainRootView: View {
       }
     }
     .tabBarMinimizeBehavior(.onScrollDown)
+  }
+
+  /// Platzhalter bis Bibliotheken aus Bootstrap da sind — Tab-Struktur bleibt stabil.
+  private var tabLibraryBootstrapPlaceholder: some View {
+    Color.clear
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .abstandTabScreenChrome()
   }
 
   @ViewBuilder
@@ -143,28 +203,6 @@ struct MainRootView: View {
       content()
     } else {
       Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-  }
-
-  // MARK: - Home tab
-
-  private var homeTabRoot: some View {
-    NavigationStack {
-      StartDashboardView()
-        .abstandTabScreenChrome()
-        .navigationTitle(AppModel.MainTab.start.rawValue)
-        .toolbarTitleDisplayMode(.inlineLarge)
-        .toolbar(.visible, for: .navigationBar)
-        .toolbar {
-          ToolbarItem(placement: .topBarTrailing) {
-            HomeServerConnectionIndicatorButton()
-          }
-        }
-        .task(id: model.sessionUserId) {
-          guard !model.isAppBootstrapInProgress else { return }
-          await model.probeServerConnectionIfNeeded()
-        }
-        .booksEntityDetailNavigation(for: .start)
     }
   }
 
@@ -199,7 +237,7 @@ struct MainRootView: View {
 
   private var ebooksCatalogScrollView: some View {
     AbstandFixedBrowseStripSectionsLayout(
-      relayoutTrigger: model.mainTab,
+      relayoutTrigger: ebooksRelayoutEpoch,
       selection: model.ebooksBrowseSection,
       sectionIDs: EbooksBrowseSection.stripOrder,
       scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
@@ -344,7 +382,7 @@ struct MainRootView: View {
 
   private var booksCatalogScrollView: some View {
     AbstandFixedBrowseStripSectionsLayout(
-      relayoutTrigger: model.mainTab,
+      relayoutTrigger: libraryRelayoutEpoch,
       selection: model.booksBrowseSection,
       sectionIDs: BooksBrowseSection.stripOrder,
       scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
@@ -762,7 +800,7 @@ struct MainRootView: View {
 
   private var podcastCatalogScrollView: some View {
     AbstandFixedBrowseStripSectionsLayout(
-      relayoutTrigger: model.mainTab,
+      relayoutTrigger: podcastsRelayoutEpoch,
       selection: podcastCatalogScrollSelection,
       sectionIDs: podcastCatalogScrollSectionIDs,
       scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
@@ -903,50 +941,65 @@ struct MainRootView: View {
   }
 }
 
-// MARK: - Home server connection indicator
+// MARK: - Home tab root
 
-private struct HomeServerConnectionIndicatorButton: View {
+/// Eigener View-Typ — stabile Identität; Nav-Bar + Offline-Button überleben Bootstrap-Schritte.
+private struct HomeTabRootView: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        StartDashboardView()
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .abstandTabScreenChrome()
+      .abstandHomeTabNavigationTitle()
+      .toolbar {
+        HomeGoOfflineToolbarContent()
+      }
+      .task(id: "\(model.sessionUserId)-\(model.isAppBootstrapInProgress)") {
+        guard !model.isAppBootstrapInProgress else { return }
+        await model.probeServerConnectionIfNeeded()
+      }
+      .booksEntityDetailNavigation(for: .start)
+    }
+  }
+}
+
+/// Nav-Bar-Trailing — statischer Offline-Schalter.
+private struct HomeGoOfflineToolbarContent: ToolbarContent {
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .topBarTrailing) {
+      HomeGoOfflineToolbarButton()
+    }
+  }
+}
+
+private struct HomeGoOfflineToolbarButton: View {
   @EnvironmentObject private var model: AppModel
 
   var body: some View {
     Button {
-      model.homeToolbarServerConnectionTapped()
+      model.homeGoOfflineToolbarTapped()
     } label: {
-      Image(systemName: "circle.fill")
-        .font(.system(size: 14))
-        .foregroundStyle(indicatorColor)
-        .frame(width: 28, height: 28)
-        .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(accessibilityLabel)
-  }
-
-  private var indicatorColor: Color {
-    switch model.serverConnectionIndicatorState {
-    case .online:
-      return AppTheme.success
-    case .connecting:
-      return AppTheme.warning
-    case .offline:
-      return AppTheme.danger
-    }
-  }
-
-  private var accessibilityLabel: String {
-    switch model.serverConnectionIndicatorState {
-    case .online:
-      return "Connected to server. Tap to enable offline mode."
-    case .connecting:
-      return model.isAppBootstrapInProgress
-        ? "App is starting. Tap to enable offline mode."
-        : "Checking server connection. Tap to enable offline mode."
-    case .offline:
-      if model.offlineHomeUIActive {
-        return "Offline mode. Tap to go online."
+      Label {
+        Text(buttonTitle)
+      } icon: {
+        Image(systemName: buttonIcon)
       }
-      return "Not connected to server. Tap to enable offline mode."
+      .labelStyle(.iconOnly)
     }
+    .accessibilityLabel(buttonTitle)
+    .accessibilityIdentifier("home-go-offline-toolbar-button")
+  }
+
+  private var buttonTitle: String {
+    model.offlineHomeUIActive ? "Go online" : "Go offline"
+  }
+
+  private var buttonIcon: String {
+    model.offlineHomeUIActive ? "icloud.slash" : "icloud"
   }
 }
 
@@ -1022,33 +1075,34 @@ private struct StartDashboardView: View {
       .background(model.appearancePalette.background)
   }
 
+  // MARK: - Home tab
+
   private var startDashboardOnlineLayout: some View {
-    Group {
-      if model.homeBrowseStripCategoryIDs.isEmpty {
-        ScrollView {
-          startDashboardAllShelvesDisabledState
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-            .padding(.top, AppTheme.Layout.tabTitleToHeaderBlockSpacing)
-            .padding(
-              .bottom,
-              AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset
-            )
-        }
-        .scrollContentBackground(.hidden)
-        .refreshable { await model.refreshStartTabPullToRefresh() }
+    let stripIDs = model.homeBrowseStripCategoryIDs
+    let layoutSectionIDs =
+      stripIDs.isEmpty
+      ? [ABSStartShelfLocalization.homeBrowseContinueSectionID]
+      : stripIDs
+    return AbstandFixedBrowseStripSectionsLayout(
+      showsStrip: true,
+      selection: model.homeBrowseCategory,
+      sectionIDs: layoutSectionIDs,
+      scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
+        + model.nowPlayingAccessoryScrollBottomInset,
+      topScrollEdgeEffectStyle: .soft,
+      onRefresh: { await model.refreshStartTabPullToRefresh() }
+    ) {
+      if stripIDs.isEmpty {
+        homeBrowseStripBootstrapPlaceholder
       } else {
-        AbstandFixedBrowseStripSectionsLayout(
-          selection: model.homeBrowseCategory,
-          sectionIDs: model.homeBrowseStripCategoryIDs,
-          scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
-            + model.nowPlayingAccessoryScrollBottomInset,
-          onRefresh: { await model.refreshStartTabPullToRefresh() }
-        ) {
-          homeBrowseSectionStrip
-        } sectionBody: { category in
-          startDashboardSectionScrollContent(category: category)
-        }
+        homeBrowseSectionStrip
+      }
+    } sectionBody: { category in
+      if stripIDs.isEmpty {
+        startDashboardAllShelvesDisabledState
+          .frame(maxWidth: .infinity)
+      } else {
+        startDashboardSectionScrollContent(category: category)
       }
     }
     .onAppear { model.clampHomeBrowseSectionIfNeeded() }
@@ -1072,6 +1126,13 @@ private struct StartDashboardView: View {
       selectionID: model.homeBrowseCategory,
       onSelect: { model.selectHomeBrowseSection($0) }
     )
+  }
+
+  /// Leerer Strip bis Regale da sind — gleiche Layout-Höhe wie echter Strip (kein Nav-Bar-Relayout).
+  private var homeBrowseStripBootstrapPlaceholder: some View {
+    Color.clear
+      .frame(maxWidth: .infinity)
+      .accessibilityHidden(true)
   }
 
   private func startDashboardSectionScrollContent(category: String) -> some View {
@@ -1836,13 +1897,17 @@ private struct ContinueListeningHeroCoverPill<Content: View>: View {
       .padding(.horizontal, 8)
       .padding(.vertical, 5)
       .background(.black.opacity(0.48), in: Capsule(style: .continuous))
-      .padding(10)
+      .fixedSize()
+      .padding(.vertical, ContinueListeningHeroCoverPillMetrics.verticalInset)
+      .padding(.horizontal, ContinueListeningHeroCoverPillMetrics.horizontalInset)
       .allowsHitTesting(allowsHitTesting)
   }
 }
 
 private enum ContinueListeningHeroCoverPillMetrics {
   static let iconFont = Font.system(size: 11, weight: .semibold)
+  static let verticalInset: CGFloat = 10
+  static let horizontalInset: CGFloat = 16
 }
 
 /// Oben links auf Continue-Hero-Cover: Medientyp-Pill (Buch oder Podcast).
@@ -2229,7 +2294,7 @@ struct PodcastEpisodeRowCard: View {
                 model.openPodcastSearchFromText(author.name)
               } label: {
                 Text(author.name)
-                  .font(.subheadline)
+                  .font(DetailHeroTypography.metaLink)
                   .abstandAccentForeground()
                   .multilineTextAlignment(.leading)
                   .fixedSize(horizontal: false, vertical: true)
@@ -2486,6 +2551,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
       .frame(maxWidth: .infinity)
       .overlay(alignment: .topTrailing) {
         ContinueListeningHeroPodcastOfflineBadgeSlot(rowLive: live)
+          .fixedSize()
       }
       .clipped()
 
@@ -2640,9 +2706,11 @@ private struct ContinueListeningHeroBookCard: View {
       }
       .overlay(alignment: .topLeading) {
         ContinueListeningHeroTypePill(type: .audiobook)
+          .fixedSize()
       }
       .overlay(alignment: .topTrailing) {
         ContinueListeningHeroBookOfflineBadgeSlot(rowLive: rowLive)
+          .fixedSize()
       }
       .frame(width: w, height: h)
       .clipped()
@@ -2805,9 +2873,11 @@ private struct ContinueListeningHeroPodcastCard: View {
       }
       .overlay(alignment: .topLeading) {
         ContinueListeningHeroTypePill(type: .podcast)
+          .fixedSize()
       }
       .overlay(alignment: .topTrailing) {
         ContinueListeningHeroPodcastOfflineBadgeSlot(rowLive: rowLive)
+          .fixedSize()
       }
       .frame(width: w, height: h)
       .clipped()
@@ -2940,6 +3010,7 @@ private func facetBrowseTileCardChrome<Leading: View>(
           .foregroundStyle(.white)
           .lineLimit(1)
       }
+      .fixedSize()
     }
   }
   .accessibilityElement(children: .combine)
@@ -3805,6 +3876,7 @@ private struct LibraryHeroBookRowCard: View {
               }
             }
         )
+        .fixedSize()
       }
     }
     .background(AppTheme.card)
@@ -4657,6 +4729,337 @@ private enum DetailActionRowMetrics {
   }
 }
 
+/// Apple-Music-ähnliches Detail-Hero: Cover, Titel und Aktionszeile.
+private enum DetailHeroLayoutMetrics {
+  static let coverTopPadding: CGFloat = 4
+  static let titleTopSpacing: CGFloat = 18
+  static let sideControlSize: CGFloat = 52
+  static let compactSideControlSize: CGFloat = 46
+  static let primaryControlHeight: CGFloat = 52
+  static let compactPrimaryControlHeight: CGFloat = 48
+  /// Breite der einzelnen Play-/Read-Pille (1 Medien-Aktion).
+  static let singlePrimaryWidthFraction: CGFloat = 0.54
+  static let actionRowSpacing: CGFloat = 16
+  static let compactActionRowSpacing: CGFloat = 10
+}
+
+/// System-Typografie für Buch-/Folgen-Detail (Dynamic Type, HIG).
+private enum DetailHeroTypography {
+  static let heroTitle = Font.title.bold()
+  static let heroSubtitle = Font.title2
+  static let markIcon = Font.title3
+  static let primaryAction = Font.headline
+  static let compactPrimaryAction = Font.subheadline
+  static let metaLabel = Font.footnote.weight(.semibold)
+  static let metaValue = Font.body
+  static let metaLink = Font.body
+}
+
+private struct DetailHeroMediaAction: Identifiable {
+  let id: String
+  let markSystemImage: String
+  let markAccessibilityLabel: String
+  let markEnabled: Bool
+  let onMark: () -> Void
+  let kind: DetailHeroPrimaryButton.Kind
+  let progress01: Double
+  let isFinished: Bool
+  let primaryEnabled: Bool
+  let onPrimary: () -> Void
+}
+
+/// Kreis-Button links/rechts neben der Play-Pille (Finish, Read, …).
+private struct DetailHeroCircularButton: View {
+  let systemImage: String
+  let isActive: Bool
+  let enabled: Bool
+  let size: CGFloat
+  let accessibilityLabel: String
+  let onTap: () -> Void
+
+  var body: some View {
+    Button(action: onTap) {
+      ZStack {
+        Circle()
+          .fill(AppTheme.card.opacity(0.88))
+        Image(systemName: systemImage)
+          .font(DetailHeroTypography.markIcon)
+          .symbolRenderingMode(.monochrome)
+          .foregroundStyle(isActive ? AppTheme.textPrimary : AppTheme.textSecondary)
+      }
+      .frame(width: size, height: size)
+      .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+    .disabled(!enabled)
+    .accessibilityLabel(accessibilityLabel)
+  }
+}
+
+/// Zentrale Play-/Read-Pille: Play in Appearance-Akzent, Read hell.
+private struct DetailHeroPrimaryButton: View {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+
+  enum Kind {
+    case play
+    case read
+
+    var systemImage: String {
+      switch self {
+      case .play: "play.fill"
+      case .read: "book.closed.fill"
+      }
+    }
+
+    var title: String {
+      switch self {
+      case .play: "Play"
+      case .read: "Read"
+      }
+    }
+
+    var accessibilityLabel: String {
+      switch self {
+      case .play: "Play"
+      case .read: "Read eBook"
+      }
+    }
+
+    func progressAccessibilityValue(fillAmount: Double, isFinished: Bool, isEmpty: Bool) -> String {
+      if isFinished { return "Finished" }
+      if isEmpty { return "Not started" }
+      switch self {
+      case .play:
+        return "\(Int(fillAmount * 100)) percent listened"
+      case .read:
+        return "\(Int(fillAmount * 100)) percent read"
+      }
+    }
+  }
+
+  let kind: Kind
+  let progress01: Double
+  let isFinished: Bool
+  let enabled: Bool
+  var compact: Bool = false
+  let action: () -> Void
+
+  private var fillAmount: Double {
+    if isFinished { return 1 }
+    return min(1, max(0, progress01))
+  }
+
+  private var isEmptyProgress: Bool {
+    !isFinished && fillAmount < 0.001
+  }
+
+  private var progressAccessibilityLabel: String {
+    kind.progressAccessibilityValue(
+      fillAmount: fillAmount,
+      isFinished: isFinished,
+      isEmpty: isEmptyProgress
+    )
+  }
+
+  private var labelOnAccent: Color {
+    let _ = model.appearanceThemeRevision
+    return model.appearancePalette.foregroundOnAccent(themeAccent)
+  }
+
+  private var actionLabel: some View {
+    Label(kind.title, systemImage: kind.systemImage)
+      .font(compact ? DetailHeroTypography.compactPrimaryAction : DetailHeroTypography.primaryAction)
+      .labelStyle(.titleAndIcon)
+  }
+
+  @ViewBuilder
+  private func playLabelColored(fillWidth: CGFloat, in size: CGSize) -> some View {
+    let masked = actionLabel
+      .foregroundStyle(labelOnAccent)
+      .frame(width: size.width, height: size.height)
+      .mask(alignment: .leading) {
+        Rectangle().frame(width: max(0, fillWidth))
+      }
+
+    actionLabel
+      .foregroundStyle(themeAccent)
+      .frame(width: size.width, height: size.height)
+      .overlay(alignment: .leading) { masked }
+  }
+
+  @ViewBuilder
+  private var buttonLabel: some View {
+    switch kind {
+    case .read:
+      actionLabel.foregroundStyle(AppTheme.background)
+    case .play:
+      if isFinished {
+        actionLabel.foregroundStyle(labelOnAccent)
+      } else {
+        GeometryReader { geo in
+          playLabelColored(
+            fillWidth: geo.size.width * fillAmount,
+            in: geo.size
+          )
+          .frame(width: geo.size.width, height: geo.size.height)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var playButtonChrome: some View {
+    ZStack {
+      if isFinished {
+        Capsule(style: .continuous)
+          .fill(themeAccent)
+      } else {
+        Capsule(style: .continuous)
+          .stroke(themeAccent, lineWidth: DetailActionRowMetrics.borderWidth)
+        if !isEmptyProgress {
+          GeometryReader { geo in
+            Capsule(style: .continuous)
+              .fill(themeAccent)
+              .frame(width: max(0, geo.size.width * fillAmount))
+              .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+          }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var readButtonChrome: some View {
+    ZStack {
+      Capsule(style: .continuous)
+        .fill(AppTheme.textPrimary)
+      if !isFinished, !isEmptyProgress {
+        GeometryReader { geo in
+          Capsule(style: .continuous)
+            .fill(AppTheme.textSecondary.opacity(0.28))
+            .frame(width: max(0, geo.size.width * fillAmount))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+      }
+    }
+  }
+
+  private var controlHeight: CGFloat {
+    compact
+      ? DetailHeroLayoutMetrics.compactPrimaryControlHeight
+      : DetailHeroLayoutMetrics.primaryControlHeight
+  }
+
+  var body: some View {
+    Button(action: action) {
+      ZStack {
+        switch kind {
+        case .play: playButtonChrome
+        case .read: readButtonChrome
+        }
+        buttonLabel
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .frame(height: controlHeight)
+      .contentShape(Capsule(style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .disabled(!enabled)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(kind.accessibilityLabel)
+    .accessibilityValue(progressAccessibilityLabel)
+    .accessibilityHint(isFinished ? "Starts from the beginning" : "")
+  }
+}
+
+/// Variable Aktionszeile: 3 Slots (Mark · Play · Balance) oder 4 (Mark · Play · Read · Mark).
+private struct DetailHeroActionsBar: View {
+  let actions: [DetailHeroMediaAction]
+
+  private var isCompact: Bool { actions.count > 1 }
+  private var sideSize: CGFloat {
+    isCompact
+      ? DetailHeroLayoutMetrics.compactSideControlSize
+      : DetailHeroLayoutMetrics.sideControlSize
+  }
+  private var rowSpacing: CGFloat {
+    isCompact
+      ? DetailHeroLayoutMetrics.compactActionRowSpacing
+      : DetailHeroLayoutMetrics.actionRowSpacing
+  }
+
+  var body: some View {
+    Group {
+      if actions.count > 1 {
+        compactActionsRow
+      } else if let action = actions.first {
+        singleActionRow(action)
+      }
+    }
+    .frame(maxWidth: .infinity)
+  }
+
+  /// Vier Buttons: [Mark Hören] [Play] [Read] [Mark Lesen]
+  private var compactActionsRow: some View {
+    HStack(spacing: rowSpacing) {
+      heroMarkButton(actions[0])
+      heroPrimaryButton(actions[0], compact: true)
+        .frame(maxWidth: .infinity)
+      if actions.count > 1 {
+        heroPrimaryButton(actions[1], compact: true)
+          .frame(maxWidth: .infinity)
+        heroMarkButton(actions[1])
+      }
+    }
+    .frame(height: DetailHeroLayoutMetrics.compactPrimaryControlHeight)
+  }
+
+  /// Drei Slots: [Mark] [Play/Read] [Balance] — zentriert wie Apple Music.
+  private func singleActionRow(_ action: DetailHeroMediaAction) -> some View {
+    HStack(spacing: rowSpacing) {
+      Spacer(minLength: 0)
+      heroMarkButton(action)
+      heroPrimaryButton(action, compact: false)
+        .containerRelativeFrame(.horizontal) { width, _ in
+          width * DetailHeroLayoutMetrics.singlePrimaryWidthFraction
+        }
+      detailHeroBalanceSlot(size: sideSize)
+      Spacer(minLength: 0)
+    }
+    .frame(height: DetailHeroLayoutMetrics.primaryControlHeight)
+  }
+
+  private func heroMarkButton(_ action: DetailHeroMediaAction) -> some View {
+    DetailHeroCircularButton(
+      systemImage: action.markSystemImage,
+      isActive: true,
+      enabled: action.markEnabled,
+      size: sideSize,
+      accessibilityLabel: action.markAccessibilityLabel,
+      onTap: action.onMark
+    )
+  }
+
+  private func heroPrimaryButton(_ action: DetailHeroMediaAction, compact: Bool) -> some View {
+    DetailHeroPrimaryButton(
+      kind: action.kind,
+      progress01: action.progress01,
+      isFinished: action.isFinished,
+      enabled: action.primaryEnabled,
+      compact: compact,
+      action: action.onPrimary
+    )
+  }
+}
+
+@ViewBuilder
+private func detailHeroBalanceSlot(size: CGFloat) -> some View {
+  Color.clear
+    .frame(width: size, height: size)
+    .accessibilityHidden(true)
+}
+
 /// Hintergrund: Rahmen, Fortschrittsfüllung oder Vollfläche — einheitlich für alle Detail-Aktionsbuttons.
 private struct DetailActionControlChrome: View {
   @Environment(\.themeAccent) private var themeAccent
@@ -4934,8 +5337,8 @@ struct BookDetailView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-        coverSection
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(spacing: 0) {
+          coverSection
           infoSection
           if let d = detail {
             detailActionsAndMeta(book: d)
@@ -5103,50 +5506,35 @@ struct BookDetailView: View {
   }
 
   private var coverSection: some View {
-    HStack {
-      Spacer()
-      CoverImageView(
-        url: model.coverURL(for: bookId),
-        token: model.token,
-        itemId: bookId,
-        cacheAccount: model.coverImageCacheAccountDirectory(),
-        cacheRevision: model.coverImageCacheRevision
-      )
-      .aspectRatio(1, contentMode: .fit)
-      .containerRelativeFrame(.horizontal) { w, _ in w * 0.8 }
-      .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
-      Spacer()
-    }
+    CoverImageView(
+      url: model.coverURL(for: bookId),
+      token: model.token,
+      itemId: bookId,
+      cacheAccount: model.coverImageCacheAccountDirectory(),
+      cacheRevision: model.coverImageCacheRevision
+    )
+    .aspectRatio(1, contentMode: .fit)
+    .frame(maxWidth: .infinity)
+    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
+    .padding(.top, DetailHeroLayoutMetrics.coverTopPadding)
   }
 
   private var infoSection: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Text(book.displayTitle)
-          .font(.title2.weight(.bold))
-          .foregroundStyle(AppTheme.textPrimary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-        HStack(spacing: 6) {
-          if book.hasReadableAttachedEbook {
-            Image(systemName: "book.closed.fill")
-              .font(.body)
-              .foregroundStyle(model.appearanceAccentColor)
-              .accessibilityLabel("eBook attached")
-          }
-          if prog?.isFinished == true {
-            Image(systemName: "checkmark.circle.fill")
-              .font(.body)
-              .foregroundStyle(model.appearanceAccentColor)
-              .accessibilityLabel("Finished")
-          }
-        }
-      }
+    VStack {
+      Text(book.displayTitle)
+        .font(DetailHeroTypography.heroTitle)
+        .foregroundStyle(AppTheme.textPrimary)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
       if !book.displayAuthors.isEmpty && book.displayAuthors != "—" {
         Text(book.displayAuthors)
-          .font(.title3)
+          .font(DetailHeroTypography.heroSubtitle)
           .foregroundStyle(AppTheme.textSecondary)
+          .multilineTextAlignment(.center)
+          .frame(maxWidth: .infinity)
       }
     }
+    .padding(.top, DetailHeroLayoutMetrics.titleTopSpacing)
   }
 
   private var bookPlayProgress01: Double {
@@ -5175,73 +5563,80 @@ struct BookDetailView: View {
     return formatPlaybackTime(sec)
   }
 
-  private func detailActionsAndMeta(book d: ABSBook) -> some View {
-    let m = d.media.metadata
-    let isListenFinished = prog?.isFinished == true
-    return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      HStack(spacing: 8) {
-        if d.isPlayableAudiobook {
-          DetailProgressFillActionButton(
-            progress01: bookPlayProgress01,
-            isFinished: isListenFinished,
-            action: {
-              Task {
-                await model.play(
-                  book: d,
-                  resumeAtOverride: isListenFinished ? 0 : nil,
-                  autoPlay: true
-                )
-              }
-            }
-          )
-          .frame(maxWidth: .infinity)
-          .layoutPriority(1)
-          .disabled(model.isPreparingEbook)
-
-          DetailSecondaryMarkButton(
-            isFinished: isListenFinished,
-            markAccessibilityLabel: "Mark as finished",
-            unmarkAccessibilityLabel: "Mark as not finished",
-            enabled: true
-          ) {
+  private func bookDetailHeroActions(
+    for d: ABSBook,
+    isListenFinished: Bool,
+    isEbookReadFinished: Bool
+  ) -> [DetailHeroMediaAction] {
+    var actions: [DetailHeroMediaAction] = []
+    if d.isPlayableAudiobook {
+      actions.append(
+        DetailHeroMediaAction(
+          id: "play",
+          markSystemImage: isListenFinished ? "arrow.uturn.backward" : "checkmark",
+          markAccessibilityLabel: isListenFinished ? "Mark as not finished" : "Mark as finished",
+          markEnabled: true,
+          onMark: {
             if isListenFinished {
               confirmMarkBookUnfinished = true
             } else {
               confirmMarkBookFinished = true
             }
-          }
-          .frame(width: DetailActionRowMetrics.markButtonWidth)
-        }
-
-        if d.hasReadableAttachedEbook {
-          DetailProgressFillActionButton(
-            kind: .read,
-            progress01: bookEbookReadProgress01,
-            isFinished: isEbookReadFinished,
-            action: {
-              Task { await model.openAttachedEbook(for: d) }
+          },
+          kind: .play,
+          progress01: bookPlayProgress01,
+          isFinished: isListenFinished,
+          primaryEnabled: !model.isPreparingEbook,
+          onPrimary: {
+            Task {
+              await model.play(
+                book: d,
+                resumeAtOverride: isListenFinished ? 0 : nil,
+                autoPlay: true
+              )
             }
-          )
-          .frame(maxWidth: .infinity)
-          .layoutPriority(1)
-          .disabled(!model.isNetworkReachable || model.isPreparingEbook)
-
-          DetailSecondaryMarkButton(
-            isFinished: isEbookReadFinished,
-            markAccessibilityLabel: "Mark as read",
-            unmarkAccessibilityLabel: "Mark as not read",
-            enabled: !model.isPreparingEbook && resolvedEbookFormat(for: d) != nil
-          ) {
+          }
+        )
+      )
+    }
+    if d.hasReadableAttachedEbook {
+      actions.append(
+        DetailHeroMediaAction(
+          id: "read",
+          markSystemImage: isEbookReadFinished ? "arrow.uturn.backward" : "checkmark",
+          markAccessibilityLabel: isEbookReadFinished ? "Mark as not read" : "Mark as read",
+          markEnabled: !model.isPreparingEbook && resolvedEbookFormat(for: d) != nil,
+          onMark: {
             if isEbookReadFinished {
               confirmResetEbookRead = true
             } else {
               confirmMarkEbookAsRead = true
             }
+          },
+          kind: .read,
+          progress01: bookEbookReadProgress01,
+          isFinished: isEbookReadFinished,
+          primaryEnabled: !model.isPreparingEbook && model.isNetworkReachable,
+          onPrimary: {
+            Task { await model.openAttachedEbook(for: d) }
           }
-          .frame(width: DetailActionRowMetrics.markButtonWidth)
-        }
-      }
-      .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
+        )
+      )
+    }
+    return actions
+  }
+
+  private func detailActionsAndMeta(book d: ABSBook) -> some View {
+    let m = d.media.metadata
+    let isListenFinished = prog?.isFinished == true
+    return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      DetailHeroActionsBar(
+        actions: bookDetailHeroActions(
+          for: d,
+          isListenFinished: isListenFinished,
+          isEbookReadFinished: isEbookReadFinished
+        )
+      )
       .padding(.top, AppTheme.Layout.detailPlayButtonTopPadding)
       .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
 
@@ -5258,7 +5653,7 @@ struct BookDetailView: View {
                     numBooks: nil))
               } label: {
                 Text(author.name)
-                  .font(.subheadline)
+                  .font(DetailHeroTypography.metaLink)
                   .foregroundStyle(themeAccent)
                   .frame(maxWidth: .infinity, alignment: .leading)
               }
@@ -5278,7 +5673,7 @@ struct BookDetailView: View {
                 numBooks: nil))
           } label: {
             Text(narrators)
-              .font(.subheadline)
+              .font(DetailHeroTypography.metaLink)
               .foregroundStyle(themeAccent)
               .frame(maxWidth: .infinity, alignment: .leading)
           }
@@ -5298,7 +5693,7 @@ struct BookDetailView: View {
                     numBooks: nil))
               } label: {
                 Text(seriesDisplayLine(for: s))
-                  .font(.subheadline)
+                  .font(DetailHeroTypography.metaLink)
                   .foregroundStyle(themeAccent)
                   .frame(maxWidth: .infinity, alignment: .leading)
               }
@@ -5343,7 +5738,7 @@ struct BookDetailView: View {
                 ))
             } label: {
               Text(tag)
-                .font(.subheadline)
+                .font(DetailHeroTypography.metaLink)
                 .foregroundStyle(themeAccent)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -5376,7 +5771,7 @@ struct BookDetailView: View {
                   }?.numBooks))
             } label: {
               Text(genre)
-                .font(.subheadline)
+                .font(DetailHeroTypography.metaLink)
                 .foregroundStyle(themeAccent)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -5390,7 +5785,7 @@ struct BookDetailView: View {
   private func detailMetaLabeledRow<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
     HStack(alignment: .top, spacing: 10) {
       Text(title.uppercased())
-        .font(.caption.weight(.bold))
+        .font(DetailHeroTypography.metaLabel)
         .foregroundStyle(AppTheme.textSecondary)
         .frame(width: 112, alignment: .leading)
       content()
@@ -5401,11 +5796,11 @@ struct BookDetailView: View {
   private func detailMetaRow(_ k: String, _ v: String) -> some View {
     HStack(alignment: .top, spacing: 10) {
       Text(k.uppercased())
-        .font(.caption.weight(.bold))
+        .font(DetailHeroTypography.metaLabel)
         .foregroundStyle(AppTheme.textSecondary)
         .frame(width: 112, alignment: .leading)
       Text(v)
-        .font(.subheadline)
+        .font(DetailHeroTypography.metaValue)
         .foregroundStyle(AppTheme.textPrimary)
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -5435,7 +5830,7 @@ struct BookDetailView: View {
         .padding(.top, 4)
       } label: {
         Text("Chapters")
-          .font(.caption.weight(.bold))
+          .font(DetailHeroTypography.metaLabel)
           .foregroundStyle(AppTheme.textSecondary)
           .textCase(.uppercase)
           .tracking(0.6)
@@ -5482,7 +5877,7 @@ struct BookDetailView: View {
       HStack(alignment: .top, spacing: 10) {
         VStack(alignment: .leading, spacing: 4) {
           Text(chapter.title)
-            .font(.subheadline.weight(.semibold))
+            .font(.headline)
             .foregroundStyle(AppTheme.textPrimary)
             .multilineTextAlignment(.leading)
           Text("\(formatPlaybackTime(chapter.start)) – \(formatPlaybackTime(chapter.end))")
@@ -5538,8 +5933,8 @@ struct PodcastEpisodeDetailView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-        coverSection
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(spacing: 0) {
+          coverSection
           infoSection
           if let d = detail {
             detailActionsAndMeta(d)
@@ -5559,9 +5954,6 @@ struct PodcastEpisodeDetailView: View {
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         episodeDetailUtilityToolbarItems
-      }
-      ToolbarItem(placement: .topBarTrailing) {
-        episodeDetailMarkFinishedToolbarItem
       }
     }
     .onChange(of: model.appearanceThemeRevision) { _, _ in
@@ -5652,53 +6044,34 @@ struct PodcastEpisodeDetailView: View {
     .tint(discardEnabled ? AppTheme.danger : AppTheme.textSecondary)
   }
 
-  @ViewBuilder
-  private var episodeDetailMarkFinishedToolbarItem: some View {
-    let isFinished = model.progressByItemId[episode.progressLookupKey]?.isFinished == true
-    DetailToolbarMarkFinishedItem(isFinished: isFinished, enabled: true) {
-      if isFinished {
-        confirmMarkEpisodeUnfinished = true
-      } else {
-        confirmMarkEpisodeFinished = true
-      }
-    }
-  }
-
   private var coverSection: some View {
-    HStack {
-      Spacer()
-      CoverImageView(
-        url: model.coverURL(for: episode.libraryItemId),
-        token: model.token,
-        itemId: episode.libraryItemId,
-        cacheAccount: model.coverImageCacheAccountDirectory(),
-        cacheRevision: model.coverImageCacheRevision
-      )
-      .aspectRatio(1, contentMode: .fit)
-      .containerRelativeFrame(.horizontal) { w, _ in w * 0.8 }
-      .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
-      Spacer()
-    }
+    CoverImageView(
+      url: model.coverURL(for: episode.libraryItemId),
+      token: model.token,
+      itemId: episode.libraryItemId,
+      cacheAccount: model.coverImageCacheAccountDirectory(),
+      cacheRevision: model.coverImageCacheRevision
+    )
+    .aspectRatio(1, contentMode: .fit)
+    .frame(maxWidth: .infinity)
+    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
+    .padding(.top, DetailHeroLayoutMetrics.coverTopPadding)
   }
 
   private var infoSection: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Text(episode.episodeTitle)
-          .font(.title2.weight(.bold))
-          .foregroundStyle(AppTheme.textPrimary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-        if prog?.isFinished == true {
-          Image(systemName: "checkmark.circle.fill")
-            .font(.body)
-            .foregroundStyle(model.appearanceAccentColor)
-            .accessibilityLabel("Finished")
-        }
-      }
+    VStack {
+      Text(episode.episodeTitle)
+        .font(DetailHeroTypography.heroTitle)
+        .foregroundStyle(AppTheme.textPrimary)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
       Text(episode.showTitle)
-        .font(.title3)
+        .font(DetailHeroTypography.heroSubtitle)
         .foregroundStyle(AppTheme.textSecondary)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
     }
+    .padding(.top, DetailHeroLayoutMetrics.titleTopSpacing)
   }
 
   private var episodePlayProgress01: Double {
@@ -5719,19 +6092,35 @@ struct PodcastEpisodeDetailView: View {
   private func detailActionsAndMeta(_ d: ABSPodcastEpisodeExpandedDetail) -> some View {
     let isFinished = prog?.isFinished == true
     return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      DetailProgressFillActionButton(
-        progress01: episodePlayProgress01,
-        isFinished: isFinished,
-        action: {
-          Task {
-            await model.playPodcastEpisode(
-              episode,
-              resumeAtOverride: isFinished ? 0 : nil
-            )
-          }
-        }
+      DetailHeroActionsBar(
+        actions: [
+          DetailHeroMediaAction(
+            id: "play",
+            markSystemImage: isFinished ? "arrow.uturn.backward" : "checkmark",
+            markAccessibilityLabel: isFinished ? "Mark as not finished" : "Mark as finished",
+            markEnabled: true,
+            onMark: {
+              if isFinished {
+                confirmMarkEpisodeUnfinished = true
+              } else {
+                confirmMarkEpisodeFinished = true
+              }
+            },
+            kind: .play,
+            progress01: episodePlayProgress01,
+            isFinished: isFinished,
+            primaryEnabled: true,
+            onPrimary: {
+              Task {
+                await model.playPodcastEpisode(
+                  episode,
+                  resumeAtOverride: isFinished ? 0 : nil
+                )
+              }
+            }
+          ),
+        ]
       )
-      .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
       .padding(.top, AppTheme.Layout.detailPlayButtonTopPadding)
       .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
 
@@ -5744,11 +6133,11 @@ struct PodcastEpisodeDetailView: View {
         } label: {
           HStack(alignment: .top, spacing: 10) {
             Text("SHOW".uppercased())
-              .font(.caption.weight(.bold))
+              .font(DetailHeroTypography.metaLabel)
               .foregroundStyle(AppTheme.textSecondary)
               .frame(width: 112, alignment: .leading)
             Text(show.displayTitle)
-              .font(.subheadline)
+              .font(DetailHeroTypography.metaLink)
               .foregroundStyle(themeAccent)
               .frame(maxWidth: .infinity, alignment: .leading)
           }
@@ -5759,7 +6148,7 @@ struct PodcastEpisodeDetailView: View {
       if !d.showAuthors.isEmpty {
         HStack(alignment: .top, spacing: 10) {
           Text("HOST".uppercased())
-            .font(.caption.weight(.bold))
+            .font(DetailHeroTypography.metaLabel)
             .foregroundStyle(AppTheme.textSecondary)
             .frame(width: 112, alignment: .leading)
           VStack(alignment: .leading, spacing: 4) {
@@ -5769,7 +6158,7 @@ struct PodcastEpisodeDetailView: View {
                 dismiss()
               } label: {
                 Text(author.name)
-                  .font(.subheadline)
+                  .font(DetailHeroTypography.metaLink)
                   .foregroundStyle(themeAccent)
                   .frame(maxWidth: .infinity, alignment: .leading)
                   .multilineTextAlignment(.leading)
@@ -5812,11 +6201,11 @@ struct PodcastEpisodeDetailView: View {
   private func detailMetaRow(_ k: String, _ v: String) -> some View {
     HStack(alignment: .top, spacing: 10) {
       Text(k.uppercased())
-        .font(.caption.weight(.bold))
+        .font(DetailHeroTypography.metaLabel)
         .foregroundStyle(AppTheme.textSecondary)
         .frame(width: 112, alignment: .leading)
       Text(v)
-        .font(.subheadline)
+        .font(DetailHeroTypography.metaValue)
         .foregroundStyle(AppTheme.textPrimary)
         .fixedSize(horizontal: false, vertical: true)
     }

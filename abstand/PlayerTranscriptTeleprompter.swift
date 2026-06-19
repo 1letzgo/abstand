@@ -28,7 +28,6 @@ struct PlayerTeleprompterSlot: Identifiable, Equatable {
 }
 
 struct PlayerTeleprompterWindow: Equatable {
-  /// Immer 9 Slots: 4 zurück, Mitte, 4 voraus.
   let slots: [PlayerTeleprompterSlot]
   let centerLineIndex: Int
   /// 0…1 Fortschritt in der aktuellen Zeile (für weiches Hochscrollen).
@@ -39,19 +38,29 @@ struct PlayerTeleprompterLayout: Equatable {
   let slotHeight: CGFloat
   let lineSpacing: CGFloat
   let fontSize: CGFloat
+  /// Immer gerenderte Zeilen (Mitte ± Puffer); sichtbar nur der Container-Ausschnitt.
+  let renderedLineCount: Int
 
+  var linesBeforeCenter: Int { (renderedLineCount - 1) / 2 }
   var rowStride: CGFloat { slotHeight + lineSpacing }
-  var totalHeight: CGFloat {
-    CGFloat(PlayerTeleprompterMetrics.visibleLineCount) * slotHeight
-      + CGFloat(PlayerTeleprompterMetrics.visibleLineCount - 1) * lineSpacing
+  /// Volle Stack-Höhe — kann größer als der sichtbare Viewport sein (Clipping).
+  var stackHeight: CGFloat {
+    CGFloat(renderedLineCount) * slotHeight
+      + CGFloat(max(0, renderedLineCount - 1)) * lineSpacing
   }
 
   var transcriptFont: Font { .system(size: fontSize, weight: .bold) }
 }
 
 enum PlayerTeleprompterMetrics {
-  static let visibleLineCount = 9
-  static let linesBeforeCenter = 4
+  /// Schriftgröße: so viele Zeilen passen in die kompakte Kartenhöhe.
+  static let collapsedVisibleLineCount = 9
+  /// Immer gerendert (Mitte ±10); Expand zeigt mehr durch größeren Container + Clip.
+  static let renderedLinesBeforeCenter = 10
+  static var renderedLineCount: Int { renderedLinesBeforeCenter * 2 + 1 }
+  /// Legacy-Alias für Controller-Helfer.
+  static var visibleLineCount: Int { renderedLineCount }
+  static var linesBeforeCenter: Int { renderedLinesBeforeCenter }
   /// Innenabstand Text ↔ Kartenrand.
   static let cardContentPadding: CGFloat = 14
   static let defaultLineSpacing: CGFloat = 0
@@ -60,37 +69,78 @@ enum PlayerTeleprompterMetrics {
   /// Gegenüber der Karten-Fit-Berechnung etwas kleiner.
   static let fontSizeReduction: CGFloat = 4
   static let defaultFontSize: CGFloat = 24
+  static let minFontSize: CGFloat = 14
+  static let maxFontSize: CGFloat = 34
+  static let fontSizeStep: CGFloat = 2
+  static let fontSizeStorageKey = "abstand_teleprompter_font_size"
   /// Zeilen ober/unterhalb der aktiven Zeile (symmetrisch ausgeblendet).
   static let inactiveLineTextOpacity: CGFloat = 0.32
   /// Wörter in der aktiven Zeile (ohne Hervorhebung).
   static let activeLineTextOpacity: CGFloat = 0.65
 
-  static var defaultLayout: PlayerTeleprompterLayout {
-    layout(forViewportHeight: defaultViewportHeight)
+  static func clampFontSize(_ size: CGFloat) -> CGFloat {
+    min(maxFontSize, max(minFontSize, size))
   }
 
-  static var defaultViewportHeight: CGFloat {
-    defaultLayout.totalHeight
+  static func savedFontSize() -> CGFloat? {
+    let d = UserDefaults.standard
+    guard d.object(forKey: fontSizeStorageKey) != nil else { return nil }
+    return clampFontSize(CGFloat(d.double(forKey: fontSizeStorageKey)))
   }
 
-  /// Schrift skaliert in die Kartenhöhe; Zeilen dicht beieinander.
-  static func layout(forViewportHeight viewportHeight: CGFloat) -> PlayerTeleprompterLayout {
+  static func persistFontSize(_ size: CGFloat) {
+    UserDefaults.standard.set(Double(clampFontSize(size)), forKey: fontSizeStorageKey)
+  }
+
+  /// Automatische Schriftgröße aus Kartenbreite (9 Zeilen Referenz).
+  static func autoFontSize(sizingViewportHeight: CGFloat) -> CGFloat {
     let lineSpacing = defaultLineSpacing
-    let count = CGFloat(visibleLineCount)
-    let gaps = count - 1
+    let sizingCount = CGFloat(collapsedVisibleLineCount)
+    let gaps = sizingCount - 1
     let fitSize: CGFloat
-    if viewportHeight > gaps * lineSpacing {
-      fitSize = (viewportHeight - gaps * lineSpacing) / (count * lineHeightFactor)
+    if sizingViewportHeight > gaps * lineSpacing {
+      fitSize = (sizingViewportHeight - gaps * lineSpacing) / (sizingCount * lineHeightFactor)
     } else {
       fitSize = defaultFontSize + fontSizeReduction
     }
-    let fontSize = min(30, max(15, fitSize - fontSizeReduction))
+    return clampFontSize(fitSize - fontSizeReduction)
+  }
+
+  static var defaultLayout: PlayerTeleprompterLayout {
+    layout(sizingViewportHeight: 300)
+  }
+
+  /// Nutzer-Schriftgröße schlägt Auto-Fit; persistiert in UserDefaults.
+  static func layout(sizingViewportHeight: CGFloat, userFontSize: CGFloat? = nil) -> PlayerTeleprompterLayout {
+    let lineSpacing = defaultLineSpacing
+    let resolvedSize: CGFloat
+    if let userFontSize {
+      resolvedSize = clampFontSize(userFontSize)
+    } else if let saved = savedFontSize() {
+      resolvedSize = saved
+    } else {
+      resolvedSize = autoFontSize(sizingViewportHeight: sizingViewportHeight)
+    }
+    let fontSize = resolvedSize
     let slotHeight = ceil(fontSize * lineHeightFactor)
     return PlayerTeleprompterLayout(
       slotHeight: slotHeight,
       lineSpacing: lineSpacing,
-      fontSize: fontSize
+      fontSize: fontSize,
+      renderedLineCount: renderedLineCount
     )
+  }
+
+  /// +/- am Player: aktuelle Größe (gespeichert oder Auto) anpassen und cachen.
+  static func bumpFontSize(
+    delta: CGFloat,
+    sizingViewportHeight: CGFloat,
+    storedFontSize: CGFloat?
+  ) -> CGFloat {
+    let current = storedFontSize.map(clampFontSize) ?? autoFontSize(sizingViewportHeight: sizingViewportHeight)
+    let next = clampFontSize(current + delta)
+    persistFontSize(next)
+    return next
   }
 
   /// Zeichen pro Teleprompter-Zeile aus verfügbarer Breite.
@@ -111,14 +161,21 @@ struct PlayerLiveTranscriptPanelView: View {
   var playbackRate: Double = 1
   /// Volle Kartenhöhe/-breite (Cover 1:1); sonst Standardmaße.
   var viewportSize: CGSize?
+  /// Gespeicherte Nutzer-Schriftgröße (nil = Auto-Fit bzw. noch kein Override).
+  var userFontSize: CGFloat?
 
   @State private var playbackClock = ReadAlongPlaybackClock()
 
   private var teleprompterLayout: PlayerTeleprompterLayout {
-    if let viewportSize, viewportSize.height > 0 {
-      return PlayerTeleprompterMetrics.layout(forViewportHeight: viewportSize.height)
+    guard let viewportSize, viewportSize.height > 0 else {
+      return PlayerTeleprompterMetrics.defaultLayout
     }
-    return PlayerTeleprompterMetrics.defaultLayout
+    // Schrift wie im quadratischen Cover (Breite), Stack höher als Viewport → Clip zeigt mehr im Expand.
+    let sizingHeight = max(viewportSize.width, 1)
+    return PlayerTeleprompterMetrics.layout(
+      sizingViewportHeight: sizingHeight,
+      userFontSize: userFontSize
+    )
   }
 
   var body: some View {
@@ -141,12 +198,16 @@ struct PlayerLiveTranscriptPanelView: View {
             isPlaying: isPlaying,
             playbackRate: playbackRate
           )
-          VStack(spacing: 0) {
-            Spacer(minLength: 0)
+          GeometryReader { geo in
+            let layout = teleprompterLayout
+            // Aktive Zeile (Mitte des Stacks) immer auf Viewport-Mitte — auch beim Start.
+            let activeLineCenterY =
+              CGFloat(layout.linesBeforeCenter) * layout.rowStride + layout.slotHeight / 2
+            let yOffset = geo.size.height * 0.5 - activeLineCenterY
+
             teleprompterStack(at: displayTime)
-              .frame(height: teleprompterLayout.totalHeight, alignment: .topLeading)
-              .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 0)
+              .frame(width: geo.size.width, alignment: .leading)
+              .offset(y: yOffset)
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -154,9 +215,9 @@ struct PlayerLiveTranscriptPanelView: View {
         .background {
           GeometryReader { geo in
             Color.clear
-              .onAppear { syncContentWidth(geo.size.width) }
+              .onAppear { syncTeleprompterLayout(fromWidth: geo.size.width) }
               .onChange(of: geo.size.width) { _, width in
-                syncContentWidth(width)
+                syncTeleprompterLayout(fromWidth: width)
               }
           }
         }
@@ -175,17 +236,29 @@ struct PlayerLiveTranscriptPanelView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .onAppear {
       playbackClock.hardReset(to: globalPlaybackTime)
-      if let viewportSize { syncContentWidth(viewportSize.width) }
+      syncTeleprompterLayout()
     }
-    .onChange(of: viewportSize) { _, size in
-      if let size { syncContentWidth(size.width) }
+    .onChange(of: viewportSize) { _, _ in
+      syncTeleprompterLayout()
+    }
+    .onChange(of: userFontSize) { _, _ in
+      syncTeleprompterLayout()
     }
     .abstandThemeRefresh()
   }
 
-  private func syncContentWidth(_ width: CGFloat) {
-    let contentWidth = viewportSize.map { max(0, $0.width) } ?? width
-    transcription.updateTeleprompterContentWidth(contentWidth, layout: teleprompterLayout)
+  private func syncTeleprompterLayout() {
+    let width = viewportSize.map { max(0, $0.width) } ?? 0
+    if width > 0 {
+      transcription.updateTeleprompterContentWidth(width, layout: teleprompterLayout)
+    }
+  }
+
+  private func syncTeleprompterLayout(fromWidth width: CGFloat? = nil) {
+    let resolvedWidth = width ?? viewportSize.map { max(0, $0.width) } ?? 0
+    if resolvedWidth > 0 {
+      transcription.updateTeleprompterContentWidth(resolvedWidth, layout: teleprompterLayout)
+    }
   }
 
   private func teleprompterStack(at time: Double) -> some View {
@@ -200,7 +273,7 @@ struct PlayerLiveTranscriptPanelView: View {
       in: lines, centerIdx: centerIdx, activeWord: activeWord)
 
     return VStack(alignment: .leading, spacing: layout.lineSpacing) {
-      ForEach(-PlayerTeleprompterMetrics.linesBeforeCenter...PlayerTeleprompterMetrics.linesBeforeCenter, id: \.self) { delta in
+      ForEach(-layout.linesBeforeCenter...layout.linesBeforeCenter, id: \.self) { delta in
         let lineIndex = centerIdx + delta
 
         Group {

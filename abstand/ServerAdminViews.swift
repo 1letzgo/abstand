@@ -757,7 +757,7 @@ struct SettingsAccountView: View {
         if newId == AppModel.libraryPickerNoneTag {
           model.clearBooksLibrarySelection()
         } else if let lib = model.sortedBookLibraries.first(where: { $0.id == newId }) {
-          model.selectBooksLibrary(lib, navigateToCatalog: true)
+          model.selectBooksLibrary(lib)
           Task { await model.reloadLibrary(reset: true) }
         }
       })
@@ -773,8 +773,24 @@ struct SettingsAccountView: View {
         if newId == AppModel.libraryPickerNoneTag {
           model.clearPodcastLibrarySelection()
         } else if let lib = model.sortedPodcastLibraries.first(where: { $0.id == newId }) {
-          model.selectPodcastLibrary(lib, navigateToCatalog: true)
+          model.selectPodcastLibrary(lib)
           Task { await model.reloadPodcastLibrary(reset: true) }
+        }
+      })
+  }
+
+  private var ebooksLibraryPickerSelection: Binding<String> {
+    Binding(
+      get: {
+        if model.ebooksLibraryPreferenceIsNone { return AppModel.libraryPickerNoneTag }
+        return model.selectedEbooksLibrary?.id ?? AppModel.libraryPickerNoneTag
+      },
+      set: { newId in
+        if newId == AppModel.libraryPickerNoneTag {
+          model.clearEbooksLibrarySelection()
+        } else if let lib = model.sortedBookLibraries.first(where: { $0.id == newId }) {
+          model.selectEbooksLibrary(lib)
+          Task { await model.reloadEbooksLibrary(reset: true) }
         }
       })
   }
@@ -797,14 +813,14 @@ struct SettingsAccountView: View {
 
         ServerAdminCard {
           if model.sortedBookLibraries.isEmpty {
-            Text("No book libraries on this server.")
+            Text("No audiobook libraries on this server.")
               .font(.subheadline)
               .foregroundStyle(AppTheme.textSecondary)
               .settingsCardCompactRowFrame(alignment: .leading)
           } else {
             SettingsCardPickerRow(
               icon: "books.vertical.fill",
-              title: "Books library",
+              title: "Audiobooks library",
               selection: booksLibraryPickerSelection,
               options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
                 + model.sortedBookLibraries.map { (id: $0.id, label: $0.name) }
@@ -825,6 +841,23 @@ struct SettingsAccountView: View {
               selection: podcastsLibraryPickerSelection,
               options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
                 + model.sortedPodcastLibraries.map { (id: $0.id, label: $0.name) }
+            )
+          }
+        }
+
+        ServerAdminCard {
+          if model.sortedBookLibraries.isEmpty {
+            Text("No audiobook libraries on this server.")
+              .font(.subheadline)
+              .foregroundStyle(AppTheme.textSecondary)
+              .settingsCardCompactRowFrame(alignment: .leading)
+          } else {
+            SettingsCardPickerRow(
+              icon: "book.closed.fill",
+              title: "eBooks library",
+              selection: ebooksLibraryPickerSelection,
+              options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
+                + model.sortedBookLibraries.map { (id: $0.id, label: $0.name) }
             )
           }
         }
@@ -1102,16 +1135,6 @@ struct SettingsAppearanceView: View {
                 }
               ),
               options: LibraryEbookCardStyle.allCases.map { (id: $0.rawValue, label: $0.label) }
-            )
-          }
-          ServerAdminCard {
-            SettingsCardToggleRow(
-              icon: "book.closed.fill",
-              title: "eBooks tab",
-              isOn: Binding(
-                get: { model.showEbooksTab },
-                set: { model.showEbooksTab = $0 }
-              )
             )
           }
           NavigationLink {

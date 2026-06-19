@@ -45,6 +45,9 @@ private struct AppRootContainer: View {
         .onChange(of: model.nowPlayingSheetPresentationCounter) { _, _ in
           nowPlayingSheetPresented = true
         }
+        .onChange(of: model.nowPlayingSheetDismissCounter) { _, _ in
+          nowPlayingSheetPresented = false
+        }
       } else {
         LoginView()
       }
@@ -74,5 +77,18 @@ private struct AppRootContainer: View {
         model.player.refreshPlaybackStateFromEngine()
       }
     }
+    .alert("Connecting ABS Server", isPresented: serverConnectionAlertPresented) {
+      Button("Go offline") {
+        model.goOfflineDuringBootstrap()
+      }
+    }
+  }
+
+  /// Nur lesbar — Schließen über Bootstrap-Ende oder „Go offline“.
+  private var serverConnectionAlertPresented: Binding<Bool> {
+    Binding(
+      get: { model.showsServerConnectionConnectingOverlay },
+      set: { _ in }
+    )
   }
 }

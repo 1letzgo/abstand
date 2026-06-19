@@ -61,6 +61,13 @@ private enum FullPlayerProgressLayout {
   static let scrubHitHeight: CGFloat = 36
 }
 
+/// Eine Kartenfläche für Buch- und Kapitel-Scrubber (kein Hintergrund zwischen den Blöcken).
+private enum FullPlayerScrubberCardLayout {
+  static let insetH: CGFloat = 14
+  static let insetV: CGFloat = 12
+  static let sectionSpacing: CGFloat = 10
+}
+
 private struct FullPlayerProgressTrack: View {
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
@@ -70,13 +77,16 @@ private struct FullPlayerProgressTrack: View {
   /// Relative Positionen (0…1) der Kapitelgrenzen.
   var chapterMarkers: [Double] = []
   var showsScrubThumb = false
+  var trackHeight: CGFloat = FullPlayerProgressLayout.trackHeight
+  var rowHeight: CGFloat = FullPlayerProgressLayout.rowHeight
+  var accessibilityLabelText = "Playback position"
 
   private var fraction: Double {
     guard total > 0 else { return 0 }
     return min(1, max(0, value / total))
   }
 
-  private var trackCornerRadius: CGFloat { FullPlayerProgressLayout.trackHeight / 2 }
+  private var trackCornerRadius: CGFloat { trackHeight / 2 }
 
   var body: some View {
     let _ = themeRevision
@@ -87,9 +97,9 @@ private struct FullPlayerProgressTrack: View {
       ZStack(alignment: .leading) {
         Capsule(style: .continuous)
           .fill(AppTheme.progressTrack)
-          .frame(height: FullPlayerProgressLayout.trackHeight)
+          .frame(height: trackHeight)
         themeAccent
-          .frame(width: fillWidth, height: FullPlayerProgressLayout.trackHeight)
+          .frame(width: fillWidth, height: trackHeight)
           .clipShape(
             UnevenRoundedRectangle(
               topLeadingRadius: trackCornerRadius,
@@ -102,7 +112,7 @@ private struct FullPlayerProgressTrack: View {
         ForEach(Array(chapterMarkers.enumerated()), id: \.offset) { _, marker in
           Rectangle()
             .fill(AppTheme.textSecondary.opacity(0.65))
-            .frame(width: 1, height: FullPlayerProgressLayout.trackHeight)
+            .frame(width: 1, height: trackHeight)
             .offset(x: max(0, w * marker - 0.5))
         }
         if showsScrubThumb {
@@ -119,12 +129,12 @@ private struct FullPlayerProgressTrack: View {
             .offset(x: max(0, fillWidth - FullPlayerProgressLayout.scrubThumbDiameter / 2))
         }
       }
-      .frame(width: w, height: FullPlayerProgressLayout.rowHeight)
+      .frame(width: w, height: rowHeight)
       .frame(maxHeight: .infinity, alignment: .center)
     }
-    .frame(height: FullPlayerProgressLayout.rowHeight)
+    .frame(height: rowHeight)
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel("Playback position")
+    .accessibilityLabel(accessibilityLabelText)
     .accessibilityValue(fullPlayerProgressAccessibilityValue)
   }
 
@@ -137,27 +147,60 @@ private struct FullPlayerProgressTrack: View {
 
 /// Vollplayer-Fortschritt: Long-Press auf dem Balken, dann ziehen zum Suchen.
 private struct FullPlayerScrubberSection: View {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   @ObservedObject var player: PlaybackController
   let centerCaption: String
 
   @State private var isScrubbing = false
   @State private var scrubPosition: Double = 0
   @State private var didScrubHaptic = false
+  @State private var isChapterScrubbing = false
+  @State private var chapterScrubGlobal: Double = 0
+  @State private var didChapterScrubHaptic = false
 
   private var duration: Double { max(player.totalDuration, 1) }
 
-  private var displayPosition: Double {
-    isScrubbing ? scrubPosition : player.globalPosition
+  private var displayGlobalPosition: Double {
+    if isScrubbing { return scrubPosition }
+    if isChapterScrubbing { return chapterScrubGlobal }
+    return player.globalPosition
   }
 
   private var scrubEnabled: Bool {
     player.activeBook != nil && player.totalDuration > 0 && !player.isBuffering
   }
 
+  private var showsChapterProgress: Bool { player.chapterCount > 0 }
+
   var body: some View {
+    let _ = themeRevision
+    let palette = model.appearancePalette
     let dur = duration
-    let pos = min(max(0, displayPosition), dur)
-    VStack(alignment: .leading, spacing: 10) {
+    let pos = min(max(0, displayGlobalPosition), dur)
+    let cardShape = RoundedRectangle(
+      cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous)
+
+    VStack(alignment: .leading, spacing: 0) {
+      bookScrubberBlock(pos: pos, dur: dur)
+
+      if showsChapterProgress, let chapter = chapterProgressForDisplay() {
+        Divider()
+          .overlay(palette.textSecondary.opacity(0.22))
+          .padding(.vertical, FullPlayerScrubberCardLayout.sectionSpacing)
+
+        chapterProgressSection(chapter: chapter)
+      }
+    }
+    .padding(.horizontal, FullPlayerScrubberCardLayout.insetH)
+    .padding(.vertical, FullPlayerScrubberCardLayout.insetV)
+    .background(palette.card, in: cardShape)
+    .abstandCardElevation(.subtle)
+    .accessibilityHint("Long press and drag on the bar to seek.")
+  }
+
+  private func bookScrubberBlock(pos: Double, dur: Double) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
       GeometryReader { geo in
         let trackWidth = max(geo.size.width, 1)
         FullPlayerProgressTrack(
@@ -168,17 +211,16 @@ private struct FullPlayerScrubberSection: View {
         )
         .frame(maxHeight: .infinity, alignment: .center)
         .contentShape(Rectangle())
-        .gesture(scrubEnabled ? scrubGesture(trackWidth: trackWidth) : nil)
+        .gesture(scrubEnabled ? bookScrubGesture(trackWidth: trackWidth) : nil)
       }
       .frame(height: FullPlayerProgressLayout.scrubHitHeight)
-      .padding(.top, 6)
 
       HStack {
         Text(formatPlaybackTime(pos))
           .font(.caption)
           .foregroundStyle(AppTheme.textSecondary)
         Spacer()
-        if !centerCaption.isEmpty, !isScrubbing {
+        if !centerCaption.isEmpty, !isScrubbing, !isChapterScrubbing {
           Text(centerCaption)
             .font(.caption)
             .foregroundStyle(AppTheme.textPrimary)
@@ -196,10 +238,63 @@ private struct FullPlayerScrubberSection: View {
       }
       .monospacedDigit()
     }
-    .accessibilityHint("Long press and drag on the bar to seek.")
   }
 
-  private func scrubGesture(trackWidth: CGFloat) -> some Gesture {
+  @ViewBuilder
+  private func chapterProgressSection(
+    chapter: (position: Double, duration: Double, start: Double)
+  ) -> some View {
+    let chPos = min(max(0, chapter.position), chapter.duration)
+    VStack(alignment: .leading, spacing: 4) {
+      GeometryReader { geo in
+        let trackWidth = max(geo.size.width, 1)
+        FullPlayerProgressTrack(
+          value: chPos,
+          total: chapter.duration,
+          showsScrubThumb: isChapterScrubbing,
+          trackHeight: 4,
+          rowHeight: 6,
+          accessibilityLabelText: "Chapter position"
+        )
+        .frame(maxHeight: .infinity, alignment: .center)
+        .contentShape(Rectangle())
+        .gesture(scrubEnabled ? chapterScrubGesture(trackWidth: trackWidth, chapter: chapter) : nil)
+      }
+      .frame(height: 28)
+
+      HStack {
+        Text(formatPlaybackTime(chPos))
+          .font(.caption2)
+          .foregroundStyle(AppTheme.textSecondary)
+        Spacer()
+        Text(chapterCaption)
+          .font(.footnote.weight(.semibold))
+          .foregroundStyle(AppTheme.textPrimary)
+          .lineLimit(1)
+          .accessibilityLabel("Chapter")
+          .accessibilityValue(chapterCaption)
+        Spacer()
+        Text(formatPlaybackTime(max(0, chapter.duration - chPos)))
+          .font(.caption2)
+          .foregroundStyle(AppTheme.textSecondary)
+      }
+      .monospacedDigit()
+    }
+  }
+
+  private var chapterCaption: String {
+    let raw = player.currentChapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !raw.isEmpty { return raw }
+    let ord = player.currentChapterOrdinal
+    if ord > 0 { return "Chapter \(ord)" }
+    return String(localized: "Chapter", comment: "Player chapter progress label")
+  }
+
+  private func chapterProgressForDisplay() -> (position: Double, duration: Double, start: Double)? {
+    player.currentChapterProgress(global: displayGlobalPosition)
+  }
+
+  private func bookScrubGesture(trackWidth: CGFloat) -> some Gesture {
     LongPressGesture(minimumDuration: 0.35)
       .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
       .onChanged { value in
@@ -213,7 +308,7 @@ private struct FullPlayerScrubberSection: View {
               UIImpactFeedbackGenerator(style: .light).impactOccurred()
             }
           }
-          scrubPosition = globalTime(forX: drag.location.x, trackWidth: trackWidth)
+          scrubPosition = globalTime(forX: drag.location.x, trackWidth: trackWidth, total: duration)
         default:
           break
         }
@@ -228,9 +323,42 @@ private struct FullPlayerScrubberSection: View {
       }
   }
 
-  private func globalTime(forX x: CGFloat, trackWidth: CGFloat) -> Double {
+  private func chapterScrubGesture(
+    trackWidth: CGFloat,
+    chapter: (position: Double, duration: Double, start: Double)
+  ) -> some Gesture {
+    LongPressGesture(minimumDuration: 0.35)
+      .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+      .onChanged { value in
+        switch value {
+        case .second(true, let drag?):
+          if !isChapterScrubbing {
+            isChapterScrubbing = true
+            chapterScrubGlobal = displayGlobalPosition
+            if !didChapterScrubHaptic {
+              didChapterScrubHaptic = true
+              UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
+          }
+          let fraction = min(1, max(0, Double(drag.location.x / trackWidth)))
+          chapterScrubGlobal = chapter.start + fraction * chapter.duration
+        default:
+          break
+        }
+      }
+      .onEnded { value in
+        defer {
+          isChapterScrubbing = false
+          didChapterScrubHaptic = false
+        }
+        guard case .second(true, _) = value else { return }
+        player.seek(global: chapterScrubGlobal)
+      }
+  }
+
+  private func globalTime(forX x: CGFloat, trackWidth: CGFloat, total: Double) -> Double {
     let fraction = min(1, max(0, Double(x / trackWidth)))
-    return fraction * duration
+    return fraction * total
   }
 }
 
@@ -565,22 +693,18 @@ private struct FullPlayerUtilityBar: View, Equatable {
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
   let playbackRate: Float
-  let activeAudiobookId: String?
   let offlineStorageId: String?
   let isDownloaded: Bool
   let isDownloading: Bool
   let downloadProgressBucket: Int
-  let bookmarkMenuItems: [PlayerBookmarkMenuItem]
   let isLoggedIn: Bool
 
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.playbackRate == rhs.playbackRate
-      && lhs.activeAudiobookId == rhs.activeAudiobookId
       && lhs.offlineStorageId == rhs.offlineStorageId
       && lhs.isDownloaded == rhs.isDownloaded
       && lhs.isDownloading == rhs.isDownloading
       && lhs.downloadProgressBucket == rhs.downloadProgressBucket
-      && lhs.bookmarkMenuItems == rhs.bookmarkMenuItems
       && lhs.isLoggedIn == rhs.isLoggedIn
   }
 
@@ -626,11 +750,6 @@ private struct FullPlayerUtilityBar: View, Equatable {
       SleepTimerPopoverControl {
         SleepTimerUtilityMenuLabel(player: model.player)
       }
-
-      PlayerBookmarkUtilityControl(
-        activeAudiobookId: activeAudiobookId,
-        menuItems: bookmarkMenuItems
-      )
 
       VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
         FullPlayerAirPlayButton()
@@ -739,6 +858,11 @@ struct NowPlayingDetailView: View {
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
   @State private var readAlongDownloadWarningPresented = false
+  @AppStorage(PlayerTeleprompterMetrics.fontSizeStorageKey) private var teleprompterFontSizeStorage: Double = 0
+
+  private var isTeleprompterActive: Bool {
+    player.liveTranscription.isEnabled
+  }
 
   private var showsConnectionLoading: Bool {
     model.isPlayerConnectionLoading && player.activeBook == nil
@@ -829,22 +953,36 @@ struct NowPlayingDetailView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
   }
 
+  @ViewBuilder
   private func fullPlayerPortraitLayout(book: ABSBook) -> some View {
+    let teleprompterActive = isTeleprompterActive
     VStack(spacing: 0) {
       playerHeaderArea(book: book)
-      VStack(spacing: 0) {
-        Spacer(minLength: 0)
-        chapterTitleArea(book: book)
-        Spacer(minLength: 0)
-        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-          playbackColumn(book: book)
+        .frame(maxHeight: teleprompterActive ? .infinity : nil, alignment: .top)
+
+      if !teleprompterActive {
+        VStack(spacing: 0) {
+          Spacer(minLength: 0)
+          chapterTitleArea(book: book)
+          Spacer(minLength: 0)
+          TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            playbackColumn(book: book)
+          }
         }
+        .frame(maxWidth: 800)
+        .frame(maxHeight: .infinity)
+      } else {
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+          transportControls
+            .padding(.top, 12)
+        }
+        .frame(maxWidth: 800)
       }
-      .frame(maxWidth: 800)
-      .frame(maxHeight: .infinity)
+
       fullPlayerUtilityBar
       Spacer(minLength: 8)
     }
+    .animation(.easeInOut(duration: 0.28), value: teleprompterActive)
   }
 
   private var landscapeLayout: some View {
@@ -858,22 +996,33 @@ struct NowPlayingDetailView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
   }
 
+  @ViewBuilder
   private func fullPlayerLandscapeLayout(book: ABSBook) -> some View {
+    let teleprompterActive = isTeleprompterActive
     HStack(alignment: .top, spacing: MiniPlayerMetrics.fullPlayerCoverInset) {
       playerHeaderArea(book: book)
         .containerRelativeFrame(.horizontal) { w, _ in w * 0.48 }
+        .frame(maxHeight: teleprompterActive ? .infinity : nil, alignment: .top)
       VStack(spacing: 0) {
-        Spacer(minLength: 0)
-        chapterTitleArea(book: book)
-        Spacer(minLength: 0)
-        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-          playbackColumn(book: book)
+        if !teleprompterActive {
+          Spacer(minLength: 0)
+          chapterTitleArea(book: book)
+          Spacer(minLength: 0)
+          TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            playbackColumn(book: book)
+          }
+        } else {
+          Spacer(minLength: 0)
+          TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            transportControls
+          }
         }
         fullPlayerUtilityBar
         Spacer(minLength: 8)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+    .animation(.easeInOut(duration: 0.28), value: teleprompterActive)
   }
 
   private var restoringOrIdleInLandscape: some View {
@@ -886,10 +1035,9 @@ struct NowPlayingDetailView: View {
     }
   }
 
-  /// Titel, Autor und Kapitel unter dem Cover.
+  /// Titel und Autor unter dem Cover.
   private func chapterTitleArea(book: ABSBook) -> some View {
     let authors = book.displayAuthors.trimmingCharacters(in: .whitespacesAndNewlines)
-    let chapter = scrubberCenterCaption(book: book)
     return VStack(alignment: .center, spacing: 8) {
       Text(book.displayTitle)
         .font(.title2.weight(.bold))
@@ -905,47 +1053,117 @@ struct NowPlayingDetailView: View {
           .lineLimit(2)
           .frame(maxWidth: .infinity)
       }
-      if !chapter.isEmpty {
-        Text(chapter)
-          .font(.title3.weight(.semibold))
-          .foregroundStyle(AppTheme.textPrimary)
-          .multilineTextAlignment(.center)
-          .lineLimit(2)
-          .frame(maxWidth: .infinity)
-          .accessibilityLabel("Chapter")
-          .accessibilityValue(chapter)
-      }
     }
     .frame(maxWidth: .infinity)
     .padding(.horizontal, 8)
     .accessibilityElement(children: .combine)
   }
 
-  private func scrubberCenterCaption(book: ABSBook) -> String {
-    let chapters = player.chapterCount
-    guard chapters > 0 else { return "" }
-    let raw = player.currentChapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !raw.isEmpty { return raw }
-    let ord = player.currentChapterOrdinal
-    if ord > 0 { return "Chapter \(ord)" }
-    return "—"
-  }
-
   @ViewBuilder
   private func playerHeaderArea(book: ABSBook) -> some View {
+    let dur = max(player.totalDuration, 1)
+    let pos = player.globalPosition
+    let pct = min(100, max(0, Int((pos / dur * 100).rounded())))
+
     Group {
       if player.liveTranscription.isEnabled {
-        readAlongKaraokeCard(book: book)
+        readAlongKaraokeCard()
       } else {
         fullPlayerArtwork(book: book)
+      }
+    }
+    .overlay(alignment: .topLeading) {
+      if let audiobookId = activeAudiobookBookmarkId {
+        PlayerBookmarkCoverControl(
+          activeAudiobookId: audiobookId,
+          menuItems: model.bookmarks(for: audiobookId).map(PlayerBookmarkMenuItem.init)
+        )
+        .fullPlayerCoverCornerOverlayPadding(top: true, leading: true)
+      }
+    }
+    .overlay(alignment: .topTrailing) {
+      TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+        playbackProgressBadge(percent: pct)
+      }
+      .fullPlayerCoverCornerOverlayPadding(top: true, trailing: true)
+    }
+    .overlay(alignment: .bottomLeading) {
+      if player.liveTranscription.isEnabled {
+        teleprompterFontSizeControls
+          .fullPlayerCoverCornerOverlayPadding(bottom: true, leading: true)
+          .contentShape(Rectangle())
       }
     }
     .overlay(alignment: .bottomTrailing) {
       if player.liveTranscription.isReadAlongAvailable {
         readAlongCoverPill
-          .padding(12)
+          .fullPlayerCoverCornerOverlayPadding(bottom: true, trailing: true)
       }
     }
+  }
+
+  private var teleprompterFontSizeControls: some View {
+    let sizingHeight = teleprompterFontSizingReferenceHeight
+    let stored = teleprompterFontSizeStorage > 0 ? CGFloat(teleprompterFontSizeStorage) : nil
+    let current = stored
+      ?? PlayerTeleprompterMetrics.savedFontSize()
+      ?? PlayerTeleprompterMetrics.autoFontSize(sizingViewportHeight: sizingHeight)
+    let atMin = current <= PlayerTeleprompterMetrics.minFontSize + 0.01
+    let atMax = current >= PlayerTeleprompterMetrics.maxFontSize - 0.01
+    return HStack(spacing: 8) {
+      TeleprompterFontSizeCoverButton(
+        systemName: "minus",
+        isEnabled: !atMin
+      ) {
+        teleprompterFontSizeStorage = Double(
+          PlayerTeleprompterMetrics.bumpFontSize(
+            delta: -PlayerTeleprompterMetrics.fontSizeStep,
+            sizingViewportHeight: sizingHeight,
+            storedFontSize: stored ?? PlayerTeleprompterMetrics.savedFontSize()
+          )
+        )
+      }
+      TeleprompterFontSizeCoverButton(
+        systemName: "plus",
+        isEnabled: !atMax
+      ) {
+        teleprompterFontSizeStorage = Double(
+          PlayerTeleprompterMetrics.bumpFontSize(
+            delta: PlayerTeleprompterMetrics.fontSizeStep,
+            sizingViewportHeight: sizingHeight,
+            storedFontSize: stored ?? PlayerTeleprompterMetrics.savedFontSize()
+          )
+        )
+      }
+    }
+    .padding(TeleprompterFontSizeControlsMetrics.touchPadding)
+    .contentShape(
+      RoundedRectangle(
+        cornerRadius: TeleprompterFontSizeControlsMetrics.cornerRadius,
+        style: .continuous
+      )
+    )
+  }
+
+  /// Referenzbreite für Auto-Schrift und erste +/--Anpassung (≈ Kartenbreite).
+  private var teleprompterFontSizingReferenceHeight: CGFloat {
+    let inset = MiniPlayerMetrics.fullPlayerCoverInset * 2
+    let width = UIScreen.main.bounds.width - inset
+    return min(max(width, 280), 400)
+  }
+
+  private var resolvedTeleprompterUserFontSize: CGFloat? {
+    if teleprompterFontSizeStorage > 0 {
+      return CGFloat(teleprompterFontSizeStorage)
+    }
+    return PlayerTeleprompterMetrics.savedFontSize()
+  }
+
+  /// Hörbuch-ID für Lesezeichen (keine Podcast-Folgen).
+  private var activeAudiobookBookmarkId: String? {
+    guard let id = player.activeBook?.id else { return nil }
+    let episode = player.activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return episode.isEmpty ? id : nil
   }
 
   private var readAlongCoverPill: some View {
@@ -969,14 +1187,11 @@ struct NowPlayingDetailView: View {
     }
   }
 
-  /// Gleicher Platz und Rahmen wie `fullPlayerArtwork`, Inhalt = Karaoke-Transkript (100 % Kartenfläche).
-  private func readAlongKaraokeCard(book: ABSBook) -> some View {
-    let dur = max(player.totalDuration, 1)
-    let pos = player.globalPosition
-    let pct = min(100, max(0, Int((pos / dur * 100).rounded())))
+  /// Teleprompter-Karte: volle Höhe bis zur Play-Button-Reihe.
+  private func readAlongKaraokeCard() -> some View {
     let corner: CGFloat = 24
     return Color.clear
-      .fullPlayerHeaderSquareFrame()
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
       .background(AppTheme.card.opacity(0.35), in: RoundedRectangle(cornerRadius: corner, style: .continuous))
       .overlay {
         GeometryReader { geo in
@@ -989,7 +1204,8 @@ struct NowPlayingDetailView: View {
             viewportSize: CGSize(
               width: max(0, geo.size.width - pad * 2),
               height: max(0, geo.size.height - pad * 2)
-            )
+            ),
+            userFontSize: resolvedTeleprompterUserFontSize
           )
           .padding(pad)
         }
@@ -1000,13 +1216,6 @@ struct NowPlayingDetailView: View {
           .strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
       }
       .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
-      .overlay(alignment: .topTrailing) {
-        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-          playbackProgressBadge(percent: pct)
-            .padding(.top, 12)
-            .padding(.trailing, 12)
-        }
-      }
       .accessibilityLabel(String(localized: "Read along transcript", comment: "Accessibility"))
   }
 
@@ -1026,9 +1235,6 @@ struct NowPlayingDetailView: View {
   }
 
   private func fullPlayerArtwork(book: ABSBook) -> some View {
-    let dur = max(player.totalDuration, 1)
-    let pos = player.globalPosition
-    let pct = min(100, max(0, Int((pos / dur * 100).rounded())))
     let corner: CGFloat = 24
     return CoverImageView(
       url: model.coverURL(for: book.id),
@@ -1045,13 +1251,6 @@ struct NowPlayingDetailView: View {
         .strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
     }
     .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
-    .overlay(alignment: .topTrailing) {
-      TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-        playbackProgressBadge(percent: pct)
-          .padding(.top, 12)
-          .padding(.trailing, 12)
-      }
-    }
   }
 
   private func playbackColumn(book: ABSBook) -> some View {
@@ -1160,21 +1359,12 @@ struct NowPlayingDetailView: View {
   private var fullPlayerUtilityBar: some View {
     let sid = model.currentPlaybackOfflineStorageId()
     let isDownloading = sid != nil && model.downloads.activeItemId == sid
-    let audiobookId: String? = {
-      guard let id = player.activeBook?.id else { return nil }
-      let ep = player.activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      return ep.isEmpty ? id : nil
-    }()
     return FullPlayerUtilityBar(
       playbackRate: player.playbackRate,
-      activeAudiobookId: audiobookId,
       offlineStorageId: sid,
       isDownloaded: sid.map { model.downloadedItemIds.contains($0) } ?? false,
       isDownloading: isDownloading,
       downloadProgressBucket: isDownloading ? Int(model.downloads.progress * 20) : -1,
-      bookmarkMenuItems: audiobookId.map { id in
-        model.bookmarks(for: id).map(PlayerBookmarkMenuItem.init)
-      } ?? [],
       isLoggedIn: model.isLoggedIn
     )
   }
@@ -1400,14 +1590,22 @@ final class FloatingPlayerChromeController: ObservableObject {
     refresh()
   }
 
+  /// Gate + Snapshot sofort aktualisieren (z. B. vor Launch-Readiness-Check).
+  func syncChrome() {
+    refresh()
+  }
+
   private func refresh() {
     guard let model else { return }
     let wasVisible = gate.chromeVisible
     let next = TabAccessoryMiniPlayerSnapshot.make(model: model)
-    let hasTitle = !next.primaryLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    let visible =
-      !model.offlineHomeUIActive
-      && (next.showsConnectionLoading || (next.activeBookId != nil && hasTitle))
+    let title = next.primaryLine.trimmingCharacters(in: .whitespacesAndNewlines)
+    let hasLoadedTitle =
+      next.activeBookId != nil
+      && !title.isEmpty
+      && title != "Loading…"
+      && !next.showsConnectionLoading
+    let visible = !model.offlineHomeUIActive && hasLoadedTitle
     gate.apply(chromeVisible: visible, snapshot: next)
     if wasVisible != visible {
       model.objectWillChange.send()
@@ -1481,7 +1679,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
   }
 
   private var showsTransportControls: Bool {
-    placement != .inline && snapshot.canTogglePlayback
+    snapshot.canTogglePlayback
   }
 
   /// Nur Anzeige — Tap auf gesamte linke Fläche über umschließenden `Button` (`.plain`).
@@ -2209,6 +2407,29 @@ private struct WinampMarqueeText: View {
 
 // MARK: - Read-along Cover-Pille
 
+private enum FullPlayerCoverOverlayMetrics {
+  static let verticalInset: CGFloat = 12
+  static let horizontalInset: CGFloat = 16
+}
+
+private extension View {
+  /// Cover-Ecken: vertikales und horizontales Inset getrennt (kein Vollbreiten-Overlay).
+  func fullPlayerCoverCornerOverlayPadding(
+    top: Bool = false,
+    bottom: Bool = false,
+    leading: Bool = false,
+    trailing: Bool = false
+  ) -> some View {
+    let v = FullPlayerCoverOverlayMetrics.verticalInset
+    let h = FullPlayerCoverOverlayMetrics.horizontalInset
+    return fixedSize()
+      .padding(.top, top ? v : 0)
+      .padding(.bottom, bottom ? v : 0)
+      .padding(.leading, leading ? h : 0)
+      .padding(.trailing, trailing ? h : 0)
+  }
+}
+
 private struct ReadAlongCoverPill: View {
   @Environment(\.themeAccent) private var themeAccent
 
@@ -2254,6 +2475,45 @@ private struct ReadAlongCoverPill: View {
         : String(
           localized: "Requires a full download of this audiobook.",
           comment: "Read along accessibility hint")
+    )
+  }
+}
+
+private enum TeleprompterFontSizeControlsMetrics {
+  /// Größerer Touch-Bereich um −/+ — blockiert Wort-Taps dahinter.
+  static let touchPadding: CGFloat = 14
+  static let cornerRadius: CGFloat = 22
+}
+
+private struct TeleprompterFontSizeCoverButton: View {
+  @Environment(\.themeAccent) private var themeAccent
+
+  let systemName: String
+  let isEnabled: Bool
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: systemName)
+        .font(.body.weight(.semibold))
+        .foregroundStyle(isEnabled ? themeAccent : AppTheme.textSecondary)
+        .frame(width: 36, height: 36)
+        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+        .overlay {
+          Capsule(style: .continuous)
+            .strokeBorder(
+              isEnabled ? themeAccent.opacity(0.55) : AppTheme.textSecondary.opacity(0.35),
+              lineWidth: 0.5
+            )
+        }
+    }
+    .buttonStyle(.plain)
+    .disabled(!isEnabled)
+    .opacity(isEnabled ? 1 : 0.45)
+    .accessibilityLabel(
+      systemName == "plus"
+        ? String(localized: "Increase teleprompter text size", comment: "Accessibility")
+        : String(localized: "Decrease teleprompter text size", comment: "Accessibility")
     )
   }
 }

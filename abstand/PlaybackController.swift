@@ -44,6 +44,17 @@ final class PlaybackController: NSObject, ObservableObject {
   private(set) var globalPosition: Double = 0
   @Published private(set) var totalDuration: Double = 0
   @Published private(set) var isBuffering = false
+
+  /// Floating-Bar Play/Pause: AVPlayerItem wirklich bereit (nicht nur `playBook` returned).
+  var isPlaybackControlsReady: Bool {
+    guard activeBook != nil else { return true }
+    guard let player, let item = player.currentItem else { return false }
+    guard item.status == .readyToPlay else { return false }
+    if isBuffering { return false }
+    if player.timeControlStatus == .waitingToPlayAtSpecifiedRate { return false }
+    return true
+  }
+
   @Published var sleepEndDate: Date?
   @Published var sleepTimerMode: SleepTimerMode = .off
   /// Leere Mini-Player-Leiste („Nothing playing“) ohne aktives Medium.
@@ -1069,6 +1080,7 @@ final class PlaybackController: NSObject, ObservableObject {
       return
     }
     currentTrackIndex += 1
+    liveTranscription.notifyPlaybackTrackAdvanced()
     Task {
       await loadCurrentTrack(play: true, localOffset: 0)
     }
@@ -1280,6 +1292,18 @@ final class PlaybackController: NSObject, ObservableObject {
     return chapterIndex(for: playbackGlobalPosition())
   }
 
+  /// Fortschritt im aktuellen Kapitel — für den Kapitel-Fortschrittsbalken im Vollplayer.
+  func currentChapterProgress(global override: Double? = nil) -> (position: Double, duration: Double, start: Double)? {
+    guard !sortedChapters.isEmpty else { return nil }
+    let g = override ?? playbackGlobalPosition()
+    guard let idx = chapterIndex(for: g) else { return nil }
+    let start = sortedChapters[idx].start
+    let end = chapterEndTime(at: idx)
+    let duration = max(end - start, 0.001)
+    let position = min(max(g - start, 0), duration)
+    return (position, duration, start)
+  }
+
   /// Verbleibende Sekunden bis Kapitelende; `count == 1` = laufendes Kapitel, `2` = +1 weiteres usw.
   func secondsUntilEndOfChapters(count: Int) -> Double? {
     guard count >= 1, let idx = currentChapterIndex() else { return nil }
@@ -1319,6 +1343,7 @@ final class PlaybackController: NSObject, ObservableObject {
     let offset = g - trackStarts[idx]
     if idx != currentTrackIndex {
       currentTrackIndex = idx
+      liveTranscription.notifyPlaybackTrackAdvanced()
       Task {
         await loadCurrentTrack(play: isPlaying, localOffset: offset)
       }
@@ -1649,6 +1674,10 @@ final class PlaybackController: NSObject, ObservableObject {
   var transcriptionTrackKey: String {
     let bookId = activeBook?.id ?? ""
     return "\(bookId)-\(currentTrackIndex)"
+  }
+
+  var hasNextTranscriptionTrack: Bool {
+    !tracks.isEmpty && currentTrackIndex + 1 < tracks.count
   }
 
   func transcriptionLocalStartSeconds(preRoll: Double) -> Double {

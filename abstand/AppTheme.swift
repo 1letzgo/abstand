@@ -487,6 +487,15 @@ extension View {
     modifier(AbstandTabScreenChromeModifier())
   }
 
+  /// Home-Tab: Großtitel + sichtbare Nav-Bar (wie Library/eBooks/Podcasts).
+  func abstandHomeTabNavigationTitle() -> some View {
+    navigationTitle(AppModel.MainTab.start.rawValue)
+      .toolbarTitleDisplayMode(.inlineLarge)
+      .toolbar(.visible, for: .navigationBar)
+      .toolbarVisibility(.visible, for: .navigationBar)
+      .toolbarVisibility(.visible, for: .automatic)
+  }
+
   /// Detail-Screens (Autor/Serie/Buch/Folge): Tint + `#121212` bis unter die Tab-Bar (nicht am ScrollView abgeschnitten).
   func abstandDetailScrollBackground(_ color: Color) -> some View {
     modifier(AbstandDetailScreenBackgroundModifier(tint: color))
@@ -523,6 +532,18 @@ private struct AbstandBrowseStripHeaderChromeModifier: ViewModifier {
       .padding(.top, AppTheme.Layout.horizontalBrowseStripToTitleSpacing)
       .padding(.bottom, AppTheme.Layout.horizontalBrowseStripToContentSpacing)
       .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+private struct AbstandTopScrollEdgeEffectModifier: ViewModifier {
+  let style: ScrollEdgeEffectStyle?
+
+  func body(content: Content) -> some View {
+    if let style {
+      content.scrollEdgeEffectStyle(style, for: .top)
+    } else {
+      content
+    }
   }
 }
 
@@ -638,6 +659,8 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
   let selection: ID
   let sectionIDs: [ID]
   let scrollBottomInset: CGFloat
+  /// Home-Nav: Trailing-Toolbar bleibt beim Scrollen sichtbar (iOS 26 Scroll-Edge).
+  var topScrollEdgeEffectStyle: ScrollEdgeEffectStyle?
   var onRefresh: (() async -> Void)?
   @ViewBuilder var strip: () -> Strip
   @ViewBuilder var sectionBody: (ID) -> Content
@@ -721,6 +744,7 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
     .background(screenBackground)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .id(sectionID)
+    .modifier(AbstandTopScrollEdgeEffectModifier(style: topScrollEdgeEffectStyle))
 
     if let onRefresh {
       base.refreshable { await onRefresh() }

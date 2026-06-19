@@ -188,17 +188,16 @@ struct AddBookmarkTitleSheet: View {
   }
 }
 
-/// Bookmark control in the full-player utility bar: tap = title sheet; long-press = jump list.
-struct PlayerBookmarkUtilityControl: View {
+/// Bookmark-Pille auf dem Cover: Tippen = Lesezeichen setzen; Long-Press = Sprungliste.
+struct PlayerBookmarkCoverControl: View {
   @EnvironmentObject private var model: AppModel
-  let activeAudiobookId: String?
+  let activeAudiobookId: String
   let menuItems: [PlayerBookmarkMenuItem]
 
   @State private var showAddSheet = false
 
   var body: some View {
-    PlayerBookmarkUtilityControlChrome(
-      activeAudiobookId: activeAudiobookId,
+    PlayerBookmarkCoverControlChrome(
       menuItems: menuItems,
       showAddSheet: $showAddSheet,
       onJump: { mark in
@@ -207,17 +206,13 @@ struct PlayerBookmarkUtilityControl: View {
     )
     .equatable()
     .sheet(isPresented: $showAddSheet) {
-      if let activeAudiobookId {
-        AddBookmarkTitleSheet(libraryItemId: activeAudiobookId)
-          .environmentObject(model)
-      }
+      AddBookmarkTitleSheet(libraryItemId: activeAudiobookId)
+        .environmentObject(model)
     }
   }
 }
 
-/// Ohne `AppModel`-Observation — Long-Press-Menü flackert sonst bei Kapitel-Ticks nicht mit.
-private struct PlayerBookmarkUtilityControlChrome: View, Equatable {
-  let activeAudiobookId: String?
+private struct PlayerBookmarkCoverControlChrome: View, Equatable {
   let menuItems: [PlayerBookmarkMenuItem]
   @Binding var showAddSheet: Bool
   let onJump: (ABSAudioBookmark) -> Void
@@ -225,45 +220,34 @@ private struct PlayerBookmarkUtilityControlChrome: View, Equatable {
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
   static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.activeAudiobookId == rhs.activeAudiobookId
-      && lhs.menuItems == rhs.menuItems
-      && lhs.showAddSheet == rhs.showAddSheet
+    lhs.menuItems == rhs.menuItems && lhs.showAddSheet == rhs.showAddSheet
   }
 
   var body: some View {
     let _ = themeRevision
-    if activeAudiobookId != nil {
-      Button {
-        showAddSheet = true
-      } label: {
-        VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
-          Image(systemName: "bookmark")
-            .font(.title3)
-            .foregroundStyle(themeAccent)
-            .frame(width: 44, height: 44)
-            .frame(
-              maxWidth: .infinity,
-              minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
-              maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
-              alignment: .center
-            )
-          Text("Bookmark", comment: "Player control label")
-            .font(.caption2)
-            .foregroundStyle(AppTheme.textSecondary)
+    Button {
+      showAddSheet = true
+    } label: {
+      Image(systemName: "bookmark")
+        .font(.body.weight(.semibold))
+        .symbolVariant(.fill)
+        .foregroundStyle(themeAccent)
+        .frame(width: 36, height: 36)
+        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+        .overlay {
+          Capsule(style: .continuous)
+            .strokeBorder(themeAccent.opacity(0.55), lineWidth: 0.5)
         }
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Add bookmark at current position")
-      .contextMenu {
-        if !menuItems.isEmpty {
-          ForEach(menuItems) { item in
-            Button {
-              onJump(item.bookmark)
-            } label: {
-              Text("\(item.title) · \(formatPlaybackTime(Double(item.time)))")
-            }
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Add bookmark at current position")
+    .contextMenu {
+      if !menuItems.isEmpty {
+        ForEach(menuItems) { item in
+          Button {
+            onJump(item.bookmark)
+          } label: {
+            Text("\(item.title) · \(formatPlaybackTime(Double(item.time)))")
           }
         }
       }
