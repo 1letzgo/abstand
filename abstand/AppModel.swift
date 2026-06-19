@@ -989,7 +989,7 @@ final class AppModel: ObservableObject {
 
   @Published private(set) var isServerReachable = false
   @Published private(set) var isServerConnectionProbeInProgress = false
-  /// App-Start (Bootstrap): Verbindungs-Alert bis Katalog, Podcasts und Player-Restore fertig sind.
+  /// App-Start (Bootstrap): Verbindungs-Alert bis Server-Session steht; mit Cache danach sofort weg.
   @Published private(set) var isAppBootstrapInProgress = false
   /// Nutzer hat „Go offline“ während Bootstrap — laufenden Server-Sync abbrechen.
   private var bootstrapSupersededByOffline = false
@@ -1858,19 +1858,28 @@ final class AppModel: ObservableObject {
   }
 
   private func setShowEbooksTab(_ visible: Bool) {
+    if isAppBootstrapInProgress { return }
     if showEbooksTab != visible {
       showEbooksTab = visible
     }
   }
 
   private func setShowPodcastsTab(_ visible: Bool) {
+    if isAppBootstrapInProgress { return }
     if showPodcastsTab != visible {
       showPodcastsTab = visible
     }
   }
 
+  /// Tab-Bar-Struktur erst nach Bootstrap aktualisieren (Offline-Button auf Home bleibt sichtbar).
+  private func flushTabVisibilityAfterBootstrap() {
+    syncPodcastsTabVisibilityFromLibraries()
+    syncEbooksTabVisibilityFromLibraries()
+  }
+
   /// Nach Server-Fetch: eBooks-Tab-Sichtbarkeit mit Bibliotheksliste abgleichen und cachen.
   private func syncEbooksTabVisibilityFromLibraries() {
+    if isAppBootstrapInProgress { return }
     if ebooksLibraryPreferenceIsNone {
       setShowEbooksTab(false)
     } else {
@@ -1880,6 +1889,7 @@ final class AppModel: ObservableObject {
 
   /// Nach Server-Fetch: Tab-Sichtbarkeit mit Bibliotheksliste abgleichen und cachen.
   private func syncPodcastsTabVisibilityFromLibraries() {
+    if isAppBootstrapInProgress { return }
     if podcastsLibraryPreferenceIsNone {
       setShowPodcastsTab(false)
     } else {
@@ -3545,43 +3555,69 @@ final class AppModel: ObservableObject {
     if offlineHomeMode {
       isAppBootstrapInProgress = false
       scheduleFinishDeferredLaunchDiskRestore()
-      scheduleDeferredCatalogDiskCachesAfterBootstrap()
-      scheduleSecondaryTabPrewarm()
       await bootstrapLocalSessionOnly()
+      scheduleDeferredWorkAfterConnect()
       return
     }
 
-    // Restlicher Disk-Cache nach erstem Frame — nicht auf MainActor blockieren.
+    // Nur Downloads-Manifest früh — Katalog/Prewarm erst nach Connect + Home/Player.
     scheduleFinishDeferredLaunchDiskRestore()
-    scheduleDeferredCatalogDiskCachesAfterBootstrap()
-    scheduleSecondaryTabPrewarm()
 
     // `restoreHomeLaunchStateFromDisk()` in init — Home/Katalog sofort aus Cache.
     isAppBootstrapInProgress = true
     defer {
       if !bootstrapSupersededByOffline {
         isAppBootstrapInProgress = false
+        flushTabVisibilityAfterBootstrap()
       }
       bootstrapSupersededByOffline = false
     }
     restoreServerClientIfNeeded()
     await refreshBootstrapFromServer()
-    if !bootstrapSupersededByOffline, !offlineHomeUIActive {
+    guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
+    // Mit Disk-Cache: Home ist schon da — Player/Home-Refresh nicht vor dem Alert blockieren.
+    if hasCachedBootstrapContent {
+      Task(priority: .userInitiated) { @MainActor in
+        await self.finishLaunchPresentationAfterBootstrap()
+      }
+    } else {
       await finishLaunchPresentationAfterBootstrap()
     }
   }
 
-  /// Alert bleibt, bis Home-Regale und Mini-Player (falls vorhanden) fertig sind.
+  /// Home-Refresh und Mini-Player nach Bootstrap — blockiert Kaltstart nur ohne Cache.
   private func finishLaunchPresentationAfterBootstrap() async {
     guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
-    async let home: Void = loadStartDashboard(skipAuthorizeRefresh: true, force: true)
+    let hadCachedHome = !startShelves.isEmpty
+    async let home: Void = loadStartDashboard(
+      skipAuthorizeRefresh: true,
+      force: !hadCachedHome
+    )
     async let player: Void = restoreLastPlayedOnLaunch()
     _ = await (home, player)
-    await waitForLaunchFloatingPlayerReady()
-    floatingChrome.syncChrome()
+    if hadCachedHome {
+      floatingChrome.syncChrome()
+      // Frische Regale im Hintergrund — UI nutzt bereits Cache aus init.
+      Task(priority: .utility) { @MainActor in
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        guard !self.offlineHomeUIActive, !self.bootstrapSupersededByOffline else { return }
+        await self.loadStartDashboard(skipAuthorizeRefresh: true, force: true)
+      }
+    } else {
+      await waitForLaunchFloatingPlayerReady()
+      floatingChrome.syncChrome()
+    }
+    scheduleDeferredWorkAfterConnect()
   }
 
-  /// Floating Bar: kurz stabilisieren, dann Alert schließen (Post-Processing läuft im Hintergrund).
+  /// Katalog-Caches, Tab-Prewarm und Server-Reload — erst nach Connect, Home und Player.
+  private func scheduleDeferredWorkAfterConnect() {
+    scheduleDeferredCatalogDiskCachesAfterBootstrap()
+    scheduleSecondaryTabPrewarm()
+    scheduleDeferredCatalogReloadAfterBootstrap()
+  }
+
+  /// Floating Bar: kurz stabilisieren (nur Kaltstart ohne Cache).
   private func waitForLaunchFloatingPlayerReady() async {
     guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
     guard player.activeBook != nil else { return }
@@ -3649,9 +3685,6 @@ final class AppModel: ObservableObject {
       if bootstrapSupersededByOffline || offlineHomeMode { return }
       await resolveLibrariesAfterServerFetch(userDefaultLibraryId: auth.userDefaultLibraryId)
       if bootstrapSupersededByOffline || offlineHomeMode { return }
-      scheduleDeferredCatalogDiskCachesAfterBootstrap()
-      scheduleSecondaryTabPrewarm()
-      scheduleDeferredCatalogReloadAfterBootstrap()
     } catch {
       if bootstrapSupersededByOffline || offlineHomeMode { return }
       isRestoringLaunchPlayback = false
@@ -3662,15 +3695,10 @@ final class AppModel: ObservableObject {
       if serverSessionEstablished {
         offlineHomeModeAuto = false
         isServerReachable = true
-        scheduleDeferredCatalogDiskCachesAfterBootstrap()
-        scheduleSecondaryTabPrewarm()
-        scheduleDeferredCatalogReloadAfterBootstrap()
         return
       }
       if hasCachedBootstrapContent {
         isServerReachable = false
-        scheduleDeferredCatalogDiskCachesAfterBootstrap()
-        scheduleSecondaryTabPrewarm()
         return
       }
       publishErrorUnlessBenignCancellation(error)
@@ -3814,6 +3842,7 @@ final class AppModel: ObservableObject {
     defer {
       if !bootstrapSupersededByOffline {
         isAppBootstrapInProgress = false
+        flushTabVisibilityAfterBootstrap()
       }
       bootstrapSupersededByOffline = false
     }
@@ -3836,9 +3865,6 @@ final class AppModel: ObservableObject {
       await resolveLibrariesAfterServerFetch(userDefaultLibraryId: res.userDefaultLibraryId)
       if bootstrapSupersededByOffline || offlineHomeMode { return }
       mainTab = .start
-      scheduleDeferredCatalogDiskCachesAfterBootstrap()
-      scheduleSecondaryTabPrewarm()
-      scheduleDeferredCatalogReloadAfterBootstrap()
       await finishLaunchPresentationAfterBootstrap()
     } catch {
       if bootstrapSupersededByOffline || offlineHomeMode { return }

@@ -1136,13 +1136,7 @@ struct NowPlayingDetailView: View {
         )
       }
     }
-    .padding(TeleprompterFontSizeControlsMetrics.touchPadding)
-    .contentShape(
-      RoundedRectangle(
-        cornerRadius: TeleprompterFontSizeControlsMetrics.cornerRadius,
-        style: .continuous
-      )
-    )
+    .contentShape(Rectangle())
   }
 
   /// Referenzbreite für Auto-Schrift und erste +/--Anpassung (≈ Kartenbreite).
@@ -2477,12 +2471,6 @@ private struct ReadAlongCoverPill: View {
           comment: "Read along accessibility hint")
     )
   }
-}
-
-private enum TeleprompterFontSizeControlsMetrics {
-  /// Größerer Touch-Bereich um −/+ — blockiert Wort-Taps dahinter.
-  static let touchPadding: CGFloat = 14
-  static let cornerRadius: CGFloat = 22
 }
 
 private struct TeleprompterFontSizeCoverButton: View {

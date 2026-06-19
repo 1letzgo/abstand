@@ -143,6 +143,7 @@ struct MainRootView: View {
     TabView(selection: $model.mainTab) {
       Tab(AppModel.MainTab.start.rawValue, systemImage: "house.fill", value: AppModel.MainTab.start) {
         HomeTabRootView()
+          .id("abstand-home-tab-root")
       }
 
       // Tabs immer registrieren — sonst baut TabView beim Bootstrap neu (Ampel flackert).
