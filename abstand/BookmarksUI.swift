@@ -232,7 +232,7 @@ private struct PlayerBookmarkCoverControlChrome: View, Equatable {
         .font(.body.weight(.semibold))
         .symbolVariant(.fill)
         .foregroundStyle(themeAccent)
-        .frame(width: 36, height: 36)
+        .frame(minWidth: 44, minHeight: 44)
         .background(.ultraThinMaterial, in: Capsule(style: .continuous))
         .overlay {
           Capsule(style: .continuous)

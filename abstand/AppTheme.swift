@@ -69,6 +69,14 @@ enum AppTheme {
     static let itemSpacing: CGFloat = 10
     static let horizontalPadding: CGFloat = 18
     static let verticalPadding: CGFloat = 4
+    /// Kompakter Abstand in Karten-/Zeileninhalten (VStack/HStack in Metadata-Blöcken).
+    static let compactSpacing: CGFloat = 8
+    /// Kleiner Abstand für Badges, Pills, Icon-Text-Kombinationen.
+    static let badgeSpacing: CGFloat = 6
+    /// Sehr enger Abstand (Titel ↔ Detail in Zeilen, dichte Gruppierungen).
+    static let microSpacing: CGFloat = 2
+    /// Standard-Padding für Karteninhalte.
+    static let cardContentPadding: CGFloat = 12
     static let circleSize: CGFloat = 46
     static let iconSize: CGFloat = 21
     static let activeCoverSize: CGFloat = 28
@@ -959,6 +967,7 @@ struct TabContentSectionTitle: View {
       .bold()
       .foregroundStyle(model.appearancePalette.textPrimary)
       .frame(maxWidth: .infinity, alignment: .leading)
+      .accessibilityAddTraits(.isHeader)
   }
 }
 

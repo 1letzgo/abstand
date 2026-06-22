@@ -83,7 +83,7 @@ private struct AbstandExpandingDockChip: View {
           coverThumbnail(size: AppTheme.ExpandingDock.activeCoverSize, itemId: coverItemId)
         } else {
           Image(systemName: item.systemImage)
-            .font(.system(size: AppTheme.ExpandingDock.iconSize, weight: .semibold))
+            .font(.headline.weight(.semibold))
             .foregroundStyle(
               isSelected
                 ? dockColors.activeForeground
@@ -95,7 +95,7 @@ private struct AbstandExpandingDockChip: View {
       }
 
       Text(item.label)
-        .font(.system(size: AppTheme.ExpandingDock.labelFontSize, weight: .semibold))
+        .font(.subheadline.weight(.semibold))
         .foregroundStyle(dockColors.activeForeground)
         .lineLimit(1)
         .fixedSize(horizontal: true, vertical: false)

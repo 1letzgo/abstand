@@ -251,15 +251,17 @@ enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
 enum EbooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
   case ebooks = "eBooks"
   case supplementary = "Supplementary"
+  case search = "Search"
 
   var id: String { rawValue }
 
-  static let stripOrder: [EbooksBrowseSection] = [.ebooks, .supplementary]
+  static let stripOrder: [EbooksBrowseSection] = [.search, .ebooks, .supplementary]
 
   var systemImage: String {
     switch self {
     case .ebooks: return "book.closed"
     case .supplementary: return "books.vertical"
+    case .search: return "magnifyingglass"
     }
   }
 }
@@ -635,6 +637,17 @@ final class AppModel: ObservableObject {
   @Published var podcastSearchSeries: [ABSSearchSeriesRow] = []
   @Published var podcastSearchTags: [ABSSearchNamedCount] = []
   @Published var podcastSearchGenres: [ABSSearchNamedCount] = []
+  /// eBooks-Tab Suche (eigener State, eigener Library-Filter `ebooks.ebook`).
+  @Published var ebooksSearchText: String = ""
+  @Published var ebooksSearchBooks: [ABSBook] = []
+  @Published var ebooksSearchAuthors: [ABSSearchAuthorRow] = []
+  @Published var ebooksSearchSeries: [ABSSearchSeriesRow] = []
+  @Published var ebooksSearchTags: [ABSSearchNamedCount] = []
+  @Published var ebooksSearchGenres: [ABSSearchNamedCount] = []
+  /// Podcast-Tab Katalog-Suche (Shows + Episoden innerhalb der Podcast-Bibliothek).
+  @Published var podcastLibrarySearchText: String = ""
+  @Published var podcastLibrarySearchShows: [ABSBook] = []
+  @Published var podcastLibrarySearchEpisodes: [ABSPodcastEpisodeListItem] = []
   /// Server-Items-Filter für den Bücher-Katalog.
   @Published var activeLibraryFilter: String?
   /// Anzeige unter der Suche: wonach der Bücher-Katalog gefiltert ist.
@@ -1193,6 +1206,8 @@ final class AppModel: ObservableObject {
   private var searchTask: Task<Void, Never>?
   private var podcastSearchTask: Task<Void, Never>?
   private var podcastDirectorySearchTask: Task<Void, Never>?
+  private var ebooksSearchTask: Task<Void, Never>?
+  private var podcastLibrarySearchTask: Task<Void, Never>?
   private var startDashboardPostProcessingTask: Task<Void, Never>?
   private var launchDiskRestoreTask: Task<Void, Never>?
   private var bootstrapCatalogReloadTask: Task<Void, Never>?
@@ -3694,6 +3709,10 @@ final class AppModel: ObservableObject {
     podcastSearchTask = nil
     podcastDirectorySearchTask?.cancel()
     podcastDirectorySearchTask = nil
+    ebooksSearchTask?.cancel()
+    ebooksSearchTask = nil
+    podcastLibrarySearchTask?.cancel()
+    podcastLibrarySearchTask = nil
     deferredBooksCatalogDiskRestoreScheduled = false
     deferredBrowseListsDiskRestoreScheduled = false
     shouldPrewarmSecondaryTabs = false
@@ -5752,13 +5771,22 @@ final class AppModel: ObservableObject {
   /// Pull-to-Refresh im eBooks-Tab.
   func refreshEbooksCatalog() async {
     await performPullToRefresh { [self] in
-      await loadBrowseEbooks(force: true)
+      if ebooksBrowseSection == .search {
+        await refreshEbooksSearchResults()
+      } else {
+        await loadBrowseEbooks(force: true)
+      }
     }
   }
 
   func selectEbooksBrowseSection(_ section: EbooksBrowseSection) {
     ebooksBrowseSection = section
-    Task { await ensureBrowseEbooksLoaded() }
+    if section == .search {
+      ebooksSearchTask?.cancel()
+      clearEbooksSearchResults()
+    } else {
+      Task { await ensureBrowseEbooksLoaded() }
+    }
   }
 
   private func loadBrowseEbooks(force: Bool) async {
@@ -6159,6 +6187,10 @@ final class AppModel: ObservableObject {
   /// Pull-to-Refresh: Podcast-Tab (Sendungsleiste, „New“-Liste oder gewählte Sendung).
   func refreshPodcastsTab() async {
     await performPullToRefresh { [self] in
+      if !podcastLibrarySearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        await refreshPodcastLibrarySearchResults()
+        return
+      }
       await refreshProgressFromServer()
       await reloadPodcastShowsCatalog()
       if let showId = podcastSelectedShowId {
@@ -6620,6 +6652,158 @@ final class AppModel: ObservableObject {
     podcastSearchSeries = []
     podcastSearchTags = []
     podcastSearchGenres = []
+  }
+
+  func clearEbooksSearchResults() {
+    ebooksSearchBooks = []
+    ebooksSearchAuthors = []
+    ebooksSearchSeries = []
+    ebooksSearchTags = []
+    ebooksSearchGenres = []
+  }
+
+  func clearPodcastLibrarySearchResults() {
+    podcastLibrarySearchShows = []
+    podcastLibrarySearchEpisodes = []
+  }
+
+  func scheduleEbooksSearch() {
+    guard mainTab == .ebooks, ebooksBrowseSection == .search else { return }
+    ebooksSearchTask?.cancel()
+    let q = ebooksSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    ebooksSearchTask = Task {
+      try? await Task.sleep(nanoseconds: 350_000_000)
+      await performEbooksSearch(query: q)
+    }
+  }
+
+  func schedulePodcastLibrarySearch() {
+    guard mainTab == .podcasts else { return }
+    podcastLibrarySearchTask?.cancel()
+    let q = podcastLibrarySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    podcastLibrarySearchTask = Task {
+      try? await Task.sleep(nanoseconds: 350_000_000)
+      await performPodcastLibrarySearch(query: q)
+    }
+  }
+
+  private func performEbooksSearch(query: String) async {
+    let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    if q.count < 2 {
+      clearEbooksSearchResults()
+      return
+    }
+    guard selectedEbooksLibrary != nil else { return }
+    if !mayUseServerNetwork || !isNetworkReachable || client == nil {
+      applyLocalEbooksSearchResults(query: q)
+      return
+    }
+    guard let c = client, let lib = selectedEbooksLibrary else {
+      applyLocalEbooksSearchResults(query: q)
+      return
+    }
+    isLoadingLibrary = true
+    defer { isLoadingLibrary = false }
+    do {
+      let res = try await c.search(libraryId: lib.id, query: q)
+      ebooksSearchBooks = res.book.map(\.libraryItem).filter(\.isUsableEbookListRow)
+      ebooksSearchAuthors = res.authors
+      ebooksSearchSeries = res.series
+      ebooksSearchTags = res.tags
+      ebooksSearchGenres = res.genres
+    } catch {
+      applyLocalEbooksSearchResults(query: q)
+      if ebooksSearchBooks.isEmpty, ebooksSearchAuthors.isEmpty, ebooksSearchSeries.isEmpty {
+        publishErrorUnlessBenignCancellation(error)
+      }
+    }
+  }
+
+  private func performPodcastLibrarySearch(query: String) async {
+    let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    if q.count < 2 {
+      clearPodcastLibrarySearchResults()
+      return
+    }
+    guard selectedPodcastLibrary != nil else { return }
+    if !mayUseServerNetwork || !isNetworkReachable || client == nil {
+      applyLocalPodcastLibrarySearchResults(query: q)
+      return
+    }
+    guard let c = client, let lib = selectedPodcastLibrary else {
+      applyLocalPodcastLibrarySearchResults(query: q)
+      return
+    }
+    isLoadingPodcasts = true
+    defer { isLoadingPodcasts = false }
+    do {
+      let res = try await c.search(libraryId: lib.id, query: q)
+      podcastLibrarySearchShows = res.podcastSearchShowLibraryItems()
+    } catch {
+      applyLocalPodcastLibrarySearchResults(query: q)
+      if podcastLibrarySearchShows.isEmpty {
+        publishErrorUnlessBenignCancellation(error)
+      }
+    }
+  }
+
+  private func applyLocalEbooksSearchResults(query: String) {
+    let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    if q.count < 2 {
+      clearEbooksSearchResults()
+      return
+    }
+    var byId: [String: ABSBook] = [:]
+    for book in browseEbooks + browseEbooksSupplementary + downloadedShelfBooks {
+      if book.isUsableEbookListRow { byId[book.id] = book }
+    }
+    ebooksSearchBooks = Array(byId.values)
+      .filter { bookMatchesSearchQuery($0, query: q) }
+      .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+    ebooksSearchAuthors = browseAuthors
+      .filter { $0.name.localizedCaseInsensitiveContains(q) }
+      .prefix(40)
+      .map { ABSSearchAuthorRow(id: $0.id, name: $0.name, numBooks: $0.numBooks) }
+    ebooksSearchSeries = browseSeries
+      .filter { $0.name.localizedCaseInsensitiveContains(q) }
+      .prefix(40)
+      .map { ABSSearchSeriesRow(id: $0.id, name: $0.name, books: $0.books) }
+    ebooksSearchTags = browseTagsFetched
+      .filter { $0.name.localizedCaseInsensitiveContains(q) }
+      .prefix(40)
+      .map { ABSSearchNamedCount(name: $0.name, numItems: $0.numBooks) }
+    ebooksSearchGenres = browseGenresFetched
+      .filter { $0.name.localizedCaseInsensitiveContains(q) }
+      .prefix(40)
+      .map { ABSSearchNamedCount(name: $0.name, numItems: $0.numBooks) }
+  }
+
+  private func applyLocalPodcastLibrarySearchResults(query: String) {
+    let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    if q.count < 2 {
+      clearPodcastLibrarySearchResults()
+      return
+    }
+    podcastLibrarySearchShows = podcastShows.filter { bookMatchesSearchQuery($0, query: q) }
+    podcastLibrarySearchEpisodes = podcastEpisodes.filter {
+      ($0.episodeTitle + " " + $0.showTitle).localizedCaseInsensitiveContains(q)
+    }
+  }
+
+  func refreshEbooksSearchResults() async {
+    await performPullToRefresh { [self] in
+      ebooksSearchTask?.cancel()
+      let q = ebooksSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+      await performEbooksSearch(query: q)
+    }
+  }
+
+  func refreshPodcastLibrarySearchResults() async {
+    await performPullToRefresh { [self] in
+      podcastLibrarySearchTask?.cancel()
+      let q = podcastLibrarySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+      await performPodcastLibrarySearch(query: q)
+    }
   }
 
   /// Hörbücher + reine eBooks aus Speicher/Caches (Autor-Detail offline).

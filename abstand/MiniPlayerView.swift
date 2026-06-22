@@ -1329,7 +1329,7 @@ struct NowPlayingDetailView: View {
               .tint(model.appearancePalette.foregroundOnAccent(themeAccent))
             } else {
               Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: 40))
+                .font(.largeTitle)
                 .symbolVariant(.fill)
                 .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
           }
@@ -1752,7 +1752,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
         Image(
           systemName: PlaybackController.gobackwardSystemImage(
             seconds: snapshot.skipBackwardSeconds))
-          .font(.system(size: 18, weight: .medium))
+          .font(.headline.weight(.medium))
           .foregroundStyle(AppTheme.textPrimary)
           .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
           .contentShape(Rectangle())
@@ -1777,7 +1777,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
               .scaleEffect(0.72)
           } else {
             Image(systemName: snapshot.isPlaying ? "pause.fill" : "play.fill")
-              .font(.system(size: 14, weight: .semibold))
+              .font(.footnote.weight(.semibold))
               .foregroundStyle(AppTheme.foregroundOnAccent(themeAccent))
           }
         }
@@ -2001,7 +2001,7 @@ struct OfflineHomeMiniPlayerCard: View {
   private var lcdPrimaryReadout: some View {
     if player.activeBook != nil {
       Text(formatPlaybackTime(min(max(0, player.globalPosition), max(player.totalDuration, 1))))
-        .font(.system(size: 26, weight: .semibold, design: .monospaced))
+        .font(.system(.title2, design: .monospaced).weight(.semibold))
         .foregroundStyle(themeAccent)
         .lineLimit(1)
         .minimumScaleFactor(0.6)
@@ -2129,7 +2129,7 @@ struct OfflineHomeMiniPlayerCard: View {
             .scaleEffect(0.8)
         } else {
           Image(systemName: snapshot.isPlaying ? "pause.fill" : "play.fill")
-            .font(.system(size: 16, weight: .bold))
+            .font(.callout.weight(.bold))
             .foregroundStyle(onAccent)
         }
       }

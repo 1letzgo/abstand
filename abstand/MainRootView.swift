@@ -277,13 +277,45 @@ struct MainRootView: View {
   @ViewBuilder
   private func ebooksBrowseSectionContent(for section: EbooksBrowseSection) -> some View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      if section == .search {
+        ebooksSearchField
+      }
       switch section {
       case .ebooks:
         ebooksPrimaryListBody
       case .supplementary:
         ebooksSupplementaryListBody
+      case .search:
+        EbooksSearchBrowseView()
       }
     }
+  }
+
+  private var ebooksSearchField: some View {
+    let palette = model.appearancePalette
+    return HStack(spacing: 8) {
+      Image(systemName: "magnifyingglass")
+        .foregroundStyle(palette.textSecondary)
+      TextField("Title, author, series…", text: $model.ebooksSearchText)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .foregroundStyle(palette.textPrimary)
+        .onSubmit { model.scheduleEbooksSearch() }
+      if !model.ebooksSearchText.isEmpty {
+        Button {
+          model.ebooksSearchText = ""
+          model.clearEbooksSearchResults()
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .foregroundStyle(AppTheme.textSecondary)
+        }
+        .buttonStyle(.plain)
+      }
+    }
+    .padding(12)
+    .background(model.appearancePalette.card)
+    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .onChange(of: model.ebooksSearchText) { _, _ in model.scheduleEbooksSearch() }
   }
 
   /// Bücher mit primärem eBook (auch ohne Hörbuch), paginiert.
@@ -795,9 +827,10 @@ struct MainRootView: View {
   }
 
   private static let podcastCatalogNewSectionId = "__new__"
+  private static let podcastCatalogSearchSectionId = "__search__"
 
   private var podcastCatalogScrollSectionIDs: [String] {
-    [Self.podcastCatalogNewSectionId] + model.podcastShows.map(\.id)
+    [Self.podcastCatalogSearchSectionId, Self.podcastCatalogNewSectionId] + model.podcastShows.map(\.id)
   }
 
   private var podcastCatalogScrollSelection: String {
@@ -805,7 +838,8 @@ struct MainRootView: View {
   }
 
   private func podcastCatalogShowId(forSectionId sectionId: String) -> String? {
-    sectionId == Self.podcastCatalogNewSectionId ? nil : sectionId
+    sectionId == Self.podcastCatalogNewSectionId || sectionId == Self.podcastCatalogSearchSectionId
+      ? nil : sectionId
   }
 
   private var podcastCatalogScrollView: some View {
@@ -819,8 +853,46 @@ struct MainRootView: View {
     ) {
       podcastShowsDockStrip
     } sectionBody: { sectionId in
-      podcastCatalogSectionScrollContent(showId: podcastCatalogShowId(forSectionId: sectionId))
+      if sectionId == Self.podcastCatalogSearchSectionId {
+        podcastLibrarySearchContent
+      } else {
+        podcastCatalogSectionScrollContent(showId: podcastCatalogShowId(forSectionId: sectionId))
+      }
     }
+  }
+
+  private var podcastLibrarySearchContent: some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      podcastSearchField
+      PodcastLibrarySearchResultsView()
+    }
+  }
+
+  private var podcastSearchField: some View {
+    let palette = model.appearancePalette
+    return HStack(spacing: 8) {
+      Image(systemName: "magnifyingglass")
+        .foregroundStyle(palette.textSecondary)
+      TextField("Show or episode…", text: $model.podcastLibrarySearchText)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .foregroundStyle(palette.textPrimary)
+        .onSubmit { model.schedulePodcastLibrarySearch() }
+      if !model.podcastLibrarySearchText.isEmpty {
+        Button {
+          model.podcastLibrarySearchText = ""
+          model.clearPodcastLibrarySearchResults()
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .foregroundStyle(AppTheme.textSecondary)
+        }
+        .buttonStyle(.plain)
+      }
+    }
+    .padding(12)
+    .background(model.appearancePalette.card)
+    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .onChange(of: model.podcastLibrarySearchText) { _, _ in model.schedulePodcastLibrarySearch() }
   }
 
   @ViewBuilder
@@ -835,6 +907,11 @@ struct MainRootView: View {
 
   private var podcastDockStripItems: [AbstandBrowseStripItem] {
     [
+      AbstandBrowseStripItem(
+        id: Self.podcastCatalogSearchSectionId,
+        label: "Search",
+        systemImage: "magnifyingglass"
+      ),
       AbstandBrowseStripItem(
         id: Self.podcastCatalogNewSectionId,
         label: "New",
@@ -856,7 +933,11 @@ struct MainRootView: View {
       items: podcastDockStripItems,
       selectionID: podcastCatalogScrollSelection,
       onSelect: { id in
-        if id == Self.podcastCatalogNewSectionId {
+        if id == Self.podcastCatalogSearchSectionId {
+          model.podcastSelectedShowId = nil
+          model.podcastLibrarySearchText = ""
+          model.clearPodcastLibrarySearchResults()
+        } else if id == Self.podcastCatalogNewSectionId {
           Task { await model.selectPodcastShowFilter(nil) }
         } else {
           model.applyPodcastShowFilterSelection(id)
@@ -1535,6 +1616,245 @@ private extension BooksSearchBrowseView {
   }
 }
 
+// MARK: - eBooks search (abgestimmt mit BooksSearchBrowseView, eBook-Filter)
+
+private struct EbooksSearchBrowseView: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    let q = model.ebooksSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      if q.isEmpty {
+        ContentUnavailableView(
+          "Search",
+          systemImage: "magnifyingglass",
+          description: Text("Enter at least two characters to search your eBooks.")
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
+      }
+      if model.isLoadingLibrary, q.count >= 2 {
+        ProgressView()
+          .frame(maxWidth: .infinity)
+          .padding()
+      }
+      if q.count > 0, q.count < 2 {
+        Text("Enter at least two characters.")
+          .font(.subheadline)
+          .foregroundStyle(AppTheme.textSecondary)
+          .frame(maxWidth: .infinity)
+          .multilineTextAlignment(.center)
+          .padding(24)
+      }
+      if q.count >= 2, !model.isLoadingLibrary, model.ebooksSearchBooks.isEmpty,
+        model.ebooksSearchAuthors.isEmpty, model.ebooksSearchSeries.isEmpty,
+        model.ebooksSearchTags.isEmpty, model.ebooksSearchGenres.isEmpty
+      {
+        Text("No results.")
+          .font(.subheadline)
+          .foregroundStyle(AppTheme.textSecondary)
+          .frame(maxWidth: .infinity)
+          .padding(24)
+      }
+
+      ebooksSearchSection(title: "eBooks", isEmpty: model.ebooksSearchBooks.isEmpty) {
+        LibraryBookCardsFlow {
+          ForEach(model.ebooksSearchBooks) { book in
+            LibraryBookListCard(book: book, model: model)
+          }
+        }
+      }
+      ebooksSearchSection(title: "Authors", isEmpty: model.ebooksSearchAuthors.isEmpty) {
+        ForEach(model.ebooksSearchAuthors) { a in
+          Button {
+            model.openAuthorDetail(authorId: a.id, displayName: a.name, numBooks: a.numBooks)
+          } label: {
+            HStack(spacing: LibraryRowLayout.cardInset) {
+              LibraryRowLayout.coverSlot {
+                CoverImageView(
+                  url: model.authorImageURL(authorId: a.id),
+                  token: model.token,
+                  itemId: "author:\(a.id)",
+                  cacheAccount: model.coverImageCacheAccountDirectory(),
+                  cacheRevision: model.coverImageCacheRevision
+                )
+              }
+              LibraryRowLayout.metadataColumn(showsProgressBar: false) {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(a.name)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(AppTheme.textPrimary)
+                    .lineLimit(1)
+                  Spacer(minLength: 0)
+                  LibraryRowCollapsedMetaLine(
+                    label: "Books", value: a.numBooks.map { "\($0)" }, valueLineLimit: 1)
+                }
+              }
+            }
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      ebooksSearchSection(title: "Series", isEmpty: model.ebooksSearchSeries.isEmpty) {
+        ForEach(model.ebooksSearchSeries) { s in
+          Button {
+            model.openSeriesDetail(seriesId: s.id, displayName: s.name, numBooks: s.books?.count)
+          } label: {
+            HStack(spacing: LibraryRowLayout.cardInset) {
+              LibraryRowLayout.coverSlot {
+                CoverImageView(
+                  url: (s.books?.first).flatMap { model.coverURL(for: $0.id) },
+                  token: model.token,
+                  itemId: s.books?.first?.id ?? "series:\(s.id)",
+                  cacheAccount: model.coverImageCacheAccountDirectory(),
+                  cacheRevision: model.coverImageCacheRevision
+                )
+              }
+              LibraryRowLayout.metadataColumn(showsProgressBar: false) {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(s.name)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(AppTheme.textPrimary)
+                    .lineLimit(1)
+                  Spacer(minLength: 0)
+                  LibraryRowCollapsedMetaLine(
+                    label: "Books", value: (s.books?.count).map { "\($0)" }, valueLineLimit: 1)
+                }
+              }
+            }
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      ebooksSearchSection(title: "Tags", isEmpty: model.ebooksSearchTags.isEmpty) {
+        ForEach(model.ebooksSearchTags) { t in
+          Button {
+            model.openTagDetail(tagName: t.name, numBooks: t.numItems)
+          } label: {
+            HStack(spacing: LibraryRowLayout.cardInset) {
+              LibraryRowLayout.coverSlot { Color.clear }
+              LibraryRowLayout.metadataColumn(showsProgressBar: false) {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(t.name)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(AppTheme.textPrimary)
+                    .lineLimit(1)
+                  LibraryRowCollapsedMetaLine(
+                    label: "Books", value: t.numItems.map { "\($0)" }, valueLineLimit: 1)
+                }
+              }
+            }
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      ebooksSearchSection(title: "Genres", isEmpty: model.ebooksSearchGenres.isEmpty) {
+        ForEach(model.ebooksSearchGenres) { g in
+          Button {
+            model.openGenreDetail(genreName: g.name, numBooks: g.numItems)
+          } label: {
+            HStack(spacing: LibraryRowLayout.cardInset) {
+              LibraryRowLayout.coverSlot { Color.clear }
+              LibraryRowLayout.metadataColumn(showsProgressBar: false) {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(g.name)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(AppTheme.textPrimary)
+                    .lineLimit(1)
+                  LibraryRowCollapsedMetaLine(
+                    label: "Books", value: g.numItems.map { "\($0)" }, valueLineLimit: 1)
+                }
+              }
+            }
+          }
+          .buttonStyle(.plain)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  @ViewBuilder
+  private func ebooksSearchSection<Content: View>(
+    title: String,
+    isEmpty: Bool,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    if !isEmpty {
+      VStack(alignment: .leading, spacing: 10) {
+        TabContentSectionTitle(title:title)
+        content()
+      }
+    }
+  }
+}
+
+// MARK: - Podcast library search (Shows innerhalb der Podcast-Bibliothek)
+
+private struct PodcastLibrarySearchResultsView: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    let q = model.podcastLibrarySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      if q.isEmpty {
+        ContentUnavailableView(
+          "Search",
+          systemImage: "magnifyingglass",
+          description: Text("Enter at least two characters to search your podcasts.")
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
+      }
+      if model.isLoadingPodcasts, q.count >= 2 {
+        ProgressView()
+          .frame(maxWidth: .infinity)
+          .padding()
+      }
+      if q.count > 0, q.count < 2 {
+        Text("Enter at least two characters.")
+          .font(.subheadline)
+          .foregroundStyle(AppTheme.textSecondary)
+          .frame(maxWidth: .infinity)
+          .multilineTextAlignment(.center)
+          .padding(24)
+      }
+      if q.count >= 2, !model.isLoadingPodcasts, model.podcastLibrarySearchShows.isEmpty {
+        Text("No results.")
+          .font(.subheadline)
+          .foregroundStyle(AppTheme.textSecondary)
+          .frame(maxWidth: .infinity)
+          .padding(24)
+      }
+
+      if !model.podcastLibrarySearchShows.isEmpty {
+        VStack(alignment: .leading, spacing: 10) {
+          TabContentSectionTitle(title:"Shows")
+          ForEach(model.podcastLibrarySearchShows) { show in
+            Button {
+              model.applyPodcastShowFilterSelection(show.id)
+              Task { await model.loadPodcastEpisodesForShowLibraryItem(show.id) }
+            } label: {
+              BrowseEntityRowCard(
+                title: show.displayTitle,
+                detailLabel: "Episodes",
+                detailValue: (show.media.numTracks ?? 0) > 0
+                  ? "\(show.media.numTracks!)" : nil,
+                cacheItemId: show.id,
+                coverURL: model.coverURL(for: show.id),
+                coverBookIds: nil,
+                authorLine: show.displayAuthorsCardLine
+              )
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
 // MARK: - Podcast RSS feed rows (same layout as library rows; download only)
 
 struct PodcastRssFeedDraftRow: View {
@@ -1807,6 +2127,8 @@ private func continueHeroPlayPill(
 /// Titel + Metadaten unter Continue-Hero-/Library-Cover (ohne Play-Pille).
 private struct ContinueListeningHeroMetadataBlock: View {
   @EnvironmentObject private var model: AppModel
+  @ScaledMetric(relativeTo: .headline) private var titleFixedHeight = AppTheme.Layout.continueHeroMetadataTitleFixedHeight
+  @ScaledMetric(relativeTo: .footnote) private var detailFixedHeight = AppTheme.Layout.continueHeroMetadataDetailFixedHeight
   let title: String
   let detailLabel: String
   let detailValue: String
@@ -1825,8 +2147,8 @@ private struct ContinueListeningHeroMetadataBlock: View {
         .minimumScaleFactor(0.85)
         .frame(
           maxWidth: .infinity,
-          minHeight: AppTheme.Layout.continueHeroMetadataTitleFixedHeight,
-          maxHeight: AppTheme.Layout.continueHeroMetadataTitleFixedHeight,
+          minHeight: titleFixedHeight,
+          maxHeight: titleFixedHeight,
           alignment: .topLeading
         )
         .clipped()
@@ -1836,8 +2158,8 @@ private struct ContinueListeningHeroMetadataBlock: View {
       LibraryRowCollapsedMetaLine(label: detailLabel, value: detailValue, valueLineLimit: 1)
         .frame(
           maxWidth: .infinity,
-          minHeight: AppTheme.Layout.continueHeroMetadataDetailFixedHeight,
-          maxHeight: AppTheme.Layout.continueHeroMetadataDetailFixedHeight,
+          minHeight: detailFixedHeight,
+          maxHeight: detailFixedHeight,
           alignment: .topLeading
         )
     }
@@ -1854,6 +2176,8 @@ private struct ContinueListeningHeroMetadataBlock: View {
 
 /// Einheitliche Typografie und feste Höhe für Bücher- und Podcast-Continue-Hero-Karten.
 private struct ContinueListeningHeroTextBlock<Pill: View>: View {
+  @ScaledMetric(relativeTo: .headline) private var titleFixedHeight = AppTheme.Layout.continueHeroMetadataTitleFixedHeight
+  @ScaledMetric(relativeTo: .footnote) private var detailFixedHeight = AppTheme.Layout.continueHeroMetadataDetailFixedHeight
   let title: String
   let detailLabel: String
   let detailValue: String
@@ -1863,9 +2187,16 @@ private struct ContinueListeningHeroTextBlock<Pill: View>: View {
 
   private var titleDetailHeight: CGFloat {
     AppTheme.Layout.continueHeroMetadataVerticalPadding
-      + AppTheme.Layout.continueHeroMetadataTitleFixedHeight
+      + titleFixedHeight
       + AppTheme.Layout.continueHeroMetadataTitleDetailSpacing
-      + AppTheme.Layout.continueHeroMetadataDetailFixedHeight
+      + detailFixedHeight
+  }
+
+  private var scaledBlockHeight: CGFloat {
+    titleDetailHeight
+      + AppTheme.Layout.continueHeroMetadataPlayPillTopPadding
+      + AppTheme.Layout.continueHeroMetadataPlayPillIntrinsicHeight
+      + AppTheme.Layout.continueHeroMetadataExtraBottomPadding
   }
 
   init(
@@ -1901,7 +2232,7 @@ private struct ContinueListeningHeroTextBlock<Pill: View>: View {
         .padding(.bottom, AppTheme.Layout.continueHeroMetadataExtraBottomPadding)
     }
     .frame(maxWidth: .infinity)
-    .frame(height: AppTheme.Layout.continueHeroMetadataBlockHeight, alignment: .top)
+    .frame(height: scaledBlockHeight, alignment: .top)
   }
 }
 
@@ -1923,7 +2254,7 @@ private struct ContinueListeningHeroCoverPill<Content: View>: View {
 }
 
 private enum ContinueListeningHeroCoverPillMetrics {
-  static let iconFont = Font.system(size: 11, weight: .semibold)
+  static let iconFont = Font.caption2.weight(.semibold)
   static let verticalInset: CGFloat = 8
   static let horizontalInset: CGFloat = 8
 }
@@ -2134,7 +2465,7 @@ struct PodcastEpisodeRowCard: View {
             )
           } overlay: {
             Image(systemName: "play.fill")
-              .font(.system(size: 7, weight: .semibold))
+              .font(.caption2.weight(.semibold))
               .foregroundStyle(.white)
               .frame(width: 18, height: 18)
               .background(AppTheme.coverPlayBadgeBackground)
@@ -2955,7 +3286,7 @@ private enum FacetBrowseTileMetrics {
   static let titleFont: Font = .headline.weight(.semibold)
   /// Wie `ContinueListeningHeroCoverPill` (äußeres Seiten-Padding).
   static let edgeInset: CGFloat = 8
-  static let iconPointSize: CGFloat = 21
+  static let iconFont: Font = .title3.weight(.semibold)
   static let contentPadding: CGFloat = 14
 }
 
@@ -3047,7 +3378,7 @@ private func facetBrowseTileLeadingInset<Content: View>(@ViewBuilder content: ()
 private func facetBrowseTileLeadingIcon(systemImage: String) -> some View {
   facetBrowseTileLeadingInset {
     Image(systemName: systemImage)
-      .font(.system(size: FacetBrowseTileMetrics.iconPointSize, weight: .semibold))
+        .font(FacetBrowseTileMetrics.iconFont)
       .abstandAccentForeground()
   }
 }
@@ -3909,6 +4240,8 @@ private struct LibraryHeroBookRowCard: View {
 /// Metadaten unter Hero-Cover: Titel + Autor (ohne „Author“-Label).
 private struct LibraryHeroPlainAuthorMetadataBlock: View {
   @Environment(\.appearanceThemeRevision) private var themeRevision
+  @ScaledMetric(relativeTo: .headline) private var titleFixedHeight = AppTheme.Layout.continueHeroMetadataTitleFixedHeight
+  @ScaledMetric(relativeTo: .footnote) private var detailFixedHeight = AppTheme.Layout.continueHeroMetadataDetailFixedHeight
   let title: String
   let author: String
   let horizontalInset: CGFloat
@@ -3927,8 +4260,8 @@ private struct LibraryHeroPlainAuthorMetadataBlock: View {
         .minimumScaleFactor(0.85)
         .frame(
           maxWidth: .infinity,
-          minHeight: AppTheme.Layout.continueHeroMetadataTitleFixedHeight,
-          maxHeight: AppTheme.Layout.continueHeroMetadataTitleFixedHeight,
+          minHeight: titleFixedHeight,
+          maxHeight: titleFixedHeight,
           alignment: .topLeading
         )
         .clipped()
@@ -3942,8 +4275,8 @@ private struct LibraryHeroPlainAuthorMetadataBlock: View {
         .truncationMode(.tail)
         .frame(
           maxWidth: .infinity,
-          minHeight: AppTheme.Layout.continueHeroMetadataDetailFixedHeight,
-          maxHeight: AppTheme.Layout.continueHeroMetadataDetailFixedHeight,
+          minHeight: detailFixedHeight,
+          maxHeight: detailFixedHeight,
           alignment: .topLeading
         )
     }
@@ -4138,7 +4471,7 @@ struct BookRowCard: View {
             .padding(4)
         } else {
           Image(systemName: opensEbookOnCover ? "book.closed.fill" : "play.fill")
-            .font(.system(size: 7, weight: .semibold))
+            .font(.caption2.weight(.semibold))
             .foregroundStyle(.white)
             .frame(width: 18, height: 18)
             .background(AppTheme.coverPlayBadgeBackground)
@@ -6423,7 +6756,7 @@ private struct BooksEntityDetailView: View {
         Circle()
           .fill(AppTheme.card)
         Image(systemName: entityPlaceholderIcon)
-          .font(.system(size: 44))
+          .font(.largeTitle)
           .foregroundStyle(AppTheme.textSecondary)
       }
       .aspectRatio(1, contentMode: .fit)
@@ -6434,7 +6767,7 @@ private struct BooksEntityDetailView: View {
         RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous)
           .fill(AppTheme.card)
         Image(systemName: entityPlaceholderIcon)
-          .font(.system(size: 44))
+          .font(.largeTitle)
           .foregroundStyle(AppTheme.textSecondary)
       }
       .aspectRatio(1, contentMode: .fit)

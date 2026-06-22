@@ -168,7 +168,7 @@ struct OneTimeAchievementCard: View {
         .frame(height: 52)
         .overlay {
           Image(systemName: achievement.kind.systemImage)
-            .font(.system(size: 22, weight: .semibold))
+            .font(.title3.weight(.semibold))
             .foregroundStyle(
               achievement.isUnlocked
                 ? model.appearanceAccentColor : AppTheme.textSecondary.opacity(0.4))
