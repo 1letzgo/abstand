@@ -66,6 +66,29 @@ final class BooksLibraryToolbarState: ObservableObject {
     model = nil
   }
 
+  /// Nach Account-Wechsel: lokale Toolbar-Zustände zurücksetzen (neuer attach folgt).
+  func resetForAccountSwitch() {
+    detach()
+    booksBrowseSection = .books
+    catalogSortField = .addedAt
+    catalogSortDescending = true
+    libraryCatalogQuickFilter = nil
+    isLibraryCatalogFiltered = false
+    isAllFilterActive = true
+    browseAuthorsSortField = .name
+    browseAuthorsSortDescending = true
+    browseNarratorsSortField = .name
+    browseNarratorsSortDescending = true
+    browseSeriesSortField = .name
+    browseSeriesSortDescending = true
+    browseCollectionsSortField = .name
+    browseCollectionsSortDescending = true
+    browseGenresSortField = .name
+    browseGenresSortDescending = true
+    browseTagsSortField = .name
+    browseTagsSortDescending = true
+  }
+
   private func sync(from model: AppModel) {
     setIfChanged(\.booksBrowseSection, model.booksBrowseSection)
     setIfChanged(\.catalogSortField, model.catalogSortField)
@@ -227,6 +250,18 @@ final class PodcastCatalogToolbarState: ObservableObject {
   func detach() {
     cancellables.removeAll()
     model = nil
+  }
+
+  /// Nach Account-Wechsel: lokale Toolbar-Zustände zurücksetzen (neuer attach folgt).
+  func resetForAccountSwitch() {
+    detach()
+    sortField = .addedAt
+    sortDescending = true
+    isServerRoot = false
+    isNetworkReachable = true
+    hasPodcastLibrary = false
+    selectedShowId = nil
+    selectedShowTitle = ""
   }
 
   private func sync(from model: AppModel) {

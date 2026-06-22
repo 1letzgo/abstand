@@ -814,7 +814,7 @@ struct SettingsAccountView: View {
                   Spacer(minLength: 0)
                   if model.isActiveStoredAccount(account) {
                     Image(systemName: "checkmark.circle.fill")
-                      .foregroundStyle(AppTheme.success)
+                      .foregroundStyle(model.appearanceAccentColor)
                   }
                 }
                 .settingsCardCompactRowFrame(alignment: .leading)

@@ -103,6 +103,14 @@ struct MainRootView: View {
     .onChange(of: model.showEbooksTab) { _, _ in
       model.clampMainTabForEbooksTabIfNeeded()
     }
+    .onChange(of: model.accountSessionEpoch) { _, _ in
+      activatedTabs = [.start]
+      libraryRelayoutEpoch += 1
+      ebooksRelayoutEpoch += 1
+      podcastsRelayoutEpoch += 1
+      booksLibraryToolbarState.resetForAccountSwitch()
+      podcastCatalogToolbarState.resetForAccountSwitch()
+    }
     .alert(
       "Error",
       isPresented: Binding(
@@ -143,7 +151,7 @@ struct MainRootView: View {
     TabView(selection: $model.mainTab) {
       Tab(AppModel.MainTab.start.rawValue, systemImage: "house.fill", value: AppModel.MainTab.start) {
         HomeTabRootView()
-          .id("abstand-home-tab-root")
+          .id("abstand-home-tab-root-\(model.accountSessionEpoch)")
       }
 
       // Tabs immer registrieren — sonst baut TabView beim Bootstrap neu (Ampel flackert).
@@ -233,6 +241,7 @@ struct MainRootView: View {
           }
         }
     }
+    .id("ebooks-tab-root-\(model.accountSessionEpoch)")
     .tint(model.appearanceAccentColor)
   }
 
@@ -376,7 +385,7 @@ struct MainRootView: View {
       toolbarState: booksLibraryToolbarState,
       catalog: { booksCatalogScrollView }
     )
-    .id("books-library-tab")
+    .id("books-library-tab-\(model.accountSessionEpoch)")
     .onAppear { booksLibraryToolbarState.attach(model) }
     .onDisappear { booksLibraryToolbarState.detach() }
   }
@@ -780,7 +789,7 @@ struct MainRootView: View {
     PodcastCatalogTabShell(toolbarState: podcastCatalogToolbarState) {
       podcastCatalogScrollView
     }
-    .id("podcast-catalog-tab")
+    .id("podcast-catalog-tab-\(model.accountSessionEpoch)")
     .onAppear { podcastCatalogToolbarState.attach(model) }
     .onDisappear { podcastCatalogToolbarState.detach() }
   }
@@ -1903,7 +1912,7 @@ private struct ContinueListeningHeroCoverPill<Content: View>: View {
 
   var body: some View {
     content()
-      .padding(.horizontal, 8)
+      .padding(.horizontal, 6)
       .padding(.vertical, 5)
       .background(.black.opacity(0.48), in: Capsule(style: .continuous))
       .fixedSize()
@@ -1915,8 +1924,8 @@ private struct ContinueListeningHeroCoverPill<Content: View>: View {
 
 private enum ContinueListeningHeroCoverPillMetrics {
   static let iconFont = Font.system(size: 11, weight: .semibold)
-  static let verticalInset: CGFloat = 10
-  static let horizontalInset: CGFloat = 16
+  static let verticalInset: CGFloat = 8
+  static let horizontalInset: CGFloat = 8
 }
 
 /// Oben links auf Continue-Hero-Cover: Medientyp-Pill (Buch oder Podcast).
@@ -2944,8 +2953,8 @@ private enum FacetBrowseTileMetrics {
   static let tileHeight: CGFloat = 93
   /// Wie `BookRowCard` / `BrowseEntityRowCard` (`libraryRowTitleText`).
   static let titleFont: Font = .headline.weight(.semibold)
-  /// Wie `ContinueListeningHeroCoverPill` (äußeres `.padding(10)`).
-  static let edgeInset: CGFloat = 10
+  /// Wie `ContinueListeningHeroCoverPill` (äußeres Seiten-Padding).
+  static let edgeInset: CGFloat = 8
   static let iconPointSize: CGFloat = 21
   static let contentPadding: CGFloat = 14
 }

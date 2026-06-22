@@ -49,6 +49,11 @@ enum CoverImageCache {
     try data.write(to: u, options: .atomic)
   }
 
+  /// In-Memory leeren (Account-Wechsel); Disk-Cache pro Server bleibt erhalten.
+  static func evictMemory() {
+    memory.removeAllObjects()
+  }
+
   /// Entfernt alle Cover-Dateien für dieses Konto und leert den In-Memory-Cache.
   static func clearAll(account: URL) {
     memory.removeAllObjects()

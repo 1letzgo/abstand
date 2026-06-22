@@ -118,6 +118,8 @@ final class PlaybackController: NSObject, ObservableObject {
   private var statusObserver: NSKeyValueObservation?
   /// `timeControlStatus`: System/andere App kann pausieren ohne unsere `pause()` — UI angleichen.
   private var playbackEngineStateObserver: NSKeyValueObservation?
+  /// Serialisiert Resume nach Pause/Fremd-App — verhindert parallele Session-Neuaufbauten.
+  private var playResumeTask: Task<Void, Never>?
 
   private var playSessionId: String?
   private var apiClient: ABSAPIClient?
@@ -418,6 +420,12 @@ final class PlaybackController: NSObject, ObservableObject {
     reconcilePlayingStateWithEngine()
   }
 
+  /// Vordergrund nach langer Pause: UI-Zustand angleichen (kein Ton-Overtake).
+  func handleReturnToForeground() {
+    refreshPlaybackStateFromEngine()
+    ensureAudioSessionForPlayback(reclaimFromOtherApps: false)
+  }
+
   /// UI/`isPlaying` an echten `AVPlayer`-Zustand — auch wenn `currentItem` fehlt oder Engine pausiert wurde.
   private func reconcilePlayingStateWithEngine() {
     guard let p = player else {
@@ -560,8 +568,20 @@ final class PlaybackController: NSObject, ObservableObject {
     applyMiniPlayerBarFillFromStoredCover()
   }
 
-  func tearDownPlayer() {
-    liveTranscription.playbackDidStop()
+  /// Teleprompter bei Hintergrund / Display aus beenden (Audio läuft weiter).
+  func disableTeleprompterIfNeeded() {
+    guard liveTranscription.isTeleprompterModeActive else { return }
+    liveTranscription.disable()
+  }
+
+  func tearDownPlayer(preserveTeleprompter: Bool = false) {
+    playResumeTask?.cancel()
+    playResumeTask = nil
+    if preserveTeleprompter {
+      // Session wurde bereits in `prepareForPlaybackHandoff()` gestoppt.
+    } else {
+      liveTranscription.playbackDidStop()
+    }
     clearSleepTimer()
     showMiniPlayerPlaceholder = false
     miniPlayerBarFillColor = AppTheme.card
@@ -621,7 +641,11 @@ final class PlaybackController: NSObject, ObservableObject {
     /// Bei Neustart nach „Fertig“: Client-Position statt Server-Ende (`max(session, resume)`).
     preferClientResumePosition: Bool = false
   ) async throws {
-    tearDownPlayer()
+    let resumeTeleprompter = liveTranscription.isTeleprompterModeActive
+    if resumeTeleprompter {
+      await liveTranscription.prepareForPlaybackHandoff()
+    }
+    tearDownPlayer(preserveTeleprompter: resumeTeleprompter)
     ensureAudioSessionForPlayback()
     shouldAutoPlayAfterLoad = autoPlay
     apiClient = client
@@ -652,6 +676,9 @@ final class PlaybackController: NSObject, ObservableObject {
       }
       scheduleCoverLoad(for: book.id)
       startPeriodicSync()
+      if resumeTeleprompter {
+        await liveTranscription.restartSessionForCurrentPlayback(player: self)
+      }
     } catch {
       tearDownPlayer()
       throw error
@@ -1091,7 +1118,7 @@ final class PlaybackController: NSObject, ObservableObject {
     }
   }
 
-  private func loadCurrentTrack(play: Bool, localOffset: Double) async {
+  private func loadCurrentTrack(play: Bool, localOffset: Double, pauseOnFailure: Bool = true) async {
     guard let book = activeBook else { return }
     if let root = localRoot, Self.allTracksPresent(root: root, book: book) {
       let man = ABSDownloadManifest.load(from: root)
@@ -1115,7 +1142,9 @@ final class PlaybackController: NSObject, ObservableObject {
       let asset = AVURLAsset(url: streamURL, options: AVURLAsset.httpHeaderOptions(token: await client.currentToken()))
       replacePlayerItem(AVPlayerItem(asset: asset), localOffset: localOffset, play: play)
     } catch {
-      pause()
+      if pauseOnFailure {
+        pause()
+      }
     }
   }
 
@@ -1183,35 +1212,88 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   func play() {
-    ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
-    if localRoot != nil, playSessionId == nil, attemptServerPlaySessionForLocal {
-      Task { await recreatePlaySessionForLocalPlaybackIfNeeded() }
+    playResumeTask?.cancel()
+    playResumeTask = Task { @MainActor [weak self] in
+      await self?.performPlayResume()
     }
+  }
+
+  /// Resume nach Pause, Unterbrechung oder Fremd-App: Session + Stream ggf. neu verbinden.
+  private func performPlayResume() async {
+    guard !Task.isCancelled else { return }
+    ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
+
+    if localRoot != nil, playSessionId == nil, attemptServerPlaySessionForLocal {
+      await recreatePlaySessionForLocalPlaybackIfNeeded()
+    }
+
+    if !isUsingLocalTrackFiles, activeBook != nil, apiClient != nil, playSessionId == nil {
+      await recoverPlaySessionAfterSyncFailure(lostTimeListened: 0)
+    }
+
     if let item = player?.currentItem, item.status == .failed {
       let local = player?.currentTime().seconds ?? 0
       let offset = local.isFinite ? max(0, local) : 0
-      Task { await loadCurrentTrack(play: true, localOffset: offset) }
+      await loadCurrentTrack(play: true, localOffset: offset)
       return
     }
+
+    guard !Task.isCancelled else { return }
+    beginPlaybackEngine()
+    await schedulePlaybackEngineKickstartIfStillPaused()
+  }
+
+  private func beginPlaybackEngine() {
     applyPlayingRate()
     isPlaying = true
     lastListenTick = Date()
     resumeSleepTimerIfNeeded()
     updateNowPlaying()
-    // Nach Fremd-App im Hintergrund bleibt AVPlayer oft pausiert trotz `play()` — einmal nachziehen.
-    schedulePlaybackEngineKickstartIfStillPaused()
   }
 
-  /// Kurz nach `play()`: Session + Rate erneut, falls iOS den Engine-Start verschluckt hat.
-  private func schedulePlaybackEngineKickstartIfStillPaused() {
-    Task { @MainActor [weak self] in
-      try? await Task.sleep(nanoseconds: 350_000_000)
-      guard let self, self.isPlaying, let p = self.player, p.currentItem != nil else { return }
-      guard !Self.engineIndicatesPlaying(p) else { return }
-      self.ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
-      self.applyPlayingRate()
-      self.updateNowPlaying()
+  /// Kurz nach `play()`: Session/Stream erneuern, falls iOS den Engine-Start verschluckt hat.
+  private func schedulePlaybackEngineKickstartIfStillPaused() async {
+    try? await Task.sleep(nanoseconds: 350_000_000)
+    guard !Task.isCancelled else { return }
+    guard isPlaying, let p = player, p.currentItem != nil else { return }
+    guard !Self.engineIndicatesPlaying(p) else { return }
+
+    ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
+    applyPlayingRate()
+
+    try? await Task.sleep(nanoseconds: 250_000_000)
+    guard !Task.isCancelled else { return }
+    guard isPlaying, let p2 = player, p2.currentItem != nil else { return }
+    guard !Self.engineIndicatesPlaying(p2) else { return }
+
+    // Nach langer Pause / Fremd-App: oft abgelaufene Session oder stale Stream-URL.
+    if await recoverStaleRemotePlaybackIfNeeded() {
+      ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
+      applyPlayingRate()
+      updateNowPlaying()
     }
+  }
+
+  /// Remote-Wiedergabe: Play-Session und Stream-URL an aktuelle Position neu anbinden.
+  private func recoverStaleRemotePlaybackIfNeeded() async -> Bool {
+    guard activeBook != nil, apiClient != nil, !isUsingLocalTrackFiles, !tracks.isEmpty else { return false }
+    let resumeAt = playbackGlobalPosition()
+    currentTrackIndex = trackIndex(forGlobal: resumeAt)
+    guard currentTrackIndex < trackStarts.count else { return false }
+    let offsetInTrack = max(0, resumeAt - trackStarts[currentTrackIndex])
+
+    if playSessionId == nil {
+      await recoverPlaySessionAfterSyncFailure(lostTimeListened: 0)
+      guard playSessionId != nil else { return false }
+    }
+
+    await loadCurrentTrack(play: false, localOffset: offsetInTrack, pauseOnFailure: false)
+    if player?.currentItem?.status == .failed {
+      await recoverPlaySessionAfterSyncFailure(lostTimeListened: 0)
+      guard playSessionId != nil else { return false }
+      await loadCurrentTrack(play: false, localOffset: offsetInTrack, pauseOnFailure: false)
+    }
+    return player?.currentItem != nil && player?.currentItem?.status != .failed
   }
 
   /// Absorb `_resumeServerSync`: Session nach Pause/Offline erneut anlegen.
@@ -1505,7 +1587,7 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Absorb: bei ungültiger Session neue starten und verlorene Hörzeit nachsyncen.
   private func recoverPlaySessionAfterSyncFailure(lostTimeListened: Int) async {
     guard let client = apiClient, let book = activeBook else { return }
-    let resumeAt = globalPosition
+    let resumeAt = playbackGlobalPosition()
     let ep = activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines)
     let episodeId = (ep?.isEmpty == false) ? ep : nil
     do {
@@ -1523,6 +1605,11 @@ final class PlaybackController: NSObject, ObservableObject {
           currentTime: resumeAt
         )
       }
+      guard !isUsingLocalTrackFiles, !tracks.isEmpty else { return }
+      currentTrackIndex = trackIndex(forGlobal: resumeAt)
+      guard currentTrackIndex < trackStarts.count else { return }
+      let offsetInTrack = max(0, resumeAt - trackStarts[currentTrackIndex])
+      await loadCurrentTrack(play: isPlaying, localOffset: offsetInTrack, pauseOnFailure: false)
     } catch {
       if !Self.isTransientNetworkError(error) {
         playSessionId = nil

@@ -877,7 +877,7 @@ struct NowPlayingDetailView: View {
   @AppStorage(PlayerTeleprompterMetrics.fontSizeStorageKey) private var teleprompterFontSizeStorage: Double = 0
 
   private var isTeleprompterActive: Bool {
-    player.liveTranscription.isEnabled
+    player.liveTranscription.isTeleprompterModeActive
   }
 
   private var showsConnectionLoading: Bool {
@@ -906,7 +906,7 @@ struct NowPlayingDetailView: View {
     }
     .onDisappear {
       player.liveTranscription.wordLookupSelection = nil
-      if player.liveTranscription.isEnabled {
+      if player.liveTranscription.isTeleprompterModeActive {
         player.liveTranscription.disable()
       }
     }
@@ -1079,7 +1079,7 @@ struct NowPlayingDetailView: View {
     let pos = player.globalPosition
     let pct = min(100, max(0, Int((pos / dur * 100).rounded())))
 
-    if player.liveTranscription.isEnabled {
+    if player.liveTranscription.isTeleprompterModeActive {
       readAlongKaraokeCard()
         .overlay(alignment: .topLeading) {
           fullPlayerBookmarkOverlay()
@@ -1189,7 +1189,7 @@ struct NowPlayingDetailView: View {
     let tx = player.liveTranscription
     let isDownloadReady = player.isReadAlongDownloadReady
     return ReadAlongCoverPill(
-      isEnabled: tx.isEnabled,
+      isEnabled: tx.isTeleprompterModeActive,
       isBusy: tx.isPreparing || tx.modelDownloadProgress != nil,
       isDownloadReady: isDownloadReady
     ) {

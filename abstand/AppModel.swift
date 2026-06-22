@@ -995,6 +995,10 @@ final class AppModel: ObservableObject {
   private var bootstrapSupersededByOffline = false
   /// Nach Bootstrap: Tab-Inhalte im Hintergrund vorbauen (kein Erstaufbau beim Tab-Wechsel).
   @Published private(set) var shouldPrewarmSecondaryTabs = false
+  /// Erhöht nach Account-Wechsel — Tab-Views und Toolbars invalidieren.
+  @Published private(set) var accountSessionEpoch: UInt = 0
+  /// Account-Wechsel: gestaffelte Katalog-Reloads überspringen (sofortiger Reload folgt).
+  private var suppressDeferredWorkAfterBootstrap = false
 
   /// System-Alert während App-Bootstrap (Server-Verbindung + Launch-UI).
   var showsServerConnectionConnectingOverlay: Bool {
@@ -1029,9 +1033,7 @@ final class AppModel: ObservableObject {
     bootstrapSupersededByOffline = true
     isAppBootstrapInProgress = false
     isServerConnectionProbeInProgress = false
-    bootstrapCatalogReloadTask?.cancel()
-    deferredCatalogDiskCachesTask?.cancel()
-    launchDiskRestoreTask?.cancel()
+    cancelDeferredBootstrapWork()
     offlineHomeMode = true
     mainTab = .start
     isServerReachable = false
@@ -2157,7 +2159,12 @@ final class AppModel: ObservableObject {
   /// Lädt Home-Regale: online `/personalized` + `items-in-progress`; offline nur Cache + lokaler Fortschritt.
   /// `skipAuthorizeRefresh`: nach frischem `authorize` in Bootstrap/Login — kein zweites `/authorize`.
   /// `force`: Netzwerk-Refresh auch wenn Regale schon da sind (Pull-to-Refresh, Bootstrap, Settings).
-  func loadStartDashboard(skipAuthorizeRefresh: Bool = false, force: Bool = false) async {
+  /// `forPullToRefresh`: expliziter Pull — Netz trotz PathMonitor versuchen, Fehler anzeigen.
+  func loadStartDashboard(
+    skipAuthorizeRefresh: Bool = false,
+    force: Bool = false,
+    forPullToRefresh: Bool = false
+  ) async {
     ensureLocalProgressLoadedFromDisk()
 
     // Tab-Wechsel / erneutes onAppear: `startShelves` aus init/Cache behalten, kein Reload.
@@ -2173,11 +2180,17 @@ final class AppModel: ObservableObject {
       ensureLocalProgressLoadedFromDisk()
       return
     }
+    if forPullToRefresh {
+      restoreServerClientIfNeeded()
+    }
     guard let c = client else {
       applyCachedStartDashboard()
+      if forPullToRefresh {
+        errorMessage = "Not connected to the server."
+      }
       return
     }
-    if !isNetworkReachable {
+    if !forPullToRefresh, !isNetworkReachable {
       applyCachedStartDashboard()
       return
     }
@@ -2203,8 +2216,13 @@ final class AppModel: ObservableObject {
           ABSAPIClient.parsePersonalizedStartShelves(data: data)
         }.value
         updateStartSettingsCategoryList(parsed: parsed)
-        applyOnlineStartDashboard(parsed: parsed, itemsInProgress: inProgressPacked.payload)
+        applyOnlineStartDashboard(
+          parsed: parsed,
+          itemsInProgress: inProgressPacked.payload,
+          replaceContinueShelves: force
+        )
         didApplyOnlineStartDashboard = true
+        isServerReachable = true
         await Task.yield()
       } else {
         let progressSync: Task<Void, Never>? =
@@ -2218,13 +2236,18 @@ final class AppModel: ObservableObject {
             account: root, libraryId: libId, data: inProgressPacked.rawData)
         }
         applyStartDashboardFromItemsInProgressOnly(inProgressPacked.payload)
+        didApplyOnlineStartDashboard = true
+        isServerReachable = true
         await Task.yield()
       }
     } catch {
       if !skipAuthorizeRefresh {
         await refreshProgressFromServer()
       }
-      applyCachedStartDashboard()
+      if !forPullToRefresh {
+        applyCachedStartDashboard()
+      }
+      publishErrorUnlessBenignCancellation(error, forceDisplay: forPullToRefresh)
     }
   }
 
@@ -2960,7 +2983,8 @@ final class AppModel: ObservableObject {
   /// Online: personalisierte Regale; fehlendes „Continue listening“ aus `items-in-progress` ergänzen.
   private func applyOnlineStartDashboard(
     parsed: [ABSStartShelfSection],
-    itemsInProgress: ABSItemsInProgressPayload
+    itemsInProgress: ABSItemsInProgressPayload,
+    replaceContinueShelves: Bool = false
   ) {
     guard isStartCategoryEnabled(Self.homeContinueCategory) else {
       if parsed.isEmpty {
@@ -2977,15 +3001,20 @@ final class AppModel: ObservableObject {
       applyStartDashboardFromItemsInProgressOnly(itemsInProgress)
       return
     }
-    let priorContinueBooks = startShelves.filter { isHomeContinueCategory($0.category) }.flatMap(\.books)
-    let priorContinueEpisodes = startShelves.filter { isHomeContinueCategory($0.category) }.flatMap(
-      \.podcastEpisodes)
     let visible = parsed.filter { isStartCategoryEnabled($0.category) }
-    if !startShelvesHaveSameLayout(serverLayoutHomeShelves(from: startShelves), visible) {
+    if replaceContinueShelves {
       startShelves = visible
       recomputeStartBooksUnion(from: visible)
+    } else {
+      let priorContinueBooks = startShelves.filter { isHomeContinueCategory($0.category) }.flatMap(\.books)
+      let priorContinueEpisodes = startShelves.filter { isHomeContinueCategory($0.category) }.flatMap(
+        \.podcastEpisodes)
+      if !startShelvesHaveSameLayout(serverLayoutHomeShelves(from: startShelves), visible) {
+        startShelves = visible
+        recomputeStartBooksUnion(from: visible)
+      }
+      preserveValidContinueListeningItems(books: priorContinueBooks, episodes: priorContinueEpisodes)
     }
-    preserveValidContinueListeningItems(books: priorContinueBooks, episodes: priorContinueEpisodes)
     ensureContinueListeningShelfIfMissing(itemsInProgress: itemsInProgress)
     mergeServerAudiobooksIntoContinueShelves(itemsInProgress)
     mergeServerPodcastEpisodesIntoContinueShelves(itemsInProgress)
@@ -3625,9 +3654,46 @@ final class AppModel: ObservableObject {
 
   /// Katalog-Caches, Tab-Prewarm und Server-Reload — erst nach Connect, Home und Player.
   private func scheduleDeferredWorkAfterConnect() {
+    guard !suppressDeferredWorkAfterBootstrap else { return }
     scheduleDeferredCatalogDiskCachesAfterBootstrap()
     scheduleSecondaryTabPrewarm()
     scheduleDeferredCatalogReloadAfterBootstrap()
+  }
+
+  /// Laufende Bootstrap-/Katalog-Tasks abbrechen (Account-Wechsel, Logout, Offline während Bootstrap).
+  private func cancelDeferredBootstrapWork() {
+    bootstrapCatalogReloadTask?.cancel()
+    bootstrapCatalogReloadTask = nil
+    deferredCatalogDiskCachesTask?.cancel()
+    deferredCatalogDiskCachesTask = nil
+    launchDiskRestoreTask?.cancel()
+    launchDiskRestoreTask = nil
+    startDashboardPostProcessingTask?.cancel()
+    startDashboardPostProcessingTask = nil
+    booksToolbarSortReloadTask?.cancel()
+    booksToolbarSortReloadTask = nil
+    podcastCatalogSortReloadTask?.cancel()
+    podcastCatalogSortReloadTask = nil
+    searchTask?.cancel()
+    searchTask = nil
+    podcastSearchTask?.cancel()
+    podcastSearchTask = nil
+    podcastDirectorySearchTask?.cancel()
+    podcastDirectorySearchTask = nil
+    deferredBooksCatalogDiskRestoreScheduled = false
+    deferredBrowseListsDiskRestoreScheduled = false
+    shouldPrewarmSecondaryTabs = false
+  }
+
+  /// Nach Account-Wechsel: Disk-Cache + Server-Kataloge für alle Tabs neu aufbauen.
+  private func reloadAllViewsAfterAccountSwitch() async {
+    guard !offlineHomeUIActive else { return }
+    cancelDeferredBootstrapWork()
+    finishDeferredLaunchDiskRestore()
+    async let settings: Void = reloadSettingsTab(reloadCatalogs: true)
+    async let home: Void = loadStartDashboard(skipAuthorizeRefresh: true, force: true)
+    _ = await (settings, home)
+    scheduleSecondaryTabPrewarm()
   }
 
   /// Floating Bar: kurz stabilisieren (nur Kaltstart ohne Cache).
@@ -3929,7 +3995,8 @@ final class AppModel: ObservableObject {
     isSwitchingAccount = true
     defer { isSwitchingAccount = false }
     syncStoredAccountFromSession()
-    clearCoverImageCache()
+    CoverImageCache.evictMemory()
+    coverImageCacheRevision &+= 1
     clearInMemorySessionState(clearCredentials: false)
     serverURL = account.serverURL
     token = account.token
@@ -3937,10 +4004,25 @@ final class AppModel: ObservableObject {
     UserDefaults.standard.set(token, forKey: Keys.token)
     activeAccountKey = accountKey
     ABSStoredAccountsPersistence.saveActiveAccountKey(accountKey)
+    // Vor Authorize: UserId setzen, damit Disk-Cache und Home sofort zum richtigen Account zeigen.
+    let switchedUserId = account.userId.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !switchedUserId.isEmpty {
+      sessionUserId = switchedUserId
+      UserDefaults.standard.set(switchedUserId, forKey: Keys.sessionUserId)
+    }
+    sessionUsername = account.username
+    sessionUserType = account.userType ?? "user"
     applyLibraryPreferencesFromStoredAccount(account)
-    restoreHomeLaunchStateFromDisk()
+    if let cacheRoot = cacheAccountURL() {
+      EbookLocalStore.updateActiveSession(account: cacheRoot, userId: switchedUserId.isEmpty ? nil : switchedUserId)
+    }
+    restoreHomeLaunchStateFromDisk(libraryIdOverride: account.booksLibraryId)
     isAppBootstrapInProgress = true
+    suppressDeferredWorkAfterBootstrap = true
+    defer { suppressDeferredWorkAfterBootstrap = false }
     await bootstrapFromStoredCredentials()
+    accountSessionEpoch &+= 1
+    await reloadAllViewsAfterAccountSwitch()
   }
 
   private static func bootstrapStoredAccountsState() -> (accounts: [ABSStoredAccount], activeKey: String?) {
@@ -4123,6 +4205,7 @@ final class AppModel: ObservableObject {
   }
 
   private func clearInMemorySessionState(clearCredentials: Bool) {
+    cancelDeferredBootstrapWork()
     mainTab = .start
     if clearCredentials {
       clearCoverImageCache()
@@ -4221,6 +4304,10 @@ final class AppModel: ObservableObject {
       if selectedEbooksLibrary?.name != lib.name || selectedEbooksLibrary?.mediaType != lib.mediaType {
         selectedEbooksLibrary = lib
       }
+      if browseEbooks.isEmpty, browseEbooksSupplementary.isEmpty {
+        restoreBrowseEbooksFromDisk(libraryIdOverride: lib.id)
+        refreshEbookContinueReadingShelf()
+      }
       setShowEbooksTab(true)
       if navigateToCatalog, showEbooksTab { mainTab = .ebooks }
       return
@@ -4261,6 +4348,10 @@ final class AppModel: ObservableObject {
       if selectedBooksLibrary?.name != lib.name || selectedBooksLibrary?.mediaType != lib.mediaType {
         selectedBooksLibrary = lib
       }
+      if books.isEmpty {
+        restoreBooksCatalogAndHomeFromDisk(libraryIdOverride: lib.id)
+        restoreAllBrowseListsFromDisk()
+      }
       if navigateToCatalog { mainTab = .library }
       return
     }
@@ -4281,6 +4372,9 @@ final class AppModel: ObservableObject {
     if selectedPodcastLibrary?.id == lib.id {
       if selectedPodcastLibrary?.name != lib.name || selectedPodcastLibrary?.mediaType != lib.mediaType {
         selectedPodcastLibrary = lib
+      }
+      if podcastEpisodes.isEmpty, podcastShows.isEmpty {
+        restorePodcastCatalogFromDisk(libraryIdOverride: lib.id)
       }
       setShowPodcastsTab(true)
       if navigateToCatalog, showPodcastsTab { mainTab = .podcasts }
@@ -5109,7 +5203,8 @@ final class AppModel: ObservableObject {
       return
     }
     await performPullToRefresh { [self] in
-      await loadStartDashboard(skipAuthorizeRefresh: true, force: true)
+      await refreshProgressFromServer()
+      await loadStartDashboard(skipAuthorizeRefresh: true, force: true, forPullToRefresh: true)
     }
   }
 
@@ -8857,7 +8952,20 @@ final class AppModel: ObservableObject {
 
   private func cacheAccountURL() -> URL? {
     guard let u = ABSAPIClient.normalizeServerURL(serverURL)?.absoluteString, !token.isEmpty else { return nil }
-    return LibraryDiskCache.accountDir(serverURL: u)
+    return LibraryDiskCache.accountDir(serverURL: u, userId: resolvedDiskCacheUserId())
+  }
+
+  /// UserId für Disk-Cache — auch zwischen Authorize und gespeichertem Account-Wechsel.
+  private func resolvedDiskCacheUserId() -> String? {
+    let fromSession = sessionUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !fromSession.isEmpty { return fromSession }
+    if let key = activeAccountKey,
+      let account = storedAccounts.first(where: { $0.accountKey == key })
+    {
+      let uid = account.userId.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !uid.isEmpty { return uid }
+    }
+    return nil
   }
 
   /// eBook-Lesesession — erst bei Reader/eBook-Refresh, nicht beim Kaltstart.
@@ -10094,15 +10202,29 @@ final class AppModel: ObservableObject {
   /// SwiftUI `.refreshable` bricht die Struktur-Task oft ab, bevor Netzwerk fertig ist.
   @MainActor
   private func performPullToRefresh(_ work: @MainActor @escaping () async -> Void) async {
-    await Task.detached(priority: .userInitiated) { @MainActor in
-      await work()
-    }.value
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      final class ResumeBox: @unchecked Sendable {
+        var continuation: CheckedContinuation<Void, Never>?
+        func resumeOnce() {
+          continuation?.resume()
+          continuation = nil
+        }
+      }
+      let box = ResumeBox()
+      box.continuation = continuation
+      Task.detached(priority: .userInitiated) { @MainActor in
+        await work()
+        box.resumeOnce()
+      }
+    }
   }
 
-  private func publishErrorUnlessBenignCancellation(_ error: Error) {
+  private func publishErrorUnlessBenignCancellation(_ error: Error, forceDisplay: Bool = false) {
     if Task.isCancelled || AbstandErrorFilter.isBenignCancellation(error) { return }
-    // Kaltstart mit Cache: Hintergrund-Sync darf nicht stören.
-    if hasCachedBootstrapContent && AbstandErrorFilter.isTransientNetworkError(error) { return }
+    // Kaltstart mit Cache: Hintergrund-Sync darf nicht stören — Pull-to-Refresh ausgenommen.
+    if !forceDisplay, hasCachedBootstrapContent, AbstandErrorFilter.isTransientNetworkError(error) {
+      return
+    }
     errorMessage = error.localizedDescription
   }
 

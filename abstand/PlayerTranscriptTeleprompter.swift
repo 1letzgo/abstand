@@ -233,6 +233,12 @@ struct PlayerLiveTranscriptPanelView: View {
       alignTeleprompterToLivePlayback(force: true)
       syncTeleprompterLayout()
     }
+    .onChange(of: transcription.isTeleprompterModeActive) { _, active in
+      if active {
+        alignTeleprompterToLivePlayback(force: true)
+        syncTeleprompterLayout()
+      }
+    }
     .onChange(of: livePlaybackTime) { _, newTime in
       if abs(newTime - playbackClock.lastSyncedTarget) > 2 {
         playbackClock.hardReset(to: newTime)
@@ -279,7 +285,7 @@ struct PlayerLiveTranscriptPanelView: View {
   }
 
   private var showsLoadingOverlay: Bool {
-    transcription.isEnabled && !showsTeleprompterContent
+    transcription.isTeleprompterModeActive && !showsTeleprompterContent
   }
 
   private var teleprompterLoadingOverlay: some View {

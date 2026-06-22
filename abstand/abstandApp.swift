@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct abstandApp: App {
@@ -73,9 +74,18 @@ private struct AppRootContainer: View {
       // Nur im Vordergrund die Session setzen: Bei `.inactive` (z. B. Control Center,
       // Sperrbildschirm) erneutes `setCategory`/`setActive` kann die laufende Wiedergabe unterbrechen.
       if phase == .active {
-        model.player.ensureAudioSessionForPlayback()
-        model.player.refreshPlaybackStateFromEngine()
+        model.player.handleReturnToForeground()
+      } else if phase == .background {
+        model.player.disableTeleprompterIfNeeded()
       }
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(
+        for: UIApplication.protectedDataWillBecomeUnavailableNotification
+      )
+    ) { _ in
+      // Display aus / Gerät gesperrt — Teleprompter beenden, Wiedergabe läuft weiter.
+      model.player.disableTeleprompterIfNeeded()
     }
     .alert("Connecting ABS Server", isPresented: serverConnectionAlertPresented) {
       Button("Go offline") {

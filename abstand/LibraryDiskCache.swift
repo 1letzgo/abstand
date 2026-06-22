@@ -10,13 +10,22 @@ enum LibraryDiskCache {
     return app.appendingPathComponent("ABStandLibraryCache", isDirectory: true)
   }
 
-  /// Nur Server-URL (normalisiert), damit der Ordner bei Token-Refresh stabil bleibt.
-  static func accountDir(serverURL: String) -> URL {
+  /// Server-URL (+ optional User) — getrennte Caches pro Audiobookshelf-Nutzer auf demselben Host.
+  static func accountDir(serverURL: String, userId: String? = nil) -> URL {
     let digest = SHA256.hash(data: Data(serverURL.utf8))
     let id = digest.map { String(format: "%02x", $0) }.joined()
-    let u = baseDir.appendingPathComponent("accounts", isDirectory: true).appendingPathComponent(id, isDirectory: true)
-    try? fm.createDirectory(at: u, withIntermediateDirectories: true)
-    return u
+    let serverRoot = baseDir.appendingPathComponent("accounts", isDirectory: true).appendingPathComponent(id, isDirectory: true)
+    try? fm.createDirectory(at: serverRoot, withIntermediateDirectories: true)
+
+    let trimmedUser = userId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !trimmedUser.isEmpty else { return serverRoot }
+
+    let userDigest = SHA256.hash(data: Data(trimmedUser.utf8))
+    let userIdComponent = userDigest.map { String(format: "%02x", $0) }.joined()
+    let userRoot = serverRoot.appendingPathComponent("users", isDirectory: true)
+      .appendingPathComponent(userIdComponent, isDirectory: true)
+    try? fm.createDirectory(at: userRoot, withIntermediateDirectories: true)
+    return userRoot
   }
 
   static func clearEverything() {
