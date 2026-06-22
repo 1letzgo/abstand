@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import Network
+import os
 import ReadiumShared
 import SwiftUI
 import UIKit
@@ -774,6 +775,9 @@ final class AppModel: ObservableObject {
   @Published var downloadedItemIds: Set<String> = Set(UserDefaults.standard.stringArray(forKey: Keys.downloads) ?? [])
   /// Aus `download.json` gebaute Stubs für Home-Regal „Heruntergeladen“ und Offline-Katalog.
   @Published private(set) var downloadedShelfBooks: [ABSBook] = []
+  /// Re-Entry-Guard für `refreshDownloadedShelfFromManifests` — verhindert redundante Manifest-Scans
+  /// beim Start (Pfadmonitor + Deferred-Restore + `loadStartDashboard` feuern oft gleichzeitig).
+  private var isRefreshingDownloadedShelves = false
   @Published private(set) var isNetworkReachable = true
   /// `true`, wenn die aktive Route Wi‑Fi (oder Ethernet) nutzt und erreichbar ist — für Smart-Download nur im WLAN.
   @Published private(set) var networkUsesUnmeteredLAN: Bool = false
@@ -1232,6 +1236,8 @@ final class AppModel: ObservableObject {
   private static let homeContinueCategory = "recentlyListened"
 
   init() {
+    let sp = AppLog.launchSignposter.beginInterval("appModelInit")
+    defer { AppLog.launchSignposter.endInterval("appModelInit", sp) }
     Self.migrateLibraryKeysIfNeeded()
     Self.migrateAppearanceAccentKeysIfNeeded()
     migrateStartDisabledCategoriesIfNeeded()
@@ -1375,7 +1381,13 @@ final class AppModel: ObservableObject {
   }
 
   /// Liest alle `Downloads/*/download.json` für bekannte `downloadedItemIds` und baut Stubs für UI / Offline-Wiedergabe.
+  /// Re-Entry-Guard: Mehrfache Trigger beim Start (Pfadmonitor, Deferred-Restore, Home-Reload) werden koalesziert.
   func refreshDownloadedShelfFromManifests() {
+    guard !isRefreshingDownloadedShelves else { return }
+    isRefreshingDownloadedShelves = true
+    defer { isRefreshingDownloadedShelves = false }
+    let sp = AppLog.launchSignposter.beginInterval("refreshDownloadedShelves")
+    defer { AppLog.launchSignposter.endInterval("refreshDownloadedShelves", sp) }
     reconcileDownloadedItemIdsWithDisk()
     var list: [ABSBook] = []
     for id in downloadedItemIds.sorted() {
@@ -3591,6 +3603,8 @@ final class AppModel: ObservableObject {
   }
 
   func bootstrapFromStoredCredentials() async {
+    let sp = AppLog.launchSignposter.beginInterval("bootstrap")
+    defer { AppLog.launchSignposter.endInterval("bootstrap", sp) }
     guard ABSAPIClient.normalizeServerURL(serverURL) != nil, !token.isEmpty else { return }
     bootstrapSupersededByOffline = false
 
@@ -3731,6 +3745,8 @@ final class AppModel: ObservableObject {
 
   /// Netz-Sync nach Kaltstart (Cache aus init ist schon sichtbar).
   private func refreshBootstrapFromServer() async {
+    let sp = AppLog.launchSignposter.beginInterval("refreshBootstrap")
+    defer { AppLog.launchSignposter.endInterval("refreshBootstrap", sp) }
     await waitForInitialNetworkReachability()
     if bootstrapSupersededByOffline || offlineHomeMode { return }
     if !isNetworkReachable {
@@ -4430,6 +4446,8 @@ final class AppModel: ObservableObject {
 
   /// Kaltstart: Home-Regale + Fortschritt synchron (ein Frame, kein Katalog-Scan).
   private func restoreHomeLaunchStateFromDisk(libraryIdOverride: String? = nil) {
+    let sp = AppLog.launchSignposter.beginInterval("restoreHome")
+    defer { AppLog.launchSignposter.endInterval("restoreHome", sp) }
     guard let account = cacheAccountURL() else { return }
     let dec = ABSJSON.decoder()
     if let list = LibraryDiskCache.loadProgress(account: account, decoder: dec) {
@@ -7275,6 +7293,8 @@ final class AppModel: ObservableObject {
   /// Lädt den zuletzt relevanten Fortschritt (`mediaProgress`) in den Player — pausiert (Hörbuch oder Podcast-Folge).
   /// Nutzt Authorize-Fortschritt; Katalog/Home dürfen parallel noch laden.
   func restoreLastPlayedOnLaunch() async {
+    let sp = AppLog.launchSignposter.beginInterval("restorePlayback")
+    defer { AppLog.launchSignposter.endInterval("restorePlayback", sp) }
     isRestoringLaunchPlayback = true
     defer {
       isRestoringLaunchPlayback = false

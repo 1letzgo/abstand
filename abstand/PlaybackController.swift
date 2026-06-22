@@ -3,6 +3,7 @@ import Combine
 import CoreImage
 import Foundation
 import MediaPlayer
+import os
 import SwiftUI
 import UIKit
 
@@ -198,11 +199,13 @@ final class PlaybackController: NSObject, ObservableObject {
   private var wasPlayingBeforeInterruption = false
 
   override init() {
+    let sp = AppLog.launchSignposter.beginInterval("playbackControllerInit")
+    defer { AppLog.launchSignposter.endInterval("playbackControllerInit", sp) }
     super.init()
     playbackRate = Self.loadSavedPlaybackRate()
     skipBackwardSeconds = Self.loadSkipBackwardSeconds()
     skipForwardSeconds = Self.loadSkipForwardSeconds()
-    ensureAudioSessionForPlayback()
+    // AVAudioSession erst bei Wiedergabe aktivieren — nicht beim Kaltstart (vgl. avkit-Skill).
     configureRemoteCommands()
     interruptionObserver = NotificationCenter.default.addObserver(
       forName: AVAudioSession.interruptionNotification,
@@ -420,10 +423,9 @@ final class PlaybackController: NSObject, ObservableObject {
     reconcilePlayingStateWithEngine()
   }
 
-  /// Vordergrund nach langer Pause: UI-Zustand angleichen (kein Ton-Overtake).
+  /// Vordergrund nach langer Pause: UI-Zustand angleichen (kein Ton-Overtake, keine Session-Aktivierung).
   func handleReturnToForeground() {
     refreshPlaybackStateFromEngine()
-    ensureAudioSessionForPlayback(reclaimFromOtherApps: false)
   }
 
   /// UI/`isPlaying` an echten `AVPlayer`-Zustand — auch wenn `currentItem` fehlt oder Engine pausiert wurde.

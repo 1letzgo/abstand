@@ -29,10 +29,16 @@ actor ABSAPIClient {
     self.baseURL = baseURL
     self.token = token
     let cfg = URLSessionConfiguration.default
-    cfg.timeoutIntervalForRequest = 120
+    // Bootstrap-Polling durch URLSession übernehmen — Requests warten im Queue, bis ein Interface up ist
+    // (vgl. ios-networking-Skill: `waitsForConnectivity = true`). Gewinnt Dead-Time beim Kaltstart.
+    cfg.waitsForConnectivity = true
+    // Deutlich kürzer als 120 s, damit Offline-Fallback bei Bootstrap schneller greift; große Downloads
+    // setzen eigene `URLRequest.timeoutInterval`-Overrides.
+    cfg.timeoutIntervalForRequest = 12
     cfg.timeoutIntervalForResource = 3_600
     self.urlSession = URLSession(configuration: cfg)
   }
+
 
   func setToken(_ newToken: String) {
     token = newToken

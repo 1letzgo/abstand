@@ -1,11 +1,14 @@
 import SwiftUI
 import UIKit
+import os
 
 @main
 struct abstandApp: App {
   @StateObject private var model = AppModel()
 
   init() {
+    let s = AppLog.launchSignposter.beginInterval("appInit")
+    defer { AppLog.launchSignposter.endInterval("appInit", s) }
     AppTheme.configureTabBarAppearance()
   }
 
@@ -101,4 +104,19 @@ private struct AppRootContainer: View {
       set: { _ in }
     )
   }
+}
+
+/// Zentrale Logging- und Signpost-Infrastruktur (vgl. debugging-instruments-Skill).
+/// `Logger`-Instanzen filterbar in Console.app nach Subsystem `de.letzgo.abstand`.
+/// `OSSignposter` für Start-Pfad-Intervals — in Instruments sichtbar, Release-builds no-op.
+enum AppLog {
+  static let subsystem = "de.letzgo.abstand"
+
+  static let bootstrap = Logger(subsystem: subsystem, category: "bootstrap")
+  static let playback = Logger(subsystem: subsystem, category: "playback")
+  static let downloads = Logger(subsystem: subsystem, category: "downloads")
+  static let library = Logger(subsystem: subsystem, category: "library")
+  static let appearance = Logger(subsystem: subsystem, category: "appearance")
+
+  static let launchSignposter = OSSignposter(subsystem: subsystem, category: "Launch")
 }
