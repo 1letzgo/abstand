@@ -1167,7 +1167,10 @@ struct NowPlayingDetailView: View {
   /// Referenzbreite für Auto-Schrift und erste +/--Anpassung (≈ Kartenbreite).
   private var teleprompterFontSizingReferenceHeight: CGFloat {
     let inset = MiniPlayerMetrics.fullPlayerCoverInset * 2
-    let width = UIScreen.main.bounds.width - inset
+    let screenWidth = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .first?.screen.bounds.width ?? 390
+    let width = screenWidth - inset
     return min(max(width, 280), 400)
   }
 

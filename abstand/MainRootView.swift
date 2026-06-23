@@ -299,6 +299,7 @@ struct MainRootView: View {
       TextField("Title, author, series…", text: $model.ebooksSearchText)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
+        .textFieldStyle(.plain)
         .foregroundStyle(palette.textPrimary)
         .onSubmit { model.scheduleEbooksSearch() }
       if !model.ebooksSearchText.isEmpty {
@@ -461,6 +462,7 @@ struct MainRootView: View {
       TextField("Title, author, series…", text: $model.searchText)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
+        .textFieldStyle(.plain)
         .foregroundStyle(palette.textPrimary)
         .onSubmit { model.scheduleSearch() }
       if !model.searchText.isEmpty {
@@ -880,6 +882,7 @@ struct MainRootView: View {
       TextField("Show or episode…", text: $model.podcastLibrarySearchText)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
+        .textFieldStyle(.plain)
         .foregroundStyle(palette.textPrimary)
         .onSubmit { model.schedulePodcastLibrarySearch() }
       if !model.podcastLibrarySearchText.isEmpty {
@@ -1694,108 +1697,49 @@ private struct EbooksSearchBrowseView: View {
       }
       ebooksSearchSection(title: "Authors", isEmpty: model.ebooksSearchAuthors.isEmpty) {
         ForEach(model.ebooksSearchAuthors) { a in
-          Button {
+          ebooksSearchNavRow(
+            title: a.name,
+            detailLabel: "Books",
+            detailValue: a.numBooks.map { "\($0)" },
+            cacheItemId: "author:\(a.id)",
+            coverURL: model.authorImageURL(authorId: a.id)
+          ) {
             model.openAuthorDetail(authorId: a.id, displayName: a.name, numBooks: a.numBooks)
-          } label: {
-            HStack(spacing: LibraryRowLayout.cardInset) {
-              LibraryRowLayout.coverSlot {
-                CoverImageView(
-                  url: model.authorImageURL(authorId: a.id),
-                  token: model.token,
-                  itemId: "author:\(a.id)",
-                  cacheAccount: model.coverImageCacheAccountDirectory(),
-                  cacheRevision: model.coverImageCacheRevision
-                )
-              }
-              LibraryRowLayout.metadataColumn(showsProgressBar: false) {
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(a.name)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(AppTheme.textPrimary)
-                    .lineLimit(1)
-                  Spacer(minLength: 0)
-                  LibraryRowCollapsedMetaLine(
-                    label: "Books", value: a.numBooks.map { "\($0)" }, valueLineLimit: 1)
-                }
-              }
-            }
           }
-          .buttonStyle(.plain)
         }
       }
       ebooksSearchSection(title: "Series", isEmpty: model.ebooksSearchSeries.isEmpty) {
         ForEach(model.ebooksSearchSeries) { s in
-          Button {
+          let bookIds = model.browseSeriesCoverBookIds(from: s.books)
+          ebooksSearchNavRow(
+            title: s.name,
+            detailLabel: "Books",
+            detailValue: (s.books?.count).map { "\($0)" },
+            cacheItemId: bookIds.first ?? "series:\(s.id)",
+            coverURL: bookIds.first.flatMap { model.coverURL(for: $0) },
+            coverBookIds: bookIds.count > 1 ? bookIds : nil,
+            authorLine: s.cardAuthorsLine
+          ) {
             model.openSeriesDetail(seriesId: s.id, displayName: s.name, numBooks: s.books?.count)
-          } label: {
-            HStack(spacing: LibraryRowLayout.cardInset) {
-              LibraryRowLayout.coverSlot {
-                CoverImageView(
-                  url: (s.books?.first).flatMap { model.coverURL(for: $0.id) },
-                  token: model.token,
-                  itemId: s.books?.first?.id ?? "series:\(s.id)",
-                  cacheAccount: model.coverImageCacheAccountDirectory(),
-                  cacheRevision: model.coverImageCacheRevision
-                )
-              }
-              LibraryRowLayout.metadataColumn(showsProgressBar: false) {
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(s.name)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(AppTheme.textPrimary)
-                    .lineLimit(1)
-                  Spacer(minLength: 0)
-                  LibraryRowCollapsedMetaLine(
-                    label: "Books", value: (s.books?.count).map { "\($0)" }, valueLineLimit: 1)
-                }
-              }
-            }
           }
-          .buttonStyle(.plain)
         }
       }
       ebooksSearchSection(title: "Tags", isEmpty: model.ebooksSearchTags.isEmpty) {
         ForEach(model.ebooksSearchTags) { t in
-          Button {
+          ebooksSearchNavRow(
+            title: t.name, detailLabel: "Books", detailValue: t.numItems.map { "\($0)" }
+          ) {
             model.openTagDetail(tagName: t.name, numBooks: t.numItems)
-          } label: {
-            HStack(spacing: LibraryRowLayout.cardInset) {
-              LibraryRowLayout.coverSlot { Color.clear }
-              LibraryRowLayout.metadataColumn(showsProgressBar: false) {
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(t.name)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(AppTheme.textPrimary)
-                    .lineLimit(1)
-                  LibraryRowCollapsedMetaLine(
-                    label: "Books", value: t.numItems.map { "\($0)" }, valueLineLimit: 1)
-                }
-              }
-            }
           }
-          .buttonStyle(.plain)
         }
       }
       ebooksSearchSection(title: "Genres", isEmpty: model.ebooksSearchGenres.isEmpty) {
         ForEach(model.ebooksSearchGenres) { g in
-          Button {
+          ebooksSearchNavRow(
+            title: g.name, detailLabel: "Books", detailValue: g.numItems.map { "\($0)" }
+          ) {
             model.openGenreDetail(genreName: g.name, numBooks: g.numItems)
-          } label: {
-            HStack(spacing: LibraryRowLayout.cardInset) {
-              LibraryRowLayout.coverSlot { Color.clear }
-              LibraryRowLayout.metadataColumn(showsProgressBar: false) {
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(g.name)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(AppTheme.textPrimary)
-                    .lineLimit(1)
-                  LibraryRowCollapsedMetaLine(
-                    label: "Books", value: g.numItems.map { "\($0)" }, valueLineLimit: 1)
-                }
-              }
-            }
           }
-          .buttonStyle(.plain)
         }
       }
     }
@@ -1814,6 +1758,33 @@ private struct EbooksSearchBrowseView: View {
         content()
       }
     }
+  }
+}
+
+private extension EbooksSearchBrowseView {
+  @ViewBuilder
+  func ebooksSearchNavRow(
+    title: String,
+    detailLabel: String = "Books",
+    detailValue: String? = nil,
+    cacheItemId: String = "",
+    coverURL: URL? = nil,
+    coverBookIds: [String]? = nil,
+    authorLine: String? = nil,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      BrowseEntityRowCard(
+        title: title,
+        detailLabel: detailLabel,
+        detailValue: detailValue,
+        cacheItemId: cacheItemId.isEmpty ? "ebooks-search:\(title)" : cacheItemId,
+        coverURL: coverURL,
+        coverBookIds: coverBookIds,
+        authorLine: authorLine
+      )
+    }
+    .buttonStyle(.plain)
   }
 }
 

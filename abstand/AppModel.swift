@@ -2662,7 +2662,7 @@ final class AppModel: ObservableObject {
       persistEbookContinueShelvesToDisk()
       return
     }
-    if let idx = startShelves.firstIndex(where: { $0.category == "continueSeries" }) {
+    if startShelves.contains(where: { $0.category == "continueSeries" }) {
       if seriesBooks.isEmpty { return }
       applyEbookContinueSeriesInjection(seriesBooks)
       return

@@ -1076,7 +1076,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
         let converted = try converter.convert(buffer, to: targetFormat)
 
         await MainActor.run {
-          self.inputBuilder?.yield(AnalyzerInput(buffer: converted))
+          _ = self.inputBuilder?.yield(AnalyzerInput(buffer: converted))
         }
 
         let dur = CMSampleBufferGetDuration(sample).seconds
