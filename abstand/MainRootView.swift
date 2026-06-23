@@ -826,15 +826,15 @@ struct MainRootView: View {
     .onDisappear { podcastCatalogToolbarState.detach() }
   }
 
-  private static let podcastCatalogNewSectionId = "__new__"
-  private static let podcastCatalogSearchSectionId = "__search__"
+  private static let podcastCatalogNewSectionId = PodcastCatalogStripSection.newEpisodes
+  private static let podcastCatalogSearchSectionId = PodcastCatalogStripSection.search
 
   private var podcastCatalogScrollSectionIDs: [String] {
     [Self.podcastCatalogSearchSectionId, Self.podcastCatalogNewSectionId] + model.podcastShows.map(\.id)
   }
 
   private var podcastCatalogScrollSelection: String {
-    model.podcastSelectedShowId ?? Self.podcastCatalogNewSectionId
+    model.podcastCatalogStripSectionId
   }
 
   private func podcastCatalogShowId(forSectionId sectionId: String) -> String? {
@@ -865,6 +865,10 @@ struct MainRootView: View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
       podcastSearchField
       PodcastLibrarySearchResultsView()
+    }
+    .onAppear {
+      model.podcastCatalogStripSectionId = Self.podcastCatalogSearchSectionId
+      model.schedulePodcastLibrarySearch()
     }
   }
 
@@ -934,12 +938,14 @@ struct MainRootView: View {
       selectionID: podcastCatalogScrollSelection,
       onSelect: { id in
         if id == Self.podcastCatalogSearchSectionId {
+          model.podcastCatalogStripSectionId = id
           model.podcastSelectedShowId = nil
-          model.podcastLibrarySearchText = ""
-          model.clearPodcastLibrarySearchResults()
+          model.schedulePodcastLibrarySearch()
         } else if id == Self.podcastCatalogNewSectionId {
+          model.podcastCatalogStripSectionId = id
           Task { await model.selectPodcastShowFilter(nil) }
         } else {
+          model.podcastCatalogStripSectionId = id
           model.applyPodcastShowFilterSelection(id)
           Task { await model.loadPodcastEpisodesForShowLibraryItem(id) }
         }
@@ -1647,6 +1653,7 @@ private struct EbooksSearchBrowseView: View {
           .padding(24)
       }
       if q.count >= 2, !model.isLoadingLibrary, model.ebooksSearchBooks.isEmpty,
+        model.ebooksSearchSupplementaryBooks.isEmpty,
         model.ebooksSearchAuthors.isEmpty, model.ebooksSearchSeries.isEmpty,
         model.ebooksSearchTags.isEmpty, model.ebooksSearchGenres.isEmpty
       {
@@ -1660,7 +1667,28 @@ private struct EbooksSearchBrowseView: View {
       ebooksSearchSection(title: "eBooks", isEmpty: model.ebooksSearchBooks.isEmpty) {
         LibraryBookCardsFlow {
           ForEach(model.ebooksSearchBooks) { book in
-            LibraryBookListCard(book: book, model: model)
+            LibraryBookListCard(
+              book: book,
+              model: model,
+              showEbookBadge: true,
+              opensEbookOnCover: true,
+              forceCompactListStyle: true,
+              usesTallEbookCover: true
+            )
+          }
+        }
+      }
+      ebooksSearchSection(title: "Supplementary eBooks", isEmpty: model.ebooksSearchSupplementaryBooks.isEmpty) {
+        LibraryBookCardsFlow {
+          ForEach(model.ebooksSearchSupplementaryBooks) { book in
+            LibraryBookListCard(
+              book: book,
+              model: model,
+              showEbookBadge: true,
+              opensEbookOnCover: true,
+              forceCompactListStyle: true,
+              usesTallEbookCover: false
+            )
           }
         }
       }
@@ -1819,7 +1847,9 @@ private struct PodcastLibrarySearchResultsView: View {
           .multilineTextAlignment(.center)
           .padding(24)
       }
-      if q.count >= 2, !model.isLoadingPodcasts, model.podcastLibrarySearchShows.isEmpty {
+      if q.count >= 2, !model.isLoadingPodcasts, model.podcastLibrarySearchShows.isEmpty,
+        model.podcastLibrarySearchEpisodes.isEmpty
+      {
         Text("No results.")
           .font(.subheadline)
           .foregroundStyle(AppTheme.textSecondary)
@@ -1847,6 +1877,19 @@ private struct PodcastLibrarySearchResultsView: View {
               )
             }
             .buttonStyle(.plain)
+          }
+        }
+      }
+
+      if !model.podcastLibrarySearchEpisodes.isEmpty {
+        VStack(alignment: .leading, spacing: 10) {
+          TabContentSectionTitle(title:"Episodes")
+          ForEach(model.podcastLibrarySearchEpisodes) { episode in
+            LibraryPodcastListCard(
+              episode: episode,
+              model: model,
+              forceCompactListStyle: true
+            )
           }
         }
       }

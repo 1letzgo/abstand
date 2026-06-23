@@ -738,6 +738,7 @@ struct HomeListeningStatsSectionView: View {
 struct SettingsAccountView: View {
   @EnvironmentObject private var model: AppModel
   @State private var showAddAccount = false
+  @State private var accountPendingLogout: ABSStoredAccount?
 
   private var booksLibraryPickerSelection: Binding<String> {
     Binding(
@@ -822,6 +823,11 @@ struct SettingsAccountView: View {
               }
               .buttonStyle(.plain)
               .disabled(model.isSwitchingAccount)
+              .contextMenu {
+                Button("Log out", role: .destructive) {
+                  accountPendingLogout = account
+                }
+              }
             }
             if !model.storedAccounts.isEmpty { SettingsCardDivider() }
             Button {
@@ -957,6 +963,24 @@ struct SettingsAccountView: View {
           }
           .buttonStyle(.plain)
         }
+      }
+    }
+    .alert("Log out?", isPresented: Binding(
+      get: { accountPendingLogout != nil },
+      set: { if !$0 { accountPendingLogout = nil } }
+    )) {
+      Button("Log out", role: .destructive) {
+        if let account = accountPendingLogout {
+          model.removeStoredAccount(accountKey: account.accountKey)
+        }
+        accountPendingLogout = nil
+      }
+      Button("Cancel", role: .cancel) {
+        accountPendingLogout = nil
+      }
+    } message: {
+      if let account = accountPendingLogout {
+        Text("Remove \(account.displayUsername) from @\(account.displayServerHost)?")
       }
     }
   }

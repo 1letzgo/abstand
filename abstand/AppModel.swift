@@ -266,6 +266,12 @@ enum EbooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
   }
 }
 
+/// Podcast-Tab-Streifen: Search / New / Show-`libraryItemId`.
+enum PodcastCatalogStripSection {
+  static let search = "__search__"
+  static let newEpisodes = "__new__"
+}
+
 /// Schnellfilter im Bücher-Katalog (Toolbar neben Sort).
 enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
   case inProgress
@@ -640,6 +646,7 @@ final class AppModel: ObservableObject {
   /// eBooks-Tab Suche (eigener State, eigener Library-Filter `ebooks.ebook`).
   @Published var ebooksSearchText: String = ""
   @Published var ebooksSearchBooks: [ABSBook] = []
+  @Published var ebooksSearchSupplementaryBooks: [ABSBook] = []
   @Published var ebooksSearchAuthors: [ABSSearchAuthorRow] = []
   @Published var ebooksSearchSeries: [ABSSearchSeriesRow] = []
   @Published var ebooksSearchTags: [ABSSearchNamedCount] = []
@@ -648,6 +655,8 @@ final class AppModel: ObservableObject {
   @Published var podcastLibrarySearchText: String = ""
   @Published var podcastLibrarySearchShows: [ABSBook] = []
   @Published var podcastLibrarySearchEpisodes: [ABSPodcastEpisodeListItem] = []
+  /// Aktiver Streifen im Podcast-Tab (`__search__`, `__new__` oder Show-ID).
+  @Published var podcastCatalogStripSectionId: String = PodcastCatalogStripSection.newEpisodes
   /// Server-Items-Filter für den Bücher-Katalog.
   @Published var activeLibraryFilter: String?
   /// Anzeige unter der Suche: wonach der Bücher-Katalog gefiltert ist.
@@ -2321,6 +2330,7 @@ final class AppModel: ObservableObject {
   }
 
   /// Eingeschaltete Home-Regale für die horizontale Leiste (Continue-Regale als ein Eintrag).
+  /// Stats links neben Continue; Continue bleibt der Standard-Tab (`homeBrowseCategory`).
   var homeBrowseStripRows: [(category: String, label: String)] {
     var rows: [(category: String, label: String)] = []
     var insertedContinue = false
@@ -2328,6 +2338,11 @@ final class AppModel: ObservableObject {
     for row in startSettingsCategoryList {
       if ABSStartShelfLocalization.isHomeBrowseContinueCategory(row.category) {
         if !insertedContinue, isAnyHomeBrowseContinueShelfEnabled {
+          rows.append(
+            (
+              ABSStartShelfLocalization.homeBrowseStatsSectionID,
+              ABSStartShelfLocalization.homeBrowseStatsStripLabel
+            ))
           rows.append(
             (
               ABSStartShelfLocalization.homeBrowseContinueSectionID,
@@ -2352,11 +2367,17 @@ final class AppModel: ObservableObject {
         rows.append((row.category, row.label))
       }
     }
-    rows.append(
-      (
-        ABSStartShelfLocalization.homeBrowseStatsSectionID,
-        ABSStartShelfLocalization.homeBrowseStatsStripLabel
-      ))
+    if !rows.contains(where: {
+      ABSStartShelfLocalization.isHomeBrowseStatsCategory($0.category)
+    }) {
+      rows.insert(
+        (
+          ABSStartShelfLocalization.homeBrowseStatsSectionID,
+          ABSStartShelfLocalization.homeBrowseStatsStripLabel
+        ),
+        at: 0
+      )
+    }
     return rows
   }
 
@@ -4002,14 +4023,23 @@ final class AppModel: ObservableObject {
 
   /// Entfernt den aktiven Account und wechselt zum nächsten gespeicherten — oder zeigt Login.
   func logout() {
-    syncStoredAccountFromSession()
-    let keyToRemove = activeAccountKey ?? resolvedStoredAccountKey()
-    if let keyToRemove {
-      storedAccounts.removeAll { $0.accountKey == keyToRemove }
-      persistStoredAccounts()
+    guard let key = activeAccountKey ?? resolvedStoredAccountKey() else {
+      clearInMemorySessionState(clearCredentials: true)
+      return
     }
-    let remaining = storedAccounts
-    if let next = remaining.first {
+    removeStoredAccount(accountKey: key)
+  }
+
+  /// Account aus der Liste entfernen; bei aktivem Account wie `logout()` zum nächsten wechseln.
+  func removeStoredAccount(accountKey: String) {
+    let key = accountKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !key.isEmpty else { return }
+    let removingActive = key == activeAccountKey
+    if removingActive { syncStoredAccountFromSession() }
+    storedAccounts.removeAll { $0.accountKey == key }
+    persistStoredAccounts()
+    guard removingActive else { return }
+    if let next = storedAccounts.first {
       Task { await switchToAccount(next.accountKey) }
       return
     }
@@ -4272,6 +4302,7 @@ final class AppModel: ObservableObject {
     podcastEpisodes = []
     podcastShows = []
     podcastSelectedShowId = nil
+    podcastCatalogStripSectionId = PodcastCatalogStripSection.newEpisodes
     podcastFilteredEpisodes = []
     podcastFilteredEpisodesByShowId = [:]
     clearPodcastRssFeedCache()
@@ -4295,6 +4326,11 @@ final class AppModel: ObservableObject {
     resetBooksBrowseLists()
     clearSearchResults()
     clearPodcastSearchResults()
+    clearPodcastLibrarySearchResults()
+    podcastLibrarySearchText = ""
+    clearEbooksSearchResults()
+    ebooksSearchText = ""
+    podcastCatalogStripSectionId = PodcastCatalogStripSection.newEpisodes
     clearPodcastDirectorySearch()
     clearPodcastCharts()
     podcastDirectoryCountryOverride = nil
@@ -4416,6 +4452,7 @@ final class AppModel: ObservableObject {
       return
     }
     podcastSelectedShowId = nil
+    podcastCatalogStripSectionId = PodcastCatalogStripSection.newEpisodes
     podcastFilteredEpisodes = []
     selectedPodcastLibrary = lib
     UserDefaults.standard.set(lib.id, forKey: Keys.podcastsLibrary)
@@ -4453,6 +4490,7 @@ final class AppModel: ObservableObject {
     podcastEpisodes = []
     podcastShows = []
     podcastSelectedShowId = nil
+    podcastCatalogStripSectionId = PodcastCatalogStripSection.newEpisodes
     podcastFilteredEpisodes = []
     podcastLibraryPage = 0
     podcastLibraryTotal = 0
@@ -5055,6 +5093,11 @@ final class AppModel: ObservableObject {
       }
     }
     podcastSelectedShowId = showId
+    if let sid = showId?.trimmingCharacters(in: .whitespacesAndNewlines), !sid.isEmpty {
+      podcastCatalogStripSectionId = sid
+    } else {
+      podcastCatalogStripSectionId = PodcastCatalogStripSection.newEpisodes
+    }
     if let sid = showId?.trimmingCharacters(in: .whitespacesAndNewlines), !sid.isEmpty,
       let cached = podcastFilteredEpisodesByShowId[sid]
     {
@@ -6656,6 +6699,7 @@ final class AppModel: ObservableObject {
 
   func clearEbooksSearchResults() {
     ebooksSearchBooks = []
+    ebooksSearchSupplementaryBooks = []
     ebooksSearchAuthors = []
     ebooksSearchSeries = []
     ebooksSearchTags = []
@@ -6706,17 +6750,27 @@ final class AppModel: ObservableObject {
     defer { isLoadingLibrary = false }
     do {
       let res = try await c.search(libraryId: lib.id, query: q)
-      ebooksSearchBooks = res.book.map(\.libraryItem).filter(\.isUsableEbookListRow)
+      applyEbooksSearchBookResults(res.book.map(\.libraryItem))
       ebooksSearchAuthors = res.authors
       ebooksSearchSeries = res.series
       ebooksSearchTags = res.tags
       ebooksSearchGenres = res.genres
     } catch {
       applyLocalEbooksSearchResults(query: q)
-      if ebooksSearchBooks.isEmpty, ebooksSearchAuthors.isEmpty, ebooksSearchSeries.isEmpty {
+      if ebooksSearchBooks.isEmpty, ebooksSearchSupplementaryBooks.isEmpty,
+        ebooksSearchAuthors.isEmpty, ebooksSearchSeries.isEmpty
+      {
         publishErrorUnlessBenignCancellation(error)
       }
     }
+  }
+
+  private func applyEbooksSearchBookResults(_ books: [ABSBook]) {
+    let rows = books.filter(\.isUsableEbookListRow)
+    ebooksSearchBooks = rows.filter { !$0.isPlayableAudiobook }
+      .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+    ebooksSearchSupplementaryBooks = rows.filter(\.isPlayableAudiobook)
+      .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
   }
 
   private func performPodcastLibrarySearch(query: String) async {
@@ -6739,12 +6793,40 @@ final class AppModel: ObservableObject {
     do {
       let res = try await c.search(libraryId: lib.id, query: q)
       podcastLibrarySearchShows = res.podcastSearchShowLibraryItems()
+      podcastLibrarySearchEpisodes = mergedPodcastLibrarySearchEpisodes(
+        server: res.podcastEpisodeMatches, query: q)
     } catch {
       applyLocalPodcastLibrarySearchResults(query: q)
-      if podcastLibrarySearchShows.isEmpty {
+      if podcastLibrarySearchShows.isEmpty, podcastLibrarySearchEpisodes.isEmpty {
         publishErrorUnlessBenignCancellation(error)
       }
     }
+  }
+
+  private func mergedPodcastLibrarySearchEpisodes(
+    server: [ABSPodcastEpisodeListItem],
+    query: String
+  ) -> [ABSPodcastEpisodeListItem] {
+    let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard q.count >= 2 else { return server }
+    return ABSPodcastEpisodeListItem.dedupeRows(server + localPodcastEpisodesMatchingSearch(q))
+      .sorted { $0.episodeTitle.localizedStandardCompare($1.episodeTitle) == .orderedAscending }
+  }
+
+  private func localPodcastEpisodesMatchingSearch(_ query: String) -> [ABSPodcastEpisodeListItem] {
+    let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard q.count >= 2 else { return [] }
+    var byKey: [String: ABSPodcastEpisodeListItem] = [:]
+    func consider(_ list: [ABSPodcastEpisodeListItem]) {
+      for ep in list where (ep.episodeTitle + " " + ep.showTitle).localizedCaseInsensitiveContains(q) {
+        byKey[ep.canonicalDedupeKey] = ep
+      }
+    }
+    consider(podcastEpisodes)
+    for cached in podcastFilteredEpisodesByShowId.values {
+      consider(cached)
+    }
+    return Array(byKey.values)
   }
 
   private func applyLocalEbooksSearchResults(query: String) {
@@ -6757,9 +6839,7 @@ final class AppModel: ObservableObject {
     for book in browseEbooks + browseEbooksSupplementary + downloadedShelfBooks {
       if book.isUsableEbookListRow { byId[book.id] = book }
     }
-    ebooksSearchBooks = Array(byId.values)
-      .filter { bookMatchesSearchQuery($0, query: q) }
-      .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+    applyEbooksSearchBookResults(Array(byId.values).filter { bookMatchesSearchQuery($0, query: q) })
     ebooksSearchAuthors = browseAuthors
       .filter { $0.name.localizedCaseInsensitiveContains(q) }
       .prefix(40)
@@ -6785,9 +6865,8 @@ final class AppModel: ObservableObject {
       return
     }
     podcastLibrarySearchShows = podcastShows.filter { bookMatchesSearchQuery($0, query: q) }
-    podcastLibrarySearchEpisodes = podcastEpisodes.filter {
-      ($0.episodeTitle + " " + $0.showTitle).localizedCaseInsensitiveContains(q)
-    }
+      .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+    podcastLibrarySearchEpisodes = mergedPodcastLibrarySearchEpisodes(server: [], query: q)
   }
 
   func refreshEbooksSearchResults() async {
@@ -7032,7 +7111,7 @@ final class AppModel: ObservableObject {
     defer { isLoadingLibrary = false }
     do {
       let res = try await c.search(libraryId: lib.id, query: q)
-      searchBooks = res.bookSearchPlayableLibraryItems { bookDuration($0) }
+      searchBooks = res.bookSearchLibraryItems()
       searchAuthors = res.authors
       searchNarrators = res.narrators
       searchSeries = res.series
@@ -7462,7 +7541,7 @@ final class AppModel: ObservableObject {
     }
     do {
       let res = try await c.search(libraryId: lib.id, query: query, limit: 32)
-      let shows = res.podcastSearchShowLibraryItems()
+      let shows = res.podcastSearchShowLibraryItemsIncludingEpisodeMatches()
       if let first = shows.first {
         await selectPodcastShowFilter(first.id)
       } else {
@@ -8384,8 +8463,6 @@ final class AppModel: ObservableObject {
       reconcileProgressAfterMarkFinished(libraryItemId: bookId, episodeId: nil)
       syncContinueListeningShelvesWithProgress()
       invalidateCachedPersonalizedHomeForSelectedLibraries()
-      searchBooks.removeAll { $0.id == bookId }
-      podcastSearchBooks.removeAll { $0.id == bookId }
       if needsFullLibraryReloadAfterAudiobookProgressChange(bookId: bookId, finished: true) {
         await reloadLibrary(reset: true)
       }

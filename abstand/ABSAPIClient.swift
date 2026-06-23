@@ -410,7 +410,19 @@ actor ABSAPIClient {
         "limit": "\(limit)",
       ]
     )
-    return try await send(req)
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    do {
+      var result = try decoder.decode(ABSSearchResponse.self, from: data)
+      result.podcastEpisodeMatches = Self.decodePodcastSearchEpisodes(
+        from: data, libraryId: libraryId)
+      return result
+    } catch {
+      throw ABSAPIError.decoding(error)
+    }
   }
 
   /// Personalisierte Regale wie in der Web-App (`GET /api/libraries/:id/personalized`).
@@ -577,6 +589,68 @@ actor ABSAPIClient {
       }
     }
     return ABSItemsInProgressPayload(books: books, podcastEpisodes: podcastEpisodes)
+  }
+
+  /// Search-API: `episodes` sind Library-Items mit `recentEpisode` (wie Home/In-Progress).
+  nonisolated static func decodePodcastSearchEpisodes(
+    from data: Data,
+    libraryId: String?
+  ) -> [ABSPodcastEpisodeListItem] {
+    guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let items = root["episodes"] as? [[String: Any]]
+    else {
+      return []
+    }
+    let dec = ABSJSON.decoder()
+    let libIdRaw = libraryId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let libId: String? = libIdRaw.isEmpty ? nil : libIdRaw
+    var podcastEpisodes: [ABSPodcastEpisodeListItem] = []
+    podcastEpisodes.reserveCapacity(items.count)
+    for obj in items {
+      if let row = decodePodcastSearchEpisodeRow(obj, libraryId: libId, decoder: dec) {
+        podcastEpisodes.append(row)
+      }
+    }
+    return ABSPodcastEpisodeListItem.dedupeRows(podcastEpisodes)
+  }
+
+  /// Ein Search-Treffer: Show-Library-Item mit `recentEpisode` oder direktes Episoden-Objekt.
+  nonisolated private static func decodePodcastSearchEpisodeRow(
+    _ obj: [String: Any],
+    libraryId: String?,
+    decoder: JSONDecoder
+  ) -> ABSPodcastEpisodeListItem? {
+    let showId = (obj["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let itemLibId = (obj["libraryId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let resolvedLibId = (itemLibId?.isEmpty == false) ? itemLibId : libraryId
+    var show: ABSBook?
+    if !showId.isEmpty, let subLi = try? JSONSerialization.data(withJSONObject: obj) {
+      show = try? decoder.decode(ABSBook.self, from: subLi)
+    }
+
+    if var recent = obj["recentEpisode"] as? [String: Any] {
+      if !showId.isEmpty {
+        let existing = (recent["libraryItemId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if existing.isEmpty { recent["libraryItemId"] = showId }
+      } else {
+        showIdFallback(from: obj, into: &recent)
+      }
+      guard let subEp = try? JSONSerialization.data(withJSONObject: recent),
+        let dto = try? decoder.decode(ABSRecentPodcastEpisodeDTO.self, from: subEp)
+      else { return nil }
+      let forceLi = showId.isEmpty ? nil : showId
+      return ABSPodcastEpisodeListItem.fromDTO(
+        dto, fallbackShow: show, libraryId: resolvedLibId, forceLibraryItemId: forceLi)
+    }
+
+    return nil
+  }
+
+  nonisolated private static func showIdFallback(from obj: [String: Any], into recent: inout [String: Any]) {
+    let existing = (recent["libraryItemId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard existing.isEmpty else { return }
+    let showId = (obj["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !showId.isEmpty { recent["libraryItemId"] = showId }
   }
 
   /// Paginierte Hör-Sitzungen des eingeloggten Nutzers (`libraryItemId` + ggf. `episodeId` pro Eintrag).

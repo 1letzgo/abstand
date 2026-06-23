@@ -424,6 +424,37 @@ struct ABSRecentPodcastEpisodeDTO: Decodable {
   let duration: Double?
   let publishedAt: Int64?
   let podcast: ABSRecentEpisodePodcastNest?
+
+  enum CodingKeys: String, CodingKey {
+    case libraryItemId, id, title, subtitle, description, pubDate, duration, publishedAt, podcast
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    libraryItemId = (try? c.decode(String.self, forKey: .libraryItemId)) ?? ""
+    id = (try? c.decode(String.self, forKey: .id)) ?? ""
+    let rawTitle = (try? c.decode(String.self, forKey: .title))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    title = rawTitle.isEmpty ? "Episode" : rawTitle
+    subtitle = try? c.decode(String.self, forKey: .subtitle)
+    description = try? c.decode(String.self, forKey: .description)
+    pubDate = try? c.decode(String.self, forKey: .pubDate)
+    duration = Self.decodeOptionalDouble(c, key: .duration)
+    publishedAt = Self.decodeOptionalInt64(c, key: .publishedAt)
+    podcast = try? c.decode(ABSRecentEpisodePodcastNest.self, forKey: .podcast)
+  }
+
+  private static func decodeOptionalDouble(_ c: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Double? {
+    if let v = try? c.decode(Double.self, forKey: key) { return v }
+    if let v = try? c.decode(Int.self, forKey: key) { return Double(v) }
+    return nil
+  }
+
+  private static func decodeOptionalInt64(_ c: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Int64? {
+    if let v = try? c.decode(Int64.self, forKey: key) { return v }
+    if let v = try? c.decode(Int.self, forKey: key) { return Int64(v) }
+    if let v = try? c.decode(Double.self, forKey: key) { return Int64(v.rounded()) }
+    return nil
+  }
 }
 
 struct ABSRecentEpisodePodcastNest: Decodable {
@@ -2123,8 +2154,26 @@ struct ABSSearchResponse: Decodable {
     }
   }
 
-  /// Podcast-Library-Suche: `podcast` + `episodes` + ggf. `book`, ohne Dubletten nach Show-ID.
+  /// Bücher-Suche: minified-Stubs ohne Spuren/Dauer behalten (wie Katalog-Listen).
+  func bookSearchLibraryItems() -> [ABSBook] {
+    book.map(\.libraryItem).filter(\.isUsableLibraryCatalogRow)
+  }
+
+  /// Podcast-Library-Suche: `podcast` + `book`, ohne Dubletten nach Show-ID.
   func podcastSearchShowLibraryItems() -> [ABSBook] {
+    var seen = Set<String>()
+    var out: [ABSBook] = []
+    out.reserveCapacity(book.count + podcast.count)
+    for row in podcast + book {
+      let li = row.libraryItem
+      guard li.isListablePodcastLibraryItem else { continue }
+      if seen.insert(li.id).inserted { out.append(li) }
+    }
+    return out
+  }
+
+  /// Wie `podcastSearchShowLibraryItems`, inkl. Show-Treffer aus der `episodes`-Liste (Navigation).
+  func podcastSearchShowLibraryItemsIncludingEpisodeMatches() -> [ABSBook] {
     var seen = Set<String>()
     var out: [ABSBook] = []
     out.reserveCapacity(book.count + podcast.count + episodes.count)
@@ -2135,6 +2184,9 @@ struct ABSSearchResponse: Decodable {
     }
     return out
   }
+
+  /// Folgen-Treffer aus der Search-API (`episodes` mit `recentEpisode` je Show).
+  var podcastEpisodeMatches: [ABSPodcastEpisodeListItem] = []
 }
 
 // MARK: - Play Session
