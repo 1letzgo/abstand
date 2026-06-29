@@ -573,17 +573,15 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Teleprompter bei Hintergrund / Display aus beenden (Audio läuft weiter).
   func disableTeleprompterIfNeeded() {
     guard liveTranscription.isTeleprompterModeActive else { return }
-    liveTranscription.disable()
+    Task { @MainActor in
+      await liveTranscription.disable()
+    }
   }
 
-  func tearDownPlayer(preserveTeleprompter: Bool = false) {
+  func tearDownPlayer() {
     playResumeTask?.cancel()
     playResumeTask = nil
-    if preserveTeleprompter {
-      // Session wurde bereits in `prepareForPlaybackHandoff()` gestoppt.
-    } else {
-      liveTranscription.playbackDidStop()
-    }
+    liveTranscription.playbackDidStop()
     clearSleepTimer()
     showMiniPlayerPlaceholder = false
     miniPlayerBarFillColor = AppTheme.card
@@ -643,11 +641,10 @@ final class PlaybackController: NSObject, ObservableObject {
     /// Bei Neustart nach „Fertig“: Client-Position statt Server-Ende (`max(session, resume)`).
     preferClientResumePosition: Bool = false
   ) async throws {
-    let resumeTeleprompter = liveTranscription.isTeleprompterModeActive
-    if resumeTeleprompter {
-      await liveTranscription.prepareForPlaybackHandoff()
+    if liveTranscription.isTeleprompterModeActive {
+      await liveTranscription.disable()
     }
-    tearDownPlayer(preserveTeleprompter: resumeTeleprompter)
+    tearDownPlayer()
     ensureAudioSessionForPlayback()
     shouldAutoPlayAfterLoad = autoPlay
     apiClient = client
@@ -678,9 +675,6 @@ final class PlaybackController: NSObject, ObservableObject {
       }
       scheduleCoverLoad(for: book.id)
       startPeriodicSync()
-      if resumeTeleprompter {
-        await liveTranscription.restartSessionForCurrentPlayback(player: self)
-      }
     } catch {
       tearDownPlayer()
       throw error

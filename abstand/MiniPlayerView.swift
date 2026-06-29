@@ -926,12 +926,19 @@ struct NowPlayingDetailView: View {
     .onDisappear {
       player.liveTranscription.wordLookupSelection = nil
       if player.liveTranscription.isTeleprompterModeActive {
-        player.liveTranscription.disable()
+        Task { @MainActor in
+          await player.liveTranscription.disable()
+        }
       }
       coverPanel = .artwork
     }
     .onChange(of: isTeleprompterActive) { _, active in
       if active { coverPanel = .artwork }
+    }
+    .onChange(of: player.liveTranscription.errorMessage) { _, err in
+      if let err, !AbstandErrorFilter.isBenignCancellationMessage(err) {
+        model.errorMessage = err
+      }
     }
     .onChange(of: player.activeBook?.id) { _, _ in
       coverPanel = .artwork
@@ -1318,7 +1325,9 @@ struct NowPlayingDetailView: View {
       return
     }
     if isTeleprompterActive {
-      player.liveTranscription.disable()
+      Task { @MainActor in
+        await player.liveTranscription.disable()
+      }
     }
     coverPanel = panel
   }
@@ -1504,7 +1513,7 @@ struct NowPlayingDetailView: View {
     return FullPlayerCoverOverlayButton(
       systemName: "text.word.spacing",
       isActive: tx.isTeleprompterModeActive,
-      isBusy: tx.isPreparing || tx.modelDownloadProgress != nil,
+      isBusy: tx.isPreparing || tx.isSessionBusy || tx.modelDownloadProgress != nil,
       isEnabled: isDownloadReady,
       accessibilityLabel: tx.isTeleprompterModeActive
         ? String(localized: "Stop read-along transcript", comment: "Accessibility")

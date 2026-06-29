@@ -218,6 +218,10 @@ struct PlayerLiveTranscriptPanelView: View {
         teleprompterLoadingOverlay
       }
 
+      if showsErrorOverlay, let error = transcription.errorMessage {
+        teleprompterErrorOverlay(message: error)
+      }
+
       if let notice = transcription.localeFallbackNotice {
         Text(notice)
           .font(.caption)
@@ -281,11 +285,19 @@ struct PlayerLiveTranscriptPanelView: View {
   }
 
   private var showsTeleprompterContent: Bool {
-    transcription.isTeleprompterReady && !transcription.transcriptLines.isEmpty
+    !transcription.transcriptLines.isEmpty
   }
 
   private var showsLoadingOverlay: Bool {
-    transcription.isTeleprompterModeActive && !showsTeleprompterContent
+    transcription.isTeleprompterModeActive
+      && !showsTeleprompterContent
+      && transcription.errorMessage == nil
+  }
+
+  private var showsErrorOverlay: Bool {
+    transcription.isTeleprompterModeActive
+      && !showsTeleprompterContent
+      && transcription.errorMessage != nil
   }
 
   private var teleprompterLoadingOverlay: some View {
@@ -299,6 +311,25 @@ struct PlayerLiveTranscriptPanelView: View {
           .multilineTextAlignment(.center)
       }
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  private func teleprompterErrorOverlay(message: String) -> some View {
+    VStack(spacing: 16) {
+      Text(message)
+        .font(.subheadline)
+        .foregroundStyle(AppTheme.danger)
+        .multilineTextAlignment(.center)
+      Button(String(localized: "Try again", comment: "Live transcript retry")) {
+        Task { @MainActor in
+          await transcription.disable()
+          await transcription.startTeleprompterMode(player: player)
+        }
+      }
+      .buttonStyle(.borderedProminent)
+      .tint(AppTheme.accent)
+    }
+    .padding(.horizontal, 20)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 

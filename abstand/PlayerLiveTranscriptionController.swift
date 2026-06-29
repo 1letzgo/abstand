@@ -13,6 +13,8 @@ enum PlayerLiveTranscriptionError: LocalizedError {
   case conversionFailed
   case audioSourceUnavailable
   case streamingPlaybackUnavailable
+  case transcriptionStartupTimedOut
+  case transcriptionProgressStalled
 
   var errorDescription: String? {
     switch self {
@@ -40,6 +42,14 @@ enum PlayerLiveTranscriptionError: LocalizedError {
       return String(
         localized:
           "Read along needs a server stream or a fully downloaded audiobook. Finish the download or go online.",
+        comment: "Live transcript error")
+    case .transcriptionStartupTimedOut:
+      return String(
+        localized: "Transcription took too long to start. Try again.",
+        comment: "Live transcript error")
+    case .transcriptionProgressStalled:
+      return String(
+        localized: "Transcription stopped making progress. Try again.",
         comment: "Live transcript error")
     }
   }
@@ -77,16 +87,26 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   /// Mindestens so viel Audio (global, s) seit Feed-Start transkribiert.
   static let minTranscribedSecondsForDisplay: Double = 10
   /// Beim laufenden Play: Transkript darf höchstens so weit hinter der Wiedergabe liegen.
-  static let maxPlaybackLagWhilePlaying: Double = 8
+  static let maxPlaybackLagWhilePlaying: Double = 15
   /// Fallback: Spinner spätestens nach so vielen Sekunden aus, wenn Text da ist.
   static let teleprompterReadinessTimeoutSeconds: Double = 14
   /// Beim Start / Buchwechsel: „nah an Live“ erst nach kurzer Pufferphase erzwingen.
   static let teleprompterStartupGraceSeconds: Double = 35
+  /// Hartes Startup-Timeout — danach Modus beenden.
+  static let transcriptionStartupTimeoutSeconds: Double = 45
+  /// Kein Transkript-Fortschritt über diese Dauer → Fehler (nur während Startup-Puffer).
+  static let transcriptionProgressStallSeconds: Double = 45
+  /// `makeTranscriptionAudioContext()` wiederholt nil über diese Dauer → Fehler.
+  static let audioContextUnavailableSeconds: Double = 10
+  /// Wiedergabe so weit voraus: Feed-Throttle aus, Audio maximal schnell nachschieben.
+  static let transcriptionCatchUpLagSeconds: Double = 6
 
   /// Nutzer hat Read-Along/Teleprompter eingeschaltet — steuert UI und Lebenszyklus.
   @Published private(set) var isTeleprompterModeActive = false
   @Published private(set) var isEnabled = false
   @Published private(set) var isPreparing = false
+  /// Start/Stop läuft — Button blockieren, kein paralleler Toggle.
+  @Published private(set) var isSessionBusy = false
   /// Erst true, wenn genug finalisierter Text vorgepuffert ist — bis dahin Spinner in der Karte.
   @Published private(set) var isTeleprompterReady = false
   @Published private(set) var errorMessage: String?
@@ -109,6 +129,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   var transcriptionLocale: Locale? { activeContext?.locale }
 
   private var finalizedWords: [PlayerTranscriptWord] = []
+  /// Volatile Speech-Ergebnisse während der Pufferphase (ersetzt, nicht angehängt).
+  private var volatileTailWords: [PlayerTranscriptWord] = []
   private let lineAccumulator = PlayerTranscriptLineAccumulator()
   /// Letztes Teleprompter-Layout für Reflow bei Schriftgrößenwechsel.
   private var teleprompterReflowFontSize: CGFloat = 0
@@ -143,54 +165,22 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   private var enableTask: Task<Void, Never>?
   /// Wartet ggf. auf laufendes `stopSession()` — verhindert parallele SpeechAnalyzer.
   private var stopSessionTask: Task<Void, Never>?
+  private var startupWatchdogTask: Task<Void, Never>?
+  private var progressStallWatchdogTask: Task<Void, Never>?
+  /// Inkrementiert bei jedem Start — Tasks ignorieren veraltete Generationen.
+  private var sessionGeneration: UInt = 0
   private var feedCooperativeCounter = 0
   /// Aktives Buch zum Erkennen von Quellenwechseln.
   private var activeTranscriptionBookId: String?
+  private var lastTranscriptionProgressAt: Date?
+  private var lastAppendedThroughGlobalTime: Double = 0
+  /// Inkl. volatiler Speech-Ergebnisse — für Stall-Erkennung und Catch-up.
+  private var lastObservedTranscriptionEnd: Double = 0
+  private var audioContextUnavailableSince: Date?
 
   /// Vom Player bei Kapitel-/Track-Wechsel aufrufen (schneller Handoff).
   func notifyPlaybackTrackAdvanced() {
     feedTrackGeneration += 1
-  }
-
-  /// Vor `tearDownPlayer` / neuem Titel: Session beenden, Modus-UI bleibt an.
-  func prepareForPlaybackHandoff() async {
-    enableTask?.cancel()
-    enableTask = nil
-    setSessionRunning(false)
-    isTeleprompterReady = false
-    words = []
-    resetTranscriptContent()
-    activeTranscriptionBookId = nil
-    stopSessionTask?.cancel()
-    let task = Task { @MainActor [weak self] in
-      guard let self else { return }
-      await self.stopSession()
-    }
-    stopSessionTask = task
-    await task.value
-    if stopSessionTask == task {
-      stopSessionTask = nil
-    }
-  }
-
-  /// Nach neuem Titel: Transkription neu starten, wenn Read-Along noch aktiv ist.
-  func restartSessionForCurrentPlayback(player: PlaybackController) async {
-    guard isTeleprompterModeActive else { return }
-    guard isReadAlongAvailable, player.isReadAlongDownloadReady, player.activeBook != nil else {
-      isTeleprompterReady = false
-      return
-    }
-    boundPlayer = player
-    enableTask?.cancel()
-    let task = Task { @MainActor [weak self] in
-      guard let self else { return }
-      await self.runEnableSession(player: player)
-    }
-    enableTask = task
-    await task.value
-    if enableTask == task {
-      enableTask = nil
-    }
   }
 
   func refreshReadAlongAvailability() async {
@@ -199,8 +189,10 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   func toggle(player: PlaybackController) async {
     guard isReadAlongAvailable, player.isReadAlongDownloadReady else { return }
+    guard !isSessionBusy else { return }
     if isTeleprompterModeActive {
-      disable()
+      errorMessage = nil
+      await disable()
       return
     }
     await startTeleprompterMode(player: player)
@@ -209,7 +201,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   /// Teleprompter-Modus einschalten: UI sofort, Session asynchron starten.
   func startTeleprompterMode(player: PlaybackController) async {
     guard isReadAlongAvailable, player.isReadAlongDownloadReady else { return }
-    guard !isTeleprompterModeActive else { return }
+    guard !isTeleprompterModeActive, !isSessionBusy else { return }
 
     errorMessage = nil
     guard player.activeBook != nil else {
@@ -217,6 +209,12 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       return
     }
 
+    if let pendingStop = stopSessionTask {
+      await pendingStop.value
+    }
+
+    sessionGeneration &+= 1
+    let generation = sessionGeneration
     boundPlayer = player
     isTeleprompterModeActive = true
     applyTeleprompterSideEffects()
@@ -224,60 +222,90 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     enableTask?.cancel()
     enableTask = Task { @MainActor [weak self] in
       guard let self else { return }
-      await self.runEnableSession(player: player)
+      await self.runEnableSession(player: player, generation: generation)
     }
-    // Nicht blockieren — Session startet im Hintergrund, UI bleibt responsiv.
   }
 
-  private func runEnableSession(player: PlaybackController) async {
+  private func runEnableSession(player: PlaybackController, generation: UInt) async {
     isPreparing = true
-    defer { isPreparing = false }
+    isSessionBusy = true
+    defer {
+      isPreparing = false
+      if enableTask == nil || Task.isCancelled {
+        isSessionBusy = false
+      }
+    }
 
     do {
       try Task.checkCancellation()
-      guard isTeleprompterModeActive else { return }
+      guard isTeleprompterModeActive, sessionGeneration == generation else { return }
 
       player.syncGlobalPositionFromPlayer()
-      try await startSession(player: player)
+      try await startSession(player: player, generation: generation)
 
       try Task.checkCancellation()
-      guard isTeleprompterModeActive else {
-        stopSessionTask?.cancel()
-        let stopTask = Task { @MainActor [weak self] in
-          guard let self else { return }
-          await self.stopSession()
-        }
-        stopSessionTask = stopTask
-        await stopTask.value
+      guard isTeleprompterModeActive, sessionGeneration == generation else {
+        await stopSession()
         return
       }
 
       setSessionRunning(true)
       pendingStartupSyncTicks = 15
       syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition, force: true)
+      startStartupWatchdog(generation: generation)
+      startProgressStallWatchdog(generation: generation)
     } catch {
       guard !Task.isCancelled, !AbstandErrorFilter.isBenignCancellation(error) else { return }
-      guard isTeleprompterModeActive else { return }
+      guard sessionGeneration == generation else { return }
 
       let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-      finishTeleprompterMode(resetContent: true)
       errorMessage = message
+      await disable(resetError: false)
+    }
+
+    if enableTask != nil, sessionGeneration == generation {
+      isSessionBusy = false
     }
   }
 
-  func disable() {
+  /// Modus beenden und Session vollständig stoppen (idempotent).
+  func disable(resetError: Bool = true) async {
+    if resetError {
+      errorMessage = nil
+    }
     enableTask?.cancel()
+    if let task = enableTask {
+      await task.value
+    }
     enableTask = nil
+
+    startupWatchdogTask?.cancel()
+    startupWatchdogTask = nil
+    progressStallWatchdogTask?.cancel()
+    progressStallWatchdogTask = nil
 
     if let player = boundPlayer {
       lastTeleprompterPlaybackTime = player.liveGlobalPlaybackPosition
     }
+
+    sessionGeneration &+= 1
     finishTeleprompterMode(resetContent: true)
+
+    stopSessionTask?.cancel()
+    let stopTask = Task { @MainActor [weak self] in
+      guard let self else { return }
+      await self.stopSession()
+    }
+    stopSessionTask = stopTask
+    await stopTask.value
+    if stopSessionTask == stopTask {
+      stopSessionTask = nil
+    }
+    isSessionBusy = false
   }
 
-  /// Modus beenden und Session aufräumen (idempotent).
+  /// Modus-Flags zurücksetzen (ohne async Stop — nur intern).
   private func finishTeleprompterMode(resetContent: Bool) {
-    let wasActive = isTeleprompterModeActive || isEnabled
     isTeleprompterModeActive = false
     setSessionRunning(false)
     applyTeleprompterSideEffects()
@@ -291,22 +319,13 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     modelDownloadProgress = nil
     localeFallbackNotice = nil
     activeTranscriptionBookId = nil
-    if wasActive {
-      errorMessage = nil
-    }
-    stopSessionTask?.cancel()
-    stopSessionTask = Task { @MainActor [weak self] in
-      guard let self else { return }
-      await self.stopSession()
-    }
   }
 
   func handlePlaybackTick(player: PlaybackController) {
     guard isTeleprompterModeActive, isEnabled else { return }
     boundPlayer = player
-    if !isTeleprompterReady {
-      publishWords()
-    }
+    // Volatile Tail + Catch-up-Anzeige auch nach Ready aktualisieren.
+    publishWords()
     if pendingStartupSyncTicks > 0 {
       pendingStartupSyncTicks -= 1
       syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition, force: true)
@@ -314,7 +333,83 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   }
 
   func playbackDidStop() {
-    if isTeleprompterModeActive { disable() }
+    Task { @MainActor in
+      await self.disable()
+    }
+  }
+
+  private func failTeleprompterSession(
+    _ error: PlayerLiveTranscriptionError,
+    generation: UInt
+  ) async {
+    await failTeleprompterSession(message: error.localizedDescription, generation: generation)
+  }
+
+  private func failTeleprompterSession(message: String, generation: UInt) async {
+    guard sessionGeneration == generation, isTeleprompterModeActive else { return }
+    errorMessage = message
+    await disable(resetError: false)
+  }
+
+  private func startStartupWatchdog(generation: UInt) {
+    startupWatchdogTask?.cancel()
+    startupWatchdogTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(nanoseconds: UInt64(Self.transcriptionStartupTimeoutSeconds * 1_000_000_000))
+      guard let self, !Task.isCancelled else { return }
+      guard self.sessionGeneration == generation,
+        self.isTeleprompterModeActive,
+        !self.isTeleprompterReady
+      else { return }
+      await self.failTeleprompterSession(.transcriptionStartupTimedOut, generation: generation)
+    }
+  }
+
+  private func startProgressStallWatchdog(generation: UInt) {
+    progressStallWatchdogTask?.cancel()
+    lastTranscriptionProgressAt = Date()
+    lastAppendedThroughGlobalTime = transcriptionProgressEnd
+    progressStallWatchdogTask = Task { @MainActor [weak self] in
+      while !Task.isCancelled {
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        guard let self, !Task.isCancelled else { return }
+        guard self.sessionGeneration == generation, self.isTeleprompterModeActive else { return }
+        if self.isTeleprompterReady { return }
+        let progressEnd = self.transcriptionProgressEnd
+        if progressEnd > self.lastAppendedThroughGlobalTime + 0.05 {
+          self.lastAppendedThroughGlobalTime = progressEnd
+          self.lastTranscriptionProgressAt = Date()
+          continue
+        }
+        guard let lastProgress = self.lastTranscriptionProgressAt else { continue }
+        if Date().timeIntervalSince(lastProgress) >= Self.transcriptionProgressStallSeconds {
+          await self.failTeleprompterSession(.transcriptionProgressStalled, generation: generation)
+          return
+        }
+      }
+    }
+  }
+
+  /// Transkript-Fortschritt inkl. volatiler Ergebnisse.
+  private var transcriptionProgressEnd: Double {
+    let volatileEnd = volatileTailWords.last(where: { !$0.isWhitespaceOnly })?.globalEnd ?? 0
+    return max(appendedThroughGlobalTime, volatileEnd)
+  }
+
+  private func markTranscriptionActivity(endTime: Double? = nil) {
+    lastTranscriptionProgressAt = Date()
+    if let endTime {
+      lastObservedTranscriptionEnd = max(lastObservedTranscriptionEnd, endTime)
+    }
+  }
+
+  private func cancelStartupWatchdogsIfPreviewVisible() {
+    guard !transcriptLines.isEmpty else { return }
+    startupWatchdogTask?.cancel()
+    startupWatchdogTask = nil
+  }
+
+  private func sessionIsCurrent(_ generation: UInt) -> Bool {
+    isTeleprompterModeActive && sessionGeneration == generation
   }
 
   private func setSessionRunning(_ running: Bool) {
@@ -352,11 +447,13 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   // MARK: - Session
 
-  private func startSession(player: PlaybackController) async throws {
+  private func startSession(player: PlaybackController, generation: UInt) async throws {
+    guard sessionIsCurrent(generation) else { return }
     if let pendingStop = stopSessionTask {
       await pendingStop.value
     }
     try await ensureSpeechRecognitionAuthorized()
+    guard sessionIsCurrent(generation) else { return }
     stopSessionTask?.cancel()
     let stopTask = Task { @MainActor [weak self] in
       guard let self else { return }
@@ -367,9 +464,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     if stopSessionTask == stopTask {
       stopSessionTask = nil
     }
+    guard sessionIsCurrent(generation) else { return }
     resetTranscriptContent()
     feedTrackGeneration = 0
     feedCooperativeCounter = 0
+    audioContextUnavailableSince = nil
     boundPlayer = player
     activeTranscriptionBookId = player.activeBook?.id
     player.syncGlobalPositionFromPlayer()
@@ -434,8 +533,14 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     inputBuilder = continuation
     try await speechAnalyzer.start(inputSequence: stream)
 
+    guard sessionIsCurrent(generation) else {
+      continuation.finish()
+      try? await speechAnalyzer.finalizeAndFinishThroughEndOfInput()
+      return
+    }
+
     resultsTask = Task { [weak self] in
-      await self?.consumeResults(from: speechTranscriber)
+      await self?.consumeResults(from: speechTranscriber, generation: generation)
     }
 
     let localStart = player.transcriptionLocalStartSeconds(preRoll: Self.preRollSeconds)
@@ -445,7 +550,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     publishWords()
     syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition, force: true)
     feedTask = Task.detached(priority: .userInitiated) { [weak self] in
-      await self?.continuousFeedLoop(targetFormat: format)
+      await self?.continuousFeedLoop(targetFormat: format, generation: generation)
     }
   }
 
@@ -514,26 +619,35 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     try await downloader.downloadAndInstall()
   }
 
-  private func consumeResults(from transcriber: SpeechTranscriber) async {
+  private func consumeResults(from transcriber: SpeechTranscriber, generation: UInt) async {
     do {
       for try await result in transcriber.results {
+        let stillCurrent = await MainActor.run { self.sessionIsCurrent(generation) }
+        guard stillCurrent else { return }
         await MainActor.run {
           self.applyTranscriptionResult(result)
         }
       }
     } catch {
       guard !AbstandErrorFilter.isBenignCancellation(error) else { return }
-      await MainActor.run {
-        if self.isTeleprompterModeActive {
-          self.errorMessage = error.localizedDescription
-        }
-      }
+      let message = error.localizedDescription
+      await failTeleprompterSession(message: message, generation: generation)
     }
   }
 
   private func applyTranscriptionResult(_ result: SpeechTranscriber.Result) {
-    guard result.isFinal else { return }
-    applyFinalTranscriptionResult(result)
+    if result.isFinal {
+      volatileTailWords = []
+      applyFinalTranscriptionResult(result)
+    } else {
+      volatileTailWords = words(from: result.text, isVolatile: true)
+      if let end = volatileTailWords.last(where: { !$0.isWhitespaceOnly })?.globalEnd {
+        markTranscriptionActivity(endTime: end)
+      } else {
+        markTranscriptionActivity()
+      }
+      publishWords()
+    }
   }
 
   private func applyFinalTranscriptionResult(_ result: SpeechTranscriber.Result) {
@@ -562,12 +676,14 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     }
     if let last = out.last(where: { !$0.isWhitespaceOnly }) {
       appendedThroughGlobalTime = max(appendedThroughGlobalTime, last.globalEnd)
+      markTranscriptionActivity(endTime: last.globalEnd)
     }
     return out
   }
 
   private func resetTranscriptContent() {
     finalizedWords = []
+    volatileTailWords = []
     lineAccumulator.reset()
     appendedThroughGlobalTime = 0
     words = []
@@ -578,6 +694,24 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     teleprompterReflowFontSize = 0
     teleprompterReflowWidth = 0
     feedCooperativeCounter = 0
+    audioContextUnavailableSince = nil
+    lastTranscriptionProgressAt = nil
+    lastAppendedThroughGlobalTime = 0
+    lastObservedTranscriptionEnd = 0
+  }
+
+  private func transcriptLinesForDisplay() -> [PlayerTranscriptLine] {
+    var lines = lineAccumulator.publishedLines()
+    if !volatileTailWords.isEmpty {
+      lines.append(
+        contentsOf: PlayerTranscriptLineAccumulator.makeLines(
+          from: volatileTailWords,
+          maxCharactersPerLine: lineAccumulator.maxCharactersPerLine,
+          volatile: true
+        )
+      )
+    }
+    return lines
   }
 
   private func words(from text: AttributedString, isVolatile: Bool) -> [PlayerTranscriptWord] {
@@ -658,7 +792,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   func publishWords() {
     refreshTeleprompterReadiness()
     words = finalizedWords
-    transcriptLines = isTeleprompterReady ? lineAccumulator.publishedLines() : []
+    if !volatileTailWords.isEmpty {
+      words.append(contentsOf: volatileTailWords)
+    }
+    transcriptLines = words.isEmpty ? [] : transcriptLinesForDisplay()
+    cancelStartupWatchdogsIfPreviewVisible()
   }
 
   /// Puffer prüfen: genug Zeilen + transkribierte Dauer (nicht „X s vor Live“, das klappt bei Play nicht).
@@ -669,8 +807,9 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     }
 
     let playback = player.liveGlobalPlaybackPosition
+    let progressEnd = transcriptionProgressEnd
     let closedLines = lineAccumulator.publishedLines().count
-    let transcribedSpan = max(0, appendedThroughGlobalTime - sessionFeedStartGlobalTime)
+    let transcribedSpan = max(0, progressEnd - sessionFeedStartGlobalTime)
     let inStartupGrace: Bool = {
       guard let start = teleprompterBufferingStartedAt else { return true }
       return Date().timeIntervalSince(start) < Self.teleprompterStartupGraceSeconds
@@ -678,12 +817,12 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     let nearLiveWhilePlaying =
       !player.isPlaying
       || inStartupGrace
-      || appendedThroughGlobalTime >= playback - Self.maxPlaybackLagWhilePlaying
+      || progressEnd >= playback - Self.maxPlaybackLagWhilePlaying
 
     let hasMinimumContent =
       closedLines >= Self.minClosedLinesForDisplay
       && transcribedSpan >= Self.minTranscribedSecondsForDisplay
-      && appendedThroughGlobalTime > 0.5
+      && progressEnd > 0.5
 
     let timedOut: Bool = {
       guard let start = teleprompterBufferingStartedAt else { return false }
@@ -692,22 +831,27 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     let fallbackReady =
       timedOut
       && closedLines >= max(2, Self.minClosedLinesForDisplay - 2)
-      && appendedThroughGlobalTime > 0.5
+      && progressEnd > 0.5
       && transcribedSpan >= 2
 
     // Früher sichtbar: genug Text da, auch wenn Wiedergabe voraus ist (Scroll-Sync folgt nach).
     let earlyPartialReady =
-      closedLines >= max(2, Self.minClosedLinesForDisplay - 1)
-      && transcribedSpan >= 4
-      && appendedThroughGlobalTime > 0.5
+      (closedLines >= 2 || !volatileTailWords.isEmpty)
+      && transcribedSpan >= 3
+      && progressEnd > 0.5
 
     let ready =
-      (hasMinimumContent && (nearLiveWhilePlaying || earlyPartialReady))
+      (hasMinimumContent && (inStartupGrace ? (nearLiveWhilePlaying || earlyPartialReady) : true))
       || fallbackReady
+      || earlyPartialReady
 
     guard ready != isTeleprompterReady else { return }
     isTeleprompterReady = ready
     if ready {
+      startupWatchdogTask?.cancel()
+      startupWatchdogTask = nil
+      progressStallWatchdogTask?.cancel()
+      progressStallWatchdogTask = nil
       syncTeleprompterToPlayback(at: playback, force: true)
     }
   }
@@ -903,22 +1047,19 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   // MARK: - Audio-Feed
 
-  private func continuousFeedLoop(targetFormat: AVAudioFormat) async {
+  private func continuousFeedLoop(targetFormat: AVAudioFormat, generation: UInt) async {
     do {
-      try await runContinuousFeedLoop(targetFormat: targetFormat)
+      try await runContinuousFeedLoop(targetFormat: targetFormat, generation: generation)
     } catch {
       guard !AbstandErrorFilter.isBenignCancellation(error) else { return }
-      await MainActor.run {
-        if self.isTeleprompterModeActive {
-          self.errorMessage = error.localizedDescription
-        }
-      }
+      let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+      await failTeleprompterSession(message: message, generation: generation)
     }
   }
 
   /// Ein SpeechAnalyzer für alle Tracks — bei Kapitelwechsel nur die Quelldatei wechseln.
-  private func runContinuousFeedLoop(targetFormat: AVAudioFormat) async throws {
-    while !Task.isCancelled, isTeleprompterModeActive {
+  private func runContinuousFeedLoop(targetFormat: AVAudioFormat, generation: UInt) async throws {
+    while !Task.isCancelled, sessionIsCurrent(generation) {
       guard let player = boundPlayer else {
         try await Task.sleep(nanoseconds: 80_000_000)
         continue
@@ -926,14 +1067,21 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
       let bookId = player.activeBook?.id
       if let bookId, let activeTranscriptionBookId, bookId != activeTranscriptionBookId {
-        // Quelle gewechselt — Feed beenden; Neustart kommt von `playBook` / `restartSessionForCurrentPlayback`.
         return
       }
 
       guard let context = await player.makeTranscriptionAudioContext() else {
+        if audioContextUnavailableSince == nil {
+          audioContextUnavailableSince = Date()
+        } else if let since = audioContextUnavailableSince,
+          Date().timeIntervalSince(since) >= Self.audioContextUnavailableSeconds
+        {
+          throw PlayerLiveTranscriptionError.audioSourceUnavailable
+        }
         try await Task.sleep(nanoseconds: 80_000_000)
         continue
       }
+      audioContextUnavailableSince = nil
 
       let trackKey = player.transcriptionTrackKey
       lastFeedTrackKey = trackKey
@@ -1089,27 +1237,39 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   }
 
   private func throttleFeed(fedLocalSeconds: Double, trackGlobalOffset: Double) async throws {
-    let buffering = await MainActor.run { !self.isTeleprompterReady }
-    if buffering {
+    let feedState = await MainActor.run { () -> (buffering: Bool, catchUp: Bool) in
+      guard let player = self.boundPlayer else { return (true, false) }
+      let playback = player.liveGlobalPlaybackPosition
+      let lag = playback - self.transcriptionProgressEnd
+      return (!self.isTeleprompterReady, lag > Self.transcriptionCatchUpLagSeconds)
+    }
+
+    // Hinter der Wiedergabe: Audio-Feed ohne Drossel, damit Speech aufholen kann.
+    if feedState.catchUp { return }
+
+    if feedState.buffering {
       feedCooperativeCounter += 1
-      if feedCooperativeCounter % 8 == 0 {
+      if feedCooperativeCounter % 16 == 0 {
         await Task.yield()
-        try await Task.sleep(nanoseconds: 8_000_000)
       }
       return
     }
 
     let maxLead = Self.preRollSeconds + Self.leadBufferSeconds
     while !Task.isCancelled {
-      let playbackState = await MainActor.run { () -> (local: Double, playing: Bool) in
+      let playbackState = await MainActor.run { () -> (local: Double, playing: Bool, catchUp: Bool) in
         if let player = self.boundPlayer {
+          let playback = player.liveGlobalPlaybackPosition
+          let lag = playback - self.transcriptionProgressEnd
           return (
             player.transcriptionLocalPlaybackSeconds(trackGlobalOffset: trackGlobalOffset),
-            player.isPlaying
+            player.isPlaying,
+            lag > Self.transcriptionCatchUpLagSeconds
           )
         }
-        return (0, false)
+        return (0, false, false)
       }
+      if playbackState.catchUp { return }
       let lead = fedLocalSeconds - playbackState.local
       if lead <= maxLead { break }
       let sleepNs: UInt64 =
