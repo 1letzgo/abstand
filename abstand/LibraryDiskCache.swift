@@ -129,6 +129,56 @@ enum LibraryDiskCache {
     return try? Data(contentsOf: u)
   }
 
+  /// Account-weites `items-in-progress` (API ist user-global, nicht bibliotheksgebunden).
+  static func saveItemsInProgressAccountWide(account: URL, data: Data) throws {
+    let dir = account.appendingPathComponent("itemsInProgress", isDirectory: true)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    try data.write(to: dir.appendingPathComponent("account.json"), options: .atomic)
+  }
+
+  static func loadItemsInProgressAccountWide(account: URL) -> Data? {
+    let u = account.appendingPathComponent("itemsInProgress", isDirectory: true)
+      .appendingPathComponent("account.json")
+    guard fm.fileExists(atPath: u.path) else { return nil }
+    return try? Data(contentsOf: u)
+  }
+
+  /// Kompakte Hörbuch-Zeile für „Continue listening“ (Kaltstart ohne Katalog).
+  struct HomeContinueListeningCacheBook: Codable {
+    let id: String
+    let libraryId: String?
+    let title: String
+    let authorLine: String
+    let numTracks: Int
+  }
+
+  /// Ein Snapshot für Home-Continue: Hörbücher, Podcasts, eBooks (pro Account).
+  struct HomeContinueCachePayload: Codable {
+    var itemsInProgressData: Data?
+    var listeningBooks: [HomeContinueListeningCacheBook]
+    var podcastEpisodes: [ABSPodcastEpisodeListItem]
+    var ebookContinueReading: [EbookContinueShelfCacheBook]
+    var ebookContinueSeriesInjected: [EbookContinueShelfCacheBook]
+  }
+
+  static func saveHomeContinueCache(account: URL, payload: HomeContinueCachePayload) throws {
+    let data = try ABSJSON.encoder().encode(payload)
+    try data.write(to: account.appendingPathComponent("homeContinue.json"), options: .atomic)
+  }
+
+  static func loadHomeContinueCache(account: URL) -> HomeContinueCachePayload? {
+    let u = account.appendingPathComponent("homeContinue.json")
+    guard fm.fileExists(atPath: u.path), let data = try? Data(contentsOf: u) else { return nil }
+    return try? ABSJSON.decoder().decode(HomeContinueCachePayload.self, from: data)
+  }
+
+  static func removeHomeContinueCache(account: URL) throws {
+    let u = account.appendingPathComponent("homeContinue.json")
+    if fm.fileExists(atPath: u.path) {
+      try fm.removeItem(at: u)
+    }
+  }
+
   /// Kompakte Home-Regale „Continue reading“ / eBook-Zeilen in „Continue series“ (ohne Readium beim Kaltstart).
   struct EbookContinueShelfCacheBook: Codable {
     let id: String

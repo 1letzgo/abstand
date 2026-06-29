@@ -1,6 +1,21 @@
 import SwiftUI
 import UIKit
 
+/// Server-Cover-Auflösung: ABS skaliert `/api/items/:id/cover` (Default sonst 400 px).
+enum CoverImageTier {
+  /// Listen, Karten, Mini-Player.
+  case thumbnail
+  /// Buch-/Folgen-Detail, Vollplayer, Now Playing.
+  case hero
+
+  var cacheScopeSuffix: String? {
+    switch self {
+    case .thumbnail: return nil
+    case .hero: return "cover-hero"
+    }
+  }
+}
+
 enum CoverImageContentMode {
   /// Wie Mini-Player und Karten: füllt den Rahmen, kann oben/unten oder an den Seiten beschneiden.
   case fill
@@ -14,6 +29,8 @@ struct CoverImageView: View {
   let url: URL?
   let token: String
   let itemId: String
+  /// Disk-/Memory-Key; Standard `itemId`, Hero z. B. `id#cover-hero` (getrennt vom Thumbnail).
+  let cacheScopeId: String
   /// `model.coverImageCacheAccountDirectory()`; ohne Wert kein Persistenz-Cache.
   let cacheAccount: URL?
   var cacheRevision: Int = 0
@@ -32,6 +49,7 @@ struct CoverImageView: View {
     token: String,
     itemId: String,
     cacheAccount: URL?,
+    cacheScopeId: String? = nil,
     cacheRevision: Int = 0,
     requiresAuthorization: Bool = true,
     contentMode: CoverImageContentMode = .fill
@@ -39,12 +57,13 @@ struct CoverImageView: View {
     self.url = url
     self.token = token
     self.itemId = itemId
+    self.cacheScopeId = cacheScopeId ?? itemId
     self.cacheAccount = cacheAccount
     self.cacheRevision = cacheRevision
     self.requiresAuthorization = requiresAuthorization
     self.contentMode = contentMode
     _image = State(
-      initialValue: CoverImageCache.syncUIImage(itemId: itemId, account: cacheAccount))
+      initialValue: CoverImageCache.syncUIImage(itemId: cacheScopeId ?? itemId, account: cacheAccount))
   }
 
   var body: some View {
@@ -62,7 +81,7 @@ struct CoverImageView: View {
       await load()
     }
     .onChange(of: cacheRevision) { _, _ in
-      image = CoverImageCache.syncUIImage(itemId: itemId, account: cacheAccount)
+      image = CoverImageCache.syncUIImage(itemId: cacheScopeId, account: cacheAccount)
     }
   }
 
@@ -117,10 +136,10 @@ struct CoverImageView: View {
   }
 
   private func load() async {
-    let scopeId = itemId
+    let scopeId = cacheScopeId
     guard let url, !scopeId.isEmpty else {
       await MainActor.run {
-        guard !Task.isCancelled, itemId == scopeId else { return }
+        guard !Task.isCancelled, cacheScopeId == scopeId else { return }
         image = nil
       }
       return
@@ -128,7 +147,7 @@ struct CoverImageView: View {
 
     if let cached = CoverImageCache.memoryImage(itemId: scopeId) {
       await MainActor.run {
-        guard !Task.isCancelled, itemId == scopeId else { return }
+        guard !Task.isCancelled, cacheScopeId == scopeId else { return }
         image = cached
       }
       return
@@ -140,7 +159,7 @@ struct CoverImageView: View {
     {
       CoverImageCache.storeMemory(itemId: scopeId, image: ui)
       await MainActor.run {
-        guard !Task.isCancelled, itemId == scopeId else { return }
+        guard !Task.isCancelled, cacheScopeId == scopeId else { return }
         image = ui
       }
       return
@@ -161,7 +180,7 @@ struct CoverImageView: View {
       }
       CoverImageCache.storeMemory(itemId: scopeId, image: ui)
       await MainActor.run {
-        guard !Task.isCancelled, itemId == scopeId else { return }
+        guard !Task.isCancelled, cacheScopeId == scopeId else { return }
         image = ui
       }
     } catch {}

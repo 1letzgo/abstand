@@ -1645,7 +1645,7 @@ final class PlaybackController: NSObject, ObservableObject {
 
   private func loadNowPlayingArtwork(bookId: String) async {
     guard let client = apiClient else { return }
-    let url = await client.coverURL(itemId: bookId)
+    let url = await client.coverURL(itemId: bookId, tier: .hero)
     let data: Data
     do {
       data = try await client.authenticatedData(from: url)

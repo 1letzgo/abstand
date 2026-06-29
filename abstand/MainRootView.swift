@@ -1138,7 +1138,8 @@ private struct StartDashboardView: View {
   }
 
   private var showsOfflineHomeMiniPlayer: Bool {
-    model.player.activeBook != nil || model.isPlayerConnectionLoading
+    guard model.activePlaybackIsOfflineEligible() else { return false }
+    return model.player.activeBook != nil || model.isPlayerConnectionLoading
   }
 
   /// Offline-Home: Player fix oben, nur „Downloaded“ scrollt darunter.
@@ -2463,7 +2464,7 @@ struct PodcastEpisodeRowCard: View {
       cardColor: AppTheme.card,
       showsBottomProgressBar: showsBottomProgressBar,
       progressValue: bottomProgressValue,
-      openDetails: opensDetailOnTap ? { showDetail = true } : nil
+      openDetails: nil
     ) {
       HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
         Button {
@@ -2492,34 +2493,41 @@ struct PodcastEpisodeRowCard: View {
         .accessibilityLabel("Play")
         .accessibilityHint("Starts playback of this episode.")
 
-        LibraryRowLayout.metadataColumn(showsProgressBar: showsBottomProgressBar) {
-          VStack(alignment: .leading, spacing: 2) {
-            Text(episode.episodeTitle)
-              .font(.headline.weight(.semibold))
-              .foregroundStyle(AppTheme.textPrimary)
-              .lineLimit(1)
-              .truncationMode(.tail)
-              .minimumScaleFactor(0.85)
-              .fixedSize(horizontal: false, vertical: true)
-            PodcastEpisodeCollapsedShowLine(episode: episode)
-            Spacer(minLength: 0)
-            LibraryRowLayout.metadataFooter {
-              Text(formatPlaybackTime(resolvedTotalDurationSeconds))
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(AppTheme.textSecondary)
-            } trailing: {
-              Group {
-                if prog?.isFinished == true {
-                  Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(themeAccent)
-                    .font(.caption)
-                    .accessibilityLabel("Finished")
+        Group {
+          LibraryRowLayout.metadataColumn(showsProgressBar: showsBottomProgressBar) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(episode.episodeTitle)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(AppTheme.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .minimumScaleFactor(0.85)
+                .fixedSize(horizontal: false, vertical: true)
+              PodcastEpisodeCollapsedShowLine(episode: episode)
+              Spacer(minLength: 0)
+              LibraryRowLayout.metadataFooter {
+                Text(formatPlaybackTime(resolvedTotalDurationSeconds))
+                  .font(.subheadline.monospacedDigit())
+                  .foregroundStyle(AppTheme.textSecondary)
+              } trailing: {
+                Group {
+                  if prog?.isFinished == true {
+                    Image(systemName: "checkmark.circle.fill")
+                      .foregroundStyle(themeAccent)
+                      .font(.caption)
+                      .accessibilityLabel("Finished")
+                  }
+                  podcastDownloadStatusIcon
                 }
-                podcastDownloadStatusIcon
               }
             }
+            .padding(.trailing, 4)
           }
-          .padding(.trailing, 4)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+          guard opensDetailOnTap else { return }
+          showDetail = true
         }
       }
     }
@@ -4914,15 +4922,6 @@ private func coverAverageRGB(from image: UIImage) -> (CGFloat, CGFloat, CGFloat)
   )
 }
 
-private enum ListeningHistoryDateFormatting {
-  static let sessionList: DateFormatter = {
-    let f = DateFormatter()
-    f.dateStyle = .medium
-    f.timeStyle = .short
-    return f
-  }()
-}
-
 private struct ListeningHistoryDisclosure: View {
   @Environment(\.themeAccent) private var themeAccent
   @Binding var expanded: Bool
@@ -4934,26 +4933,14 @@ private struct ListeningHistoryDisclosure: View {
 
   var body: some View {
     DisclosureGroup(isExpanded: $expanded) {
-      Group {
-        if sessions.isEmpty {
-          Text(
-            isNetworkReachable
-              ? emptyOnlineText
-              : emptyOfflineText
-          )
-          .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.vertical, 6)
-        } else {
-          VStack(alignment: .leading, spacing: 14) {
-            ForEach(sessions) { session in
-              ListeningHistoryRow(session: session, onJump: onJumpToSessionStart)
-            }
-          }
-          .padding(.top, 6)
-        }
-      }
+      ListeningHistorySessionList(
+        sessions: sessions,
+        isNetworkReachable: isNetworkReachable,
+        emptyOnlineText: emptyOnlineText,
+        emptyOfflineText: emptyOfflineText,
+        onJumpToSessionStart: onJumpToSessionStart
+      )
+      .padding(.top, 6)
     } label: {
       Text("Listening history")
         .font(.caption.weight(.bold))
@@ -4962,58 +4949,6 @@ private struct ListeningHistoryDisclosure: View {
         .tracking(0.6)
     }
     .tint(themeAccent)
-  }
-}
-
-private struct ListeningHistoryRow: View {
-  @Environment(\.themeAccent) private var themeAccent
-  let session: ABSListeningSession
-  let onJump: (ABSListeningSession) -> Void
-
-  var body: some View {
-    let denom = max(session.duration, session.currentTime, session.startTime, 1)
-    let rel0 = CGFloat(session.startTime / denom)
-    let rel1 = CGFloat(session.currentTime / denom)
-    let started = Date(timeIntervalSince1970: Double(session.startedAt) / 1000)
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(alignment: .center, spacing: 10) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text(ListeningHistoryDateFormatting.sessionList.string(from: started))
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(AppTheme.textPrimary)
-          Text(
-            "Listened \(formatPlaybackTime(Double(session.timeListening))) · \(formatPlaybackTime(session.startTime)) → \(formatPlaybackTime(session.currentTime))"
-          )
-          .font(.caption.monospacedDigit())
-          .foregroundStyle(AppTheme.textSecondary)
-        }
-        Spacer(minLength: 8)
-        Button {
-          onJump(session)
-        } label: {
-          Image(systemName: "arrow.counterclockwise.circle.fill")
-            .font(.title2)
-            .abstandAccentForeground()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Jump to this session")
-      }
-      GeometryReader { geo in
-        let w = geo.size.width
-        let x0 = min(max(rel0 * w, 0), w)
-        let x1 = min(max(rel1 * w, x0 + 2), w)
-        ZStack(alignment: .leading) {
-          Capsule()
-            .fill(AppTheme.card)
-          Capsule()
-            .fill(themeAccent.opacity(0.88))
-            .frame(width: x1 - x0)
-            .offset(x: x0)
-        }
-      }
-      .frame(height: 7)
-    }
-    .padding(.vertical, 4)
   }
 }
 
@@ -5123,6 +5058,8 @@ private enum DetailActionRowMetrics {
 /// Apple-Music-ähnliches Detail-Hero: Cover, Titel und Aktionszeile.
 private enum DetailHeroLayoutMetrics {
   static let coverTopPadding: CGFloat = 4
+  /// eBook-Detail: maximale Cover-Breite (Hochformat, kein 1:1-Zwang).
+  static let ebookCoverMaxWidth: CGFloat = 300
   static let titleTopSpacing: CGFloat = 18
   static let sideControlSize: CGFloat = 52
   static let compactSideControlSize: CGFloat = 46
@@ -5809,7 +5746,7 @@ struct BookDetailView: View {
   }
 
   private func loadCoverTint() async {
-    guard let url = model.coverURL(for: bookId) else { return }
+    guard let url = model.coverURL(for: bookId, tier: .hero) else { return }
     var req = URLRequest(url: url)
     req.setValue("Bearer \(model.token)", forHTTPHeaderField: "Authorization")
     do {
@@ -5864,16 +5801,30 @@ struct BookDetailView: View {
   }
 
   private var coverSection: some View {
-    CoverImageView(
-      url: model.coverURL(for: bookId),
+    let b = detail ?? book
+    let heroScope = model.coverImageCacheScopeId(for: bookId, tier: .hero)
+    let cover = CoverImageView(
+      url: model.coverURL(for: bookId, tier: .hero),
       token: model.token,
       itemId: bookId,
       cacheAccount: model.coverImageCacheAccountDirectory(),
-      cacheRevision: model.coverImageCacheRevision
+      cacheScopeId: heroScope,
+      cacheRevision: model.coverImageCacheRevision,
+      contentMode: .fit
     )
-    .aspectRatio(1, contentMode: .fit)
-    .frame(maxWidth: .infinity)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
+
+    return Group {
+      if b.isPureEbookLibraryItem {
+        cover
+          .frame(maxWidth: DetailHeroLayoutMetrics.ebookCoverMaxWidth)
+          .frame(maxWidth: .infinity)
+      } else {
+        cover
+          .aspectRatio(1, contentMode: .fit)
+          .frame(maxWidth: .infinity)
+      }
+    }
     .padding(.top, DetailHeroLayoutMetrics.coverTopPadding)
   }
 
@@ -6278,6 +6229,7 @@ struct PodcastEpisodeDetailView: View {
   @State private var confirmDiscardEpisodeProgress = false
   @State private var confirmMarkEpisodeFinished = false
   @State private var confirmMarkEpisodeUnfinished = false
+  @State private var didSeedCoverTintFromCache = false
 
   private var prog: ABSUserMediaProgress? { model.progressByItemId[episode.progressLookupKey] }
 
@@ -6317,7 +6269,11 @@ struct PodcastEpisodeDetailView: View {
     .onChange(of: model.appearanceThemeRevision) { _, _ in
       applyCoverTintFromStoredImage()
     }
+    .onAppear {
+      seedEpisodeCoverTintFromCacheIfNeeded()
+    }
     .task {
+      seedEpisodeCoverTintFromCacheIfNeeded()
       async let d = model.loadPodcastEpisodeDetail(episode)
       let showMid =
         model.podcastShows.first(where: { $0.id == episode.libraryItemId })?.mediaId
@@ -6353,16 +6309,34 @@ struct PodcastEpisodeDetailView: View {
     }
   }
 
+  private func seedEpisodeCoverTintFromCacheIfNeeded() {
+    guard !didSeedCoverTintFromCache else { return }
+    didSeedCoverTintFromCache = true
+    let fallback = model.appearancePalette.background
+    guard let account = model.coverImageCacheAccountDirectory() else {
+      coverTintColor = fallback
+      return
+    }
+    if let cached = CoverDerivedTintLoader.colorFromDiskOrCoverCache(
+      account: account,
+      itemId: episode.libraryItemId
+    ) {
+      coverTintColor = cached
+    } else {
+      coverTintColor = fallback
+    }
+  }
+
   private func applyCoverTintFromStoredImage() {
     if let coverImageForTint {
       coverTintColor = coverDominantBackgroundTint(from: coverImageForTint)
     } else {
-      coverTintColor = AppTheme.background
+      coverTintColor = model.appearancePalette.background
     }
   }
 
   private func loadCoverTint() async {
-    guard let url = model.coverURL(for: episode.libraryItemId) else { return }
+    guard let url = model.coverURL(for: episode.libraryItemId, tier: .hero) else { return }
     var req = URLRequest(url: url)
     req.setValue("Bearer \(model.token)", forHTTPHeaderField: "Authorization")
     do {
@@ -6404,11 +6378,13 @@ struct PodcastEpisodeDetailView: View {
 
   private var coverSection: some View {
     CoverImageView(
-      url: model.coverURL(for: episode.libraryItemId),
+      url: model.coverURL(for: episode.libraryItemId, tier: .hero),
       token: model.token,
       itemId: episode.libraryItemId,
       cacheAccount: model.coverImageCacheAccountDirectory(),
-      cacheRevision: model.coverImageCacheRevision
+      cacheScopeId: model.coverImageCacheScopeId(for: episode.libraryItemId, tier: .hero),
+      cacheRevision: model.coverImageCacheRevision,
+      contentMode: .fit
     )
     .aspectRatio(1, contentMode: .fit)
     .frame(maxWidth: .infinity)

@@ -27,10 +27,8 @@ struct ListeningMonthHeatmapCard: View {
 
   private var accent: Color { model.appearanceAccentColor }
   private var palette: AppColorPalette { model.appearancePalette }
-  /// Dark: Mint-Grün; Sepia-Light: App-Akzent (Grün auf hellem Papier hat zu wenig Kontrast).
-  private var heatmapActiveColor: Color {
-    palette.isDarkLike ? AppTheme.success : accent
-  }
+  /// Akzentfarbe aus Appearance — Stufen über Opacity in `heatmapFill`.
+  private var heatmapActiveColor: Color { accent }
 
   @State private var monthsBack: Int = 0
   @State private var cardWidth: CGFloat = 0

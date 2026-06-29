@@ -807,8 +807,28 @@ actor ABSAPIClient {
     try await sendData(req)
   }
 
-  func coverURL(itemId: String) -> URL {
-    baseURL.appendingPathComponent("api/items/\(itemId)/cover")
+  func coverURL(itemId: String, tier: CoverImageTier = .thumbnail) -> URL {
+    Self.itemCoverURL(baseURL: baseURL, itemId: itemId, tier: tier)
+  }
+
+  nonisolated static func itemCoverURL(baseURL: URL, itemId: String, tier: CoverImageTier) -> URL {
+    var components = URLComponents(
+      url: baseURL.appendingPathComponent("api/items/\(itemId)/cover"),
+      resolvingAgainstBaseURL: false
+    )!
+    switch tier {
+    case .thumbnail:
+      components.queryItems = [
+        URLQueryItem(name: "width", value: "400"),
+        URLQueryItem(name: "format", value: "jpeg"),
+      ]
+    case .hero:
+      components.queryItems = [
+        URLQueryItem(name: "width", value: "1200"),
+        URLQueryItem(name: "format", value: "jpeg"),
+      ]
+    }
+    return components.url ?? baseURL.appendingPathComponent("api/items/\(itemId)/cover")
   }
 
   func authenticatedData(from url: URL) async throws -> Data {

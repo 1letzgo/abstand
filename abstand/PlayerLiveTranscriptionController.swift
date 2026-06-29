@@ -1075,8 +1075,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
         guard let converter = audioConverter else { throw PlayerLiveTranscriptionError.conversionFailed }
         let converted = try converter.convert(buffer, to: targetFormat)
 
-        await MainActor.run {
-          _ = self.inputBuilder?.yield(AnalyzerInput(buffer: converted))
+        _ = await MainActor.run {
+          self.inputBuilder?.yield(AnalyzerInput(buffer: converted))
         }
 
         let dur = CMSampleBufferGetDuration(sample).seconds

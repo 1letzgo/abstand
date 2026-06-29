@@ -70,9 +70,6 @@ private struct AppRootContainer: View {
     .onChange(of: systemColorScheme) { _, scheme in
       model.reapplyAppearance(systemColorScheme: scheme)
     }
-    .task {
-      await model.bootstrapFromStoredCredentials()
-    }
     .onChange(of: scenePhase) { _, phase in
       // Nur im Vordergrund die Session setzen: Bei `.inactive` (z. B. Control Center,
       // Sperrbildschirm) erneutes `setCategory`/`setActive` kann die laufende Wiedergabe unterbrechen.

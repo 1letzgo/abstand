@@ -49,10 +49,12 @@ enum FullPlayerUtilityBarLayout {
 /// Kapitel- und Sekunden-Buttons links/rechts vom Play-Orb.
 private enum FullPlayerTransportLayout {
   static let auxiliarySymbolFont: Font = .system(size: 30, weight: .medium)
-  /// Abstand unter Scrubber- bzw. Teleprompter-Karte bis zur Play-Button-Reihe.
+  /// Abstand Autorzeile ↔ Fortschritts-Scrubber ↔ Panel-Steuerzeile (symmetrisch).
+  static let scrubberVerticalSpacing: CGFloat = 20
+  /// Abstand Panel-Steuerzeile bis Play-Button-Reihe.
   static let spacingAbovePlayRow: CGFloat = 24
   /// Abstand Play-Button-Reihe bis Utility-Bar (Speed, Download, …).
-  static let spacingBelowPlayRow: CGFloat = 20
+  static let spacingBelowPlayRow: CGFloat = 8
 }
 
 /// Fortschrittsbalken im Vollplayer — Anzeige; Scrub per Long-Press + Ziehen.
@@ -63,13 +65,11 @@ private enum FullPlayerProgressLayout {
   static let scrubThumbDiameter: CGFloat = 16
 }
 
-/// Eine Kartenfläche für Buch- und Kapitel-Scrubber.
-private enum FullPlayerScrubberCardLayout {
-  static let insetH: CGFloat = 14
-  static let insetV: CGFloat = 12
+/// Layout für Buch- und Kapitel-Scrubber (ohne Kartenhülle).
+private enum FullPlayerScrubberLayout {
   static let blockSpacing: CGFloat = 10
-  /// Freiraum oberhalb des sichtbaren Balkens (pro Scrubber-Zeile).
-  static let paddingAboveBar: CGFloat = 14
+  /// Freiraum oberhalb des sichtbaren Balkens (Scrub-Thumb).
+  static let paddingAboveBar: CGFloat = 6
   /// Abstand Fortschrittsbalken → Laufzeiten.
   static let barToTimeSpacing: CGFloat = 2
 
@@ -157,7 +157,6 @@ private struct FullPlayerProgressTrack: View {
 
 /// Vollplayer-Fortschritt: Long-Press auf dem Balken, dann ziehen zum Suchen.
 private struct FullPlayerScrubberSection: View {
-  @EnvironmentObject private var model: AppModel
   @Environment(\.appearanceThemeRevision) private var themeRevision
   @ObservedObject var player: PlaybackController
   let centerCaption: String
@@ -185,37 +184,27 @@ private struct FullPlayerScrubberSection: View {
 
   var body: some View {
     let _ = themeRevision
-    let palette = model.appearancePalette
     let dur = duration
     let pos = min(max(0, displayGlobalPosition), dur)
-    let cardShape = RoundedRectangle(
-      cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous)
 
-    VStack(alignment: .leading, spacing: 0) {
+    VStack(alignment: .leading, spacing: FullPlayerScrubberLayout.blockSpacing) {
       bookScrubberBlock(pos: pos, dur: dur)
 
       if showsChapterProgress, let chapter = chapterProgressForDisplay() {
-        Divider()
-          .overlay(palette.textSecondary.opacity(0.22))
-          .padding(.vertical, FullPlayerScrubberCardLayout.blockSpacing)
-
         chapterProgressSection(chapter: chapter)
       }
     }
-    .padding(.horizontal, FullPlayerScrubberCardLayout.insetH)
-    .padding(.vertical, FullPlayerScrubberCardLayout.insetV)
-    .background(palette.card, in: cardShape)
-    .abstandCardElevation(.subtle)
+    .frame(maxWidth: .infinity)
     .accessibilityHint("Long press and drag on the bar to seek.")
   }
 
   private func bookScrubberBlock(pos: Double, dur: Double) -> some View {
-    VStack(alignment: .leading, spacing: FullPlayerScrubberCardLayout.barToTimeSpacing) {
+    VStack(alignment: .leading, spacing: FullPlayerScrubberLayout.barToTimeSpacing) {
       GeometryReader { geo in
         let trackWidth = max(geo.size.width, 1)
         VStack(spacing: 0) {
           Spacer(minLength: 0)
-            .frame(height: FullPlayerScrubberCardLayout.paddingAboveBar)
+            .frame(height: FullPlayerScrubberLayout.paddingAboveBar)
           FullPlayerProgressTrack(
             value: pos,
             total: dur,
@@ -227,7 +216,7 @@ private struct FullPlayerScrubberSection: View {
         .contentShape(Rectangle())
         .gesture(scrubEnabled ? bookScrubGesture(trackWidth: trackWidth) : nil)
       }
-      .frame(height: FullPlayerScrubberCardLayout.scrubTrackBlockHeight)
+      .frame(height: FullPlayerScrubberLayout.scrubTrackBlockHeight)
 
       HStack {
         Text(formatPlaybackTime(pos))
@@ -259,12 +248,12 @@ private struct FullPlayerScrubberSection: View {
     chapter: (position: Double, duration: Double, start: Double)
   ) -> some View {
     let chPos = min(max(0, chapter.position), chapter.duration)
-    VStack(alignment: .leading, spacing: FullPlayerScrubberCardLayout.barToTimeSpacing) {
+    VStack(alignment: .leading, spacing: FullPlayerScrubberLayout.barToTimeSpacing) {
       GeometryReader { geo in
         let trackWidth = max(geo.size.width, 1)
         VStack(spacing: 0) {
           Spacer(minLength: 0)
-            .frame(height: FullPlayerScrubberCardLayout.paddingAboveBar)
+            .frame(height: FullPlayerScrubberLayout.paddingAboveBar)
           FullPlayerProgressTrack(
             value: chPos,
             total: chapter.duration,
@@ -276,7 +265,7 @@ private struct FullPlayerScrubberSection: View {
         .contentShape(Rectangle())
         .gesture(scrubEnabled ? chapterScrubGesture(trackWidth: trackWidth, chapter: chapter) : nil)
       }
-      .frame(height: FullPlayerScrubberCardLayout.scrubTrackBlockHeight)
+      .frame(height: FullPlayerScrubberLayout.scrubTrackBlockHeight)
 
       HStack {
         Text(formatPlaybackTime(chPos))
@@ -875,9 +864,39 @@ struct NowPlayingDetailView: View {
 
   @State private var readAlongDownloadWarningPresented = false
   @AppStorage(PlayerTeleprompterMetrics.fontSizeStorageKey) private var teleprompterFontSizeStorage: Double = 0
+  @State private var coverPanel: FullPlayerCoverPanel = .artwork
+  @State private var panelBookDetail: ABSBook?
+  @State private var panelListeningSessions: [ABSListeningSession] = []
 
   private var isTeleprompterActive: Bool {
     player.liveTranscription.isTeleprompterModeActive
+  }
+
+  /// Cover durch Teleprompter oder Kapitel-/Sessions-/Bookmarks-Panel ersetzt.
+  private var isCoverPanelExpanded: Bool {
+    isTeleprompterActive || coverPanel != .artwork
+  }
+
+  private var isAudiobookPlayback: Bool {
+    guard player.activeBook != nil else { return false }
+    let ep = player.activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return ep.isEmpty && (player.activeBook?.isPlayableAudiobook ?? false)
+  }
+
+  private var panelChapterBook: ABSBook? {
+    panelBookDetail ?? player.activeBook
+  }
+
+  private var showsChaptersButton: Bool {
+    isAudiobookPlayback
+  }
+
+  private var showsSessionsButton: Bool {
+    player.activeBook != nil
+  }
+
+  private var showsDescriptionButton: Bool {
+    player.activeBook != nil
   }
 
   private var showsConnectionLoading: Bool {
@@ -909,6 +928,18 @@ struct NowPlayingDetailView: View {
       if player.liveTranscription.isTeleprompterModeActive {
         player.liveTranscription.disable()
       }
+      coverPanel = .artwork
+    }
+    .onChange(of: isTeleprompterActive) { _, active in
+      if active { coverPanel = .artwork }
+    }
+    .onChange(of: player.activeBook?.id) { _, _ in
+      coverPanel = .artwork
+      panelBookDetail = nil
+      panelListeningSessions = []
+    }
+    .task(id: coverPanel) {
+      await loadCoverPanelDataIfNeeded()
     }
     // Am stabilen Player-Root statt in der Teleprompter-View: die Translation-Session
     // crasht (fatalError), wenn ihre Anker-View verschwindet (Rotation, Card-Swap).
@@ -969,11 +1000,19 @@ struct NowPlayingDetailView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
   }
 
+  private var showsFullPlayerPanelControls: Bool {
+    player.liveTranscription.isReadAlongAvailable
+      || showsDescriptionButton
+      || activeAudiobookBookmarkId != nil
+      || showsChaptersButton
+      || showsSessionsButton
+  }
+
   @ViewBuilder
   private func fullPlayerPortraitLayout(book: ABSBook) -> some View {
-    let teleprompterActive = isTeleprompterActive
+    let panelExpanded = isCoverPanelExpanded
     VStack(spacing: 0) {
-      if teleprompterActive {
+      if panelExpanded {
         playerHeaderArea(book: book)
           .frame(maxWidth: .infinity)
           .frame(maxHeight: .infinity, alignment: .top)
@@ -993,13 +1032,17 @@ struct NowPlayingDetailView: View {
         .frame(maxHeight: .infinity)
       }
 
+      fullPlayerPanelControlRow()
+        .frame(maxWidth: 800)
+
       fullPlayerTransportRow
         .frame(maxWidth: 800)
 
       fullPlayerUtilityBar
       Spacer(minLength: 8)
     }
-    .animation(.easeInOut(duration: 0.28), value: teleprompterActive)
+    .animation(.easeInOut(duration: 0.28), value: panelExpanded)
+    .animation(.easeInOut(duration: 0.28), value: coverPanel)
   }
 
   private var landscapeLayout: some View {
@@ -1015,14 +1058,14 @@ struct NowPlayingDetailView: View {
 
   @ViewBuilder
   private func fullPlayerLandscapeLayout(book: ABSBook) -> some View {
-    let teleprompterActive = isTeleprompterActive
+    let panelExpanded = isCoverPanelExpanded
     HStack(alignment: .top, spacing: MiniPlayerMetrics.fullPlayerCoverInset) {
       playerHeaderArea(book: book)
         .containerRelativeFrame(.horizontal) { w, _ in w * 0.48 }
         .frame(maxHeight: .infinity, alignment: .top)
-        .layoutPriority(teleprompterActive ? 1 : 0)
+        .layoutPriority(panelExpanded ? 1 : 0)
       VStack(spacing: 0) {
-        if !teleprompterActive {
+        if !panelExpanded {
           chapterTitleArea(book: book)
           TimelineView(.periodic(from: .now, by: 0.5)) { _ in
             scrubberSection(book: book)
@@ -1030,13 +1073,15 @@ struct NowPlayingDetailView: View {
         } else {
           Spacer(minLength: 0)
         }
+        fullPlayerPanelControlRow()
         fullPlayerTransportRow
         fullPlayerUtilityBar
         Spacer(minLength: 8)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    .animation(.easeInOut(duration: 0.28), value: teleprompterActive)
+    .animation(.easeInOut(duration: 0.28), value: panelExpanded)
+    .animation(.easeInOut(duration: 0.28), value: coverPanel)
   }
 
   private var restoringOrIdleInLandscape: some View {
@@ -1070,63 +1115,320 @@ struct NowPlayingDetailView: View {
     }
     .frame(maxWidth: .infinity)
     .padding(.horizontal, 8)
+    .padding(.top, 12)
+    .padding(.bottom, FullPlayerTransportLayout.scrubberVerticalSpacing)
     .accessibilityElement(children: .combine)
   }
 
   @ViewBuilder
   private func playerHeaderArea(book: ABSBook) -> some View {
-    let dur = max(player.totalDuration, 1)
-    let pos = player.globalPosition
-    let pct = min(100, max(0, Int((pos / dur * 100).rounded())))
-
-    if player.liveTranscription.isTeleprompterModeActive {
-      readAlongKaraokeCard()
-        .overlay(alignment: .topLeading) {
-          fullPlayerBookmarkOverlay()
-        }
-        .overlay(alignment: .topTrailing) {
-          fullPlayerProgressOverlay(percent: pct)
-        }
-        .overlay(alignment: .bottomLeading) {
-          teleprompterFontSizeControls
-            .fullPlayerCoverCornerOverlayPadding(bottom: true, leading: true)
-            .contentShape(Rectangle())
-        }
-        .overlay(alignment: .bottomTrailing) {
-          fullPlayerReadAlongOverlay()
-        }
-    } else {
-      fullPlayerArtwork(book: book, progressPercent: pct)
+    Group {
+      if isTeleprompterActive {
+        readAlongKaraokeCard()
+      } else if coverPanel != .artwork {
+        fullPlayerExpandedListCard(book: book)
+      } else {
+        fullPlayerArtworkCard(book: book)
+      }
     }
   }
 
+  /// Quadratische Cover-Karte (1:1) — nur für Artwork.
+  private func fullPlayerSquareCoverCard<Overlay: View>(
+    cardOpacity: CGFloat = 1,
+    @ViewBuilder overlay: @escaping () -> Overlay
+  ) -> some View {
+    let corner = FullPlayerCoverOverlayMetrics.coverSurfaceCornerRadius
+    let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
+    return Color.clear
+      .aspectRatio(1, contentMode: .fit)
+      .frame(maxWidth: .infinity, alignment: .top)
+      .background(AppTheme.card.opacity(cardOpacity), in: shape)
+      .overlay {
+        GeometryReader { geo in
+          overlay()
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+      }
+      .clipShape(shape)
+      .overlay {
+        shape.strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
+      }
+      .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
+  }
+
+  /// Ausgeklapptes Panel/Teleprompter — volle Höhe bis zur Panel-Steuerzeile (ohne Schatten).
+  private func fullPlayerExpandedCoverCard<Overlay: View>(
+    cardOpacity: CGFloat = 0.35,
+    @ViewBuilder overlay: @escaping () -> Overlay
+  ) -> some View {
+    let corner = FullPlayerCoverOverlayMetrics.coverSurfaceCornerRadius
+    let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
+    return Color.clear
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .background(AppTheme.card.opacity(cardOpacity), in: shape)
+      .overlay {
+        overlay()
+      }
+      .clipShape(shape)
+      .overlay {
+        shape.strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
+      }
+  }
+
+  /// Nur Cover-Bild (1:1).
+  private func fullPlayerArtworkCard(book: ABSBook) -> some View {
+    fullPlayerSquareCoverCard {
+      CoverImageView(
+        url: model.coverURL(for: book.id, tier: .hero),
+        token: model.token,
+        itemId: book.id,
+        cacheAccount: model.coverImageCacheAccountDirectory(),
+        cacheScopeId: model.coverImageCacheScopeId(for: book.id, tier: .hero),
+        cacheRevision: model.coverImageCacheRevision,
+        contentMode: .fill
+      )
+    }
+  }
+
+  /// Kapitel-, Sessions- oder Bookmarks-Panel — klappt bis zur Progress-Karte auf.
+  private func fullPlayerExpandedListCard(book: ABSBook) -> some View {
+    fullPlayerExpandedCoverCard {
+      fullPlayerCoverPanelBody(book: book)
+    }
+    .animation(.easeInOut(duration: 0.22), value: coverPanel)
+  }
+
   @ViewBuilder
-  private func fullPlayerBookmarkOverlay() -> some View {
+  private func fullPlayerCoverPanelBody(book: ABSBook) -> some View {
+    switch coverPanel {
+    case .artwork:
+      EmptyView()
+    case .description:
+      fullPlayerCoverPanelContent(title: "Description") {
+        BookDescriptionPanelView(text: resolvedBookDescriptionText(for: book))
+      }
+    case .chapters:
+      if let chapterBook = panelChapterBook {
+        fullPlayerCoverPanelContent(title: "Chapters") {
+          BookChapterListView(
+            book: chapterBook,
+            progress: model.progressByItemId[chapterBook.id]
+          ) { chapter in
+            Task {
+              await model.play(book: chapterBook, resumeAtOverride: chapter.start, autoPlay: true)
+            }
+          }
+        }
+      }
+    case .sessions:
+      fullPlayerCoverPanelContent(title: "Listening history") {
+        let isEpisode = model.podcastEpisodeForActivePlayback() != nil
+        ListeningHistorySessionList(
+          sessions: panelListeningSessions,
+          isNetworkReachable: model.isNetworkReachable,
+          emptyOnlineText: isEpisode
+            ? "No listening sessions recorded for this episode yet."
+            : "No listening sessions recorded for this book yet.",
+          emptyOfflineText: "Listening history is unavailable offline.",
+          onJumpToSessionStart: { session in
+            Task {
+              if let episode = model.podcastEpisodeForActivePlayback() {
+                await model.playPodcastEpisode(
+                  episode, autoPlay: true, resumeAtOverride: session.startTime)
+              } else {
+                await model.play(book: book, resumeAtOverride: session.startTime, autoPlay: true)
+              }
+            }
+          }
+        )
+      }
+    case .bookmarks:
+      if let audiobookId = activeAudiobookBookmarkId {
+        fullPlayerCoverPanelContent(title: "Bookmarks") {
+          AudiobookBookmarkListView(libraryItemId: audiobookId) { mark in
+            Task { await model.jumpToBookmark(mark, autoPlay: true) }
+          }
+        }
+      }
+    }
+  }
+
+  private func fullPlayerCoverPanelContent<Content: View>(
+    title: String,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    let pad = PlayerTeleprompterMetrics.cardContentPadding
+    return VStack(alignment: .leading, spacing: 8) {
+      Text(title)
+        .font(.caption.weight(.bold))
+        .foregroundStyle(AppTheme.textSecondary)
+        .textCase(.uppercase)
+        .tracking(0.6)
+        .padding(.horizontal, pad)
+        .padding(.top, pad)
+      ScrollView {
+        content()
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, pad)
+          .padding(.bottom, pad)
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+  }
+
+  private func loadCoverPanelDataIfNeeded() async {
+    guard let activeBook = player.activeBook else { return }
+    switch coverPanel {
+    case .artwork, .bookmarks:
+      break
+    case .description, .chapters:
+      if panelBookDetail?.id != activeBook.id {
+        panelBookDetail = await model.loadBookDetail(id: activeBook.id)
+      } else if coverPanel == .chapters,
+        (panelBookDetail?.media.chapters ?? []).isEmpty
+      {
+        panelBookDetail = await model.loadBookDetail(id: activeBook.id)
+      }
+    case .sessions:
+      if let episode = model.podcastEpisodeForActivePlayback() {
+        let showMid =
+          model.podcastShows.first(where: { $0.id == episode.libraryItemId })?.mediaId
+          ?? model.podcastSearchBooks.first(where: { $0.id == episode.libraryItemId })?.mediaId
+        panelListeningSessions = await model.loadPodcastEpisodeListeningSessions(
+          episode, showMediaId: showMid)
+      } else {
+        let detail = panelBookDetail?.id == activeBook.id
+          ? panelBookDetail
+          : await model.loadBookDetail(id: activeBook.id)
+        if panelBookDetail?.id != activeBook.id {
+          panelBookDetail = detail
+        }
+        panelListeningSessions = await model.loadBookListeningSessions(
+          libraryItemId: activeBook.id,
+          bookMediaId: detail?.mediaId ?? activeBook.mediaId
+        )
+      }
+    }
+  }
+
+  private func toggleCoverPanel(_ panel: FullPlayerCoverPanel) {
+    if coverPanel == panel {
+      coverPanel = .artwork
+      return
+    }
+    if isTeleprompterActive {
+      player.liveTranscription.disable()
+    }
+    coverPanel = panel
+  }
+
+  private func resolvedBookDescriptionText(for book: ABSBook) -> String {
+    let source = panelBookDetail?.id == book.id ? panelBookDetail : book
+    let meta = source?.media.metadata ?? book.media.metadata
+    let raw = meta.descriptionPlain ?? meta.description
+    return absPlainText(fromHTML: raw)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  @ViewBuilder
+  private func fullPlayerPanelControlRow() -> some View {
+    if showsFullPlayerPanelControls {
+      let items = fullPlayerPanelControlKinds(
+        showsReadAlong: player.liveTranscription.isReadAlongAvailable
+      )
+      HStack(spacing: 0) {
+        ForEach(Array(items.enumerated()), id: \.element.id) { index, kind in
+          if index > 0 {
+            Spacer(minLength: 0)
+          }
+          fullPlayerPanelControlButton(kind: kind)
+        }
+      }
+      .frame(maxWidth: .infinity)
+      .frame(height: FullPlayerUtilityBarLayout.primaryRowHeight)
+      .padding(.top, FullPlayerTransportLayout.scrubberVerticalSpacing)
+      .padding(.bottom, FullPlayerTransportLayout.spacingAbovePlayRow)
+    }
+  }
+
+  private enum FullPlayerPanelControlKind: Identifiable {
+    case description
+    case bookmarkAdd(audiobookId: String)
+    case bookmarkList
+    case chapters
+    case sessions
+    case readAlong
+
+    var id: String {
+      switch self {
+      case .description: "description"
+      case .bookmarkAdd(let audiobookId): "bookmarkAdd-\(audiobookId)"
+      case .bookmarkList: "bookmarkList"
+      case .chapters: "chapters"
+      case .sessions: "sessions"
+      case .readAlong: "readAlong"
+      }
+    }
+  }
+
+  private func fullPlayerPanelControlKinds(showsReadAlong: Bool) -> [FullPlayerPanelControlKind] {
+    var items: [FullPlayerPanelControlKind] = []
+    if showsDescriptionButton { items.append(.description) }
     if let audiobookId = activeAudiobookBookmarkId {
-      PlayerBookmarkCoverControl(
+      items.append(.bookmarkAdd(audiobookId: audiobookId))
+      items.append(.bookmarkList)
+    }
+    if showsChaptersButton { items.append(.chapters) }
+    if showsSessionsButton { items.append(.sessions) }
+    if showsReadAlong { items.append(.readAlong) }
+    return items
+  }
+
+  @ViewBuilder
+  private func fullPlayerPanelControlButton(kind: FullPlayerPanelControlKind) -> some View {
+    switch kind {
+    case .description:
+      FullPlayerCoverOverlayButton(
+        systemName: "doc.text",
+        isActive: coverPanel == .description,
+        accessibilityLabel: coverPanel == .description ? "Hide description" : "Show description"
+      ) {
+        toggleCoverPanel(.description)
+      }
+    case .bookmarkAdd(let audiobookId):
+      PlayerBookmarkAddCoverControl(
         activeAudiobookId: audiobookId,
         menuItems: model.bookmarks(for: audiobookId).map(PlayerBookmarkMenuItem.init)
       )
-      .fullPlayerCoverCornerOverlayPadding(top: true, leading: true)
-    }
-  }
-
-  @ViewBuilder
-  private func fullPlayerProgressOverlay(percent: Int) -> some View {
-    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-      playbackProgressBadge(percent: percent)
-    }
-    .fullPlayerCoverCornerOverlayPadding(top: true, trailing: true)
-  }
-
-  @ViewBuilder
-  private func fullPlayerReadAlongOverlay() -> some View {
-    if player.liveTranscription.isReadAlongAvailable {
+    case .bookmarkList:
+      FullPlayerCoverOverlayButton(
+        systemName: "text.book.closed",
+        isActive: coverPanel == .bookmarks,
+        accessibilityLabel: coverPanel == .bookmarks ? "Hide bookmarks" : "Show bookmarks"
+      ) {
+        toggleCoverPanel(.bookmarks)
+      }
+    case .chapters:
+      FullPlayerCoverOverlayButton(
+        systemName: "list.bullet",
+        isActive: coverPanel == .chapters,
+        accessibilityLabel: coverPanel == .chapters ? "Hide chapters" : "Show chapters"
+      ) {
+        toggleCoverPanel(.chapters)
+      }
+    case .sessions:
+      FullPlayerCoverOverlayButton(
+        systemName: "clock.arrow.circlepath",
+        isActive: coverPanel == .sessions,
+        accessibilityLabel: coverPanel == .sessions ? "Hide listening history" : "Show listening history"
+      ) {
+        toggleCoverPanel(.sessions)
+      }
+    case .readAlong:
       readAlongCoverPill
-        .fullPlayerCoverCornerOverlayPadding(bottom: true, trailing: true)
     }
   }
-
   private var teleprompterFontSizeControls: some View {
     let sizingHeight = teleprompterFontSizingReferenceHeight
     let stored = teleprompterFontSizeStorage > 0 ? CGFloat(teleprompterFontSizeStorage) : nil
@@ -1136,9 +1438,13 @@ struct NowPlayingDetailView: View {
     let atMin = current <= PlayerTeleprompterMetrics.minFontSize + 0.01
     let atMax = current >= PlayerTeleprompterMetrics.maxFontSize - 0.01
     return HStack(spacing: 8) {
-      TeleprompterFontSizeCoverButton(
+      FullPlayerCoverOverlayButton(
         systemName: "minus",
-        isEnabled: !atMin
+        isActive: false,
+        isEnabled: !atMin,
+        compact: true,
+        accessibilityLabel: String(
+          localized: "Decrease teleprompter text size", comment: "Accessibility")
       ) {
         teleprompterFontSizeStorage = Double(
           PlayerTeleprompterMetrics.bumpFontSize(
@@ -1148,9 +1454,13 @@ struct NowPlayingDetailView: View {
           )
         )
       }
-      TeleprompterFontSizeCoverButton(
+      FullPlayerCoverOverlayButton(
         systemName: "plus",
-        isEnabled: !atMax
+        isActive: false,
+        isEnabled: !atMax,
+        compact: true,
+        accessibilityLabel: String(
+          localized: "Increase teleprompter text size", comment: "Accessibility")
       ) {
         teleprompterFontSizeStorage = Double(
           PlayerTeleprompterMetrics.bumpFontSize(
@@ -1191,14 +1501,21 @@ struct NowPlayingDetailView: View {
   private var readAlongCoverPill: some View {
     let tx = player.liveTranscription
     let isDownloadReady = player.isReadAlongDownloadReady
-    return ReadAlongCoverPill(
-      isEnabled: tx.isTeleprompterModeActive,
+    return FullPlayerCoverOverlayButton(
+      systemName: "text.word.spacing",
+      isActive: tx.isTeleprompterModeActive,
       isBusy: tx.isPreparing || tx.modelDownloadProgress != nil,
-      isDownloadReady: isDownloadReady
+      isEnabled: isDownloadReady,
+      accessibilityLabel: tx.isTeleprompterModeActive
+        ? String(localized: "Stop read-along transcript", comment: "Accessibility")
+        : String(localized: "Start read-along transcript", comment: "Accessibility")
     ) {
       guard isDownloadReady else {
         readAlongDownloadWarningPresented = true
         return
+      }
+      if !tx.isTeleprompterModeActive {
+        coverPanel = .artwork
       }
       Task { @MainActor in
         await tx.toggle(player: player)
@@ -1207,93 +1524,53 @@ struct NowPlayingDetailView: View {
         }
       }
     }
+    .accessibilityHint(
+      isDownloadReady
+        ? ""
+        : String(
+          localized: "Requires a full download of this audiobook.",
+          comment: "Read along accessibility hint")
+    )
   }
 
-  /// Teleprompter-Karte: volle Höhe bis zur Play-Button-Reihe.
+  /// Teleprompter-Karte — klappt bis zur Progress-Karte auf.
   private func readAlongKaraokeCard() -> some View {
-    let corner: CGFloat = 24
-    return Color.clear
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(AppTheme.card.opacity(0.35), in: RoundedRectangle(cornerRadius: corner, style: .continuous))
-      .overlay {
-        GeometryReader { geo in
-          let pad = PlayerTeleprompterMetrics.cardContentPadding
+    fullPlayerExpandedCoverCard {
+      GeometryReader { geo in
+        let pad = PlayerTeleprompterMetrics.cardContentPadding
+        let controlsBlock = FullPlayerCoverOverlayMetrics.teleprompterControlsBlockHeight
+        let transcriptHeight = max(0, geo.size.height - pad - FullPlayerCoverOverlayMetrics.verticalInset - controlsBlock)
+        VStack(spacing: FullPlayerCoverOverlayMetrics.teleprompterControlsSpacingAbove) {
           PlayerLiveTranscriptPanelView(
             player: player,
             transcription: player.liveTranscription,
             viewportSize: CGSize(
               width: max(0, geo.size.width - pad * 2),
-              height: max(0, geo.size.height - pad * 2)
+              height: transcriptHeight
             ),
             userFontSize: resolvedTeleprompterUserFontSize
           )
-          .padding(pad)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+          HStack {
+            Spacer(minLength: 0)
+            teleprompterFontSizeControls
+          }
         }
+        .padding(.horizontal, pad)
+        .padding(.top, pad)
+        .padding(.bottom, FullPlayerCoverOverlayMetrics.verticalInset)
       }
-      .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-      .overlay {
-        RoundedRectangle(cornerRadius: corner, style: .continuous)
-          .strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
-      }
-      .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
-      .accessibilityLabel(String(localized: "Read along transcript", comment: "Accessibility"))
-  }
-
-  private func playbackProgressBadge(percent: Int) -> some View {
-    Text(verbatim: "\(percent)%")
-      .font(.caption.weight(.semibold))
-      .monospacedDigit()
-      .foregroundStyle(AppTheme.textPrimary)
-      .padding(.horizontal, 11)
-      .padding(.vertical, 6)
-      .background(.ultraThinMaterial, in: Capsule(style: .continuous))
-      .overlay {
-        Capsule(style: .continuous)
-          .strokeBorder(AppTheme.textSecondary.opacity(0.35), lineWidth: 0.5)
-      }
-      .accessibilityLabel("Fortschritt \(percent) Prozent")
-  }
-
-  private func fullPlayerArtwork(book: ABSBook, progressPercent: Int) -> some View {
-    let corner: CGFloat = 24
-    let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
-    // 1:1-Card volle Breite; .fit zeigt das Cover vollständig (kein Beschnitt links/rechts).
-    return Color.clear
-      .aspectRatio(1, contentMode: .fit)
-      .frame(maxWidth: .infinity, alignment: .top)
-      .background(AppTheme.card, in: shape)
-      .overlay {
-        CoverImageView(
-          url: model.coverURL(for: book.id),
-          token: model.token,
-          itemId: book.id,
-          cacheAccount: model.coverImageCacheAccountDirectory(),
-          cacheRevision: model.coverImageCacheRevision,
-          contentMode: .fit
-        )
-      }
-      .clipShape(shape)
-      .overlay {
-        shape.strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
-      }
-      .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
-      .overlay(alignment: .topLeading) {
-        fullPlayerBookmarkOverlay()
-      }
-      .overlay(alignment: .topTrailing) {
-        fullPlayerProgressOverlay(percent: progressPercent)
-      }
-      .overlay(alignment: .bottomTrailing) {
-        fullPlayerReadAlongOverlay()
-      }
+    }
+    .accessibilityLabel(String(localized: "Read along transcript", comment: "Accessibility"))
   }
 
   /// Stabile Play-Row — nicht in Cover/Teleprompter-Zweigen duplizieren (vermeidet Flackern).
   private var fullPlayerTransportRow: some View {
     transportControls
-      .padding(.top, FullPlayerTransportLayout.spacingAbovePlayRow)
+      .padding(.top, showsFullPlayerPanelControls ? 0 : FullPlayerTransportLayout.spacingAbovePlayRow)
       .padding(.bottom, FullPlayerTransportLayout.spacingBelowPlayRow)
-      .animation(nil, value: isTeleprompterActive)
+      .animation(nil, value: isCoverPanelExpanded)
   }
 
   private func scrubberSection(book: ABSBook) -> some View {
@@ -2442,11 +2719,29 @@ private struct WinampMarqueeText: View {
   }
 }
 
-// MARK: - Read-along Cover-Pille
+// MARK: - Vollplayer Cover-Overlays
 
-private enum FullPlayerCoverOverlayMetrics {
+private enum FullPlayerCoverPanel: Equatable {
+  case artwork
+  case description
+  case bookmarks
+  case chapters
+  case sessions
+}
+
+enum FullPlayerCoverOverlayMetrics {
   static let verticalInset: CGFloat = 12
   static let horizontalInset: CGFloat = 16
+  /// Icon-Kreise in der Panel-Steuerzeile unter der Play-Reihe.
+  static let panelControlButtonSize: CGFloat = FullPlayerUtilityBarLayout.primaryRowHeight
+  /// Kompakte Kreise auf der Teleprompter-Karte (±).
+  static let compactButtonSize: CGFloat = 36
+  static let coverSurfaceCornerRadius: CGFloat = 24
+  /// Abstand Transcript-Text → ±-Zeile (eigene Zeile, kein Overlay).
+  static let teleprompterControlsSpacingAbove: CGFloat = 8
+  static var teleprompterControlsBlockHeight: CGFloat {
+    teleprompterControlsSpacingAbove + compactButtonSize
+  }
 }
 
 private extension View {
@@ -2467,85 +2762,79 @@ private extension View {
   }
 }
 
-private struct ReadAlongCoverPill: View {
+/// Panel-Steuerbuttons — Icon-Kreis, aktiv in Appearance-Akzent (ohne Text-Pill).
+struct FullPlayerCoverOverlayButton: View {
+  @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
-
-  let isEnabled: Bool
-  let isBusy: Bool
-  let isDownloadReady: Bool
-  let action: () -> Void
-
-  var body: some View {
-    Button(action: action) {
-      Group {
-        if isBusy {
-          ProgressView()
-            .controlSize(.small)
-        } else {
-          Image(systemName: "text.word.spacing")
-            .font(.body.weight(.semibold))
-            .symbolVariant(isEnabled ? .fill : .none)
-        }
-      }
-      .foregroundStyle(isEnabled ? themeAccent : AppTheme.textPrimary)
-      .frame(width: 36, height: 36)
-      .background(.ultraThinMaterial, in: Capsule(style: .continuous))
-      .overlay {
-        Capsule(style: .continuous)
-          .strokeBorder(
-            isEnabled ? themeAccent.opacity(0.55) : AppTheme.textSecondary.opacity(0.35),
-            lineWidth: 0.5
-          )
-      }
-    }
-    .opacity(isDownloadReady ? 1 : 0.45)
-    .buttonStyle(.plain)
-    .disabled(isBusy)
-    .accessibilityLabel(
-      isEnabled
-        ? String(localized: "Stop read-along transcript", comment: "Accessibility")
-        : String(localized: "Start read-along transcript", comment: "Accessibility")
-    )
-    .accessibilityHint(
-      isDownloadReady
-        ? ""
-        : String(
-          localized: "Requires a full download of this audiobook.",
-          comment: "Read along accessibility hint")
-    )
-  }
-}
-
-private struct TeleprompterFontSizeCoverButton: View {
-  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
 
   let systemName: String
-  let isEnabled: Bool
+  let isActive: Bool
+  var isBusy: Bool = false
+  var isEnabled: Bool = true
+  /// Kompakter Kreis auf der Teleprompter-Karte (±).
+  var compact: Bool = false
+  let accessibilityLabel: String
   let action: () -> Void
+
+  private var dockColors: AppTheme.ExpandingDock.Colors {
+    let _ = themeRevision
+    return AppTheme.ExpandingDock.Colors(
+      palette: model.appearancePalette,
+      accent: themeAccent
+    )
+  }
+
+  private var buttonSize: CGFloat {
+    compact
+      ? FullPlayerCoverOverlayMetrics.compactButtonSize
+      : FullPlayerCoverOverlayMetrics.panelControlButtonSize
+  }
 
   var body: some View {
     Button(action: action) {
-      Image(systemName: systemName)
-        .font(.body.weight(.semibold))
-        .foregroundStyle(isEnabled ? themeAccent : AppTheme.textSecondary)
-        .frame(width: 36, height: 36)
-        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
-        .overlay {
-          Capsule(style: .continuous)
-            .strokeBorder(
-              isEnabled ? themeAccent.opacity(0.55) : AppTheme.textSecondary.opacity(0.35),
-              lineWidth: 0.5
-            )
-        }
+      iconContent(
+        foreground: isActive
+          ? dockColors.activeForeground
+          : dockColors.inactiveForeground.opacity(AppTheme.ExpandingDock.inactiveIconOpacity),
+        size: compact ? 17 : AppTheme.ExpandingDock.iconSize
+      )
+      .frame(width: buttonSize, height: buttonSize)
+      .background {
+        Capsule(style: .continuous)
+          .fill(
+            isActive
+              ? dockColors.activeBackground
+              : dockColors.inactiveBackground
+          )
+      }
+      .clipShape(Capsule(style: .continuous))
+      .contentShape(Capsule(style: .continuous))
     }
-    .buttonStyle(.plain)
-    .disabled(!isEnabled)
     .opacity(isEnabled ? 1 : 0.45)
-    .accessibilityLabel(
-      systemName == "plus"
-        ? String(localized: "Increase teleprompter text size", comment: "Accessibility")
-        : String(localized: "Decrease teleprompter text size", comment: "Accessibility")
-    )
+    .buttonStyle(AbstandExpandingDockButtonStyle())
+    .disabled(isBusy || !isEnabled)
+    .accessibilityLabel(accessibilityLabel)
+    .accessibilityAddTraits(isActive ? .isSelected : [])
+    .abstandThemeRefresh()
+  }
+
+  @ViewBuilder
+  private func iconContent(foreground: Color, size: CGFloat) -> some View {
+    Group {
+      if isBusy {
+        ProgressView()
+          .controlSize(.small)
+          .tint(foreground)
+      } else {
+        Image(systemName: systemName)
+          .font(.headline.weight(.semibold))
+          .symbolRenderingMode(.monochrome)
+          .symbolVariant(isActive ? .fill : .none)
+          .foregroundStyle(foreground)
+          .frame(width: size, height: size)
+      }
+    }
   }
 }
 

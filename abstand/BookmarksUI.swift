@@ -28,36 +28,11 @@ struct BookmarksDisclosure: View {
   let libraryItemId: String
   var onJump: (ABSAudioBookmark) -> Void
 
-  @State private var confirmDelete: ABSAudioBookmark?
-
-  private var marks: [ABSAudioBookmark] {
-    model.bookmarks(for: libraryItemId)
-  }
-
   var body: some View {
     let _ = themeRevision
     return DisclosureGroup(isExpanded: $expanded) {
-      VStack(alignment: .leading, spacing: 10) {
-        if marks.isEmpty {
-          Text(
-            model.isNetworkReachable
-              ? "No bookmarks for this audiobook yet. Set one while playing."
-              : "Bookmarks are unavailable offline."
-          )
-          .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.vertical, 6)
-        } else {
-          ForEach(marks) { mark in
-            bookmarkRow(mark)
-            if mark.id != marks.last?.id {
-              Divider().background(AppTheme.textSecondary.opacity(0.15))
-            }
-          }
-        }
-      }
-      .padding(.top, 4)
+      AudiobookBookmarkListView(libraryItemId: libraryItemId, onJump: onJump)
+        .padding(.top, 4)
     } label: {
       Text("Bookmarks")
         .font(.caption.weight(.bold))
@@ -66,6 +41,51 @@ struct BookmarksDisclosure: View {
         .tracking(0.6)
     }
     .tint(model.appearanceAccentColor)
+    .abstandThemeRefresh()
+  }
+}
+
+/// Lesezeichen-Liste (Book Detail + Vollplayer-Cover-Panel).
+struct AudiobookBookmarkListView: View {
+  @EnvironmentObject private var model: AppModel
+  let libraryItemId: String
+  let onJump: (ABSAudioBookmark) -> Void
+
+  @State private var confirmDelete: ABSAudioBookmark?
+
+  private var marks: [ABSAudioBookmark] {
+    model.bookmarks(for: libraryItemId)
+  }
+
+  var body: some View {
+    Group {
+      if marks.isEmpty {
+        Text(
+          model.isNetworkReachable
+            ? "No bookmarks for this audiobook yet. Set one while playing."
+            : "Bookmarks are unavailable offline."
+        )
+        .font(.body)
+        .foregroundStyle(AppTheme.textSecondary)
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      } else {
+        VStack(alignment: .leading, spacing: 10) {
+          ForEach(marks) { mark in
+            AudiobookBookmarkRow(
+              mark: mark,
+              showsDelete: model.isNetworkReachable,
+              onJump: onJump,
+              onDelete: { confirmDelete = mark }
+            )
+            if mark.id != marks.last?.id {
+              Divider().background(AppTheme.textSecondary.opacity(0.15))
+            }
+          }
+        }
+      }
+    }
     .alert(
       "Delete bookmark?",
       isPresented: Binding(
@@ -85,10 +105,16 @@ struct BookmarksDisclosure: View {
         Text("“\(b.title)” at \(formatPlaybackTime(Double(b.time)))")
       }
     }
-    .abstandThemeRefresh()
   }
+}
 
-  private func bookmarkRow(_ mark: ABSAudioBookmark) -> some View {
+private struct AudiobookBookmarkRow: View {
+  let mark: ABSAudioBookmark
+  let showsDelete: Bool
+  let onJump: (ABSAudioBookmark) -> Void
+  let onDelete: () -> Void
+
+  var body: some View {
     HStack(alignment: .center, spacing: 10) {
       Button {
         onJump(mark)
@@ -106,10 +132,8 @@ struct BookmarksDisclosure: View {
       }
       .buttonStyle(.plain)
 
-      if model.isNetworkReachable {
-        Button {
-          confirmDelete = mark
-        } label: {
+      if showsDelete {
+        Button(action: onDelete) {
           Image(systemName: "trash")
             .font(.body)
             .foregroundStyle(AppTheme.danger)
@@ -188,8 +212,8 @@ struct AddBookmarkTitleSheet: View {
   }
 }
 
-/// Bookmark-Pille auf dem Cover: Tippen = Lesezeichen setzen; Long-Press = Sprungliste.
-struct PlayerBookmarkCoverControl: View {
+/// Bookmark-Pille auf dem Cover: Tippen = Lesezeichen anlegen; Kontextmenü = Sprungliste.
+struct PlayerBookmarkAddCoverControl: View {
   @EnvironmentObject private var model: AppModel
   let activeAudiobookId: String
   let menuItems: [PlayerBookmarkMenuItem]
@@ -197,7 +221,7 @@ struct PlayerBookmarkCoverControl: View {
   @State private var showAddSheet = false
 
   var body: some View {
-    PlayerBookmarkCoverControlChrome(
+    PlayerBookmarkAddCoverControlChrome(
       menuItems: menuItems,
       showAddSheet: $showAddSheet,
       onJump: { mark in
@@ -212,11 +236,10 @@ struct PlayerBookmarkCoverControl: View {
   }
 }
 
-private struct PlayerBookmarkCoverControlChrome: View, Equatable {
+private struct PlayerBookmarkAddCoverControlChrome: View, Equatable {
   let menuItems: [PlayerBookmarkMenuItem]
   @Binding var showAddSheet: Bool
   let onJump: (ABSAudioBookmark) -> Void
-  @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
   static func == (lhs: Self, rhs: Self) -> Bool {
@@ -225,22 +248,12 @@ private struct PlayerBookmarkCoverControlChrome: View, Equatable {
 
   var body: some View {
     let _ = themeRevision
-    Button {
-      showAddSheet = true
-    } label: {
-      Image(systemName: "bookmark")
-        .font(.body.weight(.semibold))
-        .symbolVariant(.fill)
-        .foregroundStyle(themeAccent)
-        .frame(minWidth: 44, minHeight: 44)
-        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
-        .overlay {
-          Capsule(style: .continuous)
-            .strokeBorder(themeAccent.opacity(0.55), lineWidth: 0.5)
-        }
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel("Add bookmark at current position")
+    return FullPlayerCoverOverlayButton(
+      systemName: "bookmark",
+      isActive: false,
+      accessibilityLabel: "Add bookmark at current position",
+      action: { showAddSheet = true }
+    )
     .contextMenu {
       if !menuItems.isEmpty {
         ForEach(menuItems) { item in
