@@ -1712,7 +1712,7 @@ private func continueHeroPlayPill(
 }
 
 /// Titel + Metadaten unter Continue-Hero-/Library-Cover (ohne Play-Pille).
-private struct ContinueListeningHeroMetadataBlock: View {
+struct ContinueListeningHeroMetadataBlock: View {
   @EnvironmentObject private var model: AppModel
   @ScaledMetric(relativeTo: .headline) private var titleFixedHeight = AppTheme.Layout.continueHeroMetadataTitleFixedHeight
   @ScaledMetric(relativeTo: .footnote) private var detailFixedHeight = AppTheme.Layout.continueHeroMetadataDetailFixedHeight
@@ -1762,7 +1762,7 @@ private struct ContinueListeningHeroMetadataBlock: View {
 }
 
 /// Einheitliche Typografie und feste Höhe für Bücher- und Podcast-Continue-Hero-Karten.
-private struct ContinueListeningHeroTextBlock<Pill: View>: View {
+struct ContinueListeningHeroTextBlock<Pill: View>: View {
   @ScaledMetric(relativeTo: .headline) private var titleFixedHeight = AppTheme.Layout.continueHeroMetadataTitleFixedHeight
   @ScaledMetric(relativeTo: .footnote) private var detailFixedHeight = AppTheme.Layout.continueHeroMetadataDetailFixedHeight
   let title: String
@@ -1824,7 +1824,7 @@ private struct ContinueListeningHeroTextBlock<Pill: View>: View {
 }
 
 /// Gemeinsame Cover-Pill (Typ, Download, Länge) — gleiche Kapsel wie Continue Listening.
-private struct ContinueListeningHeroCoverPill<Content: View>: View {
+struct ContinueListeningHeroCoverPill<Content: View>: View {
   var allowsHitTesting = false
   @ViewBuilder let content: () -> Content
 
@@ -1840,14 +1840,14 @@ private struct ContinueListeningHeroCoverPill<Content: View>: View {
   }
 }
 
-private enum ContinueListeningHeroCoverPillMetrics {
+enum ContinueListeningHeroCoverPillMetrics {
   static let iconFont = Font.caption2.weight(.semibold)
   static let verticalInset: CGFloat = 8
   static let horizontalInset: CGFloat = 8
 }
 
 /// Oben links auf Continue-Hero-Cover: Medientyp-Pill (Buch oder Podcast).
-private struct ContinueListeningHeroTypePill: View {
+struct ContinueListeningHeroTypePill: View {
   enum MediaType: Equatable {
     case audiobook, podcast
     var systemImage: String {
@@ -1869,7 +1869,7 @@ private struct ContinueListeningHeroTypePill: View {
 }
 
 /// Oben rechts auf Continue-Hero-Cover: fertiger Download oder laufender Download (kein Tap — Cover-Tap bleibt).
-private struct ContinueListeningHeroOfflineBadge: View {
+struct ContinueListeningHeroOfflineBadge: View {
   let isDownloaded: Bool
   let isDownloading: Bool
   let downloadProgress: Double
@@ -1899,7 +1899,7 @@ private struct ContinueListeningHeroOfflineBadge: View {
   }
 }
 
-private struct ContinueListeningHeroBookOfflineBadgeSlot: View {
+struct ContinueListeningHeroBookOfflineBadgeSlot: View {
   @ObservedObject var rowLive: LibraryBookRowLiveState
 
   var body: some View {
@@ -1911,7 +1911,7 @@ private struct ContinueListeningHeroBookOfflineBadgeSlot: View {
   }
 }
 
-private struct ContinueListeningHeroPodcastOfflineBadgeSlot: View {
+struct ContinueListeningHeroPodcastOfflineBadgeSlot: View {
   @ObservedObject var rowLive: LibraryPodcastEpisodeRowLiveState
 
   var body: some View {
@@ -1924,7 +1924,7 @@ private struct ContinueListeningHeroPodcastOfflineBadgeSlot: View {
 }
 
 /// Feste Reihenfolge solange sich Regal-Inhalt nicht ändert (kein Neu-Sortieren bei Fortschritt-Ticks).
-private struct ContinueListeningHeroCarousel: View {
+struct ContinueListeningHeroCarousel: View {
   @EnvironmentObject private var model: AppModel
   let shelf: ABSStartShelfSection
 
@@ -2548,7 +2548,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
 
 // MARK: - Home „Continue listening“ (Hero-Karten)
 
-private struct ContinueListeningHeroBookCard: View {
+struct ContinueListeningHeroBookCard: View {
   @EnvironmentObject private var model: AppModel
   let book: ABSBook
   @StateObject private var rowLive: LibraryBookRowLiveState
@@ -2699,7 +2699,7 @@ private struct ContinueListeningHeroBookCard: View {
   }
 }
 
-private struct ContinueListeningHeroPodcastCard: View {
+struct ContinueListeningHeroPodcastCard: View {
   @EnvironmentObject private var model: AppModel
   let episode: ABSPodcastEpisodeListItem
   @StateObject private var rowLive: LibraryPodcastEpisodeRowLiveState
@@ -2977,7 +2977,7 @@ private func facetBrowseTileLeadingIcon(systemImage: String) -> some View {
   }
 }
 
-private func browseEntityBooksCountLine(count: Int?) -> String? {
+func browseEntityBooksCountLine(count: Int?) -> String? {
   guard let c = count, c > 0 else { return nil }
   return "\(c)"
 }
@@ -3532,7 +3532,7 @@ private struct AuthorDetailBookListCard: View {
 }
 
 /// eBooks-Tab: kompakte Zeile oder Cover-Karte (eigene Settings pro Sektion).
-private struct EbookTabListCard: View {
+struct EbookTabListCard: View {
   let book: ABSBook
   let model: AppModel
   var isSupplementary: Bool
@@ -4480,7 +4480,7 @@ extension View {
   }
 }
 
-private struct BooksEntityDetailView: View {
+struct BooksEntityDetailView: View {
   @EnvironmentObject private var model: AppModel
   let nav: BooksEntityDetailNav
   @State private var headerTintColor: Color = AppTheme.background
@@ -4822,6 +4822,6 @@ private struct BooksEntityDetailView: View {
   }
 }
 
-private extension String {
+extension String {
   var nilIfEmpty: String? { isEmpty ? nil : self }
 }

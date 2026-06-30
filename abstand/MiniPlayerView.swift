@@ -1150,6 +1150,94 @@ struct NowPlayingDetailView: View {
   }
 
   var body: some View {
+    fullPlayerRootWithSnapshotHooks
+      .task {
+        await player.liveTranscription.refreshReadAlongAvailability()
+      }
+      .onDisappear {
+        player.liveTranscription.wordLookupSelection = nil
+        if player.liveTranscription.isTeleprompterModeActive {
+          Task { @MainActor in
+            await player.liveTranscription.disable()
+          }
+        }
+        coverPanel = .artwork
+      }
+      .onChange(of: isTeleprompterActive) { _, active in
+        if active { coverPanel = .artwork }
+      }
+      .onChange(of: player.liveTranscription.errorMessage) { _, err in
+        if let err, !AbstandErrorFilter.isBenignCancellationMessage(err) {
+          model.errorMessage = err
+        }
+      }
+      .onChange(of: player.activeBook?.id) { _, _ in
+        coverPanel = .artwork
+        panelBookDetail = nil
+        panelListeningSessions = []
+      }
+      .task(id: coverPanel) {
+        await loadCoverPanelDataIfNeeded()
+      }
+      // Am stabilen Player-Root statt in der Teleprompter-View: die Translation-Session
+      // crasht (fatalError), wenn ihre Anker-View verschwindet (Rotation, Card-Swap).
+      .sheet(
+        item: Binding(
+          get: { player.liveTranscription.wordLookupSelection },
+          set: { player.liveTranscription.wordLookupSelection = $0 }
+        )
+      ) { selection in
+        PlayerTranscriptWordLookupSheet(
+          selection: selection,
+          sourceLocale: selection.sourceLocale,
+          model: model
+        )
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+      }
+      .alert(
+        String(localized: "Download required", comment: "Read along alert title"),
+        isPresented: $readAlongDownloadWarningPresented
+      ) {
+        Button(String(localized: "OK", comment: "Dismiss"), role: .cancel) {}
+      } message: {
+        Text(
+          String(
+            localized: "Read along only works when the audiobook is fully downloaded.",
+            comment: "Read along download required alert")
+        )
+      }
+  }
+
+  private var fullPlayerRootWithSnapshotHooks: some View {
+    fullPlayerStack
+      .preferredColorScheme(model.resolvedInterfaceColorScheme)
+      .onAppear {
+        activeBook = player.activeBook
+        isTeleprompterActive = player.liveTranscription.isTeleprompterModeActive
+        refreshChromeSnapshot()
+      }
+      .onReceive(player.$activeBook) { book in
+        activeBook = book
+        refreshChromeSnapshot()
+      }
+      .onReceive(player.$isPlaying) { _ in refreshChromeSnapshot() }
+      .onReceive(player.$isBuffering) { _ in refreshChromeSnapshot() }
+      .onReceive(player.$chapterCount) { _ in refreshChromeSnapshot() }
+      .onReceive(player.$playbackRate) { _ in refreshChromeSnapshot() }
+      .onReceive(player.$skipBackwardSeconds) { _ in refreshChromeSnapshot() }
+      .onReceive(player.$skipForwardSeconds) { _ in refreshChromeSnapshot() }
+      .onReceive(player.$sleepTimerMode) { _ in refreshChromeSnapshot() }
+      .onReceive(model.downloads.objectWillChange.receive(on: DispatchQueue.main)) { _ in
+        refreshChromeSnapshot()
+      }
+      .onReceive(model.$downloadedItemIds) { _ in refreshChromeSnapshot() }
+      .onReceive(player.liveTranscription.objectWillChange.receive(on: DispatchQueue.main)) { _ in
+        isTeleprompterActive = player.liveTranscription.isTeleprompterModeActive
+      }
+  }
+
+  private var fullPlayerStack: some View {
     ZStack {
       fullPlayerBackground
         .accessibilityHidden(true)
@@ -1164,87 +1252,6 @@ struct NowPlayingDetailView: View {
       }
       .safeAreaPadding(.horizontal, MiniPlayerMetrics.fullPlayerCoverInset)
       .safeAreaPadding(.top, MiniPlayerMetrics.fullPlayerCoverInset)
-    }
-    .preferredColorScheme(model.resolvedInterfaceColorScheme)
-    .onAppear {
-      activeBook = player.activeBook
-      isTeleprompterActive = player.liveTranscription.isTeleprompterModeActive
-      refreshChromeSnapshot()
-    }
-    .onReceive(player.$activeBook) { book in
-      activeBook = book
-      refreshChromeSnapshot()
-    }
-    .onReceive(player.$isPlaying) { _ in refreshChromeSnapshot() }
-    .onReceive(player.$isBuffering) { _ in refreshChromeSnapshot() }
-    .onReceive(player.$chapterCount) { _ in refreshChromeSnapshot() }
-    .onReceive(player.$playbackRate) { _ in refreshChromeSnapshot() }
-    .onReceive(player.$skipBackwardSeconds) { _ in refreshChromeSnapshot() }
-    .onReceive(player.$skipForwardSeconds) { _ in refreshChromeSnapshot() }
-    .onReceive(player.$sleepTimerMode) { _ in refreshChromeSnapshot() }
-    .onReceive(model.$isLoggedIn) { _ in refreshChromeSnapshot() }
-    .onReceive(model.downloads.objectWillChange.receive(on: DispatchQueue.main)) { _ in
-      refreshChromeSnapshot()
-    }
-    .onReceive(model.$downloadedItemIds) { _ in refreshChromeSnapshot() }
-    .onReceive(player.liveTranscription.objectWillChange.receive(on: DispatchQueue.main)) { _ in
-      isTeleprompterActive = player.liveTranscription.isTeleprompterModeActive
-    }
-    .task {
-      await player.liveTranscription.refreshReadAlongAvailability()
-    }
-    .onDisappear {
-      player.liveTranscription.wordLookupSelection = nil
-      if player.liveTranscription.isTeleprompterModeActive {
-        Task { @MainActor in
-          await player.liveTranscription.disable()
-        }
-      }
-      coverPanel = .artwork
-    }
-    .onChange(of: isTeleprompterActive) { _, active in
-      if active { coverPanel = .artwork }
-    }
-    .onChange(of: player.liveTranscription.errorMessage) { _, err in
-      if let err, !AbstandErrorFilter.isBenignCancellationMessage(err) {
-        model.errorMessage = err
-      }
-    }
-    .onChange(of: player.activeBook?.id) { _, _ in
-      coverPanel = .artwork
-      panelBookDetail = nil
-      panelListeningSessions = []
-    }
-    .task(id: coverPanel) {
-      await loadCoverPanelDataIfNeeded()
-    }
-    // Am stabilen Player-Root statt in der Teleprompter-View: die Translation-Session
-    // crasht (fatalError), wenn ihre Anker-View verschwindet (Rotation, Card-Swap).
-    .sheet(
-      item: Binding(
-        get: { player.liveTranscription.wordLookupSelection },
-        set: { player.liveTranscription.wordLookupSelection = $0 }
-      )
-    ) { selection in
-      PlayerTranscriptWordLookupSheet(
-        selection: selection,
-        sourceLocale: selection.sourceLocale,
-        model: model
-      )
-      .presentationDetents([.medium, .large])
-      .presentationDragIndicator(.visible)
-    }
-    .alert(
-      String(localized: "Download required", comment: "Read along alert title"),
-      isPresented: $readAlongDownloadWarningPresented
-    ) {
-      Button(String(localized: "OK", comment: "Dismiss"), role: .cancel) {}
-    } message: {
-      Text(
-        String(
-          localized: "Read along only works when the audiobook is fully downloaded.",
-          comment: "Read along download required alert")
-      )
     }
   }
 
@@ -1415,6 +1422,8 @@ struct NowPlayingDetailView: View {
       Group {
         if isTeleprompterActive {
           readAlongKaraokeCard()
+        } else if coverPanel == .bookmarks, let audiobookId = activeAudiobookBookmarkId {
+          bookmarksCoverCard(audiobookId: audiobookId)
         } else if coverPanel != .artwork {
           fullPlayerExpandedListCard(book: book)
         } else {
@@ -1535,14 +1544,53 @@ struct NowPlayingDetailView: View {
         )
       }
     case .bookmarks:
-      if let audiobookId = activeAudiobookBookmarkId {
-        fullPlayerCoverPanelContent(title: "Bookmarks") {
-          AudiobookBookmarkListView(libraryItemId: audiobookId) { mark in
-            Task { await model.jumpToBookmark(mark, autoPlay: true) }
+      EmptyView()
+    }
+  }
+
+  /// Bookmarks-Panel — Liste oben, „Add“ kompakt unten rechts (wie Teleprompter ±).
+  private func bookmarksCoverCard(audiobookId: String) -> some View {
+    fullPlayerExpandedCoverCard {
+      GeometryReader { geo in
+        let pad = PlayerTeleprompterMetrics.cardContentPadding
+        let controlsBlock = FullPlayerCoverOverlayMetrics.teleprompterControlsBlockHeight
+        let titleBlock = pad + 22
+        let listHeight = max(
+          0,
+          geo.size.height - pad - FullPlayerCoverOverlayMetrics.verticalInset - controlsBlock - titleBlock
+        )
+        VStack(spacing: FullPlayerCoverOverlayMetrics.teleprompterControlsSpacingAbove) {
+          VStack(alignment: .leading, spacing: 8) {
+            Text("Bookmarks")
+              .font(.caption.weight(.bold))
+              .foregroundStyle(AppTheme.textSecondary)
+              .textCase(.uppercase)
+              .tracking(0.6)
+            ScrollView {
+              AudiobookBookmarkListView(libraryItemId: audiobookId) { mark in
+                Task { await model.jumpToBookmark(mark, autoPlay: true) }
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: listHeight)
+          }
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+          HStack {
+            Spacer(minLength: 0)
+            PlayerBookmarkAddCoverControl(
+              activeAudiobookId: audiobookId,
+              menuItems: model.bookmarks(for: audiobookId).map(PlayerBookmarkMenuItem.init),
+              compact: true
+            )
           }
         }
+        .padding(.horizontal, pad)
+        .padding(.top, pad)
+        .padding(.bottom, FullPlayerCoverOverlayMetrics.verticalInset)
       }
     }
+    .accessibilityLabel(String(localized: "Bookmarks", comment: "Accessibility"))
   }
 
   private func fullPlayerCoverPanelContent<Content: View>(
@@ -1647,19 +1695,20 @@ struct NowPlayingDetailView: View {
 
   private enum FullPlayerPanelControlKind: Identifiable {
     case description
-    case bookmarkAdd(audiobookId: String)
     case bookmarkList
     case chapters
     case sessions
+    /// Leerer Platzhalter zwischen History und Read-along bei >3 Buttons.
+    case panelSpacer
     case readAlong
 
     var id: String {
       switch self {
       case .description: "description"
-      case .bookmarkAdd(let audiobookId): "bookmarkAdd-\(audiobookId)"
       case .bookmarkList: "bookmarkList"
       case .chapters: "chapters"
       case .sessions: "sessions"
+      case .panelSpacer: "panelSpacer"
       case .readAlong: "readAlong"
       }
     }
@@ -1668,13 +1717,17 @@ struct NowPlayingDetailView: View {
   private func fullPlayerPanelControlKinds(showsReadAlong: Bool) -> [FullPlayerPanelControlKind] {
     var items: [FullPlayerPanelControlKind] = []
     if showsDescriptionButton { items.append(.description) }
-    if let audiobookId = activeAudiobookBookmarkId {
-      items.append(.bookmarkAdd(audiobookId: audiobookId))
+    if activeAudiobookBookmarkId != nil {
       items.append(.bookmarkList)
     }
     if showsChaptersButton { items.append(.chapters) }
     if showsSessionsButton { items.append(.sessions) }
-    if showsReadAlong { items.append(.readAlong) }
+    if showsReadAlong {
+      if items.count > 3, items.contains(.sessions) {
+        items.append(.panelSpacer)
+      }
+      items.append(.readAlong)
+    }
     return items
   }
 
@@ -1689,11 +1742,6 @@ struct NowPlayingDetailView: View {
       ) {
         toggleCoverPanel(.description)
       }
-    case .bookmarkAdd(let audiobookId):
-      PlayerBookmarkAddCoverControl(
-        activeAudiobookId: audiobookId,
-        menuItems: model.bookmarks(for: audiobookId).map(PlayerBookmarkMenuItem.init)
-      )
     case .bookmarkList:
       FullPlayerCoverOverlayButton(
         systemName: "text.book.closed",
@@ -1718,6 +1766,8 @@ struct NowPlayingDetailView: View {
       ) {
         toggleCoverPanel(.sessions)
       }
+    case .panelSpacer:
+      FullPlayerPanelControlSpacerPill()
     case .readAlong:
       readAlongCoverPill
     }
@@ -1874,7 +1924,7 @@ struct NowPlayingDetailView: View {
     )
   }
 
-  private var fullPlayerUtilityBar: some View {
+  private var fullPlayerUtilityBar: FullPlayerUtilityBar {
     FullPlayerUtilityBar(
       playbackRate: chromeSnapshot.playbackRate,
       offlineStorageId: chromeSnapshot.offlineStorageId,
@@ -2961,6 +3011,18 @@ private extension View {
       .padding(.bottom, bottom ? v : 0)
       .padding(.leading, leading ? h : 0)
       .padding(.trailing, trailing ? h : 0)
+  }
+}
+
+/// Unsichtbarer Platzhalter in der Panel-Steuerzeile — Abstand zwischen History und Read-along.
+struct FullPlayerPanelControlSpacerPill: View {
+  var body: some View {
+    Color.clear
+      .frame(
+        width: FullPlayerCoverOverlayMetrics.panelControlButtonSize,
+        height: FullPlayerCoverOverlayMetrics.panelControlButtonSize
+      )
+      .accessibilityHidden(true)
   }
 }
 
