@@ -1132,6 +1132,8 @@ struct NowPlayingDetailView: View {
     Group {
       if isTeleprompterActive {
         readAlongKaraokeCard()
+      } else if coverPanel == .bookmarks, let audiobookId = activeAudiobookBookmarkId {
+        bookmarksCoverCard(audiobookId: audiobookId)
       } else if coverPanel != .artwork {
         fullPlayerExpandedListCard(book: book)
       } else {
@@ -1251,14 +1253,53 @@ struct NowPlayingDetailView: View {
         )
       }
     case .bookmarks:
-      if let audiobookId = activeAudiobookBookmarkId {
-        fullPlayerCoverPanelContent(title: "Bookmarks") {
-          AudiobookBookmarkListView(libraryItemId: audiobookId) { mark in
-            Task { await model.jumpToBookmark(mark, autoPlay: true) }
+      EmptyView()
+    }
+  }
+
+  /// Bookmarks-Panel — Liste oben, „Add“ kompakt unten rechts (wie Teleprompter ±).
+  private func bookmarksCoverCard(audiobookId: String) -> some View {
+    fullPlayerExpandedCoverCard {
+      GeometryReader { geo in
+        let pad = PlayerTeleprompterMetrics.cardContentPadding
+        let controlsBlock = FullPlayerCoverOverlayMetrics.teleprompterControlsBlockHeight
+        let titleBlock = pad + 22
+        let listHeight = max(
+          0,
+          geo.size.height - pad - FullPlayerCoverOverlayMetrics.verticalInset - controlsBlock - titleBlock
+        )
+        VStack(spacing: FullPlayerCoverOverlayMetrics.teleprompterControlsSpacingAbove) {
+          VStack(alignment: .leading, spacing: 8) {
+            Text("Bookmarks")
+              .font(.caption.weight(.bold))
+              .foregroundStyle(AppTheme.textSecondary)
+              .textCase(.uppercase)
+              .tracking(0.6)
+            ScrollView {
+              AudiobookBookmarkListView(libraryItemId: audiobookId) { mark in
+                Task { await model.jumpToBookmark(mark, autoPlay: true) }
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: listHeight)
+          }
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+          HStack {
+            Spacer(minLength: 0)
+            PlayerBookmarkAddCoverControl(
+              activeAudiobookId: audiobookId,
+              menuItems: model.bookmarks(for: audiobookId).map(PlayerBookmarkMenuItem.init),
+              compact: true
+            )
           }
         }
+        .padding(.horizontal, pad)
+        .padding(.top, pad)
+        .padding(.bottom, FullPlayerCoverOverlayMetrics.verticalInset)
       }
     }
+    .accessibilityLabel(String(localized: "Bookmarks", comment: "Accessibility"))
   }
 
   private func fullPlayerCoverPanelContent<Content: View>(
@@ -1363,19 +1404,20 @@ struct NowPlayingDetailView: View {
 
   private enum FullPlayerPanelControlKind: Identifiable {
     case description
-    case bookmarkAdd(audiobookId: String)
     case bookmarkList
     case chapters
     case sessions
+    /// Leerer Platzhalter zwischen History und Read-along bei >3 Buttons.
+    case panelSpacer
     case readAlong
 
     var id: String {
       switch self {
       case .description: "description"
-      case .bookmarkAdd(let audiobookId): "bookmarkAdd-\(audiobookId)"
       case .bookmarkList: "bookmarkList"
       case .chapters: "chapters"
       case .sessions: "sessions"
+      case .panelSpacer: "panelSpacer"
       case .readAlong: "readAlong"
       }
     }
@@ -1384,13 +1426,17 @@ struct NowPlayingDetailView: View {
   private func fullPlayerPanelControlKinds(showsReadAlong: Bool) -> [FullPlayerPanelControlKind] {
     var items: [FullPlayerPanelControlKind] = []
     if showsDescriptionButton { items.append(.description) }
-    if let audiobookId = activeAudiobookBookmarkId {
-      items.append(.bookmarkAdd(audiobookId: audiobookId))
+    if activeAudiobookBookmarkId != nil {
       items.append(.bookmarkList)
     }
     if showsChaptersButton { items.append(.chapters) }
     if showsSessionsButton { items.append(.sessions) }
-    if showsReadAlong { items.append(.readAlong) }
+    if showsReadAlong {
+      if items.count > 3, items.contains(.sessions) {
+        items.append(.panelSpacer)
+      }
+      items.append(.readAlong)
+    }
     return items
   }
 
@@ -1405,11 +1451,6 @@ struct NowPlayingDetailView: View {
       ) {
         toggleCoverPanel(.description)
       }
-    case .bookmarkAdd(let audiobookId):
-      PlayerBookmarkAddCoverControl(
-        activeAudiobookId: audiobookId,
-        menuItems: model.bookmarks(for: audiobookId).map(PlayerBookmarkMenuItem.init)
-      )
     case .bookmarkList:
       FullPlayerCoverOverlayButton(
         systemName: "text.book.closed",
@@ -1434,6 +1475,8 @@ struct NowPlayingDetailView: View {
       ) {
         toggleCoverPanel(.sessions)
       }
+    case .panelSpacer:
+      FullPlayerPanelControlSpacerPill()
     case .readAlong:
       readAlongCoverPill
     }
@@ -2768,6 +2811,18 @@ private extension View {
       .padding(.bottom, bottom ? v : 0)
       .padding(.leading, leading ? h : 0)
       .padding(.trailing, trailing ? h : 0)
+  }
+}
+
+/// Unsichtbarer Platzhalter in der Panel-Steuerzeile — Abstand zwischen History und Read-along.
+struct FullPlayerPanelControlSpacerPill: View {
+  var body: some View {
+    Color.clear
+      .frame(
+        width: FullPlayerCoverOverlayMetrics.panelControlButtonSize,
+        height: FullPlayerCoverOverlayMetrics.panelControlButtonSize
+      )
+      .accessibilityHidden(true)
   }
 }
 

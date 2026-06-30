@@ -217,12 +217,15 @@ struct PlayerBookmarkAddCoverControl: View {
   @EnvironmentObject private var model: AppModel
   let activeAudiobookId: String
   let menuItems: [PlayerBookmarkMenuItem]
+  /// Kompakter Kreis wie Teleprompter ± (in Panel-Karte statt Steuerzeile).
+  var compact: Bool = false
 
   @State private var showAddSheet = false
 
   var body: some View {
     PlayerBookmarkAddCoverControlChrome(
       menuItems: menuItems,
+      compact: compact,
       showAddSheet: $showAddSheet,
       onJump: { mark in
         Task { await model.jumpToBookmark(mark) }
@@ -238,12 +241,15 @@ struct PlayerBookmarkAddCoverControl: View {
 
 private struct PlayerBookmarkAddCoverControlChrome: View, Equatable {
   let menuItems: [PlayerBookmarkMenuItem]
+  var compact: Bool = false
   @Binding var showAddSheet: Bool
   let onJump: (ABSAudioBookmark) -> Void
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
   static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.menuItems == rhs.menuItems && lhs.showAddSheet == rhs.showAddSheet
+    lhs.menuItems == rhs.menuItems
+      && lhs.compact == rhs.compact
+      && lhs.showAddSheet == rhs.showAddSheet
   }
 
   var body: some View {
@@ -251,6 +257,7 @@ private struct PlayerBookmarkAddCoverControlChrome: View, Equatable {
     return FullPlayerCoverOverlayButton(
       systemName: "bookmark",
       isActive: false,
+      compact: compact,
       accessibilityLabel: "Add bookmark at current position",
       action: { showAddSheet = true }
     )

@@ -3926,25 +3926,15 @@ final class AppModel: ObservableObject {
   }
 
   /// Lazy-Bootstrap: Continue ohne `/authorize`; Authorize nur bei fehlgeschlagenem Continue-Refresh.
+  /// URLSession mit `waitsForConnectivity = true` queued Requests automatisch — kein `NWPathMonitor`-Polling nötig.
+  /// Nach erfolgreichem Continue: `/authorize` deferred nachladen für User-Type/Admin-Status.
   private func performDeferredBootstrapNetworkRefresh() async {
     let sp = AppLog.launchSignposter.beginInterval("refreshBootstrap")
     defer { AppLog.launchSignposter.endInterval("refreshBootstrap", sp) }
     isDeferredBootstrapNetworkRefreshInProgress = true
     defer { isDeferredBootstrapNetworkRefreshInProgress = false }
 
-    await waitForInitialNetworkReachability()
     if bootstrapSupersededByOffline || offlineHomeMode { return }
-    if !isNetworkReachable {
-      isServerReachable = false
-      if hasCachedBootstrapContent {
-        return
-      }
-      offlineHomeModeAuto = true
-      mainTab = .start
-      await prepareForOfflineHomeMode()
-      await bootstrapLocalSessionOnly()
-      return
-    }
 
     guard ABSAPIClient.normalizeServerURL(serverURL) != nil, !token.isEmpty else { return }
     restoreServerClientIfNeeded()
@@ -3972,6 +3962,21 @@ final class AppModel: ObservableObject {
       }
     }
 
+    isServerReachable = true
+    // `/authorize` deferred: User-Type (admin/root), Media-Progress, Bookmarks.
+    // Nicht blockierend für Home — läuft parallel zum Libraries-Fetch.
+    Task(priority: .utility) { @MainActor [weak self] in
+      guard let self, let c = self.client else { return }
+      do {
+        let auth = try await c.authorize()
+        guard !Task.isCancelled, !self.bootstrapSupersededByOffline else { return }
+        self.applyAuthorizeSession(auth)
+      } catch {
+        if !AbstandErrorFilter.isBenignCancellation(error) {
+          AppLog.bootstrap.warning("Deferred authorize failed: \(error.localizedDescription, privacy: .public)")
+        }
+      }
+    }
     scheduleDeferredLibrariesFetchFromServer()
   }
 
@@ -4085,24 +4090,15 @@ final class AppModel: ObservableObject {
     }
   }
 
-  /// PathMonitor meldet Netz oft erst nach dem ersten Frame — mit Cache kürzer warten.
-  private func waitForInitialNetworkReachability() async {
-    guard !isNetworkReachable else { return }
-    let attempts = hasCachedBootstrapContent ? 8 : 30
-    for _ in 0..<attempts {
-      if bootstrapSupersededByOffline || offlineHomeMode { return }
-      if isNetworkReachable { return }
-      try? await Task.sleep(nanoseconds: 100_000_000)
-    }
-  }
-
   /// Katalog-Caches aus Disk — gestaffelt nach Bootstrap, nicht beim Tab-Wechsel.
   private func scheduleDeferredCatalogDiskCachesAfterBootstrap() {
     guard !deferredBooksCatalogDiskRestoreScheduled else { return }
     deferredBooksCatalogDiskRestoreScheduled = true
     deferredCatalogDiskCachesTask?.cancel()
     deferredCatalogDiskCachesTask = Task(priority: .utility) { @MainActor [weak self] in
-      try? await Task.sleep(nanoseconds: 2_500_000_000)
+      // Ein Yield statt fixem Sleep — Home-Frame hat Vorrang, Disk-Cache folgt sofort danach.
+      await Task.yield()
+      try? await Task.sleep(nanoseconds: 500_000_000)
       await Task.yield()
       guard let self, !Task.isCancelled, !self.offlineHomeUIActive, !self.bootstrapSupersededByOffline else { return }
       if self.books.isEmpty {
@@ -4129,7 +4125,8 @@ final class AppModel: ObservableObject {
   /// Tab-Views nach kurzer Idle-Phase vorbauen — Wechsel ohne Erst-Mount-Ruckler.
   private func scheduleSecondaryTabPrewarm() {
     Task { @MainActor [weak self] in
-      try? await Task.sleep(nanoseconds: 2_000_000_000)
+      await Task.yield()
+      try? await Task.sleep(nanoseconds: 500_000_000)
       self?.shouldPrewarmSecondaryTabs = true
     }
   }
@@ -4141,10 +4138,10 @@ final class AppModel: ObservableObject {
       try? await Task.sleep(nanoseconds: 4_500_000_000)
       await Task.yield()
       guard let self, !Task.isCancelled, !self.offlineHomeUIActive, !self.bootstrapSupersededByOffline else { return }
-      await self.reloadLibrary(reset: true)
-      await Task.yield()
-      guard !Task.isCancelled else { return }
-      await self.reloadPodcastLibrary(reset: true)
+      // Bücher- und Podcast-Katalog sind unabhängig — parallel laden.
+      async let books: Void = self.reloadLibrary(reset: true)
+      async let podcasts: Void = self.reloadPodcastLibrary(reset: true)
+      _ = await (books, podcasts)
       if self.showEbooksTab {
         await Task.yield()
         guard !Task.isCancelled else { return }
@@ -4682,6 +4679,7 @@ final class AppModel: ObservableObject {
     libraryEntityDetailNav = nil
     homeEntityDetailNav = nil
     searchEntityDetailNav = nil
+    localProgressLoadedFromDisk = false
   }
 
   func selectEbooksLibrary(_ lib: ABSLibrary, navigateToCatalog: Bool = false) {
@@ -9592,11 +9590,26 @@ final class AppModel: ObservableObject {
   }
 
   private func downloadManifestBelongsToActiveAccount(_ manifest: ABSDownloadManifest) -> Bool {
+    // Während Account-Wechsel / Bootstrap sind `libraries` noch leer — dann nicht
+    // alle Downloads blind akzeptieren, sondern anhand der gespeicherten Account-Library-IDs filtern.
     let activeLibs = activeLibraryIdSet()
     guard let lid = manifest.libraryId?.trimmingCharacters(in: .whitespacesAndNewlines), !lid.isEmpty else {
       return true
     }
-    guard !activeLibs.isEmpty else { return true }
+    if activeLibs.isEmpty {
+      // Fallback: Library-IDs aus dem aktiven Stored Account.
+      let stored = activeAccountKey.flatMap { key in
+        storedAccounts.first(where: { $0.accountKey == key })
+      }
+      var storedLibIds = Set<String>()
+      for libId in [stored?.booksLibraryId, stored?.podcastsLibraryId, stored?.ebooksLibraryId] {
+        if let lid2 = libId?.trimmingCharacters(in: .whitespacesAndNewlines), !lid2.isEmpty {
+          storedLibIds.insert(lid2)
+        }
+      }
+      if storedLibIds.isEmpty { return true }
+      return storedLibIds.contains(lid)
+    }
     return activeLibs.contains(lid)
   }
 
@@ -10825,7 +10838,11 @@ final class AppModel: ObservableObject {
   }
 
   /// Disk-Cache (`LibraryDiskCache`) in `progressByItemId` mergen — z. B. Offline-Home ohne vorherigen `/authorize`.
+  private var localProgressLoadedFromDisk = false
+
   private func ensureLocalProgressLoadedFromDisk() {
+    guard !localProgressLoadedFromDisk else { return }
+    localProgressLoadedFromDisk = true
     loadLocalFinishedProgressKeys()
     guard let account = cacheAccountURL() else { return }
     let dec = ABSJSON.decoder()
