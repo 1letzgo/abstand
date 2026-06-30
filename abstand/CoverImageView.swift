@@ -41,7 +41,7 @@ struct CoverImageView: View {
   @State private var image: UIImage?
 
   private var loadIdentity: String {
-    "\(itemId)|\(url?.absoluteString ?? "")"
+    "\(itemId)|\(url?.absoluteString ?? "")|\(cacheRevision)"
   }
 
   init(
@@ -78,10 +78,8 @@ struct CoverImageView: View {
     .clipped()
     .contentShape(Rectangle())
     .task(id: loadIdentity) {
-      await load()
-    }
-    .onChange(of: cacheRevision) { _, _ in
       image = CoverImageCache.syncUIImage(itemId: cacheScopeId, account: cacheAccount)
+      await load()
     }
   }
 

@@ -36,7 +36,7 @@ private struct AppRootContainer: View {
           chrome: model.floatingChrome,
           nowPlayingSheetPresented: $nowPlayingSheetPresented
         ) {
-          MainRootView(nowPlayingSheetPresented: $nowPlayingSheetPresented)
+          MainRootView()
         }
         .sheet(isPresented: $nowPlayingSheetPresented) {
           NowPlayingDetailView()

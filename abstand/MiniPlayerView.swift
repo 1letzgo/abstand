@@ -90,6 +90,7 @@ private struct FullPlayerProgressTrack: View {
   var trackHeight: CGFloat = FullPlayerProgressLayout.trackHeight
   var rowHeight: CGFloat = FullPlayerProgressLayout.rowHeight
   var accessibilityLabelText = "Playback position"
+  var onSeek: ((Double) -> Void)?
 
   private var fraction: Double {
     guard total > 0 else { return 0 }
@@ -119,7 +120,7 @@ private struct FullPlayerProgressTrack: View {
               style: .continuous
             )
           )
-        ForEach(Array(chapterMarkers.enumerated()), id: \.offset) { _, marker in
+        ForEach(Array(chapterMarkers.enumerated()), id: \.element) { _, marker in
           Rectangle()
             .fill(AppTheme.textSecondary.opacity(0.65))
             .frame(width: 1, height: trackHeight)
@@ -146,6 +147,18 @@ private struct FullPlayerProgressTrack: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(accessibilityLabelText)
     .accessibilityValue(fullPlayerProgressAccessibilityValue)
+    .accessibilityAdjustableAction { direction in
+      guard total > 0 else { return }
+      let step = max(15, total * 0.02)
+      switch direction {
+      case .increment:
+        onSeek?(min(total, value + step))
+      case .decrement:
+        onSeek?(max(0, value - step))
+      @unknown default:
+        break
+      }
+    }
   }
 
   private var fullPlayerProgressAccessibilityValue: String {
@@ -158,7 +171,15 @@ private struct FullPlayerProgressTrack: View {
 /// Vollplayer-Fortschritt: Long-Press auf dem Balken, dann ziehen zum Suchen.
 private struct FullPlayerScrubberSection: View {
   @Environment(\.appearanceThemeRevision) private var themeRevision
-  @ObservedObject var player: PlaybackController
+  let player: PlaybackController
+  let globalPosition: Double
+  let totalDuration: Double
+  let chapterCount: Int
+  let chapterMarkerFractions: [Double]
+  let currentChapterTitle: String
+  let currentChapterOrdinal: Int
+  let isBuffering: Bool
+  let hasActiveBook: Bool
   let centerCaption: String
 
   @State private var isScrubbing = false
@@ -168,19 +189,19 @@ private struct FullPlayerScrubberSection: View {
   @State private var chapterScrubGlobal: Double = 0
   @State private var didChapterScrubHaptic = false
 
-  private var duration: Double { max(player.totalDuration, 1) }
+  private var duration: Double { max(totalDuration, 1) }
 
   private var displayGlobalPosition: Double {
     if isScrubbing { return scrubPosition }
     if isChapterScrubbing { return chapterScrubGlobal }
-    return player.globalPosition
+    return globalPosition
   }
 
   private var scrubEnabled: Bool {
-    player.activeBook != nil && player.totalDuration > 0 && !player.isBuffering
+    hasActiveBook && totalDuration > 0 && !isBuffering
   }
 
-  private var showsChapterProgress: Bool { player.chapterCount > 0 }
+  private var showsChapterProgress: Bool { chapterCount > 0 }
 
   var body: some View {
     let _ = themeRevision
@@ -208,8 +229,9 @@ private struct FullPlayerScrubberSection: View {
           FullPlayerProgressTrack(
             value: pos,
             total: dur,
-            chapterMarkers: player.chapterMarkerFractions,
-            showsScrubThumb: isScrubbing
+            chapterMarkers: chapterMarkerFractions,
+            showsScrubThumb: isScrubbing,
+            onSeek: { player.seek(global: $0) }
           )
         }
         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
@@ -258,7 +280,8 @@ private struct FullPlayerScrubberSection: View {
             value: chPos,
             total: chapter.duration,
             showsScrubThumb: isChapterScrubbing,
-            accessibilityLabelText: "Chapter position"
+            accessibilityLabelText: "Chapter position",
+            onSeek: { player.seek(global: $0) }
           )
         }
         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
@@ -288,10 +311,9 @@ private struct FullPlayerScrubberSection: View {
   }
 
   private var chapterCaption: String {
-    let raw = player.currentChapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    let raw = currentChapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
     if !raw.isEmpty { return raw }
-    let ord = player.currentChapterOrdinal
-    if ord > 0 { return "Chapter \(ord)" }
+    if currentChapterOrdinal > 0 { return "Chapter \(currentChapterOrdinal)" }
     return String(localized: "Chapter", comment: "Player chapter progress label")
   }
 
@@ -307,7 +329,7 @@ private struct FullPlayerScrubberSection: View {
         case .second(true, let drag?):
           if !isScrubbing {
             isScrubbing = true
-            scrubPosition = player.globalPosition
+            scrubPosition = globalPosition
             if !didScrubHaptic {
               didScrubHaptic = true
               UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -711,6 +733,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
       && lhs.isDownloading == rhs.isDownloading
       && lhs.downloadProgressBucket == rhs.downloadProgressBucket
       && lhs.isLoggedIn == rhs.isLoggedIn
+      && lhs.themeRevision == rhs.themeRevision
   }
 
   var body: some View {
@@ -855,22 +878,241 @@ private struct FullPlayerUtilityBar: View, Equatable {
 
 // MARK: - Vollansicht (Now Playing)
 
+/// Transport + Utility-Bar — Equatable, ohne Positions-Ticks.
+struct FullPlayerChromeSnapshot: Equatable {
+  let hasActiveBook: Bool
+  let chapterCount: Int
+  let isBuffering: Bool
+  let isPlaying: Bool
+  let skipBackwardSeconds: Int
+  let skipForwardSeconds: Int
+  let canSkipToPreviousChapter: Bool
+  let canSkipToNextChapter: Bool
+  let playbackRate: Float
+  let offlineStorageId: String?
+  let isDownloaded: Bool
+  let isDownloading: Bool
+  let downloadProgressBucket: Int
+  let isLoggedIn: Bool
+  let sleepTimerModeSignature: Int
+
+  static let empty = FullPlayerChromeSnapshot(
+    hasActiveBook: false,
+    chapterCount: 0,
+    isBuffering: false,
+    isPlaying: false,
+    skipBackwardSeconds: ABSPlaybackSkipDefaults.backwardSeconds,
+    skipForwardSeconds: ABSPlaybackSkipDefaults.forwardSeconds,
+    canSkipToPreviousChapter: false,
+    canSkipToNextChapter: false,
+    playbackRate: 1,
+    offlineStorageId: nil,
+    isDownloaded: false,
+    isDownloading: false,
+    downloadProgressBucket: -1,
+    isLoggedIn: false,
+    sleepTimerModeSignature: 0
+  )
+
+  @MainActor
+  static func make(model: AppModel) -> FullPlayerChromeSnapshot {
+    let player = model.player
+    let sid = model.currentPlaybackOfflineStorageId()
+    let isDownloading = sid != nil && model.downloads.activeItemId == sid
+    let sleepSig: Int = {
+      switch player.sleepTimerMode {
+      case .off: return 0
+      case .minutes(let m): return 10_000 + m
+      case .chapters(let c): return 20_000 + c
+      }
+    }()
+    return FullPlayerChromeSnapshot(
+      hasActiveBook: player.activeBook != nil,
+      chapterCount: player.chapterCount,
+      isBuffering: player.isBuffering,
+      isPlaying: player.isPlaying,
+      skipBackwardSeconds: player.skipBackwardSeconds,
+      skipForwardSeconds: player.skipForwardSeconds,
+      canSkipToPreviousChapter: player.canSkipToPreviousChapter,
+      canSkipToNextChapter: player.canSkipToNextChapter,
+      playbackRate: player.playbackRate,
+      offlineStorageId: sid,
+      isDownloaded: sid.map { model.downloadedItemIds.contains($0) } ?? false,
+      isDownloading: isDownloading,
+      downloadProgressBucket: isDownloading ? Int(model.downloads.progress * 20) : -1,
+      isLoggedIn: model.isLoggedIn,
+      sleepTimerModeSignature: sleepSig
+    )
+  }
+}
+
+struct FullPlayerScrubberSnapshot: Equatable {
+  let globalPosition: Double
+  let totalDuration: Double
+  let chapterCount: Int
+  let chapterMarkerFractions: [Double]
+  let currentChapterTitle: String
+  let currentChapterOrdinal: Int
+  let isBuffering: Bool
+  let hasActiveBook: Bool
+
+  @MainActor
+  static func make(player: PlaybackController) -> FullPlayerScrubberSnapshot {
+    FullPlayerScrubberSnapshot(
+      globalPosition: player.globalPosition,
+      totalDuration: player.totalDuration,
+      chapterCount: player.chapterCount,
+      chapterMarkerFractions: player.chapterMarkerFractions,
+      currentChapterTitle: player.currentChapterTitle,
+      currentChapterOrdinal: player.currentChapterOrdinal,
+      isBuffering: player.isBuffering,
+      hasActiveBook: player.activeBook != nil
+    )
+  }
+}
+
+private struct FullPlayerTransportRowChrome: View, Equatable {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
+
+  let snapshot: FullPlayerChromeSnapshot
+  let showsFullPlayerPanelControls: Bool
+  let isCoverPanelExpanded: Bool
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.snapshot == rhs.snapshot
+      && lhs.showsFullPlayerPanelControls == rhs.showsFullPlayerPanelControls
+      && lhs.isCoverPanelExpanded == rhs.isCoverPanelExpanded
+      && lhs.themeRevision == rhs.themeRevision
+  }
+
+  var body: some View {
+    let _ = themeRevision
+    let player = model.player
+    let hasChapters = snapshot.chapterCount > 0
+    let isBusy = snapshot.hasActiveBook && snapshot.isBuffering
+  return HStack(alignment: .center, spacing: 0) {
+      fullPlayerTransportChapterSlot(isLeading: true, hasChapters: hasChapters, player: player)
+        .frame(maxWidth: .infinity)
+
+      Button {
+        player.skip(seconds: -Double(snapshot.skipBackwardSeconds))
+      } label: {
+        Image(systemName: PlaybackController.gobackwardSystemImage(seconds: snapshot.skipBackwardSeconds))
+          .font(FullPlayerTransportLayout.auxiliarySymbolFont)
+      }
+      .disabled(isBusy)
+      .accessibilityLabel(
+        PlaybackController.skipAccessibilityLabel(
+          backward: true, seconds: snapshot.skipBackwardSeconds))
+      .frame(maxWidth: .infinity)
+
+      Button {
+        player.togglePlayPause()
+      } label: {
+        Group {
+          if isBusy {
+            ProgressView()
+              .controlSize(.large)
+              .tint(model.appearancePalette.foregroundOnAccent(themeAccent))
+          } else {
+            Image(systemName: snapshot.isPlaying ? "pause.fill" : "play.fill")
+              .font(.largeTitle)
+              .symbolVariant(.fill)
+              .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
+          }
+        }
+        .frame(width: 72, height: 44)
+      }
+      .buttonStyle(.borderedProminent)
+      .controlSize(.large)
+      .clipShape(Capsule(style: .continuous))
+      .tint(themeAccent)
+      .disabled(!snapshot.hasActiveBook)
+      .frame(maxWidth: .infinity)
+
+      Button {
+        player.skip(seconds: Double(snapshot.skipForwardSeconds))
+      } label: {
+        Image(systemName: PlaybackController.goforwardSystemImage(seconds: snapshot.skipForwardSeconds))
+          .font(FullPlayerTransportLayout.auxiliarySymbolFont)
+      }
+      .disabled(isBusy)
+      .accessibilityLabel(
+        PlaybackController.skipAccessibilityLabel(
+          backward: false, seconds: snapshot.skipForwardSeconds))
+      .frame(maxWidth: .infinity)
+
+      fullPlayerTransportChapterSlot(isLeading: false, hasChapters: hasChapters, player: player)
+        .frame(maxWidth: .infinity)
+    }
+    .foregroundStyle(AppTheme.textPrimary)
+    .buttonStyle(.borderless)
+    .padding(
+      .top,
+      showsFullPlayerPanelControls ? 0 : FullPlayerTransportLayout.spacingAbovePlayRow
+    )
+    .padding(.bottom, FullPlayerTransportLayout.spacingBelowPlayRow)
+    .animation(nil, value: isCoverPanelExpanded)
+  }
+
+  @ViewBuilder
+  private func fullPlayerTransportChapterSlot(
+    isLeading: Bool,
+    hasChapters: Bool,
+    player: PlaybackController
+  ) -> some View {
+    let symbol = isLeading ? "backward.end" : "forward.end"
+    if hasChapters {
+      Button {
+        if isLeading {
+          player.skipToPreviousChapter()
+        } else {
+          player.skipToNextChapter()
+        }
+      } label: {
+        Image(systemName: symbol)
+          .font(FullPlayerTransportLayout.auxiliarySymbolFont)
+          .symbolVariant(.fill)
+      }
+      .disabled(isLeading ? !snapshot.canSkipToPreviousChapter : !snapshot.canSkipToNextChapter)
+      .accessibilityLabel(isLeading ? "Previous chapter" : "Next chapter")
+    } else {
+      Image(systemName: symbol)
+        .font(FullPlayerTransportLayout.auxiliarySymbolFont)
+        .symbolVariant(.fill)
+        .hidden()
+        .accessibilityHidden(true)
+    }
+  }
+}
+
+private struct NowPlayingCoverHeaderShell<Content: View>: View {
+  @ObservedObject var player: PlaybackController
+  @ViewBuilder var content: () -> Content
+
+  var body: some View {
+    content()
+  }
+}
+
 struct NowPlayingDetailView: View {
   @EnvironmentObject private var model: AppModel
-  @EnvironmentObject private var player: PlaybackController
   @Environment(\.verticalSizeClass) private var verticalSizeClass
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
   @State private var readAlongDownloadWarningPresented = false
+  @State private var chromeSnapshot = FullPlayerChromeSnapshot.empty
+  @State private var activeBook: ABSBook?
+  @State private var isTeleprompterActive = false
   @AppStorage(PlayerTeleprompterMetrics.fontSizeStorageKey) private var teleprompterFontSizeStorage: Double = 0
   @State private var coverPanel: FullPlayerCoverPanel = .artwork
   @State private var panelBookDetail: ABSBook?
   @State private var panelListeningSessions: [ABSListeningSession] = []
 
-  private var isTeleprompterActive: Bool {
-    player.liveTranscription.isTeleprompterModeActive
-  }
+  private var player: PlaybackController { model.player }
 
   /// Cover durch Teleprompter oder Kapitel-/Sessions-/Bookmarks-Panel ersetzt.
   private var isCoverPanelExpanded: Bool {
@@ -878,13 +1120,13 @@ struct NowPlayingDetailView: View {
   }
 
   private var isAudiobookPlayback: Bool {
-    guard player.activeBook != nil else { return false }
+    guard let activeBook else { return false }
     let ep = player.activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return ep.isEmpty && (player.activeBook?.isPlayableAudiobook ?? false)
+    return ep.isEmpty && activeBook.isPlayableAudiobook
   }
 
   private var panelChapterBook: ABSBook? {
-    panelBookDetail ?? player.activeBook
+    panelBookDetail ?? activeBook
   }
 
   private var showsChaptersButton: Bool {
@@ -892,18 +1134,110 @@ struct NowPlayingDetailView: View {
   }
 
   private var showsSessionsButton: Bool {
-    player.activeBook != nil
+    activeBook != nil
   }
 
   private var showsDescriptionButton: Bool {
-    player.activeBook != nil
+    activeBook != nil
   }
 
   private var showsConnectionLoading: Bool {
-    model.isPlayerConnectionLoading && player.activeBook == nil
+    model.isPlayerConnectionLoading && activeBook == nil
+  }
+
+  private func refreshChromeSnapshot() {
+    chromeSnapshot = FullPlayerChromeSnapshot.make(model: model)
   }
 
   var body: some View {
+    fullPlayerRootWithSnapshotHooks
+      .task {
+        await player.liveTranscription.refreshReadAlongAvailability()
+      }
+      .onDisappear {
+        player.liveTranscription.wordLookupSelection = nil
+        if player.liveTranscription.isTeleprompterModeActive {
+          Task { @MainActor in
+            await player.liveTranscription.disable()
+          }
+        }
+        coverPanel = .artwork
+      }
+      .onChange(of: isTeleprompterActive) { _, active in
+        if active { coverPanel = .artwork }
+      }
+      .onChange(of: player.liveTranscription.errorMessage) { _, err in
+        if let err, !AbstandErrorFilter.isBenignCancellationMessage(err) {
+          model.errorMessage = err
+        }
+      }
+      .onChange(of: player.activeBook?.id) { _, _ in
+        coverPanel = .artwork
+        panelBookDetail = nil
+        panelListeningSessions = []
+      }
+      .task(id: coverPanel) {
+        await loadCoverPanelDataIfNeeded()
+      }
+      // Am stabilen Player-Root statt in der Teleprompter-View: die Translation-Session
+      // crasht (fatalError), wenn ihre Anker-View verschwindet (Rotation, Card-Swap).
+      .sheet(
+        item: Binding(
+          get: { player.liveTranscription.wordLookupSelection },
+          set: { player.liveTranscription.wordLookupSelection = $0 }
+        )
+      ) { selection in
+        PlayerTranscriptWordLookupSheet(
+          selection: selection,
+          sourceLocale: selection.sourceLocale,
+          model: model
+        )
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+      }
+      .alert(
+        String(localized: "Download required", comment: "Read along alert title"),
+        isPresented: $readAlongDownloadWarningPresented
+      ) {
+        Button(String(localized: "OK", comment: "Dismiss"), role: .cancel) {}
+      } message: {
+        Text(
+          String(
+            localized: "Read along only works when the audiobook is fully downloaded.",
+            comment: "Read along download required alert")
+        )
+      }
+  }
+
+  private var fullPlayerRootWithSnapshotHooks: some View {
+    fullPlayerStack
+      .preferredColorScheme(model.resolvedInterfaceColorScheme)
+      .onAppear {
+        activeBook = player.activeBook
+        isTeleprompterActive = player.liveTranscription.isTeleprompterModeActive
+        refreshChromeSnapshot()
+      }
+      .onReceive(player.$activeBook) { book in
+        activeBook = book
+        refreshChromeSnapshot()
+      }
+      .onReceive(player.$isPlaying) { _ in refreshChromeSnapshot() }
+      .onReceive(player.$isBuffering) { _ in refreshChromeSnapshot() }
+      .onReceive(player.$chapterCount) { _ in refreshChromeSnapshot() }
+      .onReceive(player.$playbackRate) { _ in refreshChromeSnapshot() }
+      .onReceive(player.$skipBackwardSeconds) { _ in refreshChromeSnapshot() }
+      .onReceive(player.$skipForwardSeconds) { _ in refreshChromeSnapshot() }
+      .onReceive(player.$sleepTimerMode) { _ in refreshChromeSnapshot() }
+      .onReceive(model.downloads.objectWillChange.receive(on: DispatchQueue.main)) { _ in
+        refreshChromeSnapshot()
+      }
+      .onReceive(model.$downloadedItemIds) { _ in refreshChromeSnapshot() }
+      .onReceive(player.liveTranscription.objectWillChange.receive(on: DispatchQueue.main)) { _ in
+        isTeleprompterActive = player.liveTranscription.isTeleprompterModeActive
+      }
+  }
+
+  private var fullPlayerStack: some View {
     ZStack {
       fullPlayerBackground
         .accessibilityHidden(true)
@@ -918,63 +1252,6 @@ struct NowPlayingDetailView: View {
       }
       .safeAreaPadding(.horizontal, MiniPlayerMetrics.fullPlayerCoverInset)
       .safeAreaPadding(.top, MiniPlayerMetrics.fullPlayerCoverInset)
-    }
-    .preferredColorScheme(model.resolvedInterfaceColorScheme)
-    .task {
-      await player.liveTranscription.refreshReadAlongAvailability()
-    }
-    .onDisappear {
-      player.liveTranscription.wordLookupSelection = nil
-      if player.liveTranscription.isTeleprompterModeActive {
-        Task { @MainActor in
-          await player.liveTranscription.disable()
-        }
-      }
-      coverPanel = .artwork
-    }
-    .onChange(of: isTeleprompterActive) { _, active in
-      if active { coverPanel = .artwork }
-    }
-    .onChange(of: player.liveTranscription.errorMessage) { _, err in
-      if let err, !AbstandErrorFilter.isBenignCancellationMessage(err) {
-        model.errorMessage = err
-      }
-    }
-    .onChange(of: player.activeBook?.id) { _, _ in
-      coverPanel = .artwork
-      panelBookDetail = nil
-      panelListeningSessions = []
-    }
-    .task(id: coverPanel) {
-      await loadCoverPanelDataIfNeeded()
-    }
-    // Am stabilen Player-Root statt in der Teleprompter-View: die Translation-Session
-    // crasht (fatalError), wenn ihre Anker-View verschwindet (Rotation, Card-Swap).
-    .sheet(
-      item: Binding(
-        get: { player.liveTranscription.wordLookupSelection },
-        set: { player.liveTranscription.wordLookupSelection = $0 }
-      )
-    ) { selection in
-      PlayerTranscriptWordLookupSheet(
-        selection: selection,
-        sourceLocale: selection.sourceLocale,
-        model: model
-      )
-      .presentationDetents([.medium, .large])
-      .presentationDragIndicator(.visible)
-    }
-    .alert(
-      String(localized: "Download required", comment: "Read along alert title"),
-      isPresented: $readAlongDownloadWarningPresented
-    ) {
-      Button(String(localized: "OK", comment: "Dismiss"), role: .cancel) {}
-    } message: {
-      Text(
-        String(
-          localized: "Read along only works when the audiobook is fully downloaded.",
-          comment: "Read along download required alert")
-      )
     }
   }
 
@@ -996,7 +1273,7 @@ struct NowPlayingDetailView: View {
 
   private var portraitLayout: some View {
     Group {
-      if let b = player.activeBook {
+      if let b = activeBook {
         fullPlayerPortraitLayout(book: b)
       } else if showsConnectionLoading {
         connectionLoadingPlaceholder
@@ -1042,10 +1319,16 @@ struct NowPlayingDetailView: View {
       fullPlayerPanelControlRow()
         .frame(maxWidth: 800)
 
-      fullPlayerTransportRow
-        .frame(maxWidth: 800)
+      FullPlayerTransportRowChrome(
+        snapshot: chromeSnapshot,
+        showsFullPlayerPanelControls: showsFullPlayerPanelControls,
+        isCoverPanelExpanded: panelExpanded
+      )
+      .equatable()
+      .frame(maxWidth: 800)
 
       fullPlayerUtilityBar
+        .equatable()
       Spacer(minLength: 8)
     }
     .animation(.easeInOut(duration: 0.28), value: panelExpanded)
@@ -1054,7 +1337,7 @@ struct NowPlayingDetailView: View {
 
   private var landscapeLayout: some View {
     Group {
-      if let b = player.activeBook {
+      if let b = activeBook {
         fullPlayerLandscapeLayout(book: b)
       } else {
         restoringOrIdleInLandscape
@@ -1081,8 +1364,14 @@ struct NowPlayingDetailView: View {
           Spacer(minLength: 0)
         }
         fullPlayerPanelControlRow()
-        fullPlayerTransportRow
+        FullPlayerTransportRowChrome(
+          snapshot: chromeSnapshot,
+          showsFullPlayerPanelControls: showsFullPlayerPanelControls,
+          isCoverPanelExpanded: panelExpanded
+        )
+        .equatable()
         fullPlayerUtilityBar
+          .equatable()
         Spacer(minLength: 8)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1129,15 +1418,17 @@ struct NowPlayingDetailView: View {
 
   @ViewBuilder
   private func playerHeaderArea(book: ABSBook) -> some View {
-    Group {
-      if isTeleprompterActive {
-        readAlongKaraokeCard()
-      } else if coverPanel == .bookmarks, let audiobookId = activeAudiobookBookmarkId {
-        bookmarksCoverCard(audiobookId: audiobookId)
-      } else if coverPanel != .artwork {
-        fullPlayerExpandedListCard(book: book)
-      } else {
-        fullPlayerArtworkCard(book: book)
+    NowPlayingCoverHeaderShell(player: player) {
+      Group {
+        if isTeleprompterActive {
+          readAlongKaraokeCard()
+        } else if coverPanel == .bookmarks, let audiobookId = activeAudiobookBookmarkId {
+          bookmarksCoverCard(audiobookId: audiobookId)
+        } else if coverPanel != .artwork {
+          fullPlayerExpandedListCard(book: book)
+        } else {
+          fullPlayerArtworkCard(book: book)
+        }
       }
     }
   }
@@ -1617,120 +1908,30 @@ struct NowPlayingDetailView: View {
     .accessibilityLabel(String(localized: "Read along transcript", comment: "Accessibility"))
   }
 
-  /// Stabile Play-Row — nicht in Cover/Teleprompter-Zweigen duplizieren (vermeidet Flackern).
-  private var fullPlayerTransportRow: some View {
-    transportControls
-      .padding(.top, showsFullPlayerPanelControls ? 0 : FullPlayerTransportLayout.spacingAbovePlayRow)
-      .padding(.bottom, FullPlayerTransportLayout.spacingBelowPlayRow)
-      .animation(nil, value: isCoverPanelExpanded)
-  }
-
   private func scrubberSection(book: ABSBook) -> some View {
-    FullPlayerScrubberSection(
+    let scrubSnapshot = FullPlayerScrubberSnapshot.make(player: player)
+    return FullPlayerScrubberSection(
       player: player,
+      globalPosition: scrubSnapshot.globalPosition,
+      totalDuration: scrubSnapshot.totalDuration,
+      chapterCount: scrubSnapshot.chapterCount,
+      chapterMarkerFractions: scrubSnapshot.chapterMarkerFractions,
+      currentChapterTitle: scrubSnapshot.currentChapterTitle,
+      currentChapterOrdinal: scrubSnapshot.currentChapterOrdinal,
+      isBuffering: scrubSnapshot.isBuffering,
+      hasActiveBook: scrubSnapshot.hasActiveBook,
       centerCaption: ""
     )
   }
 
-  private var transportControls: some View {
-    let hasChapters = player.chapterCount > 0
-    let isBusy = player.activeBook != nil && player.isBuffering
-    return HStack(alignment: .center, spacing: 0) {
-      fullPlayerTransportChapterSlot(isLeading: true, hasChapters: hasChapters)
-        .frame(maxWidth: .infinity)
-
-      Button {
-        player.skip(seconds: -Double(player.skipBackwardSeconds))
-      } label: {
-        Image(systemName: PlaybackController.gobackwardSystemImage(seconds: player.skipBackwardSeconds))
-          .font(FullPlayerTransportLayout.auxiliarySymbolFont)
-      }
-      .disabled(isBusy)
-      .accessibilityLabel(
-        PlaybackController.skipAccessibilityLabel(
-          backward: true, seconds: player.skipBackwardSeconds))
-      .frame(maxWidth: .infinity)
-
-      Button {
-        player.togglePlayPause()
-      } label: {
-        Group {
-          if isBusy {
-            ProgressView()
-              .controlSize(.large)
-              .tint(model.appearancePalette.foregroundOnAccent(themeAccent))
-            } else {
-              Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                .font(.largeTitle)
-                .symbolVariant(.fill)
-                .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
-          }
-        }
-        .frame(width: 72, height: 44)
-      }
-      .buttonStyle(.borderedProminent)
-      .controlSize(.large)
-      .clipShape(Capsule(style: .continuous))
-      .tint(themeAccent)
-      .disabled(player.activeBook == nil)
-      .frame(maxWidth: .infinity)
-
-      Button {
-        player.skip(seconds: Double(player.skipForwardSeconds))
-      } label: {
-        Image(systemName: PlaybackController.goforwardSystemImage(seconds: player.skipForwardSeconds))
-          .font(FullPlayerTransportLayout.auxiliarySymbolFont)
-      }
-      .disabled(isBusy)
-      .accessibilityLabel(
-        PlaybackController.skipAccessibilityLabel(
-          backward: false, seconds: player.skipForwardSeconds))
-      .frame(maxWidth: .infinity)
-
-      fullPlayerTransportChapterSlot(isLeading: false, hasChapters: hasChapters)
-        .frame(maxWidth: .infinity)
-    }
-    .foregroundStyle(AppTheme.textPrimary)
-    .buttonStyle(.borderless)
-  }
-
-  /// Kapitel-Slots bleiben reserviert (Podcasts ohne Kapitel → ±15/30 bleiben zentriert).
-  @ViewBuilder
-  private func fullPlayerTransportChapterSlot(isLeading: Bool, hasChapters: Bool) -> some View {
-    let symbol = isLeading ? "backward.end" : "forward.end"
-    if hasChapters {
-      Button {
-        if isLeading {
-          player.skipToPreviousChapter()
-        } else {
-          player.skipToNextChapter()
-        }
-      } label: {
-        Image(systemName: symbol)
-          .font(FullPlayerTransportLayout.auxiliarySymbolFont)
-          .symbolVariant(.fill)
-      }
-      .disabled(isLeading ? !player.canSkipToPreviousChapter : !player.canSkipToNextChapter)
-      .accessibilityLabel(isLeading ? "Previous chapter" : "Next chapter")
-    } else {
-      Image(systemName: symbol)
-        .font(FullPlayerTransportLayout.auxiliarySymbolFont)
-        .symbolVariant(.fill)
-        .hidden()
-        .accessibilityHidden(true)
-    }
-  }
-
-  private var fullPlayerUtilityBar: some View {
-    let sid = model.currentPlaybackOfflineStorageId()
-    let isDownloading = sid != nil && model.downloads.activeItemId == sid
-    return FullPlayerUtilityBar(
-      playbackRate: player.playbackRate,
-      offlineStorageId: sid,
-      isDownloaded: sid.map { model.downloadedItemIds.contains($0) } ?? false,
-      isDownloading: isDownloading,
-      downloadProgressBucket: isDownloading ? Int(model.downloads.progress * 20) : -1,
-      isLoggedIn: model.isLoggedIn
+  private var fullPlayerUtilityBar: FullPlayerUtilityBar {
+    FullPlayerUtilityBar(
+      playbackRate: chromeSnapshot.playbackRate,
+      offlineStorageId: chromeSnapshot.offlineStorageId,
+      isDownloaded: chromeSnapshot.isDownloaded,
+      isDownloading: chromeSnapshot.isDownloading,
+      downloadProgressBucket: chromeSnapshot.downloadProgressBucket,
+      isLoggedIn: chromeSnapshot.isLoggedIn
     )
   }
 
@@ -2016,7 +2217,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
   private static let accessoryTransportSide: CGFloat = 44
 
   static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.snapshot == rhs.snapshot
+    lhs.snapshot == rhs.snapshot && lhs.themeRevision == rhs.themeRevision
   }
 
   var body: some View {
@@ -2384,8 +2585,7 @@ struct OfflineHomeMiniPlayerCard: View {
       .frame(maxHeight: .infinity, alignment: .center)
     }
     .frame(height: 16)
-    .accessibilityLabel("Playback progress")
-    .accessibilityValue("\(Int(t * 100)) percent")
+    .accessibilityHidden(true)
   }
 
   private var showsTransport: Bool {
