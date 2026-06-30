@@ -1,0 +1,429 @@
+import SwiftUI
+import UIKit
+
+// MARK: - Home tab root
+
+/// Eigener View-Typ — stabile Identität; Nav-Bar + Offline-Button überleben Bootstrap-Schritte.
+struct HomeTabRootView: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        StartDashboardView()
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .abstandTabScreenChrome()
+      .abstandHomeTabNavigationTitle()
+      .toolbar {
+        HomeGoOfflineToolbarContent()
+      }
+      .task(id: "\(model.sessionUserId)-\(model.isAppBootstrapInProgress)") {
+        guard !model.isAppBootstrapInProgress else { return }
+        await model.probeServerConnectionIfNeeded()
+      }
+      .booksEntityDetailNavigation(for: .start)
+    }
+  }
+}
+
+/// Nav-Bar-Trailing — statischer Offline-Schalter.
+struct HomeGoOfflineToolbarContent: ToolbarContent {
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .topBarTrailing) {
+      HomeGoOfflineToolbarButton()
+    }
+  }
+}
+
+struct HomeGoOfflineToolbarButton: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    Button {
+      model.homeGoOfflineToolbarTapped()
+    } label: {
+      Label {
+        Text(buttonTitle)
+      } icon: {
+        Image(systemName: buttonIcon)
+      }
+      .labelStyle(.iconOnly)
+    }
+    .accessibilityLabel(buttonTitle)
+    .accessibilityIdentifier("home-go-offline-toolbar-button")
+  }
+
+  private var buttonTitle: String {
+    model.offlineHomeUIActive ? "Go online" : "Go offline"
+  }
+
+  private var buttonIcon: String {
+    model.offlineHomeUIActive ? "icloud.slash" : "icloud"
+  }
+}
+
+// MARK: - Home dashboard
+
+struct StartDashboardView: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    Group {
+      if model.offlineHomeUIActive {
+        offlineHomeFixedRoot
+      } else {
+        startDashboardOnlineLayout
+      }
+    }
+    .abstandScrollScreenBackground()
+    .onAppear {
+      guard model.startShelves.isEmpty,
+        !model.isAppBootstrapInProgress,
+        !model.hasCachedBootstrapContent
+      else { return }
+      Task {
+        if model.offlineHomeUIActive {
+          await model.loadStartDashboard(force: true)
+        } else {
+          await model.loadStartDashboard()
+        }
+      }
+    }
+    .onChange(of: model.offlineHomeUIActive) { _, isOffline in
+      guard !isOffline else { return }
+      guard !model.isAppBootstrapInProgress else { return }
+      Task { await model.loadStartDashboard(force: true) }
+    }
+  }
+
+  private var showsOfflineHomeMiniPlayer: Bool {
+    model.activePlaybackIsOfflineEligible()
+  }
+
+  /// Offline-Home: Player fix oben, nur „Downloaded“ scrollt darunter.
+  private var offlineHomeFixedRoot: some View {
+    VStack(spacing: 0) {
+      if showsOfflineHomeMiniPlayer {
+        offlineHomeFixedPlayerHeader
+      }
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+          offlineHomeDownloadsBlock
+        }
+        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
+        .padding(.top, AppTheme.Layout.withinSectionSpacing)
+        .padding(.bottom, AppTheme.Layout.scrollBottomInsetBase)
+      }
+      .scrollContentBackground(.hidden)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .refreshable {
+        await model.refreshStartTabPullToRefresh()
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    .background(model.appearancePalette.background)
+  }
+
+  private var offlineHomeFixedPlayerHeader: some View {
+    OfflineHomeMiniPlayerCard(gate: model.floatingChrome.gate, chrome: model.floatingChrome)
+      .fixedSize(horizontal: false, vertical: true)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
+      .padding(.top, AppTheme.Layout.withinSectionSpacing)
+      .padding(.bottom, AppTheme.Layout.withinSectionSpacing)
+      .background(model.appearancePalette.background)
+  }
+
+  // MARK: - Home tab
+
+  private var startDashboardOnlineLayout: some View {
+    let stripIDs = model.homeBrowseStripCategoryIDs
+    let layoutSectionIDs =
+      stripIDs.isEmpty
+      ? [ABSStartShelfLocalization.homeBrowseContinueSectionID]
+      : stripIDs
+    return AbstandFixedBrowseStripSectionsLayout(
+      showsStrip: true,
+      selection: model.homeBrowseCategory,
+      sectionIDs: layoutSectionIDs,
+      scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
+        + model.nowPlayingAccessoryScrollBottomInset,
+      topScrollEdgeEffectStyle: .soft,
+      onRefresh: { await model.refreshStartTabPullToRefresh() }
+    ) {
+      if stripIDs.isEmpty {
+        homeBrowseStripBootstrapPlaceholder
+      } else {
+        homeBrowseSectionStrip
+      }
+    } sectionBody: { category in
+      if stripIDs.isEmpty {
+        startDashboardAllShelvesDisabledState
+          .frame(maxWidth: .infinity)
+      } else {
+        startDashboardSectionScrollContent(category: category)
+      }
+    }
+    .onAppear { model.clampHomeBrowseSectionIfNeeded() }
+    .onChange(of: model.startDisabledCategories) { _, _ in
+      model.clampHomeBrowseSectionIfNeeded()
+    }
+    .onChange(of: model.startSettingsCategoryList.count) { _, _ in
+      model.clampHomeBrowseSectionIfNeeded()
+    }
+    .task(id: model.homeBrowseCategory) {
+      guard ABSStartShelfLocalization.isHomeBrowseStatsCategory(model.homeBrowseCategory) else { return }
+      guard !model.offlineHomeUIActive else { return }
+      model.prepareListeningAchievementsForStatsTab()
+      await model.loadListeningStats()
+    }
+  }
+
+  private var homeBrowseSectionStrip: some View {
+    AbstandBrowseStripIconMenu(
+      items: model.homeBrowseStripRows.map { row in
+        AbstandBrowseStripItem(
+          id: row.category,
+          label: row.label,
+          systemImage: ABSStartShelfLocalization.stripSystemImage(category: row.category)
+        )
+      },
+      selectionID: model.homeBrowseCategory,
+      onSelect: { model.selectHomeBrowseSection($0) }
+    )
+  }
+
+  /// Leerer Strip bis Regale da sind — gleiche Layout-Höhe wie echter Strip (kein Nav-Bar-Relayout).
+  private var homeBrowseStripBootstrapPlaceholder: some View {
+    Color.clear
+      .frame(maxWidth: .infinity)
+      .accessibilityHidden(true)
+  }
+
+  private func startDashboardSectionScrollContent(category: String) -> some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      if ABSStartShelfLocalization.isHomeBrowseStatsCategory(category) {
+        HomeListeningStatsSectionView()
+      } else if category == ABSStartShelfLocalization.homeBrowseContinueSectionID {
+        startDashboardContinueCombinedContent()
+      } else if category == ABSStartShelfLocalization.homeBrowseRecentSectionID {
+        startDashboardRecentCombinedContent()
+      } else if let shelf = model.startShelf(forCategory: category) {
+        startDashboardShelfContent(shelf)
+      } else {
+        startDashboardSectionEmptyState(category: category)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func startDashboardContinueCombinedContent() -> some View {
+    let shelves = model.startShelves(
+      forHomeBrowseSection: ABSStartShelfLocalization.homeBrowseContinueSectionID)
+    if shelves.isEmpty {
+      startDashboardSectionEmptyState(category: ABSStartShelfLocalization.homeBrowseContinueSectionID)
+    } else {
+      ForEach(shelves) { shelf in
+        startDashboardShelfContent(shelf)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func startDashboardRecentCombinedContent() -> some View {
+    let shelves = model.startShelves(
+      forHomeBrowseSection: ABSStartShelfLocalization.homeBrowseRecentSectionID)
+    if shelves.isEmpty {
+      startDashboardSectionEmptyState(category: ABSStartShelfLocalization.homeBrowseRecentSectionID)
+    } else {
+      ForEach(shelves) { shelf in
+        startDashboardShelfContent(shelf)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func startDashboardShelfContent(_ shelf: ABSStartShelfSection) -> some View {
+    let continueSplit =
+      startDashboardIsContinueShelf(shelf) && (shelf.hasBooks || shelf.hasPodcastEpisodes)
+    if continueSplit {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+        if shelf.hasBooks || shelf.hasPodcastEpisodes {
+          startDashboardContinueListeningSection(shelf)
+        }
+        if shelf.hasAuthors {
+          VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+            TabContentSectionTitle(title: shelf.displayTitle)
+            startDashboardAuthorsContent(shelf.authors)
+          }
+        }
+      }
+    } else {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+        if shelf.hasBooks || shelf.hasAuthors || shelf.hasSeries || shelf.hasPodcastEpisodes {
+          TabContentSectionTitle(title: shelf.displayTitle)
+        }
+        if shelf.hasSeries {
+          startDashboardSeriesContent(shelf.series)
+        }
+        if shelf.hasBooks {
+          ForEach(shelf.books) { book in
+            if startDashboardShelfBookUsesEbookTabCard(shelfCategory: shelf.category, book: book) {
+              EbookTabListCard(
+                book: book, model: model, isSupplementary: false, preferCompactStyle: true)
+            } else {
+              LibraryBookListCard(book: book, model: model)
+            }
+          }
+        }
+        if shelf.hasAuthors {
+          startDashboardAuthorsContent(shelf.authors)
+        }
+      }
+    }
+  }
+
+  private func startDashboardSectionEmptyState(category: String) -> some View {
+    let label: String = {
+      if category == ABSStartShelfLocalization.homeBrowseContinueSectionID {
+        return ABSStartShelfLocalization.homeBrowseContinueStripLabel
+      }
+      if category == ABSStartShelfLocalization.homeBrowseRecentSectionID {
+        return ABSStartShelfLocalization.homeBrowseRecentStripLabel
+      }
+      return model.startSettingsCategoryList.first { $0.category == category }?.label
+        ?? ABSStartShelfLocalization.displayTitle(category: category, serverLabel: "")
+    }()
+    return ContentUnavailableView(
+      label,
+      systemImage: ABSStartShelfLocalization.stripSystemImage(category: category),
+      description: Text("Content for this shelf appears when your server provides it.")
+    )
+    .frame(maxWidth: .infinity)
+    .padding(.top, AppTheme.Layout.sectionSpacing)
+  }
+
+  @ViewBuilder
+  private func downloadedHomeRow(storageId: String) -> some View {
+    if let episode = model.podcastEpisodeForDownloadedStorageId(storageId) {
+      LibraryPodcastListCard(
+        episode: episode,
+        model: model,
+        opensDetailOnTap: false,
+        forceCompactListStyle: true
+      )
+    } else if let book = model.audiobookForDownloadedStorageId(storageId) {
+      LibraryBookListCard(
+        book: book,
+        model: model,
+        opensDetailOnTap: false,
+        forceCompactListStyle: true
+      )
+    }
+  }
+
+  @ViewBuilder
+  private var offlineHomeDownloadsBlock: some View {
+    if model.downloadedTitlesForHome.isEmpty {
+      startDashboardOfflineOnlyEmptyState
+    } else {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+        TabContentSectionTitle(title: "Downloaded")
+        LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+          ForEach(model.downloadedTitlesForHome, id: \.id) { book in
+            downloadedHomeRow(storageId: book.id)
+          }
+        }
+      }
+    }
+  }
+
+  private func startDashboardIsContinueShelf(_ shelf: ABSStartShelfSection) -> Bool {
+    shelf.category == "recentlyListened"
+  }
+
+  /// eBooks-Tab-Kartenvariante (nicht Library-`BookRowCard`).
+  private func startDashboardShelfBookUsesEbookTabCard(shelfCategory: String, book: ABSBook) -> Bool {
+    if shelfCategory == "continueEbooks" { return true }
+    if shelfCategory == "continueSeries" { return book.isPureEbookLibraryItem }
+    return false
+  }
+
+  @ViewBuilder
+  private func startDashboardContinueListeningSection(_ shelf: ABSStartShelfSection) -> some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      TabContentSectionTitle(title: shelf.displayTitle)
+      ContinueListeningHeroCarousel(shelf: shelf)
+    }
+  }
+
+  @ViewBuilder
+  private func startDashboardSeriesContent(_ series: [ABSLibrarySeriesListItem]) -> some View {
+    ForEach(series) { item in
+      startDashboardSeriesRow(item)
+    }
+  }
+
+  private func startDashboardSeriesRow(_ series: ABSLibrarySeriesListItem) -> some View {
+    Button {
+      model.openSeriesDetail(
+        seriesId: series.id,
+        displayName: series.name,
+        numBooks: series.books?.count)
+    } label: {
+      let placeholder = "series-ph:\(series.id)"
+      let bookIds = model.browseSeriesCoverBookIds(from: series.books)
+      BrowseEntityRowCard(
+        title: series.name,
+        detailLabel: "Books",
+        detailValue: browseEntityBooksCountLine(count: series.books?.count),
+        cacheItemId: bookIds.first ?? placeholder,
+        coverURL: bookIds.first.flatMap { model.coverURL(for: $0) },
+        coverBookIds: bookIds.count > 1 ? bookIds : nil,
+        authorLine: series.cardAuthorsLine
+      )
+    }
+    .buttonStyle(.plain)
+  }
+
+  @ViewBuilder
+  private func startDashboardAuthorsContent(_ authors: [ABSAuthorShelfEntity]) -> some View {
+    ForEach(authors) { author in
+      startDashboardAuthorRow(author)
+    }
+  }
+
+  private func startDashboardAuthorRow(_ author: ABSAuthorShelfEntity) -> some View {
+    Button {
+      model.openAuthorDetail(authorId: author.id, displayName: author.name, numBooks: author.numBooks)
+    } label: {
+      BrowseEntityRowCard(
+        title: author.name,
+        detailLabel: "Books",
+        detailValue: browseEntityBooksCountLine(count: author.numBooks),
+        cacheItemId: "author:\(author.id)",
+        coverURL: author.hasAuthorImage ? model.authorImageURL(authorId: author.id) : nil
+      )
+    }
+    .buttonStyle(.plain)
+  }
+
+  private var startDashboardAllShelvesDisabledState: some View {
+    ContentUnavailableView(
+      "All shelves are off",
+      systemImage: "gearshape.2",
+      description: Text("Open Settings → Appearance → Home to turn shelves back on.")
+    )
+  }
+
+  private var startDashboardOfflineOnlyEmptyState: some View {
+    ContentUnavailableView(
+      "No downloads",
+      systemImage: "arrow.down.circle",
+      description: Text(
+        "Offline mode only shows titles you have downloaded. Go back online to browse your library."
+      )
+    )
+  }
+}

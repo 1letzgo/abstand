@@ -191,7 +191,7 @@ struct BookChapterListView: View {
           .padding(.vertical, 6)
       } else {
         VStack(alignment: .leading, spacing: 0) {
-          ForEach(Array(chapters.enumerated()), id: \.offset) { idx, chapter in
+          ForEach(Array(chapters.enumerated()), id: \.element.id) { idx, chapter in
             BookChapterRowView(
               chapter: chapter,
               playState: BookChapterPlayState.resolve(chapter: chapter, progress: progress)
