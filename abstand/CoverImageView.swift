@@ -41,7 +41,14 @@ struct CoverImageView: View {
   @State private var image: UIImage?
 
   private var loadIdentity: String {
-    "\(itemId)|\(url?.absoluteString ?? "")"
+    "\(itemId)|\(url?.absoluteString ?? "")|\(cacheRevision)"
+  }
+
+  /// Storage-Key für Memory-/Disk-Cache. `cacheRevision` fließt hier mit ein (nicht nur in
+  /// `loadIdentity`), sonst würde ein geänderter Revision-Wert zwar `.task` neu triggern, aber
+  /// `load()` würde trotzdem sofort den alten, unter demselben Key liegenden Cache-Treffer zurückgeben.
+  private func effectiveCacheKey(for scopeId: String) -> String {
+    CoverImageCache.cacheKey(scopeId: scopeId, revision: cacheRevision)
   }
 
   init(
@@ -62,8 +69,11 @@ struct CoverImageView: View {
     self.cacheRevision = cacheRevision
     self.requiresAuthorization = requiresAuthorization
     self.contentMode = contentMode
-    _image = State(
-      initialValue: CoverImageCache.syncUIImage(itemId: cacheScopeId ?? itemId, account: cacheAccount))
+    let resolvedScopeId = cacheScopeId ?? itemId
+    let resolvedKey = CoverImageCache.cacheKey(scopeId: resolvedScopeId, revision: cacheRevision)
+    // Nur Memory-Treffer synchron (schnell) — Disk-Fallback läuft erst in `.task`/`load()`, sonst
+    // blockiert der Init (läuft auf dem Main Thread während des SwiftUI-Renderns) mit Disk-I/O.
+    _image = State(initialValue: CoverImageCache.memoryImage(itemId: resolvedKey))
   }
 
   var body: some View {
@@ -78,10 +88,8 @@ struct CoverImageView: View {
     .clipped()
     .contentShape(Rectangle())
     .task(id: loadIdentity) {
+      image = CoverImageCache.memoryImage(itemId: effectiveCacheKey(for: cacheScopeId))
       await load()
-    }
-    .onChange(of: cacheRevision) { _, _ in
-      image = CoverImageCache.syncUIImage(itemId: cacheScopeId, account: cacheAccount)
     }
   }
 
@@ -137,6 +145,7 @@ struct CoverImageView: View {
 
   private func load() async {
     let scopeId = cacheScopeId
+    let key = effectiveCacheKey(for: scopeId)
     guard let url, !scopeId.isEmpty else {
       await MainActor.run {
         guard !Task.isCancelled, cacheScopeId == scopeId else { return }
@@ -145,7 +154,7 @@ struct CoverImageView: View {
       return
     }
 
-    if let cached = CoverImageCache.memoryImage(itemId: scopeId) {
+    if let cached = CoverImageCache.memoryImage(itemId: key) {
       await MainActor.run {
         guard !Task.isCancelled, cacheScopeId == scopeId else { return }
         image = cached
@@ -153,16 +162,22 @@ struct CoverImageView: View {
       return
     }
 
-    if let account = cacheAccount,
-      let data = CoverImageCache.loadFromDisk(account: account, itemId: scopeId),
-      let ui = UIImage(data: data)
-    {
-      CoverImageCache.storeMemory(itemId: scopeId, image: ui)
-      await MainActor.run {
-        guard !Task.isCancelled, cacheScopeId == scopeId else { return }
-        image = ui
+    if let account = cacheAccount {
+      // Disk-Read + Decode off-MainActor — sonst blockiert das den Aufrufer-Thread des `.task`.
+      let diskImage = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+        guard let data = CoverImageCache.loadFromDisk(account: account, itemId: key),
+          let ui = UIImage(data: data)
+        else { return nil }
+        return ui
+      }.value
+      if let diskImage {
+        CoverImageCache.storeMemory(itemId: key, image: diskImage)
+        await MainActor.run {
+          guard !Task.isCancelled, cacheScopeId == scopeId else { return }
+          image = diskImage
+        }
+        return
       }
-      return
     }
 
     var req = URLRequest(url: url)
@@ -176,9 +191,9 @@ struct CoverImageView: View {
         let ui = UIImage(data: data)
       else { return }
       if let account = cacheAccount {
-        try? CoverImageCache.saveToDisk(account: account, itemId: scopeId, data: data)
+        try? CoverImageCache.saveToDisk(account: account, itemId: key, data: data)
       }
-      CoverImageCache.storeMemory(itemId: scopeId, image: ui)
+      CoverImageCache.storeMemory(itemId: key, image: ui)
       await MainActor.run {
         guard !Task.isCancelled, cacheScopeId == scopeId else { return }
         image = ui

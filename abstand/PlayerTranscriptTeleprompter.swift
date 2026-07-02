@@ -290,12 +290,14 @@ struct PlayerLiveTranscriptPanelView: View {
 
   private var showsLoadingOverlay: Bool {
     transcription.isTeleprompterModeActive
-      && !showsTeleprompterContent
+      && !transcription.isTeleprompterReady
+      && transcription.transcriptLines.isEmpty
       && transcription.errorMessage == nil
   }
 
   private var showsErrorOverlay: Bool {
-    transcription.isTeleprompterModeActive
+    // Auch nach automatischem Modus-Ende kurz sichtbar bleiben, damit „Try again“ erreichbar ist.
+    (transcription.isTeleprompterModeActive || transcription.errorMessage != nil)
       && !showsTeleprompterContent
       && transcription.errorMessage != nil
   }

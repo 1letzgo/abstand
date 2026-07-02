@@ -189,18 +189,67 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   func toggle(player: PlaybackController) async {
     guard isReadAlongAvailable, player.isReadAlongDownloadReady else { return }
-    guard !isSessionBusy else { return }
-    if isTeleprompterModeActive {
+
+    resetZombieTeleprompterModeIfNeeded()
+
+    if isTeleprompterModeActive || isEnabled {
       errorMessage = nil
       await disable()
       return
     }
+
+    if isSessionBusy {
+      await recoverFromStuckEnableAttempt()
+    }
+
     await startTeleprompterMode(player: player)
+  }
+
+  /// Steuer-UI: hängende Busy-Flags ohne laufenden Task zurücksetzen.
+  func sanitizeInteractionStateForControls() {
+    resetZombieTeleprompterModeIfNeeded()
+    guard enableTask == nil else { return }
+    if !isTeleprompterModeActive {
+      isSessionBusy = false
+      isPreparing = false
+    }
+  }
+
+  /// UI-Modus an, Session nie gestartet — blockiert sonst jeden Neustart.
+  private func resetZombieTeleprompterModeIfNeeded() {
+    guard isTeleprompterModeActive, !isEnabled, !isSessionBusy, enableTask == nil else { return }
+    finishTeleprompterMode(resetContent: true)
+  }
+
+  /// Vorheriger Enable-Task hängt — abbrechen, damit Start nicht still ignoriert wird.
+  private func recoverFromStuckEnableAttempt() async {
+    enableTask?.cancel()
+    if let pendingEnable = enableTask {
+      enableTask = nil
+      await pendingEnable.value
+    } else {
+      enableTask = nil
+    }
+    stopSessionTask?.cancel()
+    if let pendingStop = stopSessionTask {
+      stopSessionTask = nil
+      await pendingStop.value
+    }
+    isPreparing = false
+    isSessionBusy = false
+    if isTeleprompterModeActive {
+      sessionGeneration &+= 1
+      finishTeleprompterMode(resetContent: true)
+      await stopSession()
+    }
   }
 
   /// Teleprompter-Modus einschalten: UI sofort, Session asynchron starten.
   func startTeleprompterMode(player: PlaybackController) async {
     guard isReadAlongAvailable, player.isReadAlongDownloadReady else { return }
+
+    resetZombieTeleprompterModeIfNeeded()
+
     guard !isTeleprompterModeActive, !isSessionBusy else { return }
 
     errorMessage = nil
@@ -210,6 +259,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     }
 
     if let pendingStop = stopSessionTask {
+      pendingStop.cancel()
+      stopSessionTask = nil
       await pendingStop.value
     }
 
@@ -231,14 +282,15 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     isSessionBusy = true
     defer {
       isPreparing = false
-      if enableTask == nil || Task.isCancelled {
-        isSessionBusy = false
-      }
+      isSessionBusy = false
     }
 
     do {
       try Task.checkCancellation()
-      guard isTeleprompterModeActive, sessionGeneration == generation else { return }
+      guard isTeleprompterModeActive, sessionGeneration == generation else {
+        await rollbackAbortedEnable(generation: generation)
+        return
+      }
 
       player.syncGlobalPositionFromPlayer()
       try await startSession(player: player, generation: generation)
@@ -246,6 +298,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       try Task.checkCancellation()
       guard isTeleprompterModeActive, sessionGeneration == generation else {
         await stopSession()
+        await rollbackAbortedEnable(generation: generation)
         return
       }
 
@@ -254,18 +307,46 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition, force: true)
       startStartupWatchdog(generation: generation)
       startProgressStallWatchdog(generation: generation)
+      // Start erfolgreich abgeschlossen — kein hängender Task mehr für Recovery-Prüfungen.
+      enableTask = nil
     } catch {
-      guard !Task.isCancelled, !AbstandErrorFilter.isBenignCancellation(error) else { return }
+      guard !Task.isCancelled, !AbstandErrorFilter.isBenignCancellation(error) else {
+        await rollbackAbortedEnable(generation: generation)
+        return
+      }
       guard sessionGeneration == generation else { return }
 
       let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-      errorMessage = message
-      await disable(resetError: false)
+      await tearDownAfterFailedEnable(generation: generation, message: message)
     }
+  }
 
-    if enableTask != nil, sessionGeneration == generation {
-      isSessionBusy = false
-    }
+  /// Enable abgebrochen, bevor `isEnabled` gesetzt wurde — Modus-Flag zurücksetzen.
+  private func rollbackAbortedEnable(generation: UInt) async {
+    guard sessionGeneration == generation, isTeleprompterModeActive, !isEnabled else { return }
+    sessionGeneration &+= 1
+    finishTeleprompterMode(resetContent: true)
+    await stopSession()
+    enableTask = nil
+  }
+
+  /// Fehler während `runEnableSession` — kein `disable()` (Deadlock auf MainActor).
+  private func tearDownAfterFailedEnable(generation: UInt, message: String) async {
+    guard sessionGeneration == generation else { return }
+    startupWatchdogTask?.cancel()
+    startupWatchdogTask = nil
+    progressStallWatchdogTask?.cancel()
+    progressStallWatchdogTask = nil
+    errorMessage = message
+    sessionGeneration &+= 1
+    finishTeleprompterMode(resetContent: true)
+    await stopSession()
+    enableTask = nil
+  }
+
+  /// Fehlerkarte manuell verworfen (z. B. anderes Panel geöffnet, View verlassen) — Session bereits beendet.
+  func dismissError() {
+    errorMessage = nil
   }
 
   /// Modus beenden und Session vollständig stoppen (idempotent).
@@ -274,10 +355,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       errorMessage = nil
     }
     enableTask?.cancel()
-    if let task = enableTask {
-      await task.value
-    }
+    let pendingEnable = enableTask
     enableTask = nil
+    if let pendingEnable {
+      await pendingEnable.value
+    }
 
     startupWatchdogTask?.cancel()
     startupWatchdogTask = nil
@@ -403,7 +485,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   }
 
   private func cancelStartupWatchdogsIfPreviewVisible() {
-    guard !transcriptLines.isEmpty else { return }
+    guard isTeleprompterReady || !transcriptLines.isEmpty else { return }
     startupWatchdogTask?.cancel()
     startupWatchdogTask = nil
   }

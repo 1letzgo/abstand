@@ -106,13 +106,24 @@ actor ABSAPIClient {
     return URL(string: s)
   }
 
+  /// Kurze `waitsForConnectivity`-Toleranz wie beim Bootstrap-Client, aber mit begrenztem
+  /// Resource-Timeout — Login soll bei echtem Offline-Zustand zeitnah fehlschlagen, nicht
+  /// per `URLSession.shared`-Default sofort ohne jede Toleranz für kurze Netz-Hänger.
+  private static let loginSession: URLSession = {
+    let cfg = URLSessionConfiguration.default
+    cfg.waitsForConnectivity = true
+    cfg.timeoutIntervalForRequest = 12
+    cfg.timeoutIntervalForResource = 20
+    return URLSession(configuration: cfg)
+  }()
+
   static func login(server: URL, username: String, password: String) async throws -> ABSLoginResponse {
     let url = server.appendingPathComponent("login")
     var req = URLRequest(url: url)
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.httpBody = try JSONEncoder().encode(ABSLoginRequest(username: username, password: password))
-    let (data, resp) = try await URLSession.shared.data(for: req)
+    let (data, resp) = try await loginSession.data(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     guard (200 ..< 300).contains(http.statusCode) else {
       throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))

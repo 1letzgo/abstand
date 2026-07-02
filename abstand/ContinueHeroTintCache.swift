@@ -27,9 +27,16 @@ enum ContinueHeroTintCache {
     return dir(account: account).appendingPathComponent(name)
   }
 
-  static func load(account: URL?, itemId: String) -> Color? {
+  /// `revision`: wie bei `CoverImageView`/`CoverImageCache` optional aus `updatedAt` abgeleitet —
+  /// ändert sich das Cover am Server, verfällt die daraus abgeleitete Tönung automatisch mit,
+  /// statt bis zum nächsten manuellen „Clear cache" stale zu bleiben.
+  private static func cacheKey(itemId: String, revision: Int) -> String {
+    revision == 0 ? itemId : "\(itemId)#r\(revision)"
+  }
+
+  static func load(account: URL?, itemId: String, revision: Int = 0) -> Color? {
     guard let account else { return nil }
-    let u = fileURL(account: account, itemId: itemId)
+    let u = fileURL(account: account, itemId: cacheKey(itemId: itemId, revision: revision))
     guard fm.fileExists(atPath: u.path),
       let data = try? Data(contentsOf: u),
       let p = try? JSONDecoder().decode(Payload.self, from: data)
@@ -37,10 +44,10 @@ enum ContinueHeroTintCache {
     return Color(red: p.r, green: p.g, blue: p.b)
   }
 
-  static func save(account: URL, itemId: String, red: Double, green: Double, blue: Double) {
+  static func save(account: URL, itemId: String, revision: Int = 0, red: Double, green: Double, blue: Double) {
     let p = Payload(r: red, g: green, b: blue)
     guard let data = try? JSONEncoder().encode(p) else { return }
-    let u = fileURL(account: account, itemId: itemId)
+    let u = fileURL(account: account, itemId: cacheKey(itemId: itemId, revision: revision))
     try? data.write(to: u, options: .atomic)
   }
 
@@ -54,20 +61,25 @@ enum ContinueHeroTintCache {
 /// Cover → Kartenfarbe (Cache, lokales Cover, optional Netz) für Continue-Hero und Home-Mini-Karten.
 @MainActor
 enum CoverDerivedTintLoader {
-  static func colorFromDiskOrCoverCache(account: URL?, itemId: String) -> Color? {
-    if let c = ContinueHeroTintCache.load(account: account, itemId: itemId) { return c }
+  static func colorFromDiskOrCoverCache(account: URL?, itemId: String, revision: Int = 0) -> Color? {
+    if let c = ContinueHeroTintCache.load(account: account, itemId: itemId, revision: revision) { return c }
     guard let account,
-      let img = CoverImageCache.syncUIImage(itemId: itemId, account: account),
+      let img = CoverImageCache.syncUIImage(
+        itemId: revision == 0 ? itemId : "\(itemId)#r\(revision)", account: account),
       let rgb = PlaybackController.coverBarTintRGB(from: img)
     else { return nil }
-    ContinueHeroTintCache.save(account: account, itemId: itemId, red: rgb.0, green: rgb.1, blue: rgb.2)
+    ContinueHeroTintCache.save(
+      account: account, itemId: itemId, revision: revision, red: rgb.0, green: rgb.1, blue: rgb.2)
     return Color(red: rgb.0, green: rgb.1, blue: rgb.2)
   }
 
-  static func colorFromNetwork(account: URL?, itemId: String, coverURL: URL?, token: String) async
+  static func colorFromNetwork(
+    account: URL?, itemId: String, revision: Int = 0, coverURL: URL?, token: String
+  ) async
     -> Color?
   {
-    if CoverImageCache.syncUIImage(itemId: itemId, account: account) != nil { return nil }
+    let cacheKey = revision == 0 ? itemId : "\(itemId)#r\(revision)"
+    if CoverImageCache.syncUIImage(itemId: cacheKey, account: account) != nil { return nil }
     guard let coverURL else { return nil }
     var req = URLRequest(url: coverURL)
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -78,7 +90,8 @@ enum CoverDerivedTintLoader {
         let rgb = PlaybackController.coverBarTintRGB(from: image)
       else { return nil }
       if let account {
-        ContinueHeroTintCache.save(account: account, itemId: itemId, red: rgb.0, green: rgb.1, blue: rgb.2)
+        ContinueHeroTintCache.save(
+          account: account, itemId: itemId, revision: revision, red: rgb.0, green: rgb.1, blue: rgb.2)
       }
       return Color(red: rgb.0, green: rgb.1, blue: rgb.2)
     } catch {

@@ -6,7 +6,13 @@ import UIKit
 enum CoverImageCache {
   private static let fm = FileManager.default
   private static let subdir = "covers"
-  private static let memory = NSCache<NSString, UIImage>()
+  /// Kosten in dekodierten Bytes (nicht Dateigröße) — begrenzt reales Speicherwachstum bei langen Scroll-Sessions.
+  private static let memory: NSCache<NSString, UIImage> = {
+    let cache = NSCache<NSString, UIImage>()
+    cache.countLimit = 300
+    cache.totalCostLimit = 100 * 1024 * 1024
+    return cache
+  }()
 
   private static func coversDir(for account: URL) -> URL {
     let u = account.appendingPathComponent(subdir, isDirectory: true)
@@ -24,6 +30,11 @@ enum CoverImageCache {
     memory.object(forKey: itemId as NSString)
   }
 
+  /// Storage-Key für Memory-/Disk-Cache inkl. Revision — geteilt zwischen `CoverImageView` und Prefetch.
+  static func cacheKey(scopeId: String, revision: Int) -> String {
+    revision == 0 ? scopeId : "\(scopeId)#r\(revision)"
+  }
+
   /// Memory first, then disk (and promotes disk hits into memory). Fully synchronous.
   static func syncUIImage(itemId: String, account: URL?) -> UIImage? {
     if let m = memoryImage(itemId: itemId) { return m }
@@ -35,7 +46,14 @@ enum CoverImageCache {
   }
 
   static func storeMemory(itemId: String, image: UIImage) {
-    memory.setObject(image, forKey: itemId as NSString)
+    memory.setObject(image, forKey: itemId as NSString, cost: decodedByteCost(of: image))
+  }
+
+  /// Dekodierte Bildgröße (Breite × Höhe × Bytes/Pixel) statt Datei-/Encoded-Größe — reflektiert den
+  /// tatsächlichen Speicherverbrauch im `NSCache`.
+  private static func decodedByteCost(of image: UIImage) -> Int {
+    guard let cg = image.cgImage else { return 0 }
+    return cg.bytesPerRow * cg.height
   }
 
   static func loadFromDisk(account: URL, itemId: String) -> Data? {
@@ -73,5 +91,44 @@ enum CoverImageCache {
       sum += n
     }
     return sum
+  }
+
+  /// Ohne Eviction wachsen alte Sort-/Filter-Slugs und verwaiste Revision-Dateien (nach Cover-Wechsel)
+  /// unbegrenzt. Grobe LRU/TTL-Bereinigung statt echtem Delta-Sync: alles über `maxAgeDays` seit dem
+  /// letzten Zugriff (`contentAccessDateKey`) fliegt raus; danach älteste Dateien, bis `maxTotalBytes`
+  /// unterschritten ist. Günstig genug für einen periodischen Hintergrund-Sweep, kein Live-Pfad.
+  static func pruneStaleEntries(
+    account: URL,
+    maxAgeDays: Int = 45,
+    maxTotalBytes: Int64 = 200 * 1024 * 1024
+  ) {
+    let dir = coversDir(for: account)
+    guard
+      let urls = try? fm.contentsOfDirectory(
+        at: dir, includingPropertiesForKeys: [.fileSizeKey, .contentAccessDateKey, .contentModificationDateKey])
+    else { return }
+
+    let cutoff = Date().addingTimeInterval(-Double(maxAgeDays) * 86_400)
+    var survivors: [(url: URL, size: Int64, lastUsed: Date)] = []
+    survivors.reserveCapacity(urls.count)
+
+    for u in urls {
+      let values = try? u.resourceValues(forKeys: [.fileSizeKey, .contentAccessDateKey, .contentModificationDateKey])
+      let size = Int64(values?.fileSize ?? 0)
+      let lastUsed = values?.contentAccessDate ?? values?.contentModificationDate ?? .distantPast
+      if lastUsed < cutoff {
+        try? fm.removeItem(at: u)
+        continue
+      }
+      survivors.append((u, size, lastUsed))
+    }
+
+    var totalBytes = survivors.reduce(0) { $0 + $1.size }
+    guard totalBytes > maxTotalBytes else { return }
+    for entry in survivors.sorted(by: { $0.lastUsed < $1.lastUsed }) {
+      guard totalBytes > maxTotalBytes else { break }
+      try? fm.removeItem(at: entry.url)
+      totalBytes -= entry.size
+    }
   }
 }

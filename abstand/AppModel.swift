@@ -75,6 +75,10 @@ private enum Keys {
 struct ContinueRefreshAttemptResult {
   var appliedOnline = false
   var error: Error?
+  /// `true`, sobald `loadStartDashboard` tatsächlich einen Request gestartet hat
+  /// (nicht nur früh per Cache/Guard zurückgekehrt ist). Wird gebraucht, um
+  /// Server-Erreichbarkeit nicht ungeprüft aus einem übersprungenen Refresh abzuleiten.
+  var attemptedNetwork = false
 }
 
 /// Abgebrochene Requests/Tasks nicht als Fehlerdialog anzeigen.
@@ -1224,12 +1228,17 @@ final class AppModel: ObservableObject {
   private var ebooksSearchTask: Task<Void, Never>?
   private var podcastLibrarySearchTask: Task<Void, Never>?
   private var startDashboardPostProcessingTask: Task<Void, Never>?
+  /// Kaltstart: Home-Regale-Restore off-MainActor — bei Logout/Account-Wechsel während Bootstrap abbrechen.
+  private var homeLaunchDiskRestoreTask: Task<Void, Never>?
   private var launchDiskRestoreTask: Task<Void, Never>?
   private var bootstrapCatalogReloadTask: Task<Void, Never>?
   private var deferredCatalogDiskCachesTask: Task<Void, Never>?
   /// Lazy-Bootstrap: Continue/Bibliotheken im Hintergrund — kein paralleles `/authorize`.
   private var deferredBootstrapNetworkTask: Task<Void, Never>?
   private var isDeferredBootstrapNetworkRefreshInProgress = false
+  /// Deferred `/authorize` und Bibliotheks-Refresh nach Lazy-Bootstrap — bei Logout/Account-Wechsel abbrechen.
+  private var deferredBootstrapAuthorizeTask: Task<Void, Never>?
+  private var deferredLibrariesFetchTask: Task<Void, Never>?
   private var storedCredentialsBootstrapTask: Task<Void, Never>?
   /// Erhöht bei jeder neuen Podcast-Verzeichnissuche; verhindert, dass abgebrochene Requests Treffer löschen oder Fehler setzen.
   private var podcastDirectorySearchGeneration: Int = 0
@@ -1376,8 +1385,8 @@ final class AppModel: ObservableObject {
     storedAccounts = accountBootstrap.accounts
     activeAccountKey = accountBootstrap.activeKey
     loadDownloadedItemIdsForActiveAccount()
-    // Nur Home-Regale synchron — erster Frame vollständig; Katalog/Podcasts/Downloads deferred.
-    restoreHomeLaunchStateFromDisk()
+    // Home-Regale off-MainActor laden (Disk-I/O/JSON-Decode blockieren nicht den ersten Frame); Katalog/Podcasts/Downloads deferred.
+    scheduleHomeLaunchStateRestoreFromDisk()
     if offlineHomeUIActive {
       mainTab = .start
     } else if isLoggedIn {
@@ -2123,7 +2132,12 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.set(t, forKey: Keys.token)
         await c.setToken(t)
       }
-    } catch {}
+    } catch {
+      // 401/403 und abgebrochene Requests sind kein Erreichbarkeits-Signal.
+      if !isAuthHTTPStatus(error), !AbstandErrorFilter.isBenignCancellation(error) {
+        isServerReachable = false
+      }
+    }
   }
 
   /// Settings: Bibliotheken vom Server; Kataloge nur bei `reloadCatalogs` oder nach Offline.
@@ -2251,6 +2265,7 @@ final class AppModel: ObservableObject {
     if startShelves.isEmpty {
       applyCachedStartDashboard()
     }
+    result.attemptedNetwork = true
     do {
       if let lib = selectedBooksLibrary {
         async let shelvesData = c.personalizedShelves(libraryId: lib.id, limit: 14)
@@ -2306,6 +2321,10 @@ final class AppModel: ObservableObject {
       }
     } catch {
       result.error = error
+      // 401/403: Server hat geantwortet, nur Credentials falsch — Erreichbarkeit unberührt lassen.
+      if !isAuthHTTPStatus(error), !AbstandErrorFilter.isBenignCancellation(error) {
+        isServerReachable = false
+      }
       if !skipAuthorizeRefresh {
         await refreshProgressFromServer()
       }
@@ -3853,8 +3872,14 @@ final class AppModel: ObservableObject {
     deferredCatalogDiskCachesTask = nil
     launchDiskRestoreTask?.cancel()
     launchDiskRestoreTask = nil
+    homeLaunchDiskRestoreTask?.cancel()
+    homeLaunchDiskRestoreTask = nil
     deferredBootstrapNetworkTask?.cancel()
     deferredBootstrapNetworkTask = nil
+    deferredBootstrapAuthorizeTask?.cancel()
+    deferredBootstrapAuthorizeTask = nil
+    deferredLibrariesFetchTask?.cancel()
+    deferredLibrariesFetchTask = nil
     storedCredentialsBootstrapTask?.cancel()
     storedCredentialsBootstrapTask = nil
     startDashboardPostProcessingTask?.cancel()
@@ -3882,7 +3907,7 @@ final class AppModel: ObservableObject {
   private func reloadAllViewsAfterAccountSwitch() async {
     guard !offlineHomeUIActive else { return }
     cancelDeferredBootstrapWork()
-    finishDeferredLaunchDiskRestore()
+    await finishDeferredLaunchDiskRestore()
     async let settings: Void = reloadSettingsTab(reloadCatalogs: true)
     async let home = loadStartDashboard(skipAuthorizeRefresh: true, force: true)
     _ = await (settings, home)
@@ -3943,7 +3968,7 @@ final class AppModel: ObservableObject {
 
     let forceContinue = !hasCachedBootstrapContent
     var result = await loadStartDashboard(skipAuthorizeRefresh: true, force: forceContinue)
-    if needsAuthorizeFallbackForContinue(result, attemptedOnline: true) {
+    if needsAuthorizeFallbackForContinue(result, attemptedOnline: result.attemptedNetwork) {
       await refreshProgressFromServer()
       guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
       result = await loadStartDashboard(skipAuthorizeRefresh: true, force: true)
@@ -3962,10 +3987,25 @@ final class AppModel: ObservableObject {
       }
     }
 
+    guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
+
+    if !result.attemptedNetwork {
+      // Cache bereits vorhanden → `loadStartDashboard` hat früh zurückgegeben, ohne
+      // tatsächlich einen Request zu starten. Erreichbarkeit darf dann nicht einfach
+      // angenommen werden — echter Probe-Call statt Blindvertrauen.
+      await probeServerConnection()
+      guard isServerReachable else { return }
+      // Bereits per `probeServerConnection()` autorisiert — kein zweiter `/authorize`-Call nötig,
+      // aber Bibliotheksliste im Hintergrund trotzdem wie im Normalpfad nachziehen.
+      scheduleDeferredLibrariesFetchFromServer()
+      return
+    }
+
     isServerReachable = true
     // `/authorize` deferred: User-Type (admin/root), Media-Progress, Bookmarks.
     // Nicht blockierend für Home — läuft parallel zum Libraries-Fetch.
-    Task(priority: .utility) { @MainActor [weak self] in
+    deferredBootstrapAuthorizeTask?.cancel()
+    deferredBootstrapAuthorizeTask = Task(priority: .utility) { @MainActor [weak self] in
       guard let self, let c = self.client else { return }
       do {
         let auth = try await c.authorize()
@@ -4048,7 +4088,8 @@ final class AppModel: ObservableObject {
 
   /// Bibliotheksliste nach Lazy-Bootstrap — nicht blockierend für Home/Overlay.
   private func scheduleDeferredLibrariesFetchFromServer() {
-    Task(priority: .utility) { @MainActor [weak self] in
+    deferredLibrariesFetchTask?.cancel()
+    deferredLibrariesFetchTask = Task(priority: .utility) { @MainActor [weak self] in
       await self?.refreshLibrariesFromServerInBackground()
     }
   }
@@ -4119,6 +4160,14 @@ final class AppModel: ObservableObject {
       guard !Task.isCancelled else { return }
       self.restoreEbooksLibrarySelectionFromDisk()
       self.restoreBrowseEbooksFromDiskIfNeeded()
+      guard let account = self.cacheAccountURL() else { return }
+      // Ganz am Ende der Idle-Kette, außerhalb des MainActor-Takts: alte/verwaiste Cover
+      // (nach Revision-Wechsel), zu große Caches und alte Sort-/Filter-Slugs begrenzen,
+      // ohne den Start zu belasten.
+      Task.detached(priority: .background) {
+        CoverImageCache.pruneStaleEntries(account: account)
+        LibraryDiskCache.pruneStaleEntries(account: account)
+      }
     }
   }
 
@@ -4135,11 +4184,16 @@ final class AppModel: ObservableObject {
   private func scheduleDeferredCatalogReloadAfterBootstrap() {
     bootstrapCatalogReloadTask?.cancel()
     bootstrapCatalogReloadTask = Task(priority: .utility) { @MainActor [weak self] in
-      try? await Task.sleep(nanoseconds: 4_500_000_000)
+      // Statt eines geschätzten Fix-Delays: auf den Disk-Cache-Restore warten (der eigentliche
+      // Vorlauf, den wir abpuffern wollen) und danach nur noch eine kurze Sicherheitsspanne.
+      await self?.deferredCatalogDiskCachesTask?.value
+      try? await Task.sleep(nanoseconds: 1_500_000_000)
       await Task.yield()
       guard let self, !Task.isCancelled, !self.offlineHomeUIActive, !self.bootstrapSupersededByOffline else { return }
       // Bücher- und Podcast-Katalog sind unabhängig — parallel laden.
-      async let books: Void = self.reloadLibrary(reset: true)
+      // `preserveOtherCachedPages`: stiller Hintergrund-Refresh mit unverändertem Sort/Filter —
+      // Folgeseiten im Disk-Cache nicht wegen der frischen Seite 0 wegwerfen.
+      async let books: Void = self.reloadLibrary(reset: true, preserveOtherCachedPages: true)
       async let podcasts: Void = self.reloadPodcastLibrary(reset: true)
       _ = await (books, podcasts)
       if self.showEbooksTab {
@@ -4292,7 +4346,6 @@ final class AppModel: ObservableObject {
         await finishLaunchPresentationAfterBootstrap()
         return
       }
-      publishErrorUnlessBenignCancellation(error)
       isServerReachable = false
     }
   }
@@ -4809,11 +4862,84 @@ final class AppModel: ObservableObject {
   }
 
   private func restoreAllFromDiskOnLaunch() {
-    restoreHomeLaunchStateFromDisk()
-    finishDeferredLaunchDiskRestore()
+    scheduleHomeLaunchStateRestoreFromDisk()
+    Task { @MainActor [weak self] in
+      await self?.finishDeferredLaunchDiskRestore()
+    }
+  }
+
+  /// Kaltstart: Bibliothekswahl synchron (billig), schwere Disk-I/O/JSON-Decode (Progress/Bookmarks/Personalized)
+  /// off-MainActor — kein synchroner Block vor dem ersten Frame (vgl. `restoreBooksCatalogPagesFromDiskAsync`).
+  private func scheduleHomeLaunchStateRestoreFromDisk() {
+    let sp = AppLog.launchSignposter.beginInterval("restoreHome")
+    guard let account = cacheAccountURL() else {
+      AppLog.launchSignposter.endInterval("restoreHome", sp)
+      return
+    }
+    // Podcast-/eBook-Bibliothek vor Continue-Cache — sonst fehlen Podcast-Zeilen beim Kaltstart. (billig, synchron)
+    restorePodcastLibrarySelectionFromDisk()
+    restoreEbooksLibrarySelectionFromDisk()
+    let libId =
+      UserDefaults.standard.string(forKey: Keys.booksLibrary)?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if libId == Keys.librarySelectionNone {
+      selectedBooksLibrary = nil
+      applyLaunchHomeContinueAndEbookCache(libraryId: nil, parsed: [])
+      AppLog.launchSignposter.endInterval("restoreHome", sp)
+      return
+    }
+    guard !libId.isEmpty else {
+      applyLaunchHomeContinueAndEbookCache(libraryId: nil, parsed: [])
+      AppLog.launchSignposter.endInterval("restoreHome", sp)
+      return
+    }
+    if selectedBooksLibrary == nil || selectedBooksLibrary?.id != libId {
+      selectedBooksLibrary = ABSLibrary(id: libId, name: "Books", mediaType: "book", displayOrder: nil)
+    }
+    homeLaunchDiskRestoreTask?.cancel()
+    homeLaunchDiskRestoreTask = Task(priority: .userInitiated) { @MainActor [weak self] in
+      defer { AppLog.launchSignposter.endInterval("restoreHome", sp) }
+      guard let self, !Task.isCancelled else { return }
+      let snapshot = await Task.detached(priority: .userInitiated) {
+        let dec = ABSJSON.decoder()
+        return (
+          progress: LibraryDiskCache.loadProgress(account: account, decoder: dec),
+          bookmarks: LibraryDiskCache.loadBookmarks(account: account, decoder: dec),
+          personalized: LibraryDiskCache.loadPersonalized(account: account, libraryId: libId)
+        )
+      }.value
+      guard !Task.isCancelled else { return }
+      if let list = snapshot.progress {
+        self.applyUserProgress(list, persistToDisk: false)
+      }
+      if let marks = snapshot.bookmarks {
+        self.applyUserBookmarks(marks, persistToDisk: false)
+      }
+      var parsed: [ABSStartShelfSection] = []
+      if let pdata = snapshot.personalized {
+        parsed = ABSAPIClient.parsePersonalizedStartShelves(data: pdata)
+        let visible = parsed.filter { self.isStartCategoryEnabled($0.category) }
+        if !visible.isEmpty {
+          var transaction = Transaction()
+          transaction.disablesAnimations = true
+          withTransaction(transaction) {
+            self.startShelves = visible
+            self.recomputeStartBooksUnion(from: visible)
+            self.updateStartSettingsCategoryList(parsed: parsed)
+            self.applyContinueListeningFromCachedItemsInProgress()
+            self.repairContinueListeningShelfFromLocalProgressOnly()
+            self.syncContinueListeningShelvesWithProgress()
+          }
+          return
+        }
+      }
+      self.applyLaunchHomeContinueAndEbookCache(libraryId: libId, parsed: parsed)
+    }
   }
 
   /// Kaltstart: Home-Regale + Fortschritt synchron (ein Frame, kein Katalog-Scan).
+  /// Weiterhin genutzt für reaktive Bibliothekswechsel (`restoreBooksCatalogAndHomeFromDisk`) — dort ist
+  /// sofortige Zustandsübernahme gewünscht, kein Kaltstart-Block.
   private func restoreHomeLaunchStateFromDisk(libraryIdOverride: String? = nil) {
     let sp = AppLog.launchSignposter.beginInterval("restoreHome")
     defer { AppLog.launchSignposter.endInterval("restoreHome", sp) }
@@ -4898,9 +5024,9 @@ final class AppModel: ObservableObject {
   private var deferredBooksCatalogDiskRestoreScheduled = false
   private var deferredBrowseListsDiskRestoreScheduled = false
 
-  /// Synchroner Disk-Restore (Tab-Wechsel / Bibliothekswahl).
-  private func finishDeferredLaunchDiskRestore() {
-    restoreBooksCatalogPagesFromDisk()
+  /// Disk-Restore (Tab-Wechsel / Bibliothekswahl / Account-Wechsel) — Katalogseiten off-MainActor geladen.
+  private func finishDeferredLaunchDiskRestore() async {
+    await restoreBooksCatalogPagesFromDiskAsync()
     restoreEbooksLibrarySelectionFromDisk()
     restorePodcastCatalogFromDisk()
     restoreAllBrowseListsFromDisk()
@@ -5016,7 +5142,12 @@ final class AppModel: ObservableObject {
     _ = restoreBrowseTagsFromDisk()
   }
 
-  func reloadLibrary(reset: Bool) async {
+  /// `preserveOtherCachedPages`: bei stillen Hintergrund-Refreshes (gleicher Sort/Filter, z.B. deferred
+  /// Bootstrap-Reload) den Cache-Slug **nicht** komplett löschen — nur Seite 0 wird sofort neu geholt,
+  /// ein voller Wipe würde bei großen Bibliotheken bereits gecachte Folgeseiten bis zum nächsten Scroll
+  /// verlieren. Bei echtem Sort-/Filter-/Bibliothekswechsel bleibt der destruktive Wipe (Default) korrekt,
+  /// weil alte Seiten dort ohnehin nicht mehr zur neuen Reihenfolge passen.
+  func reloadLibrary(reset: Bool, preserveOtherCachedPages: Bool = false) async {
     guard let c = client, let lib = selectedBooksLibrary else {
       await loadStartDashboard()
       return
@@ -5047,7 +5178,7 @@ final class AppModel: ObservableObject {
         minified: true,
         filter: activeLibraryFilter
       )
-      if reset, pageIndex == 0, let account = cacheAccountURL() {
+      if reset, pageIndex == 0, !preserveOtherCachedPages, let account = cacheAccountURL() {
         try? LibraryDiskCache.wipeCatalogSlug(
           account: account, libraryId: lib.id, filter: activeLibraryFilter, sortField: sortKey, ascending: ascending)
       }
@@ -5064,8 +5195,11 @@ final class AppModel: ObservableObject {
       }
       let pageBooks = page.results.filter(\.isUsableLibraryCatalogRow)
       if reset {
-        let sameIds = pageBooks.count == books.count && zip(pageBooks, books).allSatisfy { $0.id == $1.id }
-        if !sameIds { books = pageBooks }
+        // `updatedAt` mitvergleichen — gleiche ID, aber geändertes Cover/Metadaten sonst übersehen.
+        let unchanged =
+          pageBooks.count == books.count
+          && zip(pageBooks, books).allSatisfy { $0.id == $1.id && $0.updatedAt == $1.updatedAt }
+        if !unchanged { books = pageBooks }
       } else {
         books.append(contentsOf: pageBooks)
       }
@@ -5565,6 +5699,49 @@ final class AppModel: ObservableObject {
       books.count < libraryTotal
     else { return }
     await reloadLibrary(reset: false)
+  }
+
+  /// Cover für die nächsten paar noch nicht sichtbaren Bücher im Hintergrund vorladen (Memory/Disk/Netzwerk,
+  /// kein UI-Update) — vermeidet Cover-Pop-in beim Weiterscrollen, analog zum Server-Pagination-Prefetch oben.
+  private static let coverPrefetchLookahead = 6
+  private var coverPrefetchInFlightKeys: Set<String> = []
+
+  func prefetchUpcomingBookCovers(currentItemId: String?) {
+    guard let currentItemId, let idx = books.firstIndex(where: { $0.id == currentItemId }) else { return }
+    let upperBound = min(books.count, idx + 1 + Self.coverPrefetchLookahead)
+    guard idx + 1 < upperBound else { return }
+    let account = coverImageCacheAccountDirectory()
+    let authToken = token
+    for book in books[(idx + 1)..<upperBound] {
+      guard let url = coverURL(for: book.id) else { continue }
+      let key = CoverImageCache.cacheKey(
+        scopeId: book.id, revision: coverImageCacheRevision(forItemUpdatedAt: book.updatedAt))
+      guard CoverImageCache.memoryImage(itemId: key) == nil, !coverPrefetchInFlightKeys.contains(key) else {
+        continue
+      }
+      coverPrefetchInFlightKeys.insert(key)
+      Task.detached(priority: .utility) { [weak self] in
+        defer { Task { @MainActor in self?.coverPrefetchInFlightKeys.remove(key) } }
+        if let account, let data = CoverImageCache.loadFromDisk(account: account, itemId: key),
+          let ui = UIImage(data: data)
+        {
+          CoverImageCache.storeMemory(itemId: key, image: ui)
+          return
+        }
+        var req = URLRequest(url: url)
+        if !authToken.isEmpty {
+          req.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+        }
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+          let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+          let ui = UIImage(data: data)
+        else { return }
+        if let account {
+          try? CoverImageCache.saveToDisk(account: account, itemId: key, data: data)
+        }
+        CoverImageCache.storeMemory(itemId: key, image: ui)
+      }
+    }
   }
 
   func loadMorePodcastsIfNeeded(currentItemId: String?) async {
@@ -9154,6 +9331,14 @@ final class AppModel: ObservableObject {
   func coverImageCacheScopeId(for itemId: String, tier: CoverImageTier = .thumbnail) -> String {
     if let suffix = tier.cacheScopeSuffix { return "\(itemId)#\(suffix)" }
     return itemId
+  }
+
+  /// Kombiniert den globalen Revision-Zähler (manuelles „Clear cache") mit `updatedAt` eines Items,
+  /// damit ein geändertes Server-Cover automatisch erkannt wird — nicht erst nach manueller Cache-Leerung.
+  /// Ohne `updatedAt` (z. B. Autorenbild, generische IDs ohne Katalog-Objekt) bleibt es beim globalen Zähler.
+  func coverImageCacheRevision(forItemUpdatedAt updatedAt: Date?) -> Int {
+    guard let updatedAt else { return coverImageCacheRevision }
+    return coverImageCacheRevision &+ Int(updatedAt.timeIntervalSince1970)
   }
 
   /// Autorenfoto (`GET /api/authors/:id/image`).

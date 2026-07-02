@@ -402,7 +402,7 @@ private struct StatsTopListenedBookCard: View {
             token: model.token,
             itemId: book.id,
             cacheAccount: model.coverImageCacheAccountDirectory(),
-            cacheRevision: model.coverImageCacheRevision
+            cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
           )
         } overlay: {
           Text("\(rank)")

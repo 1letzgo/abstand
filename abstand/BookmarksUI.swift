@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // MARK: - Bookmarks (detail & player)
 
@@ -203,6 +204,9 @@ struct AddBookmarkTitleSheet: View {
     .presentationDragIndicator(.visible)
     .preferredColorScheme(model.resolvedInterfaceColorScheme)
     .onAppear { refreshPositionAndDefaultTitle() }
+    .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+      refreshPositionAndDefaultTitle()
+    }
   }
 
   private func refreshPositionAndDefaultTitle() {
@@ -250,6 +254,7 @@ private struct PlayerBookmarkAddCoverControlChrome: View, Equatable {
     lhs.menuItems == rhs.menuItems
       && lhs.compact == rhs.compact
       && lhs.showAddSheet == rhs.showAddSheet
+      && lhs.themeRevision == rhs.themeRevision
   }
 
   var body: some View {

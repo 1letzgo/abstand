@@ -797,4 +797,51 @@ enum LibraryDiskCache {
     guard fm.fileExists(atPath: u.path), let data = try? Data(contentsOf: u) else { return nil }
     return try? decoder.decode(ListeningOneTimeAchievementsSnapshot.self, from: data)
   }
+
+  // MARK: - Pruning
+
+  /// Ohne Eviction akkumulieren alte Sort-/Filter-Slugs (Katalog, Browse-Listen) unbegrenzt — jede neue
+  /// Sortierung/Filterkombination legt einen eigenen Slug-Ordner an, alte werden nie entfernt. Grobe
+  /// TTL-Bereinigung analog zu `CoverImageCache.pruneStaleEntries`: Slugs, die seit `maxAgeDays` nicht
+  /// mehr neu geschrieben wurden, fliegen raus (nächster Besuch baut sie einfach vom Server neu auf).
+  static func pruneStaleEntries(account: URL, maxAgeDays: Int = 30) {
+    let cutoff = Date().addingTimeInterval(-Double(maxAgeDays) * 86_400)
+    for rootName in ["catalog", "browseAuthors", "browseSeries", "podcastShows"] {
+      pruneSlugFolders(
+        underLibraryRoot: account.appendingPathComponent(rootName, isDirectory: true), cutoff: cutoff)
+    }
+    // browseEbooks hat eine zusätzliche "full"-Zwischenebene: <libraryId>/full/<slug>.
+    let ebooksRoot = account.appendingPathComponent("browseEbooks", isDirectory: true)
+    guard let libraryDirs = try? fm.contentsOfDirectory(at: ebooksRoot, includingPropertiesForKeys: nil)
+    else { return }
+    for libDir in libraryDirs {
+      pruneSlugFolders(underLibraryRoot: libDir.appendingPathComponent("full", isDirectory: true), cutoff: cutoff)
+    }
+  }
+
+  /// `root/<libraryId>/<slug>` — jeder Slug-Ordner wird komplett entfernt, wenn seine jüngste Datei älter
+  /// als `cutoff` ist.
+  private static func pruneSlugFolders(underLibraryRoot root: URL, cutoff: Date) {
+    guard let libraryDirs = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return }
+    for libDir in libraryDirs {
+      guard let slugDirs = try? fm.contentsOfDirectory(at: libDir, includingPropertiesForKeys: nil) else { continue }
+      for slugDir in slugDirs {
+        guard let lastModified = mostRecentModificationDate(in: slugDir), lastModified < cutoff else { continue }
+        try? fm.removeItem(at: slugDir)
+      }
+    }
+  }
+
+  private static func mostRecentModificationDate(in dir: URL) -> Date? {
+    guard
+      let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])
+    else { return nil }
+    var newest: Date?
+    for file in files {
+      guard let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+      else { continue }
+      if newest == nil || mtime > newest! { newest = mtime }
+    }
+    return newest
+  }
 }
