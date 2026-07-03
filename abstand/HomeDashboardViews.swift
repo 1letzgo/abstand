@@ -69,70 +69,26 @@ struct StartDashboardView: View {
   @EnvironmentObject private var model: AppModel
 
   var body: some View {
-    Group {
-      if model.offlineHomeUIActive {
-        offlineHomeFixedRoot
-      } else {
-        startDashboardOnlineLayout
-      }
-    }
-    .abstandScrollScreenBackground()
-    .onAppear {
-      guard model.startShelves.isEmpty,
-        !model.isAppBootstrapInProgress,
-        !model.hasCachedBootstrapContent
-      else { return }
-      Task {
-        if model.offlineHomeUIActive {
-          await model.loadStartDashboard(force: true)
-        } else {
-          await model.loadStartDashboard()
+    startDashboardOnlineLayout
+      .abstandScrollScreenBackground()
+      .onAppear {
+        guard model.startShelves.isEmpty,
+          !model.isAppBootstrapInProgress,
+          !model.hasCachedBootstrapContent
+        else { return }
+        Task {
+          if model.offlineHomeUIActive {
+            await model.loadStartDashboard(force: true)
+          } else {
+            await model.loadStartDashboard()
+          }
         }
       }
-    }
-    .onChange(of: model.offlineHomeUIActive) { _, isOffline in
-      guard !isOffline else { return }
-      guard !model.isAppBootstrapInProgress else { return }
-      Task { await model.loadStartDashboard(force: true) }
-    }
-  }
-
-  private var showsOfflineHomeMiniPlayer: Bool {
-    model.activePlaybackIsOfflineEligible()
-  }
-
-  /// Offline-Home: Player fix oben, nur „Downloaded“ scrollt darunter.
-  private var offlineHomeFixedRoot: some View {
-    VStack(spacing: 0) {
-      if showsOfflineHomeMiniPlayer {
-        offlineHomeFixedPlayerHeader
+      .onChange(of: model.offlineHomeUIActive) { _, _ in
+        guard !model.isAppBootstrapInProgress else { return }
+        model.clampHomeBrowseSectionIfNeeded()
+        Task { await model.loadStartDashboard(force: true) }
       }
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-          offlineHomeDownloadsBlock
-        }
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(.top, AppTheme.Layout.withinSectionSpacing)
-        .padding(.bottom, AppTheme.Layout.scrollBottomInsetBase)
-      }
-      .scrollContentBackground(.hidden)
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .refreshable {
-        await model.refreshStartTabPullToRefresh()
-      }
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(model.appearancePalette.background)
-  }
-
-  private var offlineHomeFixedPlayerHeader: some View {
-    OfflineHomeMiniPlayerCard(gate: model.floatingChrome.gate, chrome: model.floatingChrome)
-      .fixedSize(horizontal: false, vertical: true)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.top, AppTheme.Layout.withinSectionSpacing)
-      .padding(.bottom, AppTheme.Layout.withinSectionSpacing)
-      .background(model.appearancePalette.background)
   }
 
   // MARK: - Home tab
@@ -295,48 +251,22 @@ struct StartDashboardView: View {
       return model.startSettingsCategoryList.first { $0.category == category }?.label
         ?? ABSStartShelfLocalization.displayTitle(category: category, serverLabel: "")
     }()
+    let description: String = {
+      guard model.offlineHomeUIActive else {
+        return "Content for this shelf appears when your server provides it."
+      }
+      if category == ABSStartShelfLocalization.homeBrowseDownloadedSectionID {
+        return "Offline mode only shows titles you have downloaded. Go back online to download more."
+      }
+      return "Titles you're currently playing will appear here once downloaded."
+    }()
     return ContentUnavailableView(
       label,
       systemImage: ABSStartShelfLocalization.stripSystemImage(category: category),
-      description: Text("Content for this shelf appears when your server provides it.")
+      description: Text(description)
     )
     .frame(maxWidth: .infinity)
     .padding(.top, AppTheme.Layout.sectionSpacing)
-  }
-
-  @ViewBuilder
-  private func downloadedHomeRow(storageId: String) -> some View {
-    if let episode = model.podcastEpisodeForDownloadedStorageId(storageId) {
-      LibraryPodcastListCard(
-        episode: episode,
-        model: model,
-        opensDetailOnTap: false,
-        forceCompactListStyle: true
-      )
-    } else if let book = model.audiobookForDownloadedStorageId(storageId) {
-      LibraryBookListCard(
-        book: book,
-        model: model,
-        opensDetailOnTap: false,
-        forceCompactListStyle: true
-      )
-    }
-  }
-
-  @ViewBuilder
-  private var offlineHomeDownloadsBlock: some View {
-    if model.downloadedTitlesForHome.isEmpty {
-      startDashboardOfflineOnlyEmptyState
-    } else {
-      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-        TabContentSectionTitle(title: "Downloaded")
-        LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          ForEach(model.downloadedTitlesForHome, id: \.id) { book in
-            downloadedHomeRow(storageId: book.id)
-          }
-        }
-      }
-    }
   }
 
   private func startDashboardIsContinueShelf(_ shelf: ABSStartShelfSection) -> Bool {
@@ -417,13 +347,4 @@ struct StartDashboardView: View {
     )
   }
 
-  private var startDashboardOfflineOnlyEmptyState: some View {
-    ContentUnavailableView(
-      "No downloads",
-      systemImage: "arrow.down.circle",
-      description: Text(
-        "Offline mode only shows titles you have downloaded. Go back online to browse your library."
-      )
-    )
-  }
 }

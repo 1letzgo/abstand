@@ -3,7 +3,6 @@ import SwiftUI
 
 /// `TabView` + `tabViewBottomAccessory` ohne `MainRootView`-Rebuilds — nur `FloatingAccessoryGate` + Sheet-Binding.
 struct MainTabShellView<Content: View>: View {
-  @EnvironmentObject private var model: AppModel
   @ObservedObject var gate: FloatingAccessoryGate
   let chrome: FloatingPlayerChromeController
   @Binding var nowPlayingSheetPresented: Bool
@@ -12,22 +11,16 @@ struct MainTabShellView<Content: View>: View {
   @State private var keyboardVisible = false
 
   var body: some View {
-    // Offline: kein Tab-Zubehör — Mini-Player sitzt in der Home-Scroll-Ansicht.
-    Group {
-      if model.offlineHomeUIActive {
-        content()
-      } else {
-        content()
-          .modifier(
-            FloatingTabBottomAccessoryModifier(
-              gate: gate,
-              chrome: chrome,
-              sheetPresented: nowPlayingSheetPresented,
-              keyboardVisible: keyboardVisible
-            )
-          )
-      }
-    }
+    // Auch offline normales Tab-Zubehör — Mini-Player wie im Online-Modus.
+    content()
+      .modifier(
+        FloatingTabBottomAccessoryModifier(
+          gate: gate,
+          chrome: chrome,
+          sheetPresented: nowPlayingSheetPresented,
+          keyboardVisible: keyboardVisible
+        )
+      )
       .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
         keyboardVisible = true
       }

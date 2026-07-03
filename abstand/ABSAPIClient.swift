@@ -717,7 +717,7 @@ actor ABSAPIClient {
   }
 
   /// Aggregierte Statistik (Hördauer pro Tag, meist gehört, letzte Sitzungen).
-  /// Liefert die Rohantwort für den lokalen Cache (`LibraryDiskCache`).
+  /// Liefert die Rohantwort für den lokalen SwiftData-Cache (`LocalListeningStatsSnapshot`).
   func listeningStats() async throws -> (stats: ABSListeningStatsResponse, rawData: Data) {
     let req = try authorizedRequest(path: "api/me/listening-stats")
     let (data, resp) = try await urlSession.data(for: req)

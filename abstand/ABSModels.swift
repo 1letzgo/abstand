@@ -414,7 +414,7 @@ struct ABSRecentEpisodesResponse: Decodable {
   }
 }
 
-struct ABSRecentPodcastEpisodeDTO: Decodable {
+struct ABSRecentPodcastEpisodeDTO: Codable {
   let libraryItemId: String
   let id: String
   let title: String
@@ -457,11 +457,11 @@ struct ABSRecentPodcastEpisodeDTO: Decodable {
   }
 }
 
-struct ABSRecentEpisodePodcastNest: Decodable {
+struct ABSRecentEpisodePodcastNest: Codable {
   let metadata: ABSRecentEpisodePodcastMeta?
 }
 
-struct ABSRecentEpisodePodcastMeta: Decodable {
+struct ABSRecentEpisodePodcastMeta: Codable {
   let title: String?
   let author: String?
   let description: String?
@@ -569,7 +569,13 @@ struct ABSPodcastEpisodeListItem: Identifiable, Hashable, Codable {
 
   var id: String { episodeId }
 
-  var progressLookupKey: String { "\(libraryItemId)-\(episodeId)" }
+  /// Getrimmt — muss exakt zu `ABSUserMediaProgress.progressLookupKey` passen (dort ebenfalls getrimmt),
+  /// sonst divergieren Fortschritts-Lookup und Dedupe-Key bei Whitespace in IDs.
+  var progressLookupKey: String {
+    let lid = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    let eid = episodeId.trimmingCharacters(in: .whitespacesAndNewlines)
+    return "\(lid)-\(eid)"
+  }
 
   /// Stabiler Schlüssel für Deduplizierung (Cache, Manifest, Fortschritt).
   var canonicalDedupeKey: String {
@@ -710,18 +716,18 @@ struct ABSItemsInProgressPayload {
 
 // MARK: - Book / Library Item
 
-struct ABSAuthor: Decodable, Hashable {
+struct ABSAuthor: Codable, Hashable {
   let id: String
   let name: String
 }
 
-struct ABSSeries: Decodable, Hashable {
+struct ABSSeries: Codable, Hashable {
   let id: String
   let name: String
   let sequence: String?
 }
 
-struct ABSBookMediaMetadata: Decodable {
+struct ABSBookMediaMetadata: Codable {
   let title: String
   let titleIgnorePrefix: String?
   let subtitle: String?
@@ -780,6 +786,29 @@ struct ABSBookMediaMetadata: Decodable {
     } else {
       series = nil
     }
+  }
+
+  /// Handgeschrieben statt synthetisiert: `CodingKeys` enthält Alias-Fälle ohne Property (`author`,
+  /// `feedURL`, `feed_url`) — reine Decoder-Fallbacks für unterschiedliche Server-Schreibweisen.
+  func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(title, forKey: .title)
+    try c.encodeIfPresent(titleIgnorePrefix, forKey: .titleIgnorePrefix)
+    try c.encodeIfPresent(subtitle, forKey: .subtitle)
+    try c.encodeIfPresent(authors, forKey: .authors)
+    try c.encodeIfPresent(narrators, forKey: .narrators)
+    try c.encodeIfPresent(series, forKey: .series)
+    try c.encodeIfPresent(publishedYear, forKey: .publishedYear)
+    try c.encodeIfPresent(publishedDate, forKey: .publishedDate)
+    try c.encodeIfPresent(authorName, forKey: .authorName)
+    try c.encodeIfPresent(narratorName, forKey: .narratorName)
+    try c.encodeIfPresent(seriesName, forKey: .seriesName)
+    try c.encodeIfPresent(publisher, forKey: .publisher)
+    try c.encodeIfPresent(description, forKey: .description)
+    try c.encodeIfPresent(descriptionPlain, forKey: .descriptionPlain)
+    try c.encodeIfPresent(genres, forKey: .genres)
+    try c.encodeIfPresent(language, forKey: .language)
+    try c.encodeIfPresent(feedUrl, forKey: .feedUrl)
   }
 
   /// Serienname aus `seriesName` oder den `series`-Einträgen (inkl. Folgennummer).
@@ -865,7 +894,7 @@ extension ABSDownloadManifest.Chapter {
   }
 }
 
-struct ABSAudioTrack: Decodable {
+struct ABSAudioTrack: Codable {
   let index: Int
   let startOffset: Double
   let duration: Double
@@ -912,6 +941,16 @@ struct ABSAudioTrack: Decodable {
     }
     ino = resolvedIno
   }
+
+  /// Handgeschrieben: `CodingKeys.metadata` ist nur ein Decoder-Fallback (verschachteltes `ino`), keine Property.
+  func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(index, forKey: .index)
+    try c.encode(startOffset, forKey: .startOffset)
+    try c.encode(duration, forKey: .duration)
+    try c.encodeIfPresent(title, forKey: .title)
+    try c.encodeIfPresent(ino, forKey: .ino)
+  }
 }
 
 private struct ABSSearchAudioFile: Decodable {
@@ -924,13 +963,13 @@ private struct ABSSearchAudioFile: Decodable {
 }
 
 /// Datei auf Library-Item-Ebene (`libraryFiles`); supplementäre EPUBs hängen oft nur hier.
-struct ABSLibraryFile: Decodable {
+struct ABSLibraryFile: Codable {
   let ino: String
   let fileType: String?
   let isSupplementary: Bool?
   let metadata: Metadata?
 
-  struct Metadata: Decodable {
+  struct Metadata: Codable {
     let filename: String?
     let ext: String?
     let format: String?
@@ -1030,7 +1069,7 @@ struct ABSEbookFile: Codable {
   }
 }
 
-struct ABSBookMedia: Decodable {
+struct ABSBookMedia: Codable {
   let metadata: ABSBookMediaMetadata
   let duration: Double?
   let size: Int64?
@@ -1089,9 +1128,28 @@ struct ABSBookMedia: Decodable {
       tracks = nil
     }
   }
+
+  /// Handgeschrieben: `CodingKeys.audioFiles`/`.ebookFileFormat` sind nur Decoder-Fallbacks ohne eigene Property.
+  func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(metadata, forKey: .metadata)
+    try c.encodeIfPresent(duration, forKey: .duration)
+    try c.encodeIfPresent(size, forKey: .size)
+    try c.encodeIfPresent(numTracks, forKey: .numTracks)
+    try c.encodeIfPresent(chapters, forKey: .chapters)
+    try c.encodeIfPresent(tracks, forKey: .tracks)
+    try c.encodeIfPresent(podcastEpisodes, forKey: .podcastEpisodes)
+    try c.encodeIfPresent(autoDownloadEpisodes, forKey: .autoDownloadEpisodes)
+    try c.encodeIfPresent(autoDownloadSchedule, forKey: .autoDownloadSchedule)
+    try c.encodeIfPresent(maxEpisodesToKeep, forKey: .maxEpisodesToKeep)
+    try c.encodeIfPresent(maxNewEpisodesToDownload, forKey: .maxNewEpisodesToDownload)
+    try c.encodeIfPresent(ebookFile, forKey: .ebookFile)
+    try c.encodeIfPresent(ebookFormat, forKey: .ebookFormat)
+    try c.encodeIfPresent(tags, forKey: .tags)
+  }
 }
 
-struct ABSBook: Decodable, Identifiable {
+struct ABSBook: Codable, Identifiable {
   let id: String
   let libraryId: String?
   /// Referenz auf die Medien-Zeile (Buch/Podcast), vgl. `libraryItems.mediaId` — für Playback-Sessions nötig.
@@ -1578,7 +1636,7 @@ extension ABSBook {
 
 // MARK: - Start / Personalized (Home)
 
-struct ABSAuthorShelfEntity: Decodable, Identifiable, Hashable {
+struct ABSAuthorShelfEntity: Codable, Identifiable, Hashable {
   let id: String
   let name: String
   let numBooks: Int?
@@ -1717,6 +1775,13 @@ enum ABSStartShelfLocalization {
     String(localized: "Stats", comment: "Home browse strip: listening statistics")
   }
 
+  /// Offline-Modus: Regal mit allen heruntergeladenen Hörbüchern.
+  static let homeBrowseDownloadedSectionID = "downloaded"
+
+  static var homeBrowseDownloadedStripLabel: String {
+    String(localized: "Downloaded", comment: "Home browse strip: downloaded titles (offline mode)")
+  }
+
   static let categoryTitles: [String: String] = [
     "recentlyListened": "Continue listening",
     "continueEbooks": "Continue reading",
@@ -1726,6 +1791,7 @@ enum ABSStartShelfLocalization {
     "recommended": "Recommended",
     "recentlyFinished": "Listen again",
     "newestAuthors": "New authors",
+    "downloaded": "Downloaded",
   ]
 
   static func displayTitle(category: String, serverLabel: String) -> String {
@@ -1749,6 +1815,7 @@ enum ABSStartShelfLocalization {
     case "continueSeries": return "rectangle.stack.fill"
     case homeBrowseRecentSectionID, "newestItems": return "sparkles"
     case homeBrowseStatsSectionID: return "chart.bar.fill"
+    case homeBrowseDownloadedSectionID: return "arrow.down.circle.fill"
     case "newestSeries": return "books.vertical.fill"
     case "recommended": return "lightbulb.fill"
     case "recentlyFinished": return "arrow.counterclockwise"
@@ -1873,7 +1940,7 @@ struct ABSLibraryNarratorsEnvelope: Decodable {
 }
 
 /// Eintrag aus `GET /api/libraries/:id/series`
-struct ABSLibrarySeriesListItem: Decodable, Identifiable {
+struct ABSLibrarySeriesListItem: Codable, Identifiable {
   let id: String
   let name: String
   let books: [ABSBook]?
@@ -1899,6 +1966,19 @@ struct ABSLibraryCollectionListItem: Decodable, Identifiable {
 
   enum CodingKeys: String, CodingKey {
     case id, name, description, books, createdAt, lastUpdate
+  }
+
+  /// Für die Rematerialisierung aus `LocalCollection` (Bücher kommen aus der geteilten `LocalBook`-Tabelle).
+  init(
+    id: String, name: String, description: String?, books: [ABSBook]?, createdAt: TimeInterval?,
+    lastUpdate: TimeInterval?
+  ) {
+    self.id = id
+    self.name = name
+    self.description = description
+    self.books = books
+    self.createdAt = createdAt
+    self.lastUpdate = lastUpdate
   }
 
   init(from decoder: Decoder) throws {

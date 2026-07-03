@@ -48,7 +48,7 @@ struct MainRootView: View {
       default:
         break
       }
-      if tab == .start, model.startShelves.isEmpty, !model.offlineHomeUIActive {
+      if tab == .start, model.startShelves.isEmpty {
         Task { await model.loadStartDashboard() }
       }
       if tab == .ebooks, model.browseEbooks.isEmpty, model.browseEbooksSupplementary.isEmpty {
@@ -65,12 +65,6 @@ struct MainRootView: View {
         tabs.insert(.ebooks)
       }
       activatedTabs.formUnion(tabs)
-    }
-    .onChange(of: model.offlineHomeMode) { _, _ in
-      model.clampMainTabForOfflineHomeIfNeeded()
-    }
-    .onChange(of: model.offlineHomeModeAuto) { _, _ in
-      model.clampMainTabForOfflineHomeIfNeeded()
     }
     .onChange(of: model.ebookReaderSession?.libraryItemId) { _, newId in
       if newId == nil {
@@ -136,14 +130,8 @@ struct MainRootView: View {
   }
 
   private var tabViewBody: some View {
-    Group {
-      if model.offlineHomeUIActive {
-        // Keine TabView — sonst bleibt eine Ein-Tab-Leiste sichtbar.
-        HomeTabRootView()
-      } else {
-        onlineTabView
-      }
-    }
+    // Tab-Struktur bleibt auch offline erhalten — Inhalte filtern sich selbst auf Downloads.
+    onlineTabView
   }
 
   private var onlineTabView: some View {
@@ -322,15 +310,19 @@ struct MainRootView: View {
   private var ebooksPrimaryListBody: some View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title: "eBooks")
-      if !model.isNetworkReachable, model.browseEbooks.isEmpty {
+      if !model.isNetworkReachable, !model.offlineHomeUIActive, model.browseEbooks.isEmpty {
         booksBrowseOfflineHint
       } else if model.browseEbooksLoading && model.browseEbooks.isEmpty {
         booksBrowseCenteredProgress
       } else if model.browseEbooks.isEmpty {
-        Text("No eBooks found in this library.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.vertical, 8)
+        Text(
+          model.offlineHomeUIActive
+            ? "No downloaded eBooks found."
+            : "No eBooks found in this library."
+        )
+        .font(.subheadline)
+        .foregroundStyle(AppTheme.textSecondary)
+        .padding(.vertical, 8)
       } else if model.ebooksTabCardStyle == .heroCover {
         LibraryHeroMultiColumnRows(
           items: model.browseEbooks,
@@ -371,15 +363,19 @@ struct MainRootView: View {
   private var ebooksSupplementaryListBody: some View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title: "Supplementary eBooks")
-      if !model.isNetworkReachable, model.browseEbooksSupplementary.isEmpty {
+      if !model.isNetworkReachable, !model.offlineHomeUIActive, model.browseEbooksSupplementary.isEmpty {
         booksBrowseOfflineHint
       } else if model.browseEbooksLoading && model.browseEbooksSupplementary.isEmpty {
         booksBrowseCenteredProgress
       } else if model.browseEbooksSupplementary.isEmpty {
-        Text("No supplementary eBooks found in this library.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.vertical, 8)
+        Text(
+          model.offlineHomeUIActive
+            ? "No downloaded supplementary eBooks found."
+            : "No supplementary eBooks found in this library."
+        )
+        .font(.subheadline)
+        .foregroundStyle(AppTheme.textSecondary)
+        .padding(.vertical, 8)
       } else if model.ebooksTabCardStyle == .heroCover {
         LibraryHeroMultiColumnRows(
           items: model.browseEbooksSupplementary,
@@ -536,7 +532,7 @@ struct MainRootView: View {
     LibraryBookListCard(
       book: book,
       model: model,
-      opensDetailOnTap: model.libraryCatalogQuickFilter != .downloaded
+      opensDetailOnTap: model.offlineHomeUIActive || model.libraryCatalogQuickFilter != .downloaded
     )
     .task(id: book.id) {
       await model.loadMoreIfNeeded(currentItemId: book.id)
@@ -578,7 +574,7 @@ struct MainRootView: View {
   private var booksBrowseAuthorListBody: some View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Authors")
-      if !model.isNetworkReachable {
+      if !model.isNetworkReachable, !model.offlineHomeUIActive {
         booksBrowseOfflineHint
       } else if model.browseAuthorsLoading && model.browseAuthors.isEmpty {
         booksBrowseCenteredProgress
@@ -609,7 +605,7 @@ struct MainRootView: View {
 
     return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Narrators")
-      if !model.isNetworkReachable {
+      if !model.isNetworkReachable, !model.offlineHomeUIActive {
         booksBrowseOfflineHint
       } else if model.browseNarratorsLoading && model.browseNarrators.isEmpty {
         booksBrowseCenteredProgress
@@ -640,7 +636,7 @@ struct MainRootView: View {
   private var booksBrowseSeriesListBody: some View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Series")
-      if !model.isNetworkReachable {
+      if !model.isNetworkReachable, !model.offlineHomeUIActive {
         booksBrowseOfflineHint
       } else if model.browseSeriesLoading && model.browseSeries.isEmpty {
         booksBrowseCenteredProgress
@@ -673,7 +669,7 @@ struct MainRootView: View {
 
     return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Collections")
-      if !model.isNetworkReachable {
+      if !model.isNetworkReachable, !model.offlineHomeUIActive {
         booksBrowseOfflineHint
       } else if model.browseCollectionsLoading && model.browseCollections.isEmpty {
         booksBrowseCenteredProgress
@@ -710,7 +706,7 @@ struct MainRootView: View {
 
     return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Tags")
-      if !model.isNetworkReachable {
+      if !model.isNetworkReachable, !model.offlineHomeUIActive {
         booksBrowseOfflineHint
       } else if model.browseTagsLoading && model.browseTags.isEmpty {
         booksBrowseCenteredProgress
@@ -743,7 +739,7 @@ struct MainRootView: View {
 
     return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Genres")
-      if !model.isNetworkReachable {
+      if !model.isNetworkReachable, !model.offlineHomeUIActive {
         booksBrowseOfflineHint
       } else if model.browseGenresLoading && model.browseGenres.isEmpty {
         booksBrowseCenteredProgress

@@ -61,12 +61,17 @@ struct PodcastEpisodeDetailView: View {
     }
     .task {
       seedEpisodeCoverTintFromCacheIfNeeded()
+      // Sofort mit zuletzt gecachter Show-Detail-Antwort starten (Beschreibung bleibt sichtbar) —
+      // kein Leerzustand mehr, nur ein stiller Refresh im Hintergrund.
+      if detail == nil {
+        detail = model.cachedPodcastEpisodeDetail(episode)
+      }
       async let d = model.loadPodcastEpisodeDetail(episode)
       let showMid =
         model.podcastShows.first(where: { $0.id == episode.libraryItemId })?.mediaId
         ?? model.podcastSearchBooks.first(where: { $0.id == episode.libraryItemId })?.mediaId
       async let s = model.loadPodcastEpisodeListeningSessions(episode, showMediaId: showMid)
-      detail = await d
+      if let loaded = await d { detail = loaded }
       listeningSessions = await s
       await loadCoverTint()
     }

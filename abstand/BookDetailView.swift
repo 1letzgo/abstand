@@ -88,10 +88,14 @@ struct BookDetailView: View {
       applyCoverTintFromStoredImage()
     }
     .task(id: bookId) {
-      detail = nil
-      coverImageForTint = nil
+      // Sofort mit zuletzt gecachter Detail-Antwort starten (Beschreibung/Kapitel bleiben sichtbar) —
+      // kein Leer-„Reset“ mehr, nur ein stiller Refresh im Hintergrund.
+      if detail?.id != bookId {
+        detail = model.cachedBookDetail(id: bookId)
+        coverImageForTint = nil
+      }
       let loaded = await model.loadBookDetail(id: bookId)
-      detail = loaded
+      if let loaded { detail = loaded }
       await loadCoverTint()
       listeningSessions = await model.loadBookListeningSessions(
         libraryItemId: bookId, bookMediaId: loaded?.mediaId ?? book.mediaId)
