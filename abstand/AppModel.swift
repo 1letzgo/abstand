@@ -3079,10 +3079,12 @@ final class AppModel: ObservableObject {
     let key = episode.progressLookupKey
     progressByItemId.removeValue(forKey: key)
     pendingLocalProgressSyncKeys.remove(key)
+    clearLocallyFinishedProgressKey(key)
     let alt = "\(episode.libraryItemId)/ep/\(episode.episodeId)"
     if alt != key {
       progressByItemId.removeValue(forKey: alt)
       pendingLocalProgressSyncKeys.remove(alt)
+      clearLocallyFinishedProgressKey(alt)
     }
   }
 
@@ -8769,6 +8771,7 @@ final class AppModel: ObservableObject {
     suppressedContinueListeningKeys.insert(bookId)
     progressByItemId.removeValue(forKey: bookId)
     pendingLocalProgressSyncKeys.remove(bookId)
+    clearLocallyFinishedProgressKey(bookId)
     removeAudiobookFromContinueListeningShelves(bookId: bookId)
     persistProgressToLocalStore()
     syncContinueListeningShelvesWithProgress()
@@ -10805,6 +10808,9 @@ final class AppModel: ObservableObject {
       if ep.isEmpty { return libraryItemId }
       return "\(libraryItemId)-\(ep)"
     }()
+    // Sonst überschreibt der nächste `applyUserProgress`-Merge (nach `authorize()`) das
+    // „nicht fertig" wieder mit „fertig", weil der Key noch als lokal-finished markiert ist.
+    clearLocallyFinishedProgressKey(key)
     guard let existing = progressByItemId[key] else { return }
     let now = Int64(Date().timeIntervalSince1970 * 1000)
     progressByItemId[key] = ABSUserMediaProgress(

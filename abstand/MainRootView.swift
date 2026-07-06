@@ -301,10 +301,10 @@ struct MainRootView: View {
       } else if model.libraryBookCardStyle == .heroCover {
         LibraryHeroMultiColumnRows(
           items: model.browseEbooks,
-          columns: AppTheme.Layout.heroCoverColumnsPerRow,
+          columns: AppTheme.Layout.ebookHeroCoverColumnsPerRow,
           spacing: AppTheme.Layout.withinSectionSpacing
         ) { book in
-          EbookTabListCard(book: book, model: model, isSupplementary: false)
+          EbookTabListCard(book: book, model: model)
             .task(id: book.id) {
               await model.loadMoreBrowseEbooksIfNeeded(currentItemId: book.id)
             }
@@ -317,7 +317,7 @@ struct MainRootView: View {
         }
       } else {
         ForEach(model.browseEbooks) { book in
-          EbookTabListCard(book: book, model: model, isSupplementary: false)
+          EbookTabListCard(book: book, model: model)
             .task(id: book.id) {
               await model.loadMoreBrowseEbooksIfNeeded(currentItemId: book.id)
             }
@@ -347,14 +347,14 @@ struct MainRootView: View {
       } else if model.libraryBookCardStyle == .heroCover {
         LibraryHeroMultiColumnRows(
           items: model.browseEbooksSupplementary,
-          columns: AppTheme.Layout.heroCoverColumnsPerRow,
+          columns: AppTheme.Layout.ebookHeroCoverColumnsPerRow,
           spacing: AppTheme.Layout.withinSectionSpacing
         ) { book in
-          EbookTabListCard(book: book, model: model, isSupplementary: true)
+          EbookTabListCard(book: book, model: model)
         }
       } else {
         ForEach(model.browseEbooksSupplementary) { book in
-          EbookTabListCard(book: book, model: model, isSupplementary: true)
+          EbookTabListCard(book: book, model: model)
         }
       }
     }
@@ -3210,10 +3210,11 @@ private struct AuthorDetailBookListCard: View {
 }
 
 /// eBooks-Bereich im Books-Tab: kompakte Zeile oder Cover-Karte.
+/// Karte für eBooks-/Supplementary-Tab — beide Listen sehen identisch aus; ob Play-Kontrollen
+/// erscheinen, entscheidet einzig `book.isPlayableAudiobook`, nicht der Tab.
 private struct EbookTabListCard: View {
   let book: ABSBook
   let model: AppModel
-  var isSupplementary: Bool
 
   private var usesHeroCoverStyle: Bool {
     model.libraryBookCardStyle == .heroCover
@@ -3221,21 +3222,23 @@ private struct EbookTabListCard: View {
 
   var body: some View {
     if usesHeroCoverStyle {
+      // 1:1-Cover wie überall im Katalog — Portrait-eBook-Cover werden per Letterboxing gefüllt,
+      // nicht als eigenes Seitenverhältnis behandelt.
       LibraryHeroBookRowCard(
         book: book,
         model: model,
         showEbookBadge: true,
         usesEbookProgressDisplay: true,
-        showsDownloadStatus: isSupplementary,
-        coverAspectRatio: isSupplementary ? 1 : 10 / 16
+        showsDownloadStatus: true
       )
     } else {
       LibraryBookListCard(
         book: book,
         model: model,
         showEbookBadge: true,
-        showsPlaybackControls: isSupplementary,
-        opensDetailOnTap: isSupplementary
+        showsPlaybackControls: book.isPlayableAudiobook,
+        opensDetailOnTap: true,
+        usesEbookProgressDisplay: true
       )
     }
   }
@@ -3255,17 +3258,22 @@ struct LibraryBookListCard: View {
   var forceCompactListStyle = false
   /// Autor-Detail: Cover fest 1:1, Mitte beschnitten.
   var usesSquareCenterCropCover = false
+  /// eBooks-/Supplementary-Tab: Lesefortschritt statt Hörbuch-Dauer/-Fortschritt anzeigen.
+  var usesEbookProgressDisplay = false
 
   private var usesHeroCoverStyle: Bool {
-    !forceCompactListStyle && model.libraryBookCardStyle == .heroCover && !book.isPureEbookLibraryItem
+    !forceCompactListStyle && model.libraryBookCardStyle == .heroCover
   }
 
   var body: some View {
     if usesHeroCoverStyle {
+      // `LibraryHeroBookRowCard` erkennt reine eBooks selbst (`isPureEbookLibraryItem`) und
+      // zeigt automatisch Lesefortschritt statt Hörbuch-Dauer — kein Sonderfall nötig.
       LibraryHeroBookRowCard(
         book: book,
         model: model,
         showEbookBadge: showEbookBadge,
+        usesEbookProgressDisplay: usesEbookProgressDisplay,
         progressOverride: progressOverride,
         authorLineOverride: authorLineOverride,
         showsDownloadStatus: showsDownloadStatus,
@@ -3281,7 +3289,8 @@ struct LibraryBookListCard: View {
         showsPlaybackControls: showsPlaybackControls,
         showsDownloadStatus: showsDownloadStatus,
         opensDetailOnTap: opensDetailOnTap,
-        usesSquareCenterCropCover: usesSquareCenterCropCover
+        usesSquareCenterCropCover: usesSquareCenterCropCover,
+        usesEbookProgressDisplay: usesEbookProgressDisplay
       )
     }
   }
@@ -3370,6 +3379,38 @@ private struct LibraryHeroBookRowCard: View {
 
   private var showsAttachedEbookCoverBadge: Bool {
     supplementaryEbookBadge
+  }
+
+  /// Wie `ContinueListeningHeroTypePill`: Play für Hörbücher, Buch für reine eBooks.
+  private var typeBadgeSystemImage: String? {
+    if book.isPlayableAudiobook { return "play.fill" }
+    if book.isPureEbookLibraryItem { return "book.closed.fill" }
+    return nil
+  }
+
+  @ViewBuilder
+  private var typeBadge: some View {
+    if let systemImage = typeBadgeSystemImage {
+      ContinueListeningHeroCoverPill {
+        Image(systemName: systemImage)
+          .font(ContinueListeningHeroCoverPillMetrics.iconFont)
+          .foregroundStyle(.white)
+      }
+      .accessibilityLabel(book.isPlayableAudiobook ? "Playable as audiobook" : "eBook")
+      .accessibilityHidden(true)
+    }
+  }
+
+  @ViewBuilder
+  private var ebookAvailableBadge: some View {
+    if showsAttachedEbookCoverBadge {
+      ContinueListeningHeroCoverPill {
+        Image(systemName: "book.closed.fill")
+          .font(ContinueListeningHeroCoverPillMetrics.iconFont)
+          .foregroundStyle(.white)
+      }
+      .accessibilityLabel("eBook available")
+    }
   }
 
   var body: some View {
@@ -3474,15 +3515,18 @@ private struct LibraryHeroBookRowCard: View {
       }
       .aspectRatio(coverAspectRatio, contentMode: .fit)
       .frame(maxWidth: .infinity)
-      .overlay(alignment: .topTrailing) {
-        if showsDownloadStatus {
-          ContinueListeningHeroBookOfflineBadgeSlot(rowLive: live)
-            .fixedSize()
-        }
+      .overlay(alignment: .topLeading) {
+        // Wie `ContinueListeningHeroTypePill` — gleiche Größe/Padding, oben statt unten.
+        typeBadge
+          .fixedSize()
       }
-      .overlay(alignment: .bottomTrailing) {
-        if showsAttachedEbookCoverBadge {
-          LibraryCoverCornerBadge(systemImage: "book.closed.fill", accessibilityLabel: "eBook available")
+      .overlay(alignment: .topTrailing) {
+        HStack(spacing: 0) {
+          ebookAvailableBadge
+          if showsDownloadStatus {
+            ContinueListeningHeroBookOfflineBadgeSlot(rowLive: live)
+              .fixedSize()
+          }
         }
       }
       .clipped()
@@ -3573,12 +3617,16 @@ struct BookRowCard: View {
   var opensDetailOnTap = true
   /// Autor-Detail: Cover fest 1:1, Mitte beschnitten.
   var usesSquareCenterCropCover = false
+  /// eBooks-/Supplementary-Tab: Lesefortschritt statt Hörbuch-Dauer/-Fortschritt anzeigen.
+  var usesEbookProgressDisplay = false
 
   @StateObject private var live: LibraryBookRowLiveState
   @State private var showDetail = false
   private let supplementaryEbookBadge: Bool
 
   private var isPureEbookRow: Bool { book.isPureEbookLibraryItem }
+  /// Reines eBook oder Hörbuch mit angehängtem eBook im eBooks-Tab — beide zeigen Lesefortschritt.
+  private var usesEbookMetrics: Bool { isPureEbookRow || usesEbookProgressDisplay }
   private var showsAudiobookPlayControl: Bool { book.isPlayableAudiobook && showsPlaybackControls }
   private var showsAttachedEbookCoverBadge: Bool {
     supplementaryEbookBadge
@@ -3593,7 +3641,8 @@ struct BookRowCard: View {
     showsPlaybackControls: Bool = true,
     showsDownloadStatus: Bool = true,
     opensDetailOnTap: Bool = true,
-    usesSquareCenterCropCover: Bool = false
+    usesSquareCenterCropCover: Bool = false,
+    usesEbookProgressDisplay: Bool = false
   ) {
     self.showEbookBadge = showEbookBadge
     self.progressOverride = progressOverride
@@ -3602,18 +3651,19 @@ struct BookRowCard: View {
     self.showsDownloadStatus = showsDownloadStatus
     self.opensDetailOnTap = opensDetailOnTap
     self.usesSquareCenterCropCover = usesSquareCenterCropCover
+    self.usesEbookProgressDisplay = usesEbookProgressDisplay
     self.model = model
     self.supplementaryEbookBadge = model.bookShowsSupplementaryEbookBadge(book)
     let resolvedBook = model.bookStubEnrichedForListDisplay(book)
     self.book = resolvedBook
-    let pureEbook = resolvedBook.isPureEbookLibraryItem
+    let ebookMetrics = resolvedBook.isPureEbookLibraryItem || usesEbookProgressDisplay
     _live = StateObject(
       wrappedValue: LibraryBookRowLiveState(
         bookId: resolvedBook.id,
         model: model,
-        observesProgress: progressOverride == nil && !pureEbook,
+        observesProgress: progressOverride == nil && !ebookMetrics,
         observesDownload: showsDownloadStatus,
-        observesEbookProgress: pureEbook
+        observesEbookProgress: ebookMetrics
       )
     )
   }
@@ -3621,17 +3671,17 @@ struct BookRowCard: View {
   private var prog: ABSUserMediaProgress? { progressOverride ?? live.progress }
 
   private var ebookProgress: Double? {
-    guard isPureEbookRow else { return nil }
+    guard usesEbookMetrics else { return nil }
     return live.ebookProgressFraction
   }
 
   private var ebookProgressLabel: String? {
-    guard isPureEbookRow else { return nil }
+    guard usesEbookMetrics else { return nil }
     return LibraryRowLiveState.ebookProgressLabel(for: live.ebookProgressFraction)
   }
 
   private var showsBottomProgressBar: Bool {
-    if isPureEbookRow {
+    if usesEbookMetrics {
       guard let f = ebookProgress, f > 0.005, f < 0.995 else { return false }
       return true
     }
@@ -3640,7 +3690,7 @@ struct BookRowCard: View {
   }
 
   private var bottomProgressValue: Double {
-    if isPureEbookRow, let f = ebookProgress { return min(1, max(0, f)) }
+    if usesEbookMetrics, let f = ebookProgress { return min(1, max(0, f)) }
     if let p = prog, p.duration > 0 { return min(1, max(0, p.progress)) }
     return 0
   }
@@ -3724,7 +3774,9 @@ struct BookRowCard: View {
     .frame(width: side, height: side)
     .clipShape(LibraryRowLayout.coverClipShape)
     .overlay(alignment: .bottomLeading) {
-      if showsAudiobookPlayControl {
+      // Badge zeigt die tatsächliche Fähigkeit des Items (Hörbuch vs. eBook) — unabhängig davon,
+      // ob der Cover-Tap in diesem Kontext auch wirklich Play auslöst (`showsAudiobookPlayControl`).
+      if book.isPlayableAudiobook {
         LibraryCoverCornerBadge(systemImage: "play.fill", accessibilityLabel: "Play", accessibilityHidden: true)
       } else if isPureEbookRow {
         LibraryCoverCornerBadge(
@@ -3772,7 +3824,7 @@ struct BookRowCard: View {
   private var libraryRowMetaFooter: some View {
     LibraryRowLayout.metadataFooter {
       Group {
-        if isPureEbookRow {
+        if usesEbookMetrics {
           if let label = ebookProgressLabel {
             Text(label)
               .font(.subheadline.monospacedDigit())
@@ -3793,12 +3845,12 @@ struct BookRowCard: View {
 
   @ViewBuilder
   private var libraryRowTrailingStatusIcons: some View {
-    if isPureEbookRow, let f = ebookProgress, f >= 0.995 {
+    if usesEbookMetrics, let f = ebookProgress, f >= 0.995 {
       Image(systemName: "checkmark.circle.fill")
         .foregroundStyle(themeAccent)
         .font(.caption)
         .accessibilityLabel("Finished reading")
-    } else if !isPureEbookRow, prog?.isFinished == true {
+    } else if !usesEbookMetrics, prog?.isFinished == true {
       Image(systemName: "checkmark.circle.fill")
         .foregroundStyle(themeAccent)
         .font(.caption)

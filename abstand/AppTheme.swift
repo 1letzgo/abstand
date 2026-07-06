@@ -195,6 +195,8 @@ enum AppTheme {
     ]
     /// Hero-Raster (Library): drei große Cover-Karten pro Zeile.
     static let heroCoverColumnsPerRow = 3
+    /// Hero-Raster (eBooks/Supplementary): größere Cover, nur zwei pro Zeile.
+    static let ebookHeroCoverColumnsPerRow = 2
     /// Metadaten unter dem Cover ohne Play-Pille (wie Continue-Hero-Textblock).
     static let libraryHeroMetadataBlockHeight: CGFloat =
       continueHeroMetadataVerticalPadding
