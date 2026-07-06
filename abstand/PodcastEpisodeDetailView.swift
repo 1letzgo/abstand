@@ -5,13 +5,14 @@ import UIKit
 
 struct PodcastEpisodeDetailView: View {
   @EnvironmentObject private var model: AppModel
-  @Environment(\.themeAccent) private var themeAccent
   @Environment(\.dismiss) private var dismiss
   let episode: ABSPodcastEpisodeListItem
   @State private var detail: ABSPodcastEpisodeExpandedDetail?
   @State private var coverTintColor: Color = AppTheme.background
   @State private var coverImageForTint: UIImage?
   @State private var sessionsExpanded = false
+  @State private var descriptionExpanded = false
+  @State private var showNotesExpanded = false
   @State private var listeningSessions: [ABSListeningSession] = []
   @State private var confirmDiscardEpisodeProgress = false
   @State private var confirmMarkEpisodeFinished = false
@@ -34,7 +35,7 @@ struct PodcastEpisodeDetailView: View {
           coverSection
           infoSection
           if let d = detail {
-            detailActionsAndMeta(d)
+            detailBelowPlaySection(d)
           }
         }
       }
@@ -169,35 +170,55 @@ struct PodcastEpisodeDetailView: View {
   }
 
   private var coverSection: some View {
-    CoverImageView(
-      url: model.coverURL(for: episode.libraryItemId, tier: .hero),
-      token: model.token,
-      itemId: episode.libraryItemId,
-      cacheAccount: model.coverImageCacheAccountDirectory(),
-      cacheScopeId: model.coverImageCacheScopeId(for: episode.libraryItemId, tier: .hero),
-      cacheRevision: model.coverImageCacheRevision,
-      contentMode: .fit
-    )
-    .aspectRatio(1, contentMode: .fit)
-    .frame(maxWidth: .infinity)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
-    .padding(.top, DetailHeroLayoutMetrics.coverTopPadding)
+    DetailHeroCoverFrame {
+      SquareCoverImageView(
+        url: model.coverURL(for: episode.libraryItemId, tier: .hero),
+        token: model.token,
+        itemId: episode.libraryItemId,
+        cacheAccount: model.coverImageCacheAccountDirectory(),
+        cacheScopeId: model.coverImageCacheScopeId(for: episode.libraryItemId, tier: .hero),
+        cacheRevision: model.coverImageCacheRevision
+      )
+    }
   }
 
   private var infoSection: some View {
-    VStack {
-      Text(episode.episodeTitle)
-        .font(DetailHeroTypography.heroTitle)
-        .foregroundStyle(AppTheme.textPrimary)
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
-      Text(episode.showTitle)
-        .font(DetailHeroTypography.heroSubtitle)
-        .foregroundStyle(AppTheme.textSecondary)
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
+    DetailHeroInfoSection(
+      title: episode.episodeTitle,
+      subtitle: heroShowLinks.isEmpty ? fallbackShowSubtitle : nil,
+      authorLinks: heroShowLinks,
+      onAuthorTap: { showId, _ in
+        Task {
+          await model.openPodcastShowCatalog(showId: showId)
+          dismiss()
+        }
+      },
+      tertiaryParts: [episodeDurationLabel, episodePublishedYearLabel]
+    )
+  }
+
+  private var heroShowLinks: [(id: String, name: String)] {
+    let name = episode.showTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty, name != "—" else { return [] }
+    let showId = episode.libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !showId.isEmpty else { return [] }
+    return [(showId, name)]
+  }
+
+  private var fallbackShowSubtitle: String? {
+    let name = episode.showTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty, name != "—" else { return nil }
+    return name
+  }
+
+  private var episodePublishedYearLabel: String {
+    guard let pub = detail?.pubDate?.trimmingCharacters(in: .whitespacesAndNewlines), !pub.isEmpty else {
+      return ""
     }
-    .padding(.top, DetailHeroLayoutMetrics.titleTopSpacing)
+    if pub.count >= 4, pub.prefix(4).allSatisfy(\.isNumber) {
+      return String(pub.prefix(4))
+    }
+    return pub
   }
 
   private var episodePlayProgress01: Double {
@@ -215,9 +236,15 @@ struct PodcastEpisodeDetailView: View {
     return formatPlaybackTime(sec)
   }
 
-  private func detailActionsAndMeta(_ d: ABSPodcastEpisodeExpandedDetail) -> some View {
+  private func detailBelowPlaySection(_ d: ABSPodcastEpisodeExpandedDetail) -> some View {
     let isFinished = prog?.isFinished == true
-    return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+    let episodeText = episodePlainDescription(d)
+    let showNotesText = episodePlainShowNotes(d)
+    let subtitle = trimmedMetaValue(d.subtitle)
+    let publishedLine = trimmedMetaValue(d.pubDate)
+    let categories = resolvedCategories(d)
+
+    return VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
       DetailHeroActionsBar(
         actions: [
           DetailHeroMediaAction(
@@ -250,90 +277,97 @@ struct PodcastEpisodeDetailView: View {
       .padding(.top, AppTheme.Layout.detailPlayButtonTopPadding)
       .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
 
-      if let show = model.podcastShows.first(where: { $0.id == episode.libraryItemId }) ?? model.podcastSearchBooks.first(where: { $0.id == episode.libraryItemId }) {
-        Button {
-          Task {
-            await model.selectPodcastShowFilter(show.id)
-            dismiss()
-          }
-        } label: {
-          HStack(alignment: .top, spacing: 10) {
-            Text("SHOW".uppercased())
-              .font(DetailHeroTypography.metaLabel)
-              .foregroundStyle(AppTheme.textSecondary)
-              .frame(width: 112, alignment: .leading)
-            Text(show.displayTitle)
-              .font(DetailHeroTypography.metaLink)
-              .foregroundStyle(themeAccent)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          }
-        }
-        .buttonStyle(.plain)
-      }
-      detailMetaRow("Duration", episodeDurationLabel)
-      if !d.showAuthors.isEmpty {
-        HStack(alignment: .top, spacing: 10) {
-          Text("HOST".uppercased())
-            .font(DetailHeroTypography.metaLabel)
-            .foregroundStyle(AppTheme.textSecondary)
-            .frame(width: 112, alignment: .leading)
-          VStack(alignment: .leading, spacing: 4) {
-            ForEach(d.showAuthors, id: \.id) { author in
-              Button {
-                model.openPodcastSearchFromText(author.name)
-                dismiss()
-              } label: {
-                Text(author.name)
-                  .font(DetailHeroTypography.metaLink)
-                  .foregroundStyle(themeAccent)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-                  .multilineTextAlignment(.leading)
-              }
-              .buttonStyle(.plain)
+      VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
+        if let episodeText {
+          DetailDetailSectionCard {
+            DetailMetaField(title: "Description") {
+              DetailMetaExpandableTextBlock(text: episodeText, isExpanded: $descriptionExpanded)
             }
           }
         }
-      }
-      if let s = d.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
-        detailMetaRow("Subtitle", s)
-      }
-      if let pub = d.pubDate?.trimmingCharacters(in: .whitespacesAndNewlines), !pub.isEmpty {
-        detailMetaRow("Published", pub)
-      }
-      if let g = d.showGenres, !g.isEmpty {
-        detailMetaRow("Categories", g.joined(separator: ", "))
-      }
-      detailMetaRow(
-        "Episode",
-        absPlainText(fromHTML: d.episodeDescriptionHTML).nilIfEmpty ?? "—")
-      detailMetaRow(
-        "Show notes",
-        absPlainText(fromHTML: d.showDescriptionHTML).nilIfEmpty ?? "—")
-      ListeningHistoryDisclosure(
-        expanded: $sessionsExpanded,
-        sessions: listeningSessions,
-        isNetworkReachable: model.isNetworkReachable,
-        emptyOnlineText: "No listening sessions recorded for this episode yet.",
-        emptyOfflineText: "Listening history is unavailable offline.",
-        onJumpToSessionStart: { session in
-          Task {
-            await model.playPodcastEpisode(episode, resumeAtOverride: session.startTime)
+
+        if !d.showAuthors.isEmpty {
+          DetailDetailSectionCard {
+            DetailMetaField(title: d.showAuthors.count == 1 ? "Host" : "Hosts") {
+              VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.linkRowSpacing) {
+                ForEach(d.showAuthors, id: \.id) { author in
+                  DetailAuthorLinkRow(authorId: author.id, name: author.name) {
+                    model.openPodcastSearchFromText(author.name)
+                    dismiss()
+                  }
+                }
+              }
+            }
           }
         }
-      )
+
+        if let subtitle {
+          DetailDetailSectionCard {
+            DetailMetaField(title: "Subtitle") {
+              DetailMetaTextBlock(text: subtitle)
+            }
+          }
+        }
+
+        if let publishedLine {
+          DetailDetailSectionCard {
+            DetailMetaField(title: "Published") {
+              DetailMetaTextBlock(text: publishedLine)
+            }
+          }
+        }
+
+        if !categories.isEmpty {
+          DetailDetailSectionCard {
+            DetailMetaField(title: "Categories") {
+              DetailMetaTextBlock(text: categories.joined(separator: ", "))
+            }
+          }
+        }
+
+        if let showNotesText {
+          DetailDetailSectionCard {
+            DetailMetaField(title: "Show notes") {
+              DetailMetaExpandableTextBlock(text: showNotesText, isExpanded: $showNotesExpanded)
+            }
+          }
+        }
+
+        ListeningHistoryDisclosure(
+          expanded: $sessionsExpanded,
+          sessions: listeningSessions,
+          isNetworkReachable: model.isNetworkReachable,
+          emptyOnlineText: "No listening sessions recorded for this episode yet.",
+          emptyOfflineText: "Listening history is unavailable offline.",
+          onJumpToSessionStart: { session in
+            Task {
+              await model.playPodcastEpisode(episode, resumeAtOverride: session.startTime)
+            }
+          }
+        )
+      }
+      .padding(.top, AppTheme.Layout.detailMetaAfterPlaySpacing)
     }
   }
 
-  private func detailMetaRow(_ k: String, _ v: String) -> some View {
-    HStack(alignment: .top, spacing: 10) {
-      Text(k.uppercased())
-        .font(DetailHeroTypography.metaLabel)
-        .foregroundStyle(AppTheme.textSecondary)
-        .frame(width: 112, alignment: .leading)
-      Text(v)
-        .font(DetailHeroTypography.metaValue)
-        .foregroundStyle(AppTheme.textPrimary)
-        .fixedSize(horizontal: false, vertical: true)
-    }
+  private func episodePlainDescription(_ d: ABSPodcastEpisodeExpandedDetail) -> String? {
+    absPlainText(fromHTML: d.episodeDescriptionHTML).nilIfEmpty
+  }
+
+  private func episodePlainShowNotes(_ d: ABSPodcastEpisodeExpandedDetail) -> String? {
+    absPlainText(fromHTML: d.showDescriptionHTML).nilIfEmpty
+  }
+
+  private func trimmedMetaValue(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let t = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty, t != "—" else { return nil }
+    return t
+  }
+
+  private func resolvedCategories(_ d: ABSPodcastEpisodeExpandedDetail) -> [String] {
+    (d.showGenres ?? [])
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
   }
 }

@@ -15,12 +15,33 @@ actor LocalLibraryStore {
   /// Beim Öffnen eines Stores Meta-Eintrag anlegen/aktualisieren — vor allem ein einfacher Existenz-/Schreibtest.
   func markOpened() {
     let descriptor = FetchDescriptor<LocalStoreMeta>()
+    let meta: LocalStoreMeta
     if let existing = try? modelContext.fetch(descriptor).first {
       existing.lastOpenedAt = Date()
+      meta = existing
     } else {
-      modelContext.insert(LocalStoreMeta())
+      let row = LocalStoreMeta()
+      modelContext.insert(row)
+      meta = row
     }
+    backfillEbookCatalogFlagsIfNeeded(meta: meta)
     try? modelContext.save()
+  }
+
+  /// Einmalig nach Update: `catalogHasEbook`/`catalogHasSupplementaryEbook` aus gespeichertem Blob berechnen.
+  private func backfillEbookCatalogFlagsIfNeeded(meta: LocalStoreMeta) {
+    guard meta.schemaVersion < LocalLibrarySchema.ebookCatalogFlagsMetaVersion else { return }
+    let rows = (try? modelContext.fetch(FetchDescriptor<LocalBook>())) ?? []
+    for row in rows {
+      if let book = row.toABSBook() {
+        row.catalogHasEbook = book.matchesBooksEbookCatalogFilter || row.catalogHasEbook
+        row.catalogHasSupplementaryEbook = book.isCatalogSupplementaryEbook || row.catalogHasSupplementaryEbook
+      } else if let detail = row.toABSBookDetail() {
+        row.catalogHasEbook = detail.matchesBooksEbookCatalogFilter || row.catalogHasEbook
+        row.catalogHasSupplementaryEbook = detail.isCatalogSupplementaryEbook || row.catalogHasSupplementaryEbook
+      }
+    }
+    meta.schemaVersion = LocalLibrarySchema.ebookCatalogFlagsMetaVersion
   }
 
   // MARK: - Progress
@@ -266,79 +287,6 @@ actor LocalLibraryStore {
     LocalLibraryQueries.collections(context: modelContext, libraryId: libraryId)
   }
 
-  // MARK: - Browse-eBooks
-
-  private func upsertEbookListState(libraryId: String, sortField: String, descending: Bool, total: Int) throws {
-    var descriptor = FetchDescriptor<LocalEbookListState>(predicate: #Predicate { $0.libraryId == libraryId })
-    descriptor.fetchLimit = 1
-    if let state = try modelContext.fetch(descriptor).first {
-      state.sortField = sortField
-      state.descending = descending
-      state.total = total
-    } else {
-      modelContext.insert(
-        LocalEbookListState(libraryId: libraryId, sortField: sortField, descending: descending, total: total))
-    }
-  }
-
-  /// Reset-Fetch (Seite 0): alter Reihenfolge-Index der Bibliothek weg (die `LocalBook`-Zeilen bleiben —
-  /// geteilte Tabelle, siehe Katalog-Pendant aus Etappe 4).
-  func replaceEbooksFirstPage(
-    libraryId: String, sortField: String, descending: Bool, total: Int, items: [ABSBook]
-  ) throws {
-    let entryPredicate = #Predicate<LocalEbookEntry> { $0.libraryId == libraryId }
-    for existing in try modelContext.fetch(FetchDescriptor(predicate: entryPredicate)) {
-      modelContext.delete(existing)
-    }
-    try upsertBooks(items)
-    for (idx, item) in items.enumerated() {
-      modelContext.insert(LocalEbookEntry(libraryId: libraryId, rank: idx, bookId: item.id))
-    }
-    try upsertEbookListState(libraryId: libraryId, sortField: sortField, descending: descending, total: total)
-    try modelContext.save()
-  }
-
-  /// Folgeseite: an bestehenden Reihenfolge-Index anhängen (kein Wipe).
-  func appendEbooksPage(libraryId: String, total: Int, items: [ABSBook]) throws {
-    let entryPredicate = #Predicate<LocalEbookEntry> { $0.libraryId == libraryId }
-    let existingCount = try modelContext.fetchCount(FetchDescriptor(predicate: entryPredicate))
-    try upsertBooks(items)
-    for (idx, item) in items.enumerated() {
-      modelContext.insert(LocalEbookEntry(libraryId: libraryId, rank: existingCount + idx, bookId: item.id))
-    }
-    var stateDescriptor = FetchDescriptor<LocalEbookListState>(predicate: #Predicate { $0.libraryId == libraryId })
-    stateDescriptor.fetchLimit = 1
-    if let state = try modelContext.fetch(stateDescriptor).first {
-      state.total = total
-    }
-    try modelContext.save()
-  }
-
-  /// „Supplementary“-eBooks (EPUB/PDF neben einem Hörbuch) — eigenes Flag auf der geteilten `LocalBook`-Zeile
-  /// statt eigener Datei (Migrationsplan Etappe 6). Voll-Ersatz je Bibliothek pro Aufruf (kleine Liste).
-  func replaceEbookSupplementary(libraryId: String, items: [ABSBook]) throws {
-    let clearPredicate = #Predicate<LocalBook> { $0.libraryId == libraryId && $0.isEbookSupplementary == true }
-    for row in try modelContext.fetch(FetchDescriptor(predicate: clearPredicate)) {
-      row.isEbookSupplementary = false
-    }
-    try upsertBooks(items)
-    let ids = items.map(\.id)
-    let markPredicate = #Predicate<LocalBook> { ids.contains($0.id) }
-    for row in try modelContext.fetch(FetchDescriptor(predicate: markPredicate)) {
-      row.isEbookSupplementary = true
-    }
-    try modelContext.save()
-  }
-
-  /// `nil`, wenn kein Cache oder die angefragte Sort-Kombination von der zuletzt gecachten abweicht.
-  func fetchEbooks(
-    libraryId: String, sortField: String, descending: Bool, pageLimit: Int
-  ) -> (ebooks: [ABSBook], supplementary: [ABSBook], total: Int, nextPage: Int)? {
-    LocalLibraryQueries.ebooks(
-      context: modelContext, libraryId: libraryId, sortField: sortField, descending: descending,
-      pageLimit: pageLimit)
-  }
-
   // MARK: - Podcast-Folgen
 
   /// Voll-Ersatz je Sync-Zyklus (analog `replaceAllProgress`/`replaceAllBookmarks`) — die in-memory Liste in
@@ -421,6 +369,45 @@ actor LocalLibraryStore {
         byId[item.id] = row
       }
     }
+    try modelContext.save()
+  }
+
+  /// eBook-Katalog — Flags explizit setzen (alte Browse-Logik: rein + supplementär).
+  func upsertEbookCatalogBooks(pure: [ABSBook], supplementary: [ABSBook]) throws {
+    let allIds = (pure + supplementary).map(\.id)
+    guard !allIds.isEmpty else { return }
+    let existing = try modelContext.fetch(
+      FetchDescriptor<LocalBook>(predicate: #Predicate { allIds.contains($0.id) }))
+    var byId = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+    for item in pure {
+      if let row = byId[item.id] {
+        row.apply(item)
+        row.catalogHasEbook = true
+      } else {
+        let row = LocalBook(item)
+        row.catalogHasEbook = true
+        modelContext.insert(row)
+        byId[item.id] = row
+      }
+    }
+    for item in supplementary {
+      if let row = byId[item.id] {
+        row.apply(item)
+        row.catalogHasEbook = true
+        row.catalogHasSupplementaryEbook = true
+      } else {
+        let row = LocalBook(item)
+        row.catalogHasEbook = true
+        row.catalogHasSupplementaryEbook = true
+        modelContext.insert(row)
+        byId[item.id] = row
+      }
+    }
+    try modelContext.save()
+  }
+
+  func fetchEbookCatalogBooks(libraryId: String) -> [ABSBook] {
+    LocalLibraryQueries.ebookCatalogBooks(context: modelContext, libraryId: libraryId)
   }
 
   func fetchBook(id: String) -> ABSBook? {
@@ -682,6 +669,85 @@ enum LocalLibraryQueries {
     return (try? context.fetch(descriptor))?.first?.toABSBook()
   }
 
+  /// Persistierte Katalog-eBook-Flags — Filter/Badge ohne Heuristik-Enrichment.
+  static func bookCatalogEbookFlags(
+    context: ModelContext, id: String
+  ) -> (hasEbook: Bool, hasSupplementary: Bool)? {
+    var descriptor = FetchDescriptor<LocalBook>(predicate: #Predicate { $0.id == id })
+    descriptor.fetchLimit = 1
+    guard let row = (try? context.fetch(descriptor))?.first else { return nil }
+    return (row.catalogHasEbook, row.catalogHasSupplementaryEbook)
+  }
+
+  /// Reine eBooks im Browse-Tab (`catalogHasEbook`, nicht supplementär).
+  static func browsePureEbooks(context: ModelContext, libraryId: String) -> [ABSBook] {
+    let lid = libraryId
+    let rows =
+      (try? context.fetch(
+        FetchDescriptor<LocalBook>(
+          predicate: #Predicate { $0.libraryId == lid && $0.catalogHasEbook && !$0.catalogHasSupplementaryEbook },
+          sortBy: [SortDescriptor(\.title)]))) ?? []
+    return decodeLocalBookRows(rows)
+  }
+
+  /// Hörbücher mit supplementärem eBook im Browse-Tab.
+  static func browseSupplementaryEbooks(context: ModelContext, libraryId: String) -> [ABSBook] {
+    let lid = libraryId
+    let rows =
+      (try? context.fetch(
+        FetchDescriptor<LocalBook>(
+          predicate: #Predicate { $0.libraryId == lid && $0.catalogHasSupplementaryEbook },
+          sortBy: [SortDescriptor(\.title)]))) ?? []
+    return decodeLocalBookRows(rows)
+  }
+
+  private static func decodeLocalBookRows(_ rows: [LocalBook]) -> [ABSBook] {
+    var byId: [String: ABSBook] = [:]
+    for row in rows {
+      let book = row.toABSBookDetail() ?? row.toABSBook()
+      guard let book else { continue }
+      if let existing = byId[book.id] {
+        byId[book.id] = book.preferringRicherListMetadata(than: existing)
+      } else {
+        byId[book.id] = book
+      }
+    }
+    return Array(byId.values)
+  }
+
+  /// Offline eBook-Katalogfilter — alte Browse-Logik (rein: `isUsableEbookListRow`, supplementär: `isPlayableAudiobook`).
+  static func ebookCatalogBooks(context: ModelContext, libraryId: String) -> [ABSBook] {
+    let lid = libraryId
+    let rows =
+      (try? context.fetch(FetchDescriptor<LocalBook>(predicate: #Predicate { $0.libraryId == lid }))) ?? []
+    var byId: [String: ABSBook] = [:]
+    for row in rows {
+      let stub = row.toABSBook()
+      let detail = row.toABSBookDetail()
+      let candidate: ABSBook?
+      if row.catalogHasEbook, let book = stub ?? detail {
+        candidate = book
+      } else if let book = stub, book.isUsableEbookListRow, !book.isPlayableAudiobook {
+        candidate = book
+      } else if let book = stub ?? detail, book.isPlayableAudiobook,
+        row.catalogHasSupplementaryEbook || book.isCatalogSupplementaryEbook
+      {
+        candidate = book
+      } else {
+        candidate = nil
+      }
+      guard let book = candidate else { continue }
+      if let existing = byId[book.id] {
+        byId[book.id] = book.preferringRicherListMetadata(than: existing)
+      } else {
+        byId[book.id] = book
+      }
+    }
+    return Array(byId.values).sorted {
+      $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending
+    }
+  }
+
   /// Erweiterte Detail-Kopie (mit Beschreibung), falls schon einmal per `?expanded=1` geladen — siehe `LocalBook.detailBlob`.
   static func bookDetail(context: ModelContext, id: String) -> ABSBook? {
     var descriptor = FetchDescriptor<LocalBook>(predicate: #Predicate { $0.id == id })
@@ -732,31 +798,6 @@ enum LocalLibraryQueries {
     let booksById = booksById(context: context, ids: Array(Set(rows.flatMap(\.bookIds))))
     let items = rows.map { $0.toItem(booksById: booksById) }
     return (items, state.total)
-  }
-
-  /// `nil`, wenn kein Cache oder die angefragte Sort-Kombination von der zuletzt gecachten abweicht — die
-  /// „Supplementary“-Zeilen (eigenes Flag auf `LocalBook`) sind unabhängig von Sort/Pagination immer aktuell.
-  static func ebooks(
-    context: ModelContext, libraryId: String, sortField: String, descending: Bool, pageLimit: Int
-  ) -> (ebooks: [ABSBook], supplementary: [ABSBook], total: Int, nextPage: Int)? {
-    var stateDescriptor = FetchDescriptor<LocalEbookListState>(predicate: #Predicate { $0.libraryId == libraryId })
-    stateDescriptor.fetchLimit = 1
-    guard let state = (try? context.fetch(stateDescriptor))?.first,
-      state.sortField == sortField, state.descending == descending
-    else { return nil }
-    let entryPredicate = #Predicate<LocalEbookEntry> { $0.libraryId == libraryId }
-    let entries =
-      (try? context.fetch(FetchDescriptor(predicate: entryPredicate, sortBy: [SortDescriptor(\.rank)]))) ?? []
-    let entryBookIds = entries.map(\.bookId)
-    let entryBooksById = booksById(context: context, ids: entryBookIds)
-    let ebookItems = entries.compactMap { entryBooksById[$0.bookId] }
-    let supplementaryPredicate = #Predicate<LocalBook> {
-      $0.libraryId == libraryId && $0.isEbookSupplementary == true
-    }
-    let supplementaryRows = (try? context.fetch(FetchDescriptor(predicate: supplementaryPredicate))) ?? []
-    let supplementaryItems = supplementaryRows.compactMap { $0.toABSBook() }
-    guard !ebookItems.isEmpty || !supplementaryItems.isEmpty else { return nil }
-    return (ebookItems, supplementaryItems, state.total, (entries.count + pageLimit - 1) / pageLimit)
   }
 
   static func podcastEpisodes(
@@ -919,16 +960,51 @@ enum LocalLibraryStoreManager {
     if directory == openedDirectory, let container = openedContainer {
       return container
     }
-    let storeURL = directory.appendingPathComponent("LocalLibrary.store")
+    let storeURL = directory.appendingPathComponent(localLibraryStoreFileName)
+    removeLegacyLocalLibraryStoreIfPresent(in: directory)
     let configuration = ModelConfiguration(url: storeURL)
-    guard let container = try? ModelContainer(for: LocalLibrarySchema.current, configurations: configuration) else {
-      AppLog.bootstrap.error("SwiftData: ModelContainer konnte nicht geöffnet werden: \(storeURL.path, privacy: .public)")
+    if let container = try? ModelContainer(
+      for: LocalLibrarySchema.current,
+      migrationPlan: LocalLibraryMigrationPlan.self,
+      configurations: configuration
+    ) {
+      openedDirectory = directory
+      openedContainer = container
+      openedStore = LocalLibraryStore(modelContainer: container)
+      return container
+    }
+    // Kaputter Migrationsstand (z. B. fehlgeschlagene Custom-Migration) — Store neu anlegen.
+    AppLog.bootstrap.error(
+      "SwiftData: ModelContainer fehlgeschlagen, Store wird neu angelegt: \(storeURL.path, privacy: .public)")
+    removeLocalLibraryStoreFiles(at: storeURL)
+    guard let container = try? ModelContainer(
+      for: LocalLibrarySchema.current,
+      migrationPlan: LocalLibraryMigrationPlan.self,
+      configurations: configuration
+    ) else {
+      AppLog.bootstrap.error(
+        "SwiftData: ModelContainer konnte nicht geöffnet werden: \(storeURL.path, privacy: .public)")
       return nil
     }
     openedDirectory = directory
     openedContainer = container
     openedStore = LocalLibraryStore(modelContainer: container)
     return container
+  }
+
+  /// Nach fehlgeschlagener Schema-V3-Migration: neuer Dateiname, Legacy-Store einmalig löschen.
+  private static let localLibraryStoreFileName = "LocalLibrary.v2.store"
+
+  private static func removeLegacyLocalLibraryStoreIfPresent(in directory: URL) {
+    removeLocalLibraryStoreFiles(at: directory.appendingPathComponent("LocalLibrary.store"))
+  }
+
+  /// SQLite-Store + WAL/SHM entfernen, damit ein frischer Container angelegt werden kann.
+  private static func removeLocalLibraryStoreFiles(at storeURL: URL) {
+    let fm = FileManager.default
+    for url in [storeURL, storeURL.appendingPathExtension("wal"), storeURL.appendingPathExtension("shm")] {
+      try? fm.removeItem(at: url)
+    }
   }
 
   /// Liefert den `LocalLibraryStore` für den angegebenen Account — öffnet/wechselt den Container bei Bedarf.
@@ -942,12 +1018,5 @@ enum LocalLibraryStoreManager {
   /// Für Schreiben/größere Fetches stattdessen `store(...)` (läuft auf dem `LocalLibraryStore`-Actor).
   static func mainContext(serverURL: String, userId: String?) -> ModelContext? {
     openContainer(serverURL: serverURL, userId: userId)?.mainContext
-  }
-
-  /// Erzwingt beim nächsten Zugriff ein Neuöffnen (z. B. nach Logout/Account-Wechsel) — löscht keine Dateien.
-  static func invalidateOpenedStore() {
-    openedDirectory = nil
-    openedContainer = nil
-    openedStore = nil
   }
 }

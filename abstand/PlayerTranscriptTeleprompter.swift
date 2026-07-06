@@ -58,9 +58,6 @@ enum PlayerTeleprompterMetrics {
   /// Immer gerendert (Mitte ±10); Expand zeigt mehr durch größeren Container + Clip.
   static let renderedLinesBeforeCenter = 10
   static var renderedLineCount: Int { renderedLinesBeforeCenter * 2 + 1 }
-  /// Legacy-Alias für Controller-Helfer.
-  static var visibleLineCount: Int { renderedLineCount }
-  static var linesBeforeCenter: Int { renderedLinesBeforeCenter }
   /// Innenabstand Text ↔ Kartenrand.
   static let cardContentPadding: CGFloat = 14
   static let defaultLineSpacing: CGFloat = 0

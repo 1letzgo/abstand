@@ -9,7 +9,6 @@ struct MainRootView: View {
   /// Tabs erst bei erstem Besuch aufbauen — Home sofort, Rest lazy (Prewarm nach Bootstrap).
   @State private var activatedTabs: Set<AppModel.MainTab> = [.start]
   @State private var libraryRelayoutEpoch = 0
-  @State private var ebooksRelayoutEpoch = 0
   @State private var podcastsRelayoutEpoch = 0
 
   var body: some View {
@@ -41,8 +40,6 @@ struct MainRootView: View {
       switch tab {
       case .library:
         libraryRelayoutEpoch += 1
-      case .ebooks:
-        ebooksRelayoutEpoch += 1
       case .podcasts:
         podcastsRelayoutEpoch += 1
       default:
@@ -51,18 +48,12 @@ struct MainRootView: View {
       if tab == .start, model.startShelves.isEmpty {
         Task { await model.loadStartDashboard() }
       }
-      if tab == .ebooks, model.browseEbooks.isEmpty, model.browseEbooksSupplementary.isEmpty {
-        Task { await model.ensureBrowseEbooksLoaded() }
-      }
     }
     .onChange(of: model.shouldPrewarmSecondaryTabs) { _, prewarm in
       guard prewarm else { return }
       var tabs: Set<AppModel.MainTab> = [.library, .settings]
       if model.showPodcastsTab {
         tabs.insert(.podcasts)
-      }
-      if model.showEbooksTab {
-        tabs.insert(.ebooks)
       }
       activatedTabs.formUnion(tabs)
     }
@@ -73,9 +64,7 @@ struct MainRootView: View {
       }
     }
     .onChange(of: model.selectedBooksLibrary?.id) { _, _ in
-      if model.selectedBooksLibrary == nil,
-        model.mainTab == .library
-      {
+      if model.selectedBooksLibrary == nil, model.mainTab == .library {
         model.mainTab = .start
       }
     }
@@ -85,21 +74,9 @@ struct MainRootView: View {
     .onChange(of: model.showPodcastsTab) { _, _ in
       model.clampMainTabForPodcastsTabIfNeeded()
     }
-    .onChange(of: model.selectedEbooksLibrary?.id) { _, _ in
-      if model.selectedEbooksLibrary == nil,
-        model.mainTab == .ebooks
-      {
-        model.mainTab = .start
-      }
-      model.clampMainTabForEbooksTabIfNeeded()
-    }
-    .onChange(of: model.showEbooksTab) { _, _ in
-      model.clampMainTabForEbooksTabIfNeeded()
-    }
     .onChange(of: model.accountSessionEpoch) { _, _ in
       activatedTabs = [.start]
       libraryRelayoutEpoch += 1
-      ebooksRelayoutEpoch += 1
       podcastsRelayoutEpoch += 1
       booksLibraryToolbarState.resetForAccountSwitch()
       podcastCatalogToolbarState.resetForAccountSwitch()
@@ -152,18 +129,6 @@ struct MainRootView: View {
         }
       }
 
-      if model.showEbooksTab {
-        Tab(AppModel.MainTab.ebooks.rawValue, systemImage: "book.closed", value: AppModel.MainTab.ebooks) {
-          lazyTabContent(.ebooks) {
-            if model.selectedEbooksLibrary != nil {
-              ebooksTabRoot
-            } else {
-              tabLibraryBootstrapPlaceholder
-            }
-          }
-        }
-      }
-
       if model.showPodcastsTab {
         Tab(AppModel.MainTab.podcasts.rawValue, systemImage: "mic.fill", value: AppModel.MainTab.podcasts) {
           lazyTabContent(.podcasts) {
@@ -199,198 +164,6 @@ struct MainRootView: View {
       content()
     } else {
       Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-  }
-
-  // MARK: - eBooks tab
-
-  private var ebooksTabRoot: some View {
-    NavigationStack {
-      ebooksCatalogScrollView
-        .abstandTabScreenChrome()
-        .navigationTitle(AppModel.MainTab.ebooks.rawValue)
-        .toolbarTitleDisplayMode(.inlineLarge)
-        .toolbar {
-          ToolbarItem(placement: .topBarTrailing) {
-            BooksCatalogSortToolbarMenu(
-              sortField: model.ebooksCatalogSortField,
-              sortDescending: model.ebooksCatalogSortDescending,
-              onSortFieldChange: { field in
-                model.ebooksCatalogSortField = field
-                model.scheduleBooksToolbarSortReload(.browseEbooks)
-              },
-              onSortDescendingChange: { descending in
-                model.ebooksCatalogSortDescending = descending
-                model.scheduleBooksToolbarSortReload(.browseEbooks)
-              }
-            )
-            .equatable()
-          }
-        }
-    }
-    .id("ebooks-tab-root-\(model.accountSessionEpoch)")
-    .tint(model.appearanceAccentColor)
-  }
-
-  private var ebooksCatalogScrollView: some View {
-    AbstandFixedBrowseStripSectionsLayout(
-      relayoutTrigger: ebooksRelayoutEpoch,
-      selection: model.ebooksBrowseSection,
-      sectionIDs: EbooksBrowseSection.stripOrder,
-      scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
-        + model.nowPlayingAccessoryScrollBottomInset,
-      onRefresh: { await model.refreshEbooksCatalog() }
-    ) {
-      ebooksBrowseSectionStrip
-    } sectionBody: { section in
-      ebooksBrowseSectionContent(for: section)
-    }
-  }
-
-  private var ebooksBrowseSectionStrip: some View {
-    AbstandBrowseStripIconMenu(
-      items: EbooksBrowseSection.stripOrder.map {
-        AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
-      },
-      selectionID: model.ebooksBrowseSection.rawValue,
-      onSelect: { id in
-        if let section = EbooksBrowseSection(rawValue: id) {
-          model.selectEbooksBrowseSection(section)
-        }
-      }
-    )
-  }
-
-  @ViewBuilder
-  private func ebooksBrowseSectionContent(for section: EbooksBrowseSection) -> some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-      if section == .search {
-        ebooksSearchField
-      }
-      switch section {
-      case .ebooks:
-        ebooksPrimaryListBody
-      case .supplementary:
-        ebooksSupplementaryListBody
-      case .search:
-        EbooksSearchBrowseView()
-      }
-    }
-  }
-
-  private var ebooksSearchField: some View {
-    let palette = model.appearancePalette
-    return HStack(spacing: 8) {
-      Image(systemName: "magnifyingglass")
-        .foregroundStyle(palette.textSecondary)
-      TextField("Title, author, series…", text: $model.ebooksSearchText)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .textFieldStyle(.plain)
-        .foregroundStyle(palette.textPrimary)
-        .onSubmit { model.scheduleEbooksSearch() }
-      if !model.ebooksSearchText.isEmpty {
-        Button {
-          model.ebooksSearchText = ""
-          model.clearEbooksSearchResults()
-        } label: {
-          Image(systemName: "xmark.circle.fill")
-            .foregroundStyle(AppTheme.textSecondary)
-        }
-        .buttonStyle(.plain)
-      }
-    }
-    .padding(12)
-    .background(model.appearancePalette.card)
-    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    .onChange(of: model.ebooksSearchText) { _, _ in model.scheduleEbooksSearch() }
-  }
-
-  /// Bücher mit primärem eBook (auch ohne Hörbuch), paginiert.
-  private var ebooksPrimaryListBody: some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      TabContentSectionTitle(title: "eBooks")
-      if !model.isNetworkReachable, !model.offlineHomeUIActive, model.browseEbooks.isEmpty {
-        booksBrowseOfflineHint
-      } else if model.browseEbooksLoading && model.browseEbooks.isEmpty {
-        booksBrowseCenteredProgress
-      } else if model.browseEbooks.isEmpty {
-        Text(
-          model.offlineHomeUIActive
-            ? "No downloaded eBooks found."
-            : "No eBooks found in this library."
-        )
-        .font(.subheadline)
-        .foregroundStyle(AppTheme.textSecondary)
-        .padding(.vertical, 8)
-      } else if model.ebooksTabCardStyle == .heroCover {
-        LibraryHeroMultiColumnRows(
-          items: model.browseEbooks,
-          columns: AppTheme.Layout.heroCoverColumnsPerRow,
-          spacing: AppTheme.Layout.withinSectionSpacing
-        ) { book in
-          EbookTabListCard(book: book, model: model, isSupplementary: false)
-            .task(id: book.id) {
-              await model.loadMoreBrowseEbooksIfNeeded(currentItemId: book.id)
-            }
-        }
-        if model.browseEbooksLoading {
-          ProgressView()
-            .tint(model.appearanceAccentColor)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-        }
-      } else {
-        EbooksCardsFlow {
-          ForEach(model.browseEbooks) { book in
-            EbookTabListCard(book: book, model: model, isSupplementary: false)
-              .task(id: book.id) {
-                await model.loadMoreBrowseEbooksIfNeeded(currentItemId: book.id)
-              }
-          }
-          if model.browseEbooksLoading {
-            ProgressView()
-              .tint(model.appearanceAccentColor)
-              .frame(maxWidth: .infinity)
-              .padding(.vertical, 12)
-          }
-        }
-      }
-    }
-  }
-
-  /// Hörbücher mit supplementärem eBook.
-  private var ebooksSupplementaryListBody: some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      TabContentSectionTitle(title: "Supplementary eBooks")
-      if !model.isNetworkReachable, !model.offlineHomeUIActive, model.browseEbooksSupplementary.isEmpty {
-        booksBrowseOfflineHint
-      } else if model.browseEbooksLoading && model.browseEbooksSupplementary.isEmpty {
-        booksBrowseCenteredProgress
-      } else if model.browseEbooksSupplementary.isEmpty {
-        Text(
-          model.offlineHomeUIActive
-            ? "No downloaded supplementary eBooks found."
-            : "No supplementary eBooks found in this library."
-        )
-        .font(.subheadline)
-        .foregroundStyle(AppTheme.textSecondary)
-        .padding(.vertical, 8)
-      } else if model.ebooksTabCardStyle == .heroCover {
-        LibraryHeroMultiColumnRows(
-          items: model.browseEbooksSupplementary,
-          columns: AppTheme.Layout.heroCoverColumnsPerRow,
-          spacing: AppTheme.Layout.withinSectionSpacing
-        ) { book in
-          EbookTabListCard(book: book, model: model, isSupplementary: true)
-        }
-      } else {
-        EbooksCardsFlow {
-          ForEach(model.browseEbooksSupplementary) { book in
-            EbookTabListCard(book: book, model: model, isSupplementary: true)
-          }
-        }
-      }
     }
   }
 
@@ -492,6 +265,10 @@ struct MainRootView: View {
     switch section {
     case .books:
       booksCatalogBookListBody
+    case .ebooks:
+      ebooksPrimaryListBody
+    case .ebooksSupplementary:
+      ebooksSupplementaryListBody
     case .search:
       BooksSearchBrowseView()
     case .author:
@@ -506,6 +283,80 @@ struct MainRootView: View {
       booksBrowseGenresListBody
     case .tags:
       booksBrowseTagsListBody
+    }
+  }
+
+  private var ebooksPrimaryListBody: some View {
+    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      TabContentSectionTitle(title: "eBooks")
+      if !model.isNetworkReachable, model.browseEbooks.isEmpty {
+        booksBrowseOfflineHint
+      } else if model.browseEbooksLoading && model.browseEbooks.isEmpty {
+        booksBrowseCenteredProgress
+      } else if model.browseEbooks.isEmpty {
+        Text("No eBooks found in this library.")
+          .font(.subheadline)
+          .foregroundStyle(AppTheme.textSecondary)
+          .padding(.vertical, 8)
+      } else if model.libraryBookCardStyle == .heroCover {
+        LibraryHeroMultiColumnRows(
+          items: model.browseEbooks,
+          columns: AppTheme.Layout.heroCoverColumnsPerRow,
+          spacing: AppTheme.Layout.withinSectionSpacing
+        ) { book in
+          EbookTabListCard(book: book, model: model, isSupplementary: false)
+            .task(id: book.id) {
+              await model.loadMoreBrowseEbooksIfNeeded(currentItemId: book.id)
+            }
+        }
+        if model.browseEbooksLoading {
+          ProgressView()
+            .tint(model.appearanceAccentColor)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+        }
+      } else {
+        ForEach(model.browseEbooks) { book in
+          EbookTabListCard(book: book, model: model, isSupplementary: false)
+            .task(id: book.id) {
+              await model.loadMoreBrowseEbooksIfNeeded(currentItemId: book.id)
+            }
+        }
+        if model.browseEbooksLoading {
+          ProgressView()
+            .tint(model.appearanceAccentColor)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+        }
+      }
+    }
+  }
+
+  private var ebooksSupplementaryListBody: some View {
+    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      TabContentSectionTitle(title: "Supplementary eBooks")
+      if !model.isNetworkReachable, model.browseEbooksSupplementary.isEmpty {
+        booksBrowseOfflineHint
+      } else if model.browseEbooksLoading && model.browseEbooksSupplementary.isEmpty {
+        booksBrowseCenteredProgress
+      } else if model.browseEbooksSupplementary.isEmpty {
+        Text("No supplementary eBooks found in this library.")
+          .font(.subheadline)
+          .foregroundStyle(AppTheme.textSecondary)
+          .padding(.vertical, 8)
+      } else if model.libraryBookCardStyle == .heroCover {
+        LibraryHeroMultiColumnRows(
+          items: model.browseEbooksSupplementary,
+          columns: AppTheme.Layout.heroCoverColumnsPerRow,
+          spacing: AppTheme.Layout.withinSectionSpacing
+        ) { book in
+          EbookTabListCard(book: book, model: model, isSupplementary: true)
+        }
+      } else {
+        ForEach(model.browseEbooksSupplementary) { book in
+          EbookTabListCard(book: book, model: model, isSupplementary: true)
+        }
+      }
     }
   }
 
@@ -532,6 +383,7 @@ struct MainRootView: View {
     LibraryBookListCard(
       book: book,
       model: model,
+      showEbookBadge: model.bookShowsSupplementaryEbookBadge(book),
       opensDetailOnTap: model.offlineHomeUIActive || model.libraryCatalogQuickFilter != .downloaded
     )
     .task(id: book.id) {
@@ -542,9 +394,8 @@ struct MainRootView: View {
 
   @ViewBuilder
   private func libraryHeroMultiColumnBookRows(books: [ABSBook]) -> some View {
-    LibraryHeroMultiColumnRows(
+    LibraryHeroTwoColumnRows(
       items: books,
-      columns: AppTheme.Layout.heroCoverColumnsPerRow,
       spacing: AppTheme.Layout.withinSectionSpacing
     ) { book in
       libraryCatalogBookCard(book)
@@ -774,7 +625,8 @@ struct MainRootView: View {
       detailLabel: "Books",
       detailValue: browseEntityBooksCountLine(count: author.numBooks),
       cacheItemId: "author:\(author.id)",
-      coverURL: author.hasAuthorImage ? model.authorImageURL(authorId: author.id) : nil
+      coverURL: author.hasAuthorImage ? model.authorImageURL(authorId: author.id) : nil,
+      usesSquareCenterCropCover: true
     )
   }
 
@@ -1093,7 +945,8 @@ private struct BooksSearchBrowseView: View {
               detailLabel: "Books",
               detailValue: a.numBooks.map { "\($0)" },
               cacheItemId: "author:\(a.id)",
-              coverURL: model.authorImageURL(authorId: a.id)
+              coverURL: model.authorImageURL(authorId: a.id),
+              usesSquareCenterCropCover: true
             ) {
               model.openAuthorDetail(authorId: a.id, displayName: a.name, numBooks: a.numBooks)
             }
@@ -1178,6 +1031,7 @@ private extension BooksSearchBrowseView {
     coverURL: URL? = nil,
     coverBookIds: [String]? = nil,
     authorLine: String? = nil,
+    usesSquareCenterCropCover: Bool = false,
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
@@ -1188,170 +1042,8 @@ private extension BooksSearchBrowseView {
         cacheItemId: cacheItemId.isEmpty ? "search:\(title)" : cacheItemId,
         coverURL: coverURL,
         coverBookIds: coverBookIds,
-        authorLine: authorLine
-      )
-    }
-    .buttonStyle(.plain)
-  }
-}
-
-// MARK: - eBooks search (abgestimmt mit BooksSearchBrowseView, eBook-Filter)
-
-private struct EbooksSearchBrowseView: View {
-  @EnvironmentObject private var model: AppModel
-
-  var body: some View {
-    let q = model.ebooksSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-      if q.isEmpty {
-        ContentUnavailableView(
-          "Search",
-          systemImage: "magnifyingglass",
-          description: Text("Enter at least two characters to search your eBooks.")
-        )
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 48)
-      }
-      if model.isLoadingLibrary, q.count >= 2 {
-        ProgressView()
-          .frame(maxWidth: .infinity)
-          .padding()
-      }
-      if q.count > 0, q.count < 2 {
-        Text("Enter at least two characters.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .frame(maxWidth: .infinity)
-          .multilineTextAlignment(.center)
-          .padding(24)
-      }
-      if q.count >= 2, !model.isLoadingLibrary, model.ebooksSearchBooks.isEmpty,
-        model.ebooksSearchSupplementaryBooks.isEmpty,
-        model.ebooksSearchAuthors.isEmpty, model.ebooksSearchSeries.isEmpty,
-        model.ebooksSearchTags.isEmpty, model.ebooksSearchGenres.isEmpty
-      {
-        Text("No results.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .frame(maxWidth: .infinity)
-          .padding(24)
-      }
-
-      ebooksSearchSection(title: "eBooks", isEmpty: model.ebooksSearchBooks.isEmpty) {
-        LibraryBookCardsFlow {
-          ForEach(model.ebooksSearchBooks) { book in
-            LibraryBookListCard(
-              book: book,
-              model: model,
-              showEbookBadge: true,
-              opensEbookOnCover: true,
-              forceCompactListStyle: true,
-              usesTallEbookCover: true
-            )
-          }
-        }
-      }
-      ebooksSearchSection(title: "Supplementary eBooks", isEmpty: model.ebooksSearchSupplementaryBooks.isEmpty) {
-        LibraryBookCardsFlow {
-          ForEach(model.ebooksSearchSupplementaryBooks) { book in
-            LibraryBookListCard(
-              book: book,
-              model: model,
-              showEbookBadge: true,
-              opensEbookOnCover: true,
-              forceCompactListStyle: true,
-              usesTallEbookCover: false
-            )
-          }
-        }
-      }
-      ebooksSearchSection(title: "Authors", isEmpty: model.ebooksSearchAuthors.isEmpty) {
-        ForEach(model.ebooksSearchAuthors) { a in
-          ebooksSearchNavRow(
-            title: a.name,
-            detailLabel: "Books",
-            detailValue: a.numBooks.map { "\($0)" },
-            cacheItemId: "author:\(a.id)",
-            coverURL: model.authorImageURL(authorId: a.id)
-          ) {
-            model.openAuthorDetail(authorId: a.id, displayName: a.name, numBooks: a.numBooks)
-          }
-        }
-      }
-      ebooksSearchSection(title: "Series", isEmpty: model.ebooksSearchSeries.isEmpty) {
-        ForEach(model.ebooksSearchSeries) { s in
-          let bookIds = model.browseSeriesCoverBookIds(from: s.books)
-          ebooksSearchNavRow(
-            title: s.name,
-            detailLabel: "Books",
-            detailValue: (s.books?.count).map { "\($0)" },
-            cacheItemId: bookIds.first ?? "series:\(s.id)",
-            coverURL: bookIds.first.flatMap { model.coverURL(for: $0) },
-            coverBookIds: bookIds.count > 1 ? bookIds : nil,
-            authorLine: s.cardAuthorsLine
-          ) {
-            model.openSeriesDetail(seriesId: s.id, displayName: s.name, numBooks: s.books?.count)
-          }
-        }
-      }
-      ebooksSearchSection(title: "Tags", isEmpty: model.ebooksSearchTags.isEmpty) {
-        ForEach(model.ebooksSearchTags) { t in
-          ebooksSearchNavRow(
-            title: t.name, detailLabel: "Books", detailValue: t.numItems.map { "\($0)" }
-          ) {
-            model.openTagDetail(tagName: t.name, numBooks: t.numItems)
-          }
-        }
-      }
-      ebooksSearchSection(title: "Genres", isEmpty: model.ebooksSearchGenres.isEmpty) {
-        ForEach(model.ebooksSearchGenres) { g in
-          ebooksSearchNavRow(
-            title: g.name, detailLabel: "Books", detailValue: g.numItems.map { "\($0)" }
-          ) {
-            model.openGenreDetail(genreName: g.name, numBooks: g.numItems)
-          }
-        }
-      }
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-  }
-
-  @ViewBuilder
-  private func ebooksSearchSection<Content: View>(
-    title: String,
-    isEmpty: Bool,
-    @ViewBuilder content: () -> Content
-  ) -> some View {
-    if !isEmpty {
-      VStack(alignment: .leading, spacing: 10) {
-        TabContentSectionTitle(title:title)
-        content()
-      }
-    }
-  }
-}
-
-private extension EbooksSearchBrowseView {
-  @ViewBuilder
-  func ebooksSearchNavRow(
-    title: String,
-    detailLabel: String = "Books",
-    detailValue: String? = nil,
-    cacheItemId: String = "",
-    coverURL: URL? = nil,
-    coverBookIds: [String]? = nil,
-    authorLine: String? = nil,
-    action: @escaping () -> Void
-  ) -> some View {
-    Button(action: action) {
-      BrowseEntityRowCard(
-        title: title,
-        detailLabel: detailLabel,
-        detailValue: detailValue,
-        cacheItemId: cacheItemId.isEmpty ? "ebooks-search:\(title)" : cacheItemId,
-        coverURL: coverURL,
-        coverBookIds: coverBookIds,
-        authorLine: authorLine
+        authorLine: authorLine,
+        usesSquareCenterCropCover: usesSquareCenterCropCover
       )
     }
     .buttonStyle(.plain)
@@ -1487,7 +1179,7 @@ struct PodcastRssFeedDraftRow: View {
     return VStack(alignment: .leading, spacing: 0) {
       HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
         LibraryRowLayout.coverSlot {
-          CoverImageView(
+          LibraryRowLayout.rowCoverImage(
             url: model.coverURL(for: sid),
             token: model.token,
             itemId: sid,
@@ -2040,7 +1732,7 @@ struct PodcastEpisodeRowCard: View {
           Task { await model.playPodcastEpisode(episode) }
         } label: {
           LibraryRowLayout.coverSlot {
-            CoverImageView(
+            LibraryRowLayout.rowCoverImage(
               url: model.coverURL(for: episode.libraryItemId),
               token: model.token,
               itemId: episode.libraryItemId,
@@ -2495,7 +2187,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
       }
       .clipped()
 
-      VStack(alignment: .leading, spacing: 8) {
+      VStack(alignment: .leading, spacing: 0) {
         ContinueListeningHeroMetadataBlock(
           title: episode.episodeTitle,
           detailLabel: "Show",
@@ -3034,7 +2726,7 @@ private struct SeriesMultiCoverView: View {
 
   @ViewBuilder
   private func coverTile(id: String, width: CGFloat, height: CGFloat) -> some View {
-    CoverImageView(
+    SquareCoverImageView(
       url: model.coverURL(for: id),
       token: model.token,
       itemId: id,
@@ -3047,7 +2739,7 @@ private struct SeriesMultiCoverView: View {
   }
 }
 
-/// Gleiches Kartenlayout wie `BookRowCard`: Cover 82×82, Titel oben am Cover ausgerichtet.
+/// Gleiches Kartenlayout wie `BookRowCard`: Cover 1:1 mit Letterboxing.
 struct BrowseEntityRowCard: View {
   @EnvironmentObject private var model: AppModel
   let title: String
@@ -3059,20 +2751,34 @@ struct BrowseEntityRowCard: View {
   var coverBookIds: [String]? = nil
   /// Optional (z. B. Serien): zweite Meta-Zeile wie bei `BookRowCard`.
   var authorLine: String? = nil
+  /// Autoren-Portraits: fest 1:1, Mitte beschnitten.
+  var usesSquareCenterCropCover = false
 
   var body: some View {
     HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
-      LibraryRowLayout.coverSlot {
-        if let ids = coverBookIds, ids.count > 1 {
-          SeriesMultiCoverView(bookIds: ids)
-        } else {
-          CoverImageView(
+      if usesSquareCenterCropCover, coverBookIds == nil || (coverBookIds?.count ?? 0) <= 1 {
+        LibraryRowLayout.coverSlot(coverWidth: LibraryRowLayout.coverSide) {
+          LibraryRowLayout.rowCoverImageSquare(
             url: coverURL,
             token: model.token,
             itemId: cacheItemId,
             cacheAccount: model.coverImageCacheAccountDirectory(),
             cacheRevision: model.coverImageCacheRevision
           )
+        }
+      } else {
+        LibraryRowLayout.coverSlot {
+          if let ids = coverBookIds, ids.count > 1 {
+            SeriesMultiCoverView(bookIds: ids)
+          } else {
+            LibraryRowLayout.rowCoverImage(
+              url: coverURL,
+              token: model.token,
+              itemId: cacheItemId,
+              cacheAccount: model.coverImageCacheAccountDirectory(),
+              cacheRevision: model.coverImageCacheRevision
+            )
+          }
         }
       }
 
@@ -3113,7 +2819,7 @@ struct PodcastShowRowCard: View {
     return VStack(alignment: .leading, spacing: 0) {
       HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
         LibraryRowLayout.coverSlot {
-          CoverImageView(
+          LibraryRowLayout.rowCoverImage(
             url: model.coverURL(for: show.id),
             token: model.token,
             itemId: show.id,
@@ -3273,17 +2979,59 @@ private enum LibraryRowLayout {
     )
   }
 
-  /// `coverWidth == nil`: Breite variabel (eBook-Cover im natürlichen Seitenverhältnis).
+  /// Listen-Zeilen: festes 1:1 mit zentriertem Cover und farbigem Letterboxing.
+  @ViewBuilder
+  static func rowCoverImage(
+    url: URL?,
+    token: String,
+    itemId: String,
+    cacheAccount: URL?,
+    cacheRevision: Int = 0,
+    requiresAuthorization: Bool = true
+  ) -> some View {
+    SquareCoverImageView(
+      url: url,
+      token: token,
+      itemId: itemId,
+      cacheAccount: cacheAccount,
+      cacheRevision: cacheRevision,
+      requiresAuthorization: requiresAuthorization
+    )
+  }
+
+  /// Autoren-Portraits / Bücher auf Autor-Detail: fest 1:1, Mitte beschnitten (`scaledToFill`).
+  @ViewBuilder
+  static func rowCoverImageSquare(
+    url: URL?,
+    token: String,
+    itemId: String,
+    cacheAccount: URL?,
+    cacheRevision: Int = 0,
+    requiresAuthorization: Bool = true
+  ) -> some View {
+    CoverImageView(
+      url: url,
+      token: token,
+      itemId: itemId,
+      cacheAccount: cacheAccount,
+      cacheRevision: cacheRevision,
+      requiresAuthorization: requiresAuthorization,
+      contentMode: .fill
+    )
+  }
+
+  /// Cover-Slot in Listen-Zeilen: immer 1:1.
   @ViewBuilder
   static func coverSlot<Cover: View, Overlay: View>(
-    coverWidth: CGFloat? = LibraryRowLayout.coverSide,
+    coverWidth: CGFloat? = nil,
     @ViewBuilder cover: () -> Cover,
     @ViewBuilder overlay: () -> Overlay = { EmptyView() }
   ) -> some View {
+    let side = coverWidth ?? coverSide
     cover()
-      .frame(width: coverWidth, height: coverSide)
+      .frame(width: side, height: side)
       .clipShape(coverClipShape)
-      .overlay(alignment: .bottomTrailing) {
+      .overlay(alignment: .bottomLeading) {
         overlay()
       }
   }
@@ -3303,66 +3051,6 @@ private enum LibraryRowLayout {
         trailing()
       }
       .fixedSize(horizontal: true, vertical: false)
-    }
-  }
-}
-
-/// Oben rechts auf Cover-Karten: fertig + Offline-Download (wie Continue Listening).
-private struct LibraryHeroCoverStatusButtons: View {
-  var showsDownload: Bool
-  var isDownloaded: Bool
-  var isDownloading: Bool
-  var downloadProgress: Double
-  var isFinished: Bool
-  var onRemoveDownload: (() -> Void)?
-  var onToggleFinished: (() -> Void)?
-
-  var body: some View {
-    HStack(spacing: 4) {
-      if isFinished {
-        coverActionPill(action: onToggleFinished) {
-          Image(systemName: "checkmark.circle.fill")
-            .font(ContinueListeningHeroCoverPillMetrics.iconFont)
-            .foregroundStyle(.white)
-        }
-        .accessibilityLabel("Finished")
-      }
-      if showsDownload {
-        if isDownloaded {
-          coverActionPill(action: onRemoveDownload) {
-            Image(systemName: "arrow.down.circle.fill")
-              .font(ContinueListeningHeroCoverPillMetrics.iconFont)
-              .symbolRenderingMode(.monochrome)
-              .foregroundStyle(.white)
-          }
-          .accessibilityLabel("Saved offline")
-        } else if isDownloading {
-          coverActionPill(action: nil) {
-            ProgressView(value: downloadProgress)
-              .progressViewStyle(.circular)
-              .tint(.white)
-              .scaleEffect(0.72)
-              .frame(width: 13, height: 13)
-          }
-          .accessibilityLabel("Downloading")
-        }
-      }
-    }
-    .transaction { $0.animation = nil }
-  }
-
-  @ViewBuilder
-  private func coverActionPill<Label: View>(
-    action: (() -> Void)?,
-    @ViewBuilder label: @escaping () -> Label
-  ) -> some View {
-    if let action {
-      Button(action: action) {
-        ContinueListeningHeroCoverPill(allowsHitTesting: true, content: label)
-      }
-      .buttonStyle(.plain)
-    } else {
-      ContinueListeningHeroCoverPill(content: label)
     }
   }
 }
@@ -3469,15 +3157,6 @@ private struct LibraryPodcastCardsFlow<Content: View>: View {
   }
 }
 
-/// eBooks-Tab: 2-spaltiges Hero-Raster (wie Hörbücher) oder kompakte Liste.
-private struct EbooksCardsFlow<Content: View>: View {
-  @ViewBuilder var content: () -> Content
-
-  var body: some View {
-    LibraryCoverCardsFlow(content: content)
-  }
-}
-
 /// Hero-Karten zeilenweise (`LazyVGrid` vermeiden — Tab-Wechsel-Layout-Bug).
 private struct LibraryHeroMultiColumnRows<Item: Identifiable, Card: View>: View {
   let items: [Item]
@@ -3515,36 +3194,29 @@ private struct LibraryHeroTwoColumnRows<Item: Identifiable, Card: View>: View {
   }
 }
 
-/// Autor-Detail: Hörbücher normal, reine eBooks mit eBook-Badge und Reader-Tap.
+/// Autor-/Serien-Detail: immer kompakte Zeile — unabhängig von Library-Card-Settings.
 private struct AuthorDetailBookListCard: View {
   let book: ABSBook
   let model: AppModel
 
   var body: some View {
-    if book.isPureEbookLibraryItem {
-      LibraryBookListCard(
-        book: book,
-        model: model,
-        showEbookBadge: true,
-        opensEbookOnCover: true,
-        usesTallEbookCover: model.libraryBookCardStyle != .heroCover
-      )
-    } else {
-      LibraryBookListCard(book: book, model: model)
-    }
+    LibraryBookListCard(
+      book: book,
+      model: model,
+      forceCompactListStyle: true,
+      usesSquareCenterCropCover: !book.isPureEbookLibraryItem
+    )
   }
 }
 
-/// eBooks-Tab: kompakte Zeile oder Cover-Karte (eigene Settings pro Sektion).
-struct EbookTabListCard: View {
+/// eBooks-Bereich im Books-Tab: kompakte Zeile oder Cover-Karte.
+private struct EbookTabListCard: View {
   let book: ABSBook
   let model: AppModel
   var isSupplementary: Bool
-  /// Home Continue-Regale: immer kompakte Zeile, unabhängig von eBooks-Tab „Cover card“.
-  var preferCompactStyle = false
 
   private var usesHeroCoverStyle: Bool {
-    !preferCompactStyle && model.ebooksTabCardStyle == .heroCover
+    model.libraryBookCardStyle == .heroCover
   }
 
   var body: some View {
@@ -3555,26 +3227,25 @@ struct EbookTabListCard: View {
         showEbookBadge: true,
         usesEbookProgressDisplay: true,
         showsDownloadStatus: isSupplementary,
-        coverAspectRatio: isSupplementary ? 1 : AppTheme.Layout.ebookHeroCoverAspectRatio
+        coverAspectRatio: isSupplementary ? 1 : 10 / 16
       )
     } else {
-      BookRowCard(
+      LibraryBookListCard(
         book: book,
         model: model,
         showEbookBadge: true,
-        opensEbookOnCover: true,
-        usesTallEbookCover: !isSupplementary
+        showsPlaybackControls: isSupplementary,
+        opensDetailOnTap: isSupplementary
       )
     }
   }
 }
 
-/// Wählt kompakte Zeile oder Cover-Karte gemäß `libraryBookCardStyle` (eBooks-Tab hat eigene Settings).
+/// Wählt kompakte Zeile oder Cover-Karte gemäß `libraryBookCardStyle`.
 struct LibraryBookListCard: View {
   let book: ABSBook
   let model: AppModel
   var showEbookBadge = false
-  var opensEbookOnCover = false
   var progressOverride: ABSUserMediaProgress?
   var authorLineOverride: String?
   var showsPlaybackControls = true
@@ -3582,11 +3253,11 @@ struct LibraryBookListCard: View {
   var opensDetailOnTap = true
   /// Offline-Downloadliste: immer kompakte Zeilen, unabhängig von Settings.
   var forceCompactListStyle = false
-  /// eBooks-Tab: Cover hochkant 10:16 statt quadratisch.
-  var usesTallEbookCover = false
+  /// Autor-Detail: Cover fest 1:1, Mitte beschnitten.
+  var usesSquareCenterCropCover = false
 
   private var usesHeroCoverStyle: Bool {
-    !forceCompactListStyle && model.libraryBookCardStyle == .heroCover && !opensEbookOnCover
+    !forceCompactListStyle && model.libraryBookCardStyle == .heroCover && !book.isPureEbookLibraryItem
   }
 
   var body: some View {
@@ -3605,13 +3276,12 @@ struct LibraryBookListCard: View {
         book: book,
         model: model,
         showEbookBadge: showEbookBadge,
-        opensEbookOnCover: opensEbookOnCover,
         progressOverride: progressOverride,
         authorLineOverride: authorLineOverride,
         showsPlaybackControls: showsPlaybackControls,
         showsDownloadStatus: showsDownloadStatus,
         opensDetailOnTap: opensDetailOnTap,
-        usesTallEbookCover: usesTallEbookCover
+        usesSquareCenterCropCover: usesSquareCenterCropCover
       )
     }
   }
@@ -3623,29 +3293,27 @@ private struct LibraryHeroBookRowCard: View {
   let model: AppModel
   @Environment(\.appearanceThemeRevision) private var themeRevision
   var showEbookBadge = false
-  var opensEbookOnCover = false
   var progressOverride: ABSUserMediaProgress?
   var authorLineOverride: String?
   var showsDownloadStatus = true
   var opensDetailOnTap = true
-  /// `1` = quadratisch (Hörbuch); eBooks z. B. `AppTheme.Layout.ebookHeroCoverAspectRatio`.
+  /// Hero-Raster: immer 1:1 (`SquareCoverImageView` in `LibraryHeroBookRowCard`).
   var coverAspectRatio: CGFloat = 1
-  /// eBook-Lesefortschritt in Balken, Cover-Tap → Detail.
+  /// eBook-Lesefortschritt in Balken auf dem Cover.
   var usesEbookProgressDisplay = false
 
   @StateObject private var live: LibraryBookRowLiveState
-  @State private var tint: Color = AppTheme.card
   @State private var showDetail = false
+  private let supplementaryEbookBadge: Bool
 
   private var usesEbookMetrics: Bool {
-    opensEbookOnCover || usesEbookProgressDisplay
+    book.isPureEbookLibraryItem || usesEbookProgressDisplay
   }
 
   init(
     book: ABSBook,
     model: AppModel,
     showEbookBadge: Bool = false,
-    opensEbookOnCover: Bool = false,
     usesEbookProgressDisplay: Bool = false,
     progressOverride: ABSUserMediaProgress? = nil,
     authorLineOverride: String? = nil,
@@ -3653,9 +3321,7 @@ private struct LibraryHeroBookRowCard: View {
     opensDetailOnTap: Bool = true,
     coverAspectRatio: CGFloat = 1
   ) {
-    self.book = book
     self.showEbookBadge = showEbookBadge
-    self.opensEbookOnCover = opensEbookOnCover
     self.usesEbookProgressDisplay = usesEbookProgressDisplay
     self.progressOverride = progressOverride
     self.authorLineOverride = authorLineOverride
@@ -3663,13 +3329,17 @@ private struct LibraryHeroBookRowCard: View {
     self.opensDetailOnTap = opensDetailOnTap
     self.coverAspectRatio = coverAspectRatio
     self.model = model
+    self.supplementaryEbookBadge = model.bookShowsSupplementaryEbookBadge(book)
+    let resolvedBook = model.bookStubEnrichedForListDisplay(book)
+    self.book = resolvedBook
+    let ebookMetrics = resolvedBook.isPureEbookLibraryItem || usesEbookProgressDisplay
     _live = StateObject(
       wrappedValue: LibraryBookRowLiveState(
-        bookId: book.id,
+        bookId: resolvedBook.id,
         model: model,
-        observesProgress: progressOverride == nil && !opensEbookOnCover && !usesEbookProgressDisplay,
+        observesProgress: progressOverride == nil && !ebookMetrics,
         observesDownload: showsDownloadStatus,
-        observesEbookProgress: opensEbookOnCover || usesEbookProgressDisplay
+        observesEbookProgress: ebookMetrics
       )
     )
   }
@@ -3698,122 +3368,148 @@ private struct LibraryHeroBookRowCard: View {
     return prog?.isFinished == true
   }
 
-  private var showsCoverStatusButtons: Bool {
-    if isFinished { return true }
-    if showsDownloadStatus, live.isDownloaded || live.isDownloading { return true }
-    return false
+  private var showsAttachedEbookCoverBadge: Bool {
+    supplementaryEbookBadge
   }
 
   var body: some View {
     let _ = themeRevision
-    let coverRadius = AppTheme.Layout.continueHeroCardCornerRadius
+    let palette = model.appearancePalette
+    let coverInset = AppTheme.Layout.libraryRowCardInset
+    let coverTopRadius = AppTheme.Layout.coverCornerRadius
     let barH = AppTheme.Layout.libraryRowBottomProgressHeight
-    let coverClip = RoundedRectangle(cornerRadius: coverRadius, style: .continuous)
+    let coverClip = UnevenRoundedRectangle(
+      topLeadingRadius: coverTopRadius,
+      bottomLeadingRadius: 0,
+      bottomTrailingRadius: 0,
+      topTrailingRadius: coverTopRadius,
+      style: .continuous
+    )
 
     return Group {
       if opensDetailOnTap {
-        cardBody(coverClip: coverClip, barH: barH)
+        cardBody(palette: palette, coverInset: coverInset, coverClip: coverClip, barH: barH)
           .navigationDestination(isPresented: $showDetail) {
             BookDetailView(bookId: book.id)
           }
       } else {
-        cardBody(coverClip: coverClip, barH: barH)
+        cardBody(palette: palette, coverInset: coverInset, coverClip: coverClip, barH: barH)
       }
     }
     .abstandThemeRefresh()
-    .task(id: book.id) {
-      let account = model.coverImageCacheAccountDirectory()
-      let revision = model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
-      if let c = CoverDerivedTintLoader.colorFromDiskOrCoverCache(
-        account: account, itemId: book.id, revision: revision)
-      {
-        tint = c
-      }
-      if let c = await CoverDerivedTintLoader.colorFromNetwork(
-        account: account,
-        itemId: book.id,
-        revision: revision,
-        coverURL: model.coverURL(for: book.id),
-        token: model.token
-      ) {
-        tint = c
-      }
+  }
+
+  private var authorLine: String {
+    let override = authorLineOverride?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !override.isEmpty { return override }
+    let line = book.displayAuthorsCardLine.trimmingCharacters(in: .whitespacesAndNewlines)
+    return line.isEmpty ? "—" : line
+  }
+
+  private var resolvedTotalDurationSeconds: Double {
+    max(book.media.duration ?? 0, prog?.duration ?? 0)
+  }
+
+  private var heroDurationLabel: String {
+    if usesEbookMetrics {
+      return LibraryRowLiveState.ebookProgressLabel(for: live.ebookProgressFraction)
+        ?? formatPlaybackTime(0)
     }
+    return formatPlaybackTime(resolvedTotalDurationSeconds)
   }
 
   @ViewBuilder
   private func cardBody(
-    coverClip: RoundedRectangle,
+    palette: AppColorPalette,
+    coverInset: CGFloat,
+    coverClip: UnevenRoundedRectangle,
     barH: CGFloat
   ) -> some View {
-    ZStack(alignment: .bottom) {
-      tint
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    VStack(alignment: .leading, spacing: 0) {
+      ZStack(alignment: .bottom) {
+        SquareCoverImageView(
+          url: model.coverURL(for: book.id),
+          token: model.token,
+          itemId: book.id,
+          cacheAccount: model.coverImageCacheAccountDirectory(),
+          cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+        )
+        .clipShape(coverClip)
+        .contentShape(coverClip)
+        .onTapGesture {
+          if opensDetailOnTap {
+            showDetail = true
+          }
+        }
+        .accessibilityLabel(book.displayTitle)
+        .accessibilityHint(opensDetailOnTap ? "Opens book details." : "")
 
-      CoverImageView(
-        url: model.coverURL(for: book.id),
-        token: model.token,
-        itemId: book.id,
-        cacheAccount: model.coverImageCacheAccountDirectory(),
-        cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt),
-        contentMode: coverAspectRatio == 1 ? .fit : .fill
-      )
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .clipShape(coverClip)
-      .contentShape(coverClip)
-      .onTapGesture {
-        if opensEbookOnCover {
-          guard !live.isPreparingEbook else { return }
-          Task { await model.openAttachedEbook(for: book) }
-        } else if opensDetailOnTap {
-          showDetail = true
+        LinearGradient(
+          stops: [
+            .init(color: .black.opacity(0.45), location: 0),
+            .init(color: .black.opacity(0), location: 1),
+          ],
+          startPoint: .bottom,
+          endPoint: .top
+        )
+        .frame(height: 72)
+        .frame(maxWidth: .infinity)
+        .allowsHitTesting(false)
+
+        Group {
+          if usesEbookMetrics, live.isPreparingEbook {
+            ProgressView()
+              .tint(.white)
+              .frame(maxWidth: .infinity)
+              .frame(height: barH)
+          } else if let v = heroProgress01 {
+            AbstandCardBottomProgress(value: v, height: barH)
+              .frame(maxWidth: .infinity)
+          } else {
+            Color.clear
+              .frame(maxWidth: .infinity)
+              .frame(height: barH)
+          }
         }
       }
-      .accessibilityLabel(book.displayTitle)
-      .accessibilityHint(
-        opensEbookOnCover
-          ? "Opens the eBook in the reader."
-          : (opensDetailOnTap ? "Opens book details." : "")
-      )
-
-      LinearGradient(
-        stops: [
-          .init(color: .black.opacity(0.5), location: 0),
-          .init(color: .black.opacity(0), location: 1),
-        ],
-        startPoint: .bottom,
-        endPoint: .top
-      )
-      .frame(height: min(88, max(56, 88 * coverAspectRatio)))
+      .aspectRatio(coverAspectRatio, contentMode: .fit)
       .frame(maxWidth: .infinity)
-      .allowsHitTesting(false)
-
-      Group {
-        if opensEbookOnCover, live.isPreparingEbook {
-          ProgressView()
-            .tint(.white)
-            .frame(maxWidth: .infinity)
-            .frame(height: barH)
-        } else if let v = heroProgress01 {
-          AbstandCardBottomProgress(value: v, height: barH)
-            .frame(maxWidth: .infinity)
-        } else {
-          Color.clear
-            .frame(maxWidth: .infinity)
-            .frame(height: barH)
+      .overlay(alignment: .topTrailing) {
+        if showsDownloadStatus {
+          ContinueListeningHeroBookOfflineBadgeSlot(rowLive: live)
+            .fixedSize()
         }
       }
-    }
-    .aspectRatio(coverAspectRatio, contentMode: .fit)
-    .frame(maxWidth: .infinity)
-    .overlay(alignment: .topTrailing) {
-      if showsCoverStatusButtons {
-        LibraryHeroCoverStatusButtons(
+      .overlay(alignment: .bottomTrailing) {
+        if showsAttachedEbookCoverBadge {
+          LibraryCoverCornerBadge(systemImage: "book.closed.fill", accessibilityLabel: "eBook available")
+        }
+      }
+      .clipped()
+
+      VStack(alignment: .leading, spacing: 0) {
+        ContinueListeningHeroMetadataBlock(
+          title: book.displayTitle,
+          detailLabel: "Author",
+          detailValue: authorLine,
+          horizontalInset: coverInset,
+          onTitleTap: {
+            if opensDetailOnTap {
+              showDetail = true
+            }
+          },
+          includesBottomPadding: false,
+          blockHeight: AppTheme.Layout.libraryHeroMetadataBlockHeight
+            - AppTheme.Layout.continueHeroMetadataExtraBottomPadding
+        )
+        LibraryHeroCardMetadataFooter(
+          durationLabel: heroDurationLabel,
           showsDownload: showsDownloadStatus,
           isDownloaded: live.isDownloaded,
           isDownloading: live.isDownloading,
           downloadProgress: live.downloadProgress,
           isFinished: isFinished,
+          horizontalInset: coverInset,
           onRemoveDownload: { model.removeLocalDownload(bookId: book.id) },
           onToggleFinished: usesEbookMetrics || !model.isNetworkReachable
             ? nil
@@ -3827,70 +3523,36 @@ private struct LibraryHeroBookRowCard: View {
               }
             }
         )
-        .fixedSize()
       }
+      .background(palette.card)
     }
-    .background(AppTheme.card)
-    .clipShape(coverClip)
-    .abstandHeroCardOutline(palette: AppTheme.palette)
+    .background(palette.card)
+    .clipShape(
+      RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous)
+    )
+    .abstandHeroCardOutline(palette: palette)
     .frame(maxWidth: .infinity, alignment: .top)
     .accessibilityElement(children: .contain)
     .accessibilityHint(opensDetailOnTap ? "Opens book details." : "")
   }
 }
 
-/// Metadaten unter Hero-Cover: Titel + Autor (ohne „Author“-Label).
-private struct LibraryHeroPlainAuthorMetadataBlock: View {
-  @Environment(\.appearanceThemeRevision) private var themeRevision
-  @ScaledMetric(relativeTo: .headline) private var titleFixedHeight = AppTheme.Layout.continueHeroMetadataTitleFixedHeight
-  @ScaledMetric(relativeTo: .footnote) private var detailFixedHeight = AppTheme.Layout.continueHeroMetadataDetailFixedHeight
-  let title: String
-  let author: String
-  let horizontalInset: CGFloat
-  var onTitleTap: () -> Void = {}
-  var includesBottomPadding: Bool = false
-  var blockHeight: CGFloat
+/// Kompaktes Cover-Badge (Play / eBook) — unten links oder rechts auf Listen-Covers.
+private struct LibraryCoverCornerBadge: View {
+  let systemImage: String
+  let accessibilityLabel: String
+  var accessibilityHidden: Bool = false
 
   var body: some View {
-    let _ = themeRevision
-    return VStack(alignment: .leading, spacing: AppTheme.Layout.continueHeroMetadataTitleDetailSpacing) {
-      Text(title)
-        .font(.headline.weight(.semibold))
-        .foregroundStyle(AppTheme.textPrimary)
-        .lineLimit(2)
-        .multilineTextAlignment(.leading)
-        .minimumScaleFactor(0.85)
-        .frame(
-          maxWidth: .infinity,
-          minHeight: titleFixedHeight,
-          maxHeight: titleFixedHeight,
-          alignment: .topLeading
-        )
-        .clipped()
-        .contentShape(Rectangle())
-        .onTapGesture { onTitleTap() }
-
-      Text(author)
-        .font(.footnote)
-        .foregroundStyle(AppTheme.textSecondary)
-        .lineLimit(1)
-        .truncationMode(.tail)
-        .frame(
-          maxWidth: .infinity,
-          minHeight: detailFixedHeight,
-          maxHeight: detailFixedHeight,
-          alignment: .topLeading
-        )
-    }
-    .padding(.horizontal, horizontalInset)
-    .padding(.top, AppTheme.Layout.continueHeroMetadataVerticalPadding)
-    .padding(
-      .bottom,
-      includesBottomPadding ? AppTheme.Layout.continueHeroMetadataExtraBottomPadding : 0
-    )
-    .frame(maxWidth: .infinity)
-    .frame(height: blockHeight, alignment: .top)
-    .abstandThemeRefresh()
+    Image(systemName: systemImage)
+      .font(.caption2.weight(.semibold))
+      .foregroundStyle(.white)
+      .frame(width: 18, height: 18)
+      .background(AppTheme.coverPlayBadgeBackground)
+      .clipShape(Circle())
+      .padding(4)
+      .accessibilityLabel(accessibilityLabel)
+      .accessibilityHidden(accessibilityHidden)
   }
 }
 
@@ -3900,10 +3562,8 @@ struct BookRowCard: View {
   let model: AppModel
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
-  /// In der eBooks-Liste immer das Buch-Badge zeigen (Server-Filter, minified ohne Metadaten).
+  /// In Listen mit eBook-Badge das Buch-Symbol auf dem Cover (unten rechts).
   var showEbookBadge = false
-  /// Cover-Tap öffnet den E-Book-Reader statt Audiobook-Wiedergabe.
-  var opensEbookOnCover = false
   /// Fortschritt aus anderem Kontext (z. B. Server-User-Detail), nicht `progressByItemId`.
   var progressOverride: ABSUserMediaProgress?
   /// Autor-Zeile unabhängig vom Stub (z. B. angereicherter Server-User-Fortschritt).
@@ -3911,41 +3571,49 @@ struct BookRowCard: View {
   var showsPlaybackControls = true
   var showsDownloadStatus = true
   var opensDetailOnTap = true
-  /// eBooks-Tab: Cover hochkant 10:16 statt quadratisch.
-  var usesTallEbookCover = false
+  /// Autor-Detail: Cover fest 1:1, Mitte beschnitten.
+  var usesSquareCenterCropCover = false
 
   @StateObject private var live: LibraryBookRowLiveState
   @State private var showDetail = false
+  private let supplementaryEbookBadge: Bool
+
+  private var isPureEbookRow: Bool { book.isPureEbookLibraryItem }
+  private var showsAudiobookPlayControl: Bool { book.isPlayableAudiobook && showsPlaybackControls }
+  private var showsAttachedEbookCoverBadge: Bool {
+    supplementaryEbookBadge
+  }
 
   init(
     book: ABSBook,
     model: AppModel,
     showEbookBadge: Bool = false,
-    opensEbookOnCover: Bool = false,
     progressOverride: ABSUserMediaProgress? = nil,
     authorLineOverride: String? = nil,
     showsPlaybackControls: Bool = true,
     showsDownloadStatus: Bool = true,
     opensDetailOnTap: Bool = true,
-    usesTallEbookCover: Bool = false
+    usesSquareCenterCropCover: Bool = false
   ) {
-    self.book = book
     self.showEbookBadge = showEbookBadge
-    self.opensEbookOnCover = opensEbookOnCover
     self.progressOverride = progressOverride
     self.authorLineOverride = authorLineOverride
     self.showsPlaybackControls = showsPlaybackControls
     self.showsDownloadStatus = showsDownloadStatus
     self.opensDetailOnTap = opensDetailOnTap
-    self.usesTallEbookCover = usesTallEbookCover
+    self.usesSquareCenterCropCover = usesSquareCenterCropCover
     self.model = model
+    self.supplementaryEbookBadge = model.bookShowsSupplementaryEbookBadge(book)
+    let resolvedBook = model.bookStubEnrichedForListDisplay(book)
+    self.book = resolvedBook
+    let pureEbook = resolvedBook.isPureEbookLibraryItem
     _live = StateObject(
       wrappedValue: LibraryBookRowLiveState(
-        bookId: book.id,
+        bookId: resolvedBook.id,
         model: model,
-        observesProgress: progressOverride == nil && !opensEbookOnCover,
+        observesProgress: progressOverride == nil && !pureEbook,
         observesDownload: showsDownloadStatus,
-        observesEbookProgress: opensEbookOnCover
+        observesEbookProgress: pureEbook
       )
     )
   }
@@ -3953,17 +3621,17 @@ struct BookRowCard: View {
   private var prog: ABSUserMediaProgress? { progressOverride ?? live.progress }
 
   private var ebookProgress: Double? {
-    guard opensEbookOnCover else { return nil }
+    guard isPureEbookRow else { return nil }
     return live.ebookProgressFraction
   }
 
   private var ebookProgressLabel: String? {
-    guard opensEbookOnCover else { return nil }
+    guard isPureEbookRow else { return nil }
     return LibraryRowLiveState.ebookProgressLabel(for: live.ebookProgressFraction)
   }
 
   private var showsBottomProgressBar: Bool {
-    if opensEbookOnCover {
+    if isPureEbookRow {
       guard let f = ebookProgress, f > 0.005, f < 0.995 else { return false }
       return true
     }
@@ -3972,7 +3640,7 @@ struct BookRowCard: View {
   }
 
   private var bottomProgressValue: Double {
-    if opensEbookOnCover, let f = ebookProgress { return min(1, max(0, f)) }
+    if isPureEbookRow, let f = ebookProgress { return min(1, max(0, f)) }
     if let p = prog, p.duration > 0 { return min(1, max(0, p.progress)) }
     return 0
   }
@@ -3992,11 +3660,6 @@ struct BookRowCard: View {
     .abstandThemeRefresh()
   }
 
-  /// `nil` = variable Breite (eBooks: natürliches Cover-Seitenverhältnis bei fester Zeilenhöhe).
-  private var rowCoverWidth: CGFloat? {
-    usesTallEbookCover ? nil : LibraryRowLayout.coverSide
-  }
-
   private var bookRowCardBody: some View {
     LibraryRowLayout.libraryRowCardChrome(
       cardColor: AppTheme.card,
@@ -4006,29 +3669,15 @@ struct BookRowCard: View {
     ) {
       HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
         Group {
-          if showsPlaybackControls {
+          if showsAudiobookPlayControl {
             Button {
-              if opensEbookOnCover {
-                Task { await model.openAttachedEbook(for: book) }
-              } else {
-                Task { await model.play(book: book) }
-              }
+              Task { await model.play(book: book) }
             } label: {
               libraryRowCoverWithPlayBadge
             }
             .buttonStyle(.plain)
-            .disabled(opensEbookOnCover && live.isPreparingEbook)
-            .accessibilityLabel(
-              opensEbookOnCover
-                ? (ebookProgressLabel
-                  ?? LibraryRowLiveState.ebookOpenPillCaption(for: live.ebookProgressFraction))
-                : "Play"
-            )
-            .accessibilityHint(
-              opensEbookOnCover
-                ? "Opens the eBook in the reader."
-                : "Starts playback of this audiobook."
-            )
+            .accessibilityLabel("Play")
+            .accessibilityHint("Starts playback of this audiobook.")
           } else {
             libraryRowCoverWithPlayBadge
           }
@@ -4052,35 +3701,39 @@ struct BookRowCard: View {
   }
 
   private var libraryRowCoverWithPlayBadge: some View {
-    LibraryRowLayout.coverSlot(coverWidth: rowCoverWidth) {
-      CoverImageView(
-        url: model.coverURL(for: book.id),
-        token: model.token,
-        itemId: book.id,
-        cacheAccount: model.coverImageCacheAccountDirectory(),
-        cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt),
-        contentMode: usesTallEbookCover ? .fitVariableWidth : .fill
-      )
-    } overlay: {
-      if showsPlaybackControls {
-        if opensEbookOnCover, live.isPreparingEbook {
-          ProgressView()
-            .controlSize(.small)
-            .tint(.white)
-            .frame(width: 18, height: 18)
-            .background(AppTheme.coverPlayBadgeBackground)
-            .clipShape(Circle())
-            .padding(4)
-        } else {
-          Image(systemName: opensEbookOnCover ? "book.closed.fill" : "play.fill")
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.white)
-            .frame(width: 18, height: 18)
-            .background(AppTheme.coverPlayBadgeBackground)
-            .clipShape(Circle())
-            .padding(4)
-            .accessibilityHidden(true)
-        }
+    let side = LibraryRowLayout.coverSide
+    return Group {
+      if usesSquareCenterCropCover {
+        LibraryRowLayout.rowCoverImageSquare(
+          url: model.coverURL(for: book.id),
+          token: model.token,
+          itemId: book.id,
+          cacheAccount: model.coverImageCacheAccountDirectory(),
+          cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+        )
+      } else {
+        LibraryRowLayout.rowCoverImage(
+          url: model.coverURL(for: book.id),
+          token: model.token,
+          itemId: book.id,
+          cacheAccount: model.coverImageCacheAccountDirectory(),
+          cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+        )
+      }
+    }
+    .frame(width: side, height: side)
+    .clipShape(LibraryRowLayout.coverClipShape)
+    .overlay(alignment: .bottomLeading) {
+      if showsAudiobookPlayControl {
+        LibraryCoverCornerBadge(systemImage: "play.fill", accessibilityLabel: "Play", accessibilityHidden: true)
+      } else if isPureEbookRow {
+        LibraryCoverCornerBadge(
+          systemImage: "book.closed.fill", accessibilityLabel: "eBook", accessibilityHidden: true)
+      }
+    }
+    .overlay(alignment: .bottomTrailing) {
+      if showsAttachedEbookCoverBadge {
+        LibraryCoverCornerBadge(systemImage: "book.closed.fill", accessibilityLabel: "eBook available")
       }
     }
   }
@@ -4119,7 +3772,7 @@ struct BookRowCard: View {
   private var libraryRowMetaFooter: some View {
     LibraryRowLayout.metadataFooter {
       Group {
-        if opensEbookOnCover {
+        if isPureEbookRow {
           if let label = ebookProgressLabel {
             Text(label)
               .font(.subheadline.monospacedDigit())
@@ -4131,9 +3784,6 @@ struct BookRowCard: View {
           Text(formatPlaybackTime(book.media.duration ?? 0))
             .font(.subheadline.monospacedDigit())
             .foregroundStyle(AppTheme.textSecondary)
-          if showEbookBadge || book.hasAttachedEbook || book.hasSupplementalEpub {
-            EpubAvailableBadge()
-          }
         }
       }
     } trailing: {
@@ -4143,12 +3793,12 @@ struct BookRowCard: View {
 
   @ViewBuilder
   private var libraryRowTrailingStatusIcons: some View {
-    if opensEbookOnCover, let f = ebookProgress, f >= 0.995 {
+    if isPureEbookRow, let f = ebookProgress, f >= 0.995 {
       Image(systemName: "checkmark.circle.fill")
         .foregroundStyle(themeAccent)
         .font(.caption)
         .accessibilityLabel("Finished reading")
-    } else if !opensEbookOnCover, prog?.isFinished == true {
+    } else if !isPureEbookRow, prog?.isFinished == true {
       Image(systemName: "checkmark.circle.fill")
         .foregroundStyle(themeAccent)
         .font(.caption)
@@ -4441,12 +4091,6 @@ struct BookRowCard: View {
   }
 }
 
-// MARK: - Book detail view
-
-/// Mittlere Cover-Farbe als Detail-Hintergrund — Dark: gedämpft dunkel; Sepia: warmer Papier-Ton.
-
-
-
 // MARK: - Entity detail (author / series / narrator)
 
 struct BooksEntityDetailNavigationModifier: ViewModifier {
@@ -4470,7 +4114,7 @@ struct BooksEntityDetailNavigationModifier: ViewModifier {
         get: { model.searchEntityDetailNav },
         set: { model.searchEntityDetailNav = $0 }
       )
-    case .podcasts, .settings, .ebooks:
+    case .podcasts, .settings:
       Binding.constant(nil)
     }
   }
@@ -4517,7 +4161,15 @@ struct BooksEntityDetailView: View {
   private var bookCountLabel: String? {
     let n: Int?
     if entityDetailIsCurrent {
-      n = nav.numBooks ?? (model.entityDetailTotal > 0 ? model.entityDetailTotal : nil)
+      if model.entityDetailTotal > 0 {
+        n = model.entityDetailTotal
+      } else if !model.entityDetailBooks.isEmpty {
+        n = model.entityDetailBooks.count
+      } else if model.entityDetailLoading {
+        n = nav.numBooks
+      } else {
+        n = nil
+      }
     } else {
       n = nav.numBooks
     }
@@ -4619,11 +4271,14 @@ struct BooksEntityDetailView: View {
         token: model.token,
         itemId: "author:\(nav.entityId)",
         cacheAccount: model.coverImageCacheAccountDirectory(),
-        cacheRevision: model.coverImageCacheRevision
+        cacheRevision: model.coverImageCacheRevision,
+        contentMode: .fill
       )
-      .aspectRatio(1, contentMode: .fit)
+      .aspectRatio(1, contentMode: .fill)
       .containerRelativeFrame(.horizontal) { w, _ in w * 0.8 }
       .clipShape(Circle())
+    } else if nav.kind == .series {
+      seriesDetailCover
     } else if let url = model.entityDetailCoverURL(for: nav) {
       CoverImageView(
         url: url,
@@ -4637,6 +4292,34 @@ struct BooksEntityDetailView: View {
       .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
     } else {
       entityCoverPlaceholder
+    }
+  }
+
+  /// Erstes Serien-Band: 1:1 mit zentriertem Cover und Letterboxing.
+  @ViewBuilder
+  private var seriesDetailCover: some View {
+    let book = model.entityDetailBooks.first
+    let bookId = book?.id ?? ""
+    DetailHeroCoverFrame(aspectRatio: 1) {
+      if let book, !bookId.isEmpty, let url = model.coverURL(for: bookId, tier: .hero) {
+        SquareCoverImageView(
+          url: url,
+          token: model.token,
+          itemId: bookId,
+          cacheAccount: model.coverImageCacheAccountDirectory(),
+          cacheScopeId: model.coverImageCacheScopeId(for: bookId, tier: .hero),
+          cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+        )
+      } else {
+        ZStack {
+          AppTheme.card
+          Image(systemName: "books.vertical")
+            .font(.largeTitle)
+            .foregroundStyle(AppTheme.textSecondary)
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
     }
   }
 
@@ -4736,21 +4419,13 @@ struct BooksEntityDetailView: View {
         ForEach(seriesSections) { section in
           VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
             entityDetailSectionHeading(section.name)
-            LibraryBookCardsFlow {
-              ForEach(section.books) { book in
-                AuthorDetailBookListCard(book: book, model: model)
-              }
-            }
+            authorDetailBooksList(books: section.books)
           }
         }
         if !standalone.isEmpty {
           VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
             entityDetailSectionHeading(seriesSections.isEmpty ? "Books" : "Other books")
-            LibraryBookCardsFlow {
-              ForEach(standalone) { book in
-                AuthorDetailBookListCard(book: book, model: model)
-              }
-            }
+            authorDetailBooksList(books: standalone)
           }
         }
       }
@@ -4776,7 +4451,7 @@ struct BooksEntityDetailView: View {
       } else {
         LibraryBookCardsFlow {
           ForEach(model.entityDetailBooks) { book in
-            LibraryBookListCard(book: book, model: model)
+            AuthorDetailBookListCard(book: book, model: model)
               .task(id: book.id) {
                 await model.loadMoreEntityDetailIfNeeded(nav: nav, currentItemId: book.id)
               }
@@ -4791,6 +4466,15 @@ struct BooksEntityDetailView: View {
       .font(.caption.weight(.bold))
       .foregroundStyle(AppTheme.textSecondary)
       .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  @ViewBuilder
+  private func authorDetailBooksList(books: [ABSBook]) -> some View {
+    LibraryBookCardsFlow {
+      ForEach(books) { book in
+        AuthorDetailBookListCard(book: book, model: model)
+      }
+    }
   }
 
   private func entityDetailMetaRow(_ key: String, _ value: String) -> some View {
@@ -4809,11 +4493,15 @@ struct BooksEntityDetailView: View {
   private func loadHeaderTint() async {
     guard !usesPlainDetailBackground else { return }
 
-    guard let url =
-      nav.kind == .author
-      ? model.authorImageURL(authorId: nav.entityId)
-      : model.entityDetailCoverURL(for: nav)
-    else { return }
+    let url: URL?
+    if nav.kind == .author {
+      url = model.authorImageURL(authorId: nav.entityId)
+    } else if nav.kind == .series, let bookId = model.entityDetailBooks.first?.id {
+      url = model.coverURL(for: bookId, tier: .hero)
+    } else {
+      url = model.entityDetailCoverURL(for: nav)
+    }
+    guard let url else { return }
 
     var req = URLRequest(url: url)
     req.setValue("Bearer \(model.token)", forHTTPHeaderField: "Authorization")

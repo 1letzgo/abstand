@@ -119,16 +119,24 @@ final class BooksLibraryToolbarState: ObservableObject {
     }
   }
 
+  private func isEbooksBrowseSection(_ section: BooksBrowseSection) -> Bool {
+    section == .ebooks || section == .ebooksSupplementary
+  }
+
   func applyCatalogSortField(_ field: CatalogSortField) {
     guard let model, model.catalogSortField != field else { return }
     model.catalogSortField = field
-    model.scheduleBooksToolbarSortReload(.mainCatalog)
+    let kind: AppModel.BooksToolbarSortReloadKind =
+      isEbooksBrowseSection(model.booksBrowseSection) ? .browseEbooks : .mainCatalog
+    model.scheduleBooksToolbarSortReload(kind)
   }
 
   func applyCatalogSortDescending(_ descending: Bool) {
     guard let model, model.catalogSortDescending != descending else { return }
     model.catalogSortDescending = descending
-    model.scheduleBooksToolbarSortReload(.mainCatalog)
+    let kind: AppModel.BooksToolbarSortReloadKind =
+      isEbooksBrowseSection(model.booksBrowseSection) ? .browseEbooks : .mainCatalog
+    model.scheduleBooksToolbarSortReload(kind)
   }
 
   func clearCatalogFilter() {
@@ -358,7 +366,9 @@ struct BooksLibraryToolbarContent: ToolbarContent {
       BrowseGenresSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
     case .tags:
       BrowseTagsSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
-  default:
+    case .ebooks, .ebooksSupplementary:
+      BrowseEbooksSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
+    default:
       BooksLibraryToolbarBodyStandard(snapshot: snapshot, toolbarState: toolbarState)
     }
   }
@@ -414,6 +424,23 @@ private struct BrowseTagsSortToolbarContent: ToolbarContent {
         sortDescending: snapshot.browseTagsSortDescending,
         onSortFieldChange: { toolbarState.applyBrowseTagsSortField($0) },
         onSortDescendingChange: { toolbarState.applyBrowseTagsSortDescending($0) }
+      )
+      .equatable()
+    }
+  }
+}
+
+private struct BrowseEbooksSortToolbarContent: ToolbarContent {
+  let snapshot: BooksLibraryToolbarSnapshot
+  let toolbarState: BooksLibraryToolbarState
+
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .topBarTrailing) {
+      BooksCatalogSortToolbarMenu(
+        sortField: snapshot.catalogSortField,
+        sortDescending: snapshot.catalogSortDescending,
+        onSortFieldChange: { toolbarState.applyCatalogSortField($0) },
+        onSortDescendingChange: { toolbarState.applyCatalogSortDescending($0) }
       )
       .equatable()
     }

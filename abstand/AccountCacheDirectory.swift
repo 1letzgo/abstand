@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 
 /// Account-Cache-Wurzel für weiterhin dateibasierte Subsysteme (Downloads, Cover, eBook-Lokaldaten) — liegen
-/// außerhalb der SwiftData-Vollmigration. Pfadschema unverändert aus dem ehemaligen `LibraryDiskCache.accountDir`
+/// außerhalb der SwiftData-Vollmigration. Pfadschema unverändert aus dem früheren JSON-Katalog-Cache
 /// übernommen, damit bestehende Downloads/Cover/eBooks nach Entfernen des JSON-Katalogcaches erreichbar bleiben.
 enum AccountCacheDirectory {
   private static let fm = FileManager.default

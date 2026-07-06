@@ -441,6 +441,30 @@ enum EbookLocalStore {
     try? data.write(to: url, options: .atomic)
   }
 
+  /// Alle lokal gespeicherten Lesefortschritte (`*.ebook_fraction.json`) — für Continue-reading ohne Server-Progress-Zeile.
+  static func inProgressLibraryItemIds(
+    minFraction: Double = 0.005,
+    maxFraction: Double = 0.995
+  ) -> [String] {
+    guard let session = requireSession() else { return [] }
+    let dir = readingProgressDir(account: session.account, userId: session.userId)
+    guard let urls = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return [] }
+    let suffix = ".ebook_fraction.json"
+    var ids: [String] = []
+    ids.reserveCapacity(urls.count)
+    for url in urls {
+      let name = url.lastPathComponent
+      guard name.hasSuffix(suffix) else { continue }
+      let itemId = String(name.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !itemId.isEmpty,
+        let fraction = loadProgressFraction(libraryItemId: itemId),
+        fraction > minFraction, fraction < maxFraction
+      else { continue }
+      ids.append(itemId)
+    }
+    return ids
+  }
+
   static func loadProgressFraction(libraryItemId: String) -> Double? {
     guard let session = requireSession() else { return nil }
     let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -464,7 +488,7 @@ enum EbookLocalStore {
   }
 }
 
-// MARK: - Lesefortschritt (Home / eBooks-Tab)
+// MARK: - Lesefortschritt (Home / Listenkarten)
 
 /// Seitenanzeige für eBook-Listenkarten (Cover + Metadatenzeile).
 struct EbookPageDisplayInfo {

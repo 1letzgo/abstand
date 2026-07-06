@@ -59,34 +59,6 @@ enum LibraryBookCardStyle: String, CaseIterable, Identifiable, Hashable {
   }
 }
 
-/// Darstellung im eBooks-Tab (eBooks + Supplementary): kompakte Zeile oder Cover-Karte.
-enum LibraryEbookCardStyle: String, CaseIterable, Identifiable, Hashable {
-  case compact
-  case heroCover
-
-  var id: String { rawValue }
-
-  var label: String {
-    switch self {
-    case .compact: "Compact row"
-    case .heroCover: "Cover card"
-    }
-  }
-
-  private static let storageKey = "abstand_ebooks_tab_card_style"
-
-  static func load(from defaults: UserDefaults = .standard) -> LibraryEbookCardStyle {
-    guard let raw = defaults.string(forKey: storageKey),
-      let style = LibraryEbookCardStyle(rawValue: raw)
-    else { return .compact }
-    return style
-  }
-
-  func persist(to defaults: UserDefaults = .standard) {
-    defaults.set(rawValue, forKey: Self.storageKey)
-  }
-}
-
 /// Darstellung von Podcast-Episoden in Library und Downloads.
 enum LibraryPodcastCardStyle: String, CaseIterable, Identifiable, Hashable {
   case compact

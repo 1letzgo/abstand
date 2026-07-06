@@ -225,12 +225,12 @@ struct StartDashboardView: View {
         }
         if shelf.hasBooks {
           ForEach(shelf.books) { book in
-            if startDashboardShelfBookUsesEbookTabCard(shelfCategory: shelf.category, book: book) {
-              EbookTabListCard(
-                book: book, model: model, isSupplementary: false, preferCompactStyle: true)
-            } else {
-              LibraryBookListCard(book: book, model: model)
-            }
+            LibraryBookListCard(
+              book: book,
+              model: model,
+              showEbookBadge: model.bookShowsSupplementaryEbookBadge(book),
+              forceCompactListStyle: true
+            )
           }
         }
         if shelf.hasAuthors {
@@ -271,13 +271,6 @@ struct StartDashboardView: View {
 
   private func startDashboardIsContinueShelf(_ shelf: ABSStartShelfSection) -> Bool {
     shelf.category == "recentlyListened"
-  }
-
-  /// eBooks-Tab-Kartenvariante (nicht Library-`BookRowCard`).
-  private func startDashboardShelfBookUsesEbookTabCard(shelfCategory: String, book: ABSBook) -> Bool {
-    if shelfCategory == "continueEbooks" { return true }
-    if shelfCategory == "continueSeries" { return book.isPureEbookLibraryItem }
-    return false
   }
 
   @ViewBuilder
@@ -333,7 +326,8 @@ struct StartDashboardView: View {
         detailLabel: "Books",
         detailValue: browseEntityBooksCountLine(count: author.numBooks),
         cacheItemId: "author:\(author.id)",
-        coverURL: author.hasAuthorImage ? model.authorImageURL(authorId: author.id) : nil
+        coverURL: author.hasAuthorImage ? model.authorImageURL(authorId: author.id) : nil,
+        usesSquareCenterCropCover: true
       )
     }
     .buttonStyle(.plain)

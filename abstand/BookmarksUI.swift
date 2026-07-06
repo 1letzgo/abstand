@@ -31,15 +31,8 @@ struct BookmarksDisclosure: View {
 
   var body: some View {
     let _ = themeRevision
-    return DisclosureGroup(isExpanded: $expanded) {
+    return DetailMetaDisclosure(title: "Bookmarks", isExpanded: $expanded) {
       AudiobookBookmarkListView(libraryItemId: libraryItemId, onJump: onJump)
-        .padding(.top, 4)
-    } label: {
-      Text("Bookmarks")
-        .font(.caption.weight(.bold))
-        .foregroundStyle(AppTheme.textSecondary)
-        .textCase(.uppercase)
-        .tracking(0.6)
     }
     .tint(model.appearanceAccentColor)
     .abstandThemeRefresh()

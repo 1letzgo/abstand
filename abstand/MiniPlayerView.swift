@@ -31,8 +31,12 @@ enum MiniPlayerMetrics {
   /// Weicher Play-Kreis (Durchmesser); Zeilenhöhe richtet sich danach.
   static let miniPlayerPlayOrb: CGFloat = 52
 
-  /// Now-Playing-Sheet: Abstand Cover zu links/rechts/oben (gleich).
-  static let fullPlayerCoverInset: CGFloat = 24
+  /// Now-Playing-Sheet: seitlicher Abstand zum Rand (Safe Area kommt zusätzlich).
+  static let fullPlayerCoverInset: CGFloat = 20
+  /// Quadratisches Cover: Anteil der verfügbaren Containerbreite (statt fixer pt).
+  static let fullPlayerCoverWidthFraction: CGFloat = 0.75
+  /// Abstand Titel/Autor → Fortschrittsbalken (Apple-Music-nah).
+  static let titleToScrubberSpacing: CGFloat = 8
 
   /// Eine Zeile: Sleep · Transport · AirPlay (Höhe = max(Transport, Play-Orb)).
   static var miniPlayerControlsTotalHeight: CGFloat {
@@ -720,6 +724,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
   let playbackRate: Float
+  let eqPreset: AudioEQPreset
   let offlineStorageId: String?
   let isDownloaded: Bool
   let isDownloading: Bool
@@ -728,6 +733,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
 
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.playbackRate == rhs.playbackRate
+      && lhs.eqPreset == rhs.eqPreset
       && lhs.offlineStorageId == rhs.offlineStorageId
       && lhs.isDownloaded == rhs.isDownloaded
       && lhs.isDownloading == rhs.isDownloading
@@ -739,6 +745,41 @@ private struct FullPlayerUtilityBar: View, Equatable {
   var body: some View {
     let _ = themeRevision
     return HStack(spacing: 0) {
+      // EQ-Preset (Voice Focus etc.) — vor dem Tempo, logische Audio-Shaping-Gruppierung.
+      Menu {
+        ForEach(AudioEQPreset.allCases) { preset in
+          Button {
+            model.applyEQPreset(preset)
+          } label: {
+            HStack {
+              Text(preset.label)
+              Spacer(minLength: 8)
+              if eqPreset == preset {
+                Image(systemName: "checkmark")
+                  .foregroundStyle(themeAccent)
+              }
+            }
+          }
+        }
+      } label: {
+        VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
+          Image(systemName: eqPreset.systemImage)
+            .font(.title3)
+            .foregroundStyle(eqPreset == .flat ? AppTheme.textPrimary : themeAccent)
+            .frame(
+              maxWidth: .infinity,
+              minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+              maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+              alignment: .center
+            )
+          Text("EQ", comment: "Player control label")
+            .font(.caption2)
+            .foregroundStyle(AppTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+      }
+
       Menu {
         ForEach(PlaybackController.playbackRatePresets, id: \.self) { r in
           Button {
@@ -889,6 +930,7 @@ struct FullPlayerChromeSnapshot: Equatable {
   let canSkipToPreviousChapter: Bool
   let canSkipToNextChapter: Bool
   let playbackRate: Float
+  let eqPreset: AudioEQPreset
   let offlineStorageId: String?
   let isDownloaded: Bool
   let isDownloading: Bool
@@ -906,6 +948,7 @@ struct FullPlayerChromeSnapshot: Equatable {
     canSkipToPreviousChapter: false,
     canSkipToNextChapter: false,
     playbackRate: 1,
+    eqPreset: .flat,
     offlineStorageId: nil,
     isDownloaded: false,
     isDownloading: false,
@@ -936,6 +979,7 @@ struct FullPlayerChromeSnapshot: Equatable {
       canSkipToPreviousChapter: player.canSkipToPreviousChapter,
       canSkipToNextChapter: player.canSkipToNextChapter,
       playbackRate: player.playbackRate,
+      eqPreset: player.eqPreset,
       offlineStorageId: sid,
       isDownloaded: sid.map { model.downloadedItemIds.contains($0) } ?? false,
       isDownloading: isDownloading,
@@ -1111,6 +1155,9 @@ struct NowPlayingDetailView: View {
   @State private var coverPanel: FullPlayerCoverPanel = .artwork
   @State private var panelBookDetail: ABSBook?
   @State private var panelListeningSessions: [ABSListeningSession] = []
+  @State private var coverTintColor: Color = AppTheme.background
+  @State private var coverImageForTint: UIImage?
+  @State private var didSeedCoverTintFromCache = false
 
   private var player: PlaybackController { model.player }
 
@@ -1185,6 +1232,13 @@ struct NowPlayingDetailView: View {
         coverPanel = .artwork
         panelBookDetail = nil
         panelListeningSessions = []
+        didSeedCoverTintFromCache = false
+        coverImageForTint = nil
+        if let book = player.activeBook {
+          seedCoverTintFromCacheIfNeeded(for: book)
+        } else {
+          coverTintColor = model.appearancePalette.background
+        }
       }
       .task(id: coverPanel) {
         await loadCoverPanelDataIfNeeded()
@@ -1222,10 +1276,24 @@ struct NowPlayingDetailView: View {
   private var fullPlayerRootWithSnapshotHooks: some View {
     fullPlayerStack
       .preferredColorScheme(model.resolvedInterfaceColorScheme)
+      .onChange(of: model.appearanceThemeRevision) { _, _ in
+        applyCoverTintFromStoredImage()
+      }
+      .task(id: activeBook?.id) {
+        guard let book = activeBook else {
+          coverTintColor = model.appearancePalette.background
+          return
+        }
+        seedCoverTintFromCacheIfNeeded(for: book)
+        await loadFullPlayerCoverTint(for: book)
+      }
       .onAppear {
         activeBook = player.activeBook
         isTeleprompterActive = player.liveTranscription.isTeleprompterModeActive
         player.liveTranscription.sanitizeInteractionStateForControls()
+        if let book = player.activeBook {
+          seedCoverTintFromCacheIfNeeded(for: book)
+        }
         refreshChromeSnapshot()
       }
       .onReceive(player.$activeBook) { book in
@@ -1262,7 +1330,7 @@ struct NowPlayingDetailView: View {
         }
       }
       .safeAreaPadding(.horizontal, MiniPlayerMetrics.fullPlayerCoverInset)
-      .safeAreaPadding(.top, MiniPlayerMetrics.fullPlayerCoverInset)
+      .safeAreaPadding(.bottom, MiniPlayerMetrics.fullPlayerCoverInset)
     }
   }
 
@@ -1270,16 +1338,55 @@ struct NowPlayingDetailView: View {
   private var fullPlayerBackground: some View {
     let _ = themeRevision
     let palette = model.appearancePalette
-    if palette.isDarkLike {
-      LinearGradient(
-        colors: [player.miniPlayerBarFillColor, Color(white: 0.1)],
-        startPoint: .top,
-        endPoint: .bottom
-      )
-    } else {
-      // Wie Buch-Detail im Light/Sepia: kein Cover-Verlauf, nur App-Hintergrund.
+    // Gleiche Schichtung wie `.abstandDetailScrollBackground` (Buch-/Folgen-Detail).
+    ZStack {
       palette.background
+      if palette.isDarkLike {
+        coverTintColor
+      } else {
+        coverTintColor.opacity(0.42)
+      }
     }
+  }
+
+  private func seedCoverTintFromCacheIfNeeded(for book: ABSBook) {
+    guard !didSeedCoverTintFromCache else { return }
+    didSeedCoverTintFromCache = true
+    let fallback = model.appearancePalette.background
+    guard let account = model.coverImageCacheAccountDirectory() else {
+      coverTintColor = fallback
+      return
+    }
+    let scope = model.coverImageCacheScopeId(for: book.id, tier: .hero)
+    if let image = CoverImageCache.syncUIImage(itemId: scope, account: account) {
+      coverImageForTint = image
+      coverTintColor = coverDominantBackgroundTint(from: image)
+    } else {
+      coverTintColor = fallback
+    }
+  }
+
+  private func applyCoverTintFromStoredImage() {
+    if let coverImageForTint {
+      coverTintColor = coverDominantBackgroundTint(from: coverImageForTint)
+    } else {
+      coverTintColor = model.appearancePalette.background
+    }
+  }
+
+  private func loadFullPlayerCoverTint(for book: ABSBook) async {
+    guard let url = model.coverURL(for: book.id, tier: .hero) else { return }
+    var req = URLRequest(url: url)
+    req.setValue("Bearer \(model.token)", forHTTPHeaderField: "Authorization")
+    do {
+      let (data, resp) = try await URLSession.shared.data(for: req)
+      guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
+        let image = UIImage(data: data)
+      else { return }
+      guard activeBook?.id == book.id else { return }
+      coverImageForTint = image
+      coverTintColor = coverDominantBackgroundTint(from: image)
+    } catch {}
   }
 
   private var portraitLayout: some View {
@@ -1314,11 +1421,12 @@ struct NowPlayingDetailView: View {
           .layoutPriority(1)
       } else {
         VStack(spacing: 0) {
+          Spacer(minLength: 0)
           playerHeaderArea(book: book)
-            .frame(maxWidth: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity)
           Spacer(minLength: 0)
-          chapterTitleArea(book: book)
-          Spacer(minLength: 0)
+
+          fullPlayerTitleArea(book: book)
           TimelineView(.periodic(from: .now, by: 0.5)) { _ in
             scrubberSection(book: book)
           }
@@ -1340,7 +1448,6 @@ struct NowPlayingDetailView: View {
 
       fullPlayerUtilityBar
         .equatable()
-      Spacer(minLength: 8)
     }
     .animation(.easeInOut(duration: 0.28), value: panelExpanded)
     .animation(.easeInOut(duration: 0.28), value: coverPanel)
@@ -1362,12 +1469,13 @@ struct NowPlayingDetailView: View {
     let panelExpanded = isCoverPanelExpanded
     HStack(alignment: .top, spacing: MiniPlayerMetrics.fullPlayerCoverInset) {
       playerHeaderArea(book: book)
-        .containerRelativeFrame(.horizontal) { w, _ in w * 0.48 }
-        .frame(maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: panelExpanded ? .leading : .center)
+        .frame(maxHeight: .infinity, alignment: panelExpanded ? .top : .center)
         .layoutPriority(panelExpanded ? 1 : 0)
       VStack(spacing: 0) {
         if !panelExpanded {
-          chapterTitleArea(book: book)
+          Spacer(minLength: 0)
+          fullPlayerTitleArea(book: book)
           TimelineView(.periodic(from: .now, by: 0.5)) { _ in
             scrubberSection(book: book)
           }
@@ -1383,7 +1491,6 @@ struct NowPlayingDetailView: View {
         .equatable()
         fullPlayerUtilityBar
           .equatable()
-        Spacer(minLength: 8)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -1401,29 +1508,27 @@ struct NowPlayingDetailView: View {
     }
   }
 
-  /// Titel und Autor unter dem Cover.
-  private func chapterTitleArea(book: ABSBook) -> some View {
+  /// Titel und Autor direkt über dem Fortschrittsbalken (Apple-Music-Stil).
+  private func fullPlayerTitleArea(book: ABSBook) -> some View {
     let authors = book.displayAuthors.trimmingCharacters(in: .whitespacesAndNewlines)
-    return VStack(alignment: .center, spacing: 8) {
+    return VStack(alignment: .leading, spacing: 4) {
       Text(book.displayTitle)
         .font(.title2.weight(.bold))
         .foregroundStyle(AppTheme.textPrimary)
-        .multilineTextAlignment(.center)
+        .multilineTextAlignment(.leading)
         .lineLimit(3)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
       if !authors.isEmpty, authors != "—" {
         Text(authors)
           .font(.title3)
           .foregroundStyle(AppTheme.textSecondary)
-          .multilineTextAlignment(.center)
+          .multilineTextAlignment(.leading)
           .lineLimit(2)
-          .frame(maxWidth: .infinity)
+          .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
-    .frame(maxWidth: .infinity)
-    .padding(.horizontal, 8)
-    .padding(.top, 12)
-    .padding(.bottom, FullPlayerTransportLayout.scrubberVerticalSpacing)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.bottom, MiniPlayerMetrics.titleToScrubberSpacing)
     .accessibilityElement(children: .combine)
   }
 
@@ -1444,28 +1549,38 @@ struct NowPlayingDetailView: View {
     }
   }
 
-  /// Quadratische Cover-Karte (1:1) — nur für Artwork.
+  /// Quadratische Cover-Karte (1:1) — 75 % der verfügbaren Containerbreite.
   private func fullPlayerSquareCoverCard<Overlay: View>(
     cardOpacity: CGFloat = 1,
     @ViewBuilder overlay: @escaping () -> Overlay
   ) -> some View {
-    let corner = FullPlayerCoverOverlayMetrics.coverSurfaceCornerRadius
+    let corner = DetailHeroLayoutMetrics.coverCornerRadius
     let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
-    return Color.clear
+    let widthFraction = MiniPlayerMetrics.fullPlayerCoverWidthFraction
+    return overlay()
       .aspectRatio(1, contentMode: .fit)
-      .frame(maxWidth: .infinity, alignment: .top)
+      .containerRelativeFrame(.horizontal) { length, _ in length * widthFraction }
       .background(AppTheme.card.opacity(cardOpacity), in: shape)
-      .overlay {
-        GeometryReader { geo in
-          overlay()
-            .frame(width: geo.size.width, height: geo.size.height)
-        }
-      }
       .clipShape(shape)
       .overlay {
         shape.strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
       }
       .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
+      .frame(maxWidth: .infinity)
+  }
+
+  /// Nur Cover-Bild (1:1, vollständig sichtbar — Letterboxing mit Cover-Farbe).
+  private func fullPlayerArtworkCard(book: ABSBook) -> some View {
+    fullPlayerSquareCoverCard {
+      SquareCoverImageView(
+        url: model.coverURL(for: book.id, tier: .hero),
+        token: model.token,
+        itemId: book.id,
+        cacheAccount: model.coverImageCacheAccountDirectory(),
+        cacheScopeId: model.coverImageCacheScopeId(for: book.id, tier: .hero),
+        cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+      )
+    }
   }
 
   /// Ausgeklapptes Panel/Teleprompter — volle Höhe bis zur Panel-Steuerzeile (ohne Schatten).
@@ -1485,21 +1600,6 @@ struct NowPlayingDetailView: View {
       .overlay {
         shape.strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
       }
-  }
-
-  /// Nur Cover-Bild (1:1).
-  private func fullPlayerArtworkCard(book: ABSBook) -> some View {
-    fullPlayerSquareCoverCard {
-      CoverImageView(
-        url: model.coverURL(for: book.id, tier: .hero),
-        token: model.token,
-        itemId: book.id,
-        cacheAccount: model.coverImageCacheAccountDirectory(),
-        cacheScopeId: model.coverImageCacheScopeId(for: book.id, tier: .hero),
-        cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt),
-        contentMode: .fill
-      )
-    }
   }
 
   /// Kapitel-, Sessions- oder Bookmarks-Panel — klappt bis zur Progress-Karte auf.
@@ -1907,6 +2007,7 @@ struct NowPlayingDetailView: View {
   private var fullPlayerUtilityBar: FullPlayerUtilityBar {
     FullPlayerUtilityBar(
       playbackRate: chromeSnapshot.playbackRate,
+      eqPreset: chromeSnapshot.eqPreset,
       offlineStorageId: chromeSnapshot.offlineStorageId,
       isDownloaded: chromeSnapshot.isDownloaded,
       isDownloading: chromeSnapshot.isDownloading,
@@ -2006,7 +2107,7 @@ private struct FloatingBarCoverEquatable: View, Equatable {
 
   var body: some View {
     let side = PlayerChromeLayout.tabAccessoryCover
-    let plateRadius: CGFloat = 6
+    let plateRadius = DetailHeroLayoutMetrics.coverCornerRadius
     CoverImageView(
       url: coverURL,
       token: coverToken,
@@ -2361,7 +2462,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
   @ViewBuilder
   private var miniCover: some View {
     let side = PlayerChromeLayout.tabAccessoryCover
-    let plateRadius: CGFloat = 6
+    let plateRadius = DetailHeroLayoutMetrics.coverCornerRadius
     if let id = snapshot.activeBookId {
       FloatingBarCoverEquatable(
         itemId: id,

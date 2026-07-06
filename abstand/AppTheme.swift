@@ -132,6 +132,11 @@ enum AppTheme {
     static let detailPlayButtonTopPadding: CGFloat = 10
     /// Buch-/Folgen-Detail: Play → Metadaten (ohne Trennlinie).
     static let detailPlayButtonBottomPadding: CGFloat = 12
+    /// Buch-/Folgen-Detail: Play → erster Meta-Block (visueller Übergang Hero → Details).
+    static let detailMetaAfterPlaySpacing: CGFloat = 18
+    /// Innenabstand Detail-Sektionskarten unterhalb Play.
+    static let detailSectionCardPadding: CGFloat = 14
+    static let detailSectionCardCornerRadius: CGFloat = 12
     /// Zusatz unter Scroll-Inhalten vor dem Tab-Bar-Zubehör (`nowPlayingAccessoryScrollBottomInset` kommt dazu).
     static let scrollBottomInsetBase: CGFloat = 24
 
@@ -169,7 +174,7 @@ enum AppTheme {
     static let continueHeroMetadataPlayPillTopPadding: CGFloat = 8
     /// Höhe der Play-/Read-Pille (Capsule inkl. Innen-Padding).
     static let continueHeroMetadataPlayPillIntrinsicHeight: CGFloat = 34
-    /// Abstand unter der Play-/Read-Pille (Continue Listening + eBooks-Grid).
+    /// Abstand unter der Play-/Read-Pille (Continue Listening + Library-Cover-Karten).
     static let continueHeroMetadataExtraBottomPadding: CGFloat = 10
     /// Fester Textblock unter dem Cover — alle Continue-Hero-Karten gleich hoch.
     static let continueHeroMetadataBlockHeight: CGFloat =
@@ -188,10 +193,8 @@ enum AppTheme {
       GridItem(.flexible(), spacing: withinSectionSpacing),
       GridItem(.flexible(), spacing: withinSectionSpacing),
     ]
-    /// Hero-Raster (Library + eBooks): drei große Cover-Karten pro Zeile.
+    /// Hero-Raster (Library): drei große Cover-Karten pro Zeile.
     static let heroCoverColumnsPerRow = 3
-    /// Seitenverhältnis eBook-Cover in Hero-Raster (typisches Buch-Hochformat).
-    static let ebookHeroCoverAspectRatio: CGFloat = 10 / 16
     /// Metadaten unter dem Cover ohne Play-Pille (wie Continue-Hero-Textblock).
     static let libraryHeroMetadataBlockHeight: CGFloat =
       continueHeroMetadataVerticalPadding
@@ -224,8 +227,8 @@ enum AppTheme {
     static let libraryRowCornerRadius: CGFloat = podcastShelfCoverCorner
     static let coverCornerRadius: CGFloat = 11
 
-    /// Quadratisches Cover in Library-Zeilen (bündig links/oben/unten, `scaledToFill`).
-    static let libraryRowCoverSide: CGFloat = 82
+    /// Cover in Library-Zeilen: festes 1:1 (`SquareCoverImageView`, Letterboxing mit Cover-Farbe).
+    static let libraryRowCoverSide: CGFloat = 100
     /// Abstand Cover ↔ Textspalte in Library-Zeilen.
     static let libraryRowCardInset: CGFloat = 10
     /// Titel oben / Laufzeit unten (minimal zum Kartenrand).
@@ -495,7 +498,7 @@ extension View {
     modifier(AbstandTabScreenChromeModifier())
   }
 
-  /// Home-Tab: Großtitel + sichtbare Nav-Bar (wie Library/eBooks/Podcasts).
+  /// Home-Tab: Großtitel + sichtbare Nav-Bar (wie Library/Podcasts).
   func abstandHomeTabNavigationTitle() -> some View {
     navigationTitle(AppModel.MainTab.start.rawValue)
       .toolbarTitleDisplayMode(.inlineLarge)

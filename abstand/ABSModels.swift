@@ -746,6 +746,8 @@ struct ABSBookMediaMetadata: Codable {
   let language: String?
   /// Optional: Feed-URL aus den Metadaten der Sendung.
   let feedUrl: String?
+  /// Audible-ASIN — genutzt für Kapitel-Lookup via `/api/search/chapters`.
+  let asin: String?
 
   enum CodingKeys: String, CodingKey {
     case title, titleIgnorePrefix, subtitle, authors, narrators, series
@@ -754,6 +756,7 @@ struct ABSBookMediaMetadata: Codable {
     case feedUrl
     case feedURL
     case feed_url
+    case asin
   }
 
   init(from decoder: Decoder) throws {
@@ -777,6 +780,7 @@ struct ABSBookMediaMetadata: Codable {
     descriptionPlain = try c.decodeIfPresent(String.self, forKey: .descriptionPlain)
     genres = try c.decodeIfPresent([String].self, forKey: .genres)
     language = try c.decodeIfPresent(String.self, forKey: .language)
+    asin = try c.decodeIfPresent(String.self, forKey: .asin)
     feedUrl = Self.decodeFeedUrl(from: c)
 
     if let arr = try? c.decode([ABSSeries].self, forKey: .series) {
@@ -808,6 +812,7 @@ struct ABSBookMediaMetadata: Codable {
     try c.encodeIfPresent(descriptionPlain, forKey: .descriptionPlain)
     try c.encodeIfPresent(genres, forKey: .genres)
     try c.encodeIfPresent(language, forKey: .language)
+    try c.encodeIfPresent(asin, forKey: .asin)
     try c.encodeIfPresent(feedUrl, forKey: .feedUrl)
   }
 
@@ -842,8 +847,310 @@ struct ABSBookMediaMetadata: Codable {
     descriptionPlain = base.descriptionPlain
     genres = base.genres
     language = base.language
+    asin = base.asin
     feedUrl = base.feedUrl
   }
+}
+
+// MARK: - Metadata Match (absorb-style)
+
+/// Eintrag aus `/api/search/providers` (z. B. Audible, iTunes, OpenLibrary).
+struct ABSMetadataProvider: Codable, Identifiable, Hashable {
+  let text: String
+  let value: String
+  var id: String { value }
+}
+
+/// Serien-Eintrag eines Match-Treffers (`{ name, sequence }`). Sequence optional.
+struct ABSMatchSeries: Codable, Hashable {
+  let name: String
+  let sequence: String?
+}
+
+/// Ein einzelner Treffer aus `/api/search/books`.
+/// Felder liegen teils direkt, teils in einem `book`-Sub-Objekt; defensive Dekodierung wie bei `ABSBookMediaMetadata`.
+struct ABSMetadataMatch: Decodable, Identifiable, Hashable {
+  let title: String?
+  let subtitle: String?
+  let author: String?
+  let narrator: String?
+  let descriptionHTML: String?
+  let publisher: String?
+  let publishedYear: String?
+  let asin: String?
+  let isbn: String?
+  let language: String?
+  let genres: [String]?
+  let tags: [String]?
+  let series: [ABSMatchSeries]?
+  let cover: String?
+  /// Stabiler Schlüssel: ASIN, ISBN oder Titel+Autor-Fallback.
+  var id: String { asin ?? isbn ?? "\(title ?? "")-\(author ?? "")" }
+
+  enum CodingKeys: String, CodingKey {
+    case title, subtitle, author, narrator
+    case description
+    case publisher, publishedYear, asin, isbn, language, genres, tags, series
+    case cover, image
+  }
+
+  init(from decoder: Decoder) throws {
+    // Der Server schachtelt die Buchdaten teils unter `book`. Entscheide pro Element.
+    let wrapper = try ABSMetadataMatchWrapper(from: decoder)
+    let c = wrapper.bookContainer
+    title = try c.decodeIfPresent(String.self, forKey: .title)
+    subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
+    author = try c.decodeIfPresent(String.self, forKey: .author)
+    narrator = try c.decodeIfPresent(String.self, forKey: .narrator)
+    descriptionHTML = try c.decodeIfPresent(String.self, forKey: .description)
+    publisher = try c.decodeIfPresent(String.self, forKey: .publisher)
+    publishedYear = try c.decodeIfPresent(String.self, forKey: .publishedYear)
+    asin = try c.decodeIfPresent(String.self, forKey: .asin)
+    isbn = try c.decodeIfPresent(String.self, forKey: .isbn)
+    language = try c.decodeIfPresent(String.self, forKey: .language)
+    genres = try c.decodeIfPresent([String].self, forKey: .genres)
+    tags = try c.decodeIfPresent([String].self, forKey: .tags)
+    if let v = try c.decodeIfPresent(String.self, forKey: .cover), !v.isEmpty {
+      cover = v
+    } else if let v = try c.decodeIfPresent(String.self, forKey: .image), !v.isEmpty {
+      cover = v
+    } else {
+      cover = nil
+    }
+    // `series` kann String, Array von {name, sequence} oder Einzelobjekt sein.
+    if let arr = try? c.decode([ABSMatchSeries].self, forKey: .series) {
+      series = arr
+    } else if let one = try? c.decode(ABSMatchSeries.self, forKey: .series) {
+      series = [one]
+    } else {
+      series = nil
+    }
+  }
+
+  init(title: String?, author: String?) {
+    self.title = title; subtitle = nil; self.author = author; narrator = nil
+    descriptionHTML = nil; publisher = nil; publishedYear = nil; asin = nil; isbn = nil
+    language = nil; genres = nil; tags = nil; series = nil; cover = nil
+  }
+
+  /// Anzeige-Autoren (kompakt, kommagetrennt).
+  var displayAuthors: String? {
+    author?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? author : nil
+  }
+  /// Anzeige-Sprecher.
+  var displayNarrator: String? {
+    narrator?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? narrator : nil
+  }
+  /// Cover-URL (Favor `cover`, dann `image`).
+  var displayCoverURL: URL? {
+    if let s = cover, let u = URL(string: s) { return u }
+    return nil
+  }
+  /// Erscheinungsjahr aus `publishedYear` (ggf. aus Datum extrahiert).
+  var displayYear: String? {
+    guard let raw = publishedYear, !raw.isEmpty else { return nil }
+    return String(raw.prefix(4))
+  }
+  /// Serien-Anzeige „Name (Sequence)".
+  var displaySeries: String? {
+    guard let arr = series, !arr.isEmpty else { return nil }
+    return arr.map { s in
+      if let q = s.sequence?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty {
+        return "\(s.name) (\(q))"
+      }
+      return s.name
+    }.joined(separator: ", ")
+  }
+  /// Beschreibung als Plain-Text (HTML grob entfernt), 1–2 Zeilen Preview.
+  var displayDescription: String? {
+    guard let html = descriptionHTML, !html.isEmpty else { return nil }
+    var s = html
+    s = s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+    s = s.replacingOccurrences(of: "&amp;", with: "&")
+       .replacingOccurrences(of: "&#39;", with: "'")
+       .replacingOccurrences(of: "&quot;", with: "\"")
+       .replacingOccurrences(of: "&lt;", with: "<")
+       .replacingOccurrences(of: "&gt;", with: ">")
+       .replacingOccurrences(of: "&nbsp;", with: " ")
+    s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+    return s.isEmpty ? nil : s
+  }
+}
+
+/// Hilfs-Wrapper: Gewährleistet, dass Dekodierung sowohl für flache als auch
+/// unter `book` geschachtelte Treffer funktioniert (Server liefert beides).
+private struct ABSMetadataMatchWrapper: Decodable {
+  let bookContainer: KeyedDecodingContainer<ABSMetadataMatch.CodingKeys>
+
+  init(from decoder: Decoder) throws {
+    if let book = try? decoder.container(keyedBy: BookKey.self),
+       let nested = try? book.nestedContainer(keyedBy: ABSMetadataMatch.CodingKeys.self, forKey: .book) {
+      bookContainer = nested
+    } else {
+      bookContainer = try decoder.container(keyedBy: ABSMetadataMatch.CodingKeys.self)
+    }
+  }
+
+  private enum BookKey: String, CodingKey { case book }
+}
+
+/// Antwort von `/api/search/providers` — Listen je Typ (Bücher, Podcasts, Covers).
+/// Server liefert `{ "providers": { "books": [...], ... } }`; ältere Formate ohne Wrapper ebenfalls.
+struct ABSMetadataProvidersResponse: Decodable {
+  let books: [ABSMetadataProvider]
+  let podcasts: [ABSMetadataProvider]?
+  let booksCovers: [ABSMetadataProvider]?
+
+  private struct ProviderLists: Decodable {
+    let books: [ABSMetadataProvider]
+    let podcasts: [ABSMetadataProvider]?
+    let booksCovers: [ABSMetadataProvider]?
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case providers
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let lists: ProviderLists
+    if container.contains(.providers) {
+      lists = try container.decode(ProviderLists.self, forKey: .providers)
+    } else {
+      lists = try ProviderLists(from: decoder)
+    }
+    books = lists.books
+    podcasts = lists.podcasts
+    booksCovers = lists.booksCovers
+  }
+}
+
+/// Einzeln wählbares Metadaten-Feld für den Match-Apply-Dialog.
+enum ABSMatchField: String, CaseIterable, Identifiable {
+  case title, subtitle, author, narrator, description
+  case publisher, publishedYear, asin, isbn, language
+  case genres, tags, series, cover
+
+  var id: String { rawValue }
+  var label: String {
+    switch self {
+    case .title: return "Title"
+    case .subtitle: return "Subtitle"
+    case .author: return "Author"
+    case .narrator: return "Narrator"
+    case .description: return "Description"
+    case .publisher: return "Publisher"
+    case .publishedYear: return "Published Year"
+    case .asin: return "ASIN"
+    case .isbn: return "ISBN"
+    case .language: return "Language"
+    case .genres: return "Genres"
+    case .tags: return "Tags"
+    case .series: return "Series"
+    case .cover: return "Cover"
+    }
+  }
+}
+
+/// Request-Body für `PATCH /api/items/:id/media` — nur ausgewählte Felder werden kodiert.
+/// Authors → `[{ "name": ... }]`, Series → `[{ "name": ..., "sequence": ... }]`.
+struct ABSItemMediaMetadataPatch: Encodable {
+  struct AuthorPayload: Encodable { let name: String }
+  struct SeriesPayload: Encodable {
+    let name: String
+    let sequence: String?
+  }
+
+  var title: String?
+  var subtitle: String?
+  var authorNames: [String]?
+  var narratorNames: [String]?
+  var descriptionText: String?
+  var publisher: String?
+  var publishedYear: String?
+  var asin: String?
+  var isbn: String?
+  var language: String?
+  var genres: [String]?
+  var tags: [String]?
+  var series: [SeriesPayload]?
+
+  enum MetadataKeys: String, CodingKey {
+    case title, subtitle, authors, narrators
+    case description, publisher, publishedYear, asin, isbn, language, genres, series
+  }
+  enum TopKeys: String, CodingKey { case metadata, tags }
+
+  func encode(to encoder: Encoder) throws {
+    var top = encoder.container(keyedBy: TopKeys.self)
+    var meta = top.nestedContainer(keyedBy: MetadataKeys.self, forKey: .metadata)
+    try meta.encodeIfPresent(title, forKey: .title)
+    try meta.encodeIfPresent(subtitle, forKey: .subtitle)
+    if let names = authorNames {
+      try meta.encode(names.map { AuthorPayload(name: $0) }, forKey: .authors)
+    }
+    if let narrators = narratorNames {
+      try meta.encode(narrators, forKey: .narrators)
+    }
+    try meta.encodeIfPresent(descriptionText, forKey: .description)
+    try meta.encodeIfPresent(publisher, forKey: .publisher)
+    try meta.encodeIfPresent(publishedYear, forKey: .publishedYear)
+    try meta.encodeIfPresent(asin, forKey: .asin)
+    try meta.encodeIfPresent(isbn, forKey: .isbn)
+    try meta.encodeIfPresent(language, forKey: .language)
+    try meta.encodeIfPresent(genres, forKey: .genres)
+    if let series = series {
+      try meta.encode(series, forKey: .series)
+    }
+    try top.encodeIfPresent(tags, forKey: .tags)
+  }
+}
+
+// MARK: - Cover online search (`GET /api/search/covers`)
+
+/// Antwort-Container für `/api/search/covers`. Der Server liefert variabel:
+/// flaches Array aus URL-Strings, Array aus `{cover|url|image}`-Objekten, oder `{results: [...]}`.
+struct ABSCoverSearchResponse: Decodable {
+  let urls: [String]
+
+  init(from decoder: Decoder) throws {
+    // Bevorzugt: Top-Level ist ein Array (flach oder Objekte).
+    if let arr = try? decoder.singleValueContainer().decode([AnyCoverEntry].self) {
+      urls = arr.compactMap { $0.url }.filter { !$0.isEmpty }
+      return
+    }
+    // Fallback: `{ results: [...] }`-Hülle.
+    if let keyed = try? decoder.container(keyedBy: Keyed.self),
+       let inner = try? keyed.decodeIfPresent([AnyCoverEntry].self, forKey: .results) {
+      urls = inner.compactMap { $0.url }.filter { !$0.isEmpty }
+      return
+    }
+    urls = []
+  }
+
+  /// Einzelner Eintrag — String oder `{cover|url|image: "..."}`-Objekt.
+  private struct AnyCoverEntry: Decodable {
+    let url: String?
+    init(from decoder: Decoder) throws {
+      // Direkter String?
+      if let s = try? decoder.singleValueContainer().decode(String.self), !s.isEmpty {
+        url = s
+        return
+      }
+      // Objekt mit cover/url/image-Feld?
+      if let c = try? decoder.container(keyedBy: Fields.self) {
+        for k in [Fields.cover, .url, .image] {
+          if let v = try? c.decode(String.self, forKey: k), !v.isEmpty {
+            url = v
+            return
+          }
+        }
+      }
+      url = nil
+    }
+  }
+  private enum Keyed: String, CodingKey { case results }
+  private enum Fields: String, CodingKey { case cover, url, image }
 }
 
 extension ABSBookMediaMetadata {
@@ -892,6 +1199,86 @@ extension ABSDownloadManifest.Chapter {
     end = ch.end
     title = ch.title
   }
+}
+
+// MARK: - Audible chapter lookup (Audnexus via `/api/search/chapters`)
+
+/// Ein Roh-Kapitel aus der Audnexus-Antwort (`{ title, startOffsetMs, startOffsetSec?, lengthMs }`).
+/// Zeiten werden in Sekunden normalisiert.
+struct ABSAudibleChapter: Decodable, Identifiable, Hashable {
+  let title: String
+  /// Start in Sekunden (bevorzugt `startOffsetMs/1000`, Fallback `startOffsetSec`).
+  let start: Double
+  /// Länge in Sekunden (`lengthMs/1000`).
+  let length: Double
+
+  enum CodingKeys: String, CodingKey {
+    case title
+    case startOffsetMs, startOffsetSec, lengthMs
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    title = (try? c.decode(String.self, forKey: .title)) ?? ""
+    if let ms = try? c.decode(Double.self, forKey: .startOffsetMs) {
+      start = ms / 1000.0
+    } else if let sec = try? c.decode(Double.self, forKey: .startOffsetSec) {
+      start = sec
+    } else {
+      start = 0
+    }
+    let ms = (try? c.decode(Double.self, forKey: .lengthMs)) ?? 0
+    length = ms / 1000.0
+  }
+
+  var id: Double { start }
+}
+
+/// Antwort von `/api/search/chapters`. Enthält die Audible-Kapitel sowie optionale Branding-Dauern.
+/// Bei Misserfolg liefert der Server `{ error: "..." }`.
+struct ABSAudibleChaptersResponse: Decodable {
+  let chapters: [ABSAudibleChapter]
+  let runtimeLengthSec: Double?
+  let brandIntroDurationMs: Double?
+  let brandOutroDurationMs: Double?
+  /// Server-Fehlermeldung (Lookup fehlgeschlagen, ASIN nicht gefunden, …).
+  let error: String?
+
+  enum CodingKeys: String, CodingKey {
+    case chapters, runtimeLengthSec, brandIntroDurationMs, brandOutroDurationMs, error
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    chapters = (try? c.decode([ABSAudibleChapter].self, forKey: .chapters)) ?? []
+    runtimeLengthSec = try? c.decodeIfPresent(Double.self, forKey: .runtimeLengthSec)
+    brandIntroDurationMs = try? c.decodeIfPresent(Double.self, forKey: .brandIntroDurationMs)
+    brandOutroDurationMs = try? c.decodeIfPresent(Double.self, forKey: .brandOutroDurationMs)
+    error = try? c.decodeIfPresent(String.self, forKey: .error)
+  }
+
+  /// Leere/Antwort-Helfer für Fehler-Zustände in der UI.
+  static let empty = ABSAudibleChaptersResponse(
+    chapters: [], runtimeLengthSec: nil, brandIntroDurationMs: nil, brandOutroDurationMs: nil, error: nil)
+
+  private init(chapters: [ABSAudibleChapter], runtimeLengthSec: Double?, brandIntroDurationMs: Double?, brandOutroDurationMs: Double?, error: String?) {
+    self.chapters = chapters
+    self.runtimeLengthSec = runtimeLengthSec
+    self.brandIntroDurationMs = brandIntroDurationMs
+    self.brandOutroDurationMs = brandOutroDurationMs
+    self.error = error
+  }
+}
+
+/// Body für `POST /api/items/:id/chapters` — Top-Level `chapters`-Array (NICHT unter `metadata`).
+struct ABSItemChaptersPayload: Encodable {
+  struct Chapter: Encodable {
+    let id: Int
+    let start: Double
+    let end: Double
+    let title: String
+  }
+  let chapters: [Chapter]
 }
 
 struct ABSAudioTrack: Codable {
@@ -1236,6 +1623,9 @@ struct ABSBook: Codable, Identifiable {
   /// verschwinden neu hinzugefügte Titel aus der Liste.
   var isUsableLibraryCatalogRow: Bool {
     if isPlayableAudiobook { return true }
+    if isPureEbookLibraryItem {
+      return !displayTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     let tracks = media.numTracks
     if tracks == nil, (media.duration ?? 0) <= 0 {
       return !displayTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1264,8 +1654,15 @@ struct ABSBook: Codable, Identifiable {
   }
 
   /// Buch gehört zu einer Bibliotheks-Serie (für Continue-series eBooks).
+  /// Series-Einträge ohne echten Namen (z. B. Server-Stub `{ id, name: "" }`) zählen nicht als Serie —
+  /// sonst landen Einzel-eBooks fälschlich in „Continue series" statt „Continue reading".
   var belongsToLibrarySeries: Bool {
-    if let arr = media.metadata.series, !arr.isEmpty { return true }
+    if let arr = media.metadata.series {
+      let hasNamedSeries = arr.contains {
+        !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      }
+      if hasNamedSeries { return true }
+    }
     let sn = media.metadata.seriesName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return !sn.isEmpty
   }
@@ -1369,6 +1766,7 @@ extension ABSBookMediaMetadata {
     descriptionPlain = nil
     genres = nil
     language = nil
+    asin = nil
     feedUrl = nil
   }
 }
@@ -1491,6 +1889,71 @@ extension ABSBook {
     return fmt == "epub" && isAudiobookLibraryItem
   }
 
+  /// Reines eBook laut Server-Metadaten — kein minified „nur Titel ohne Spuren“-Fallback.
+  var isCatalogPureEbookLibraryItem: Bool {
+    guard !isPlayableAudiobook else { return false }
+    if media.ebookFile != nil { return true }
+    if libraryFiles?.contains(where: \.isEbook) == true { return true }
+    if let fmt = media.ebookFormat?.trimmingCharacters(in: .whitespacesAndNewlines), !fmt.isEmpty {
+      return true
+    }
+    return false
+  }
+
+  /// Hörbuch mit lesbarem supplementärem eBook (EPUB/PDF) — Badge unten rechts auf dem Cover.
+  var isCatalogSupplementaryEbook: Bool {
+    guard isPlayableAudiobook else { return false }
+    if hasSupplementalEpub { return true }
+    if readableAttachedEbook != nil { return true }
+    // Minified-Katalog: oft `ebookFormat`/`ebookFile` ohne vollständiges `readableAttachedEbook`.
+    if media.ebookFile != nil { return true }
+    if libraryFiles?.contains(where: \.isEbook) == true { return true }
+    if let fmt = media.ebookFormat?.trimmingCharacters(in: .whitespacesAndNewlines), !fmt.isEmpty {
+      return true
+    }
+    return false
+  }
+
+  /// Bücher-Katalogfilter „eBook“: reines eBook oder Hörbuch mit supplementärem eBook.
+  var matchesBooksEbookCatalogFilter: Bool {
+    isCatalogPureEbookLibraryItem || isCatalogSupplementaryEbook
+  }
+
+  /// eBook-Symbol unten rechts auf Hörbuch-Cover (Listen, Detail, Continue).
+  var showsAttachedEbookCoverBadge: Bool {
+    isCatalogSupplementaryEbook
+  }
+
+  /// Listen-Merge: eBook-/Spur-Felder zählen stärker als bloße Titel-Stubs.
+  var listMetadataRichnessScore: Int {
+    var score = 0
+    if media.ebookFile != nil { score += 8 }
+    if let fmt = media.ebookFormat?.trimmingCharacters(in: .whitespacesAndNewlines), !fmt.isEmpty { score += 6 }
+    if libraryFiles?.contains(where: \.isEbook) == true { score += 8 }
+    if libraryFiles?.isEmpty == false { score += 2 }
+    if media.tracks?.isEmpty == false { score += 3 }
+    if (media.numTracks ?? 0) > 0 { score += 1 }
+    if (media.duration ?? 0) > 0 { score += 1 }
+    if media.metadata.hasRichMetadata { score += 1 }
+    return score
+  }
+
+  /// Zwei Stubs derselben ID zusammenführen — reichere eBook-/Spur-Metadaten behalten.
+  func preferringRicherListMetadata(than other: ABSBook) -> ABSBook {
+    if listMetadataRichnessScore >= other.listMetadataRichnessScore {
+      return mergingListMetadata(from: other)
+    }
+    return other.mergingListMetadata(from: self)
+  }
+
+  private func mergedLibraryFilesForList(with other: ABSBook) -> [ABSLibraryFile]? {
+    var byIno: [String: ABSLibraryFile] = [:]
+    for file in (libraryFiles ?? []) + (other.libraryFiles ?? []) {
+      byIno[file.ino] = file
+    }
+    return byIno.isEmpty ? nil : Array(byIno.values)
+  }
+
   var epubIno: String? {
     if let ef = media.ebookFile, ef.isEpub {
       let ino = ef.ino.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1606,6 +2069,32 @@ extension ABSBook {
       updatedAt: updatedAt,
       mediaId: mediaId,
       libraryFiles: libraryFiles ?? local.libraryFiles
+    )
+  }
+
+  /// Metadaten aus Katalog-/Detail-Stub übernehmen (eBook-Felder, `libraryFiles`, Spuren).
+  func mergingListMetadata(from other: ABSBook) -> ABSBook {
+    guard id == other.id else { return self }
+    let mergedMedia = ABSBookMedia(
+      metadata: media.metadata.hasRichMetadata ? media.metadata : other.media.metadata,
+      duration: media.duration ?? other.media.duration,
+      size: media.size ?? other.media.size,
+      numTracks: media.numTracks ?? other.media.numTracks,
+      chapters: media.chapters ?? other.media.chapters,
+      tracks: media.tracks ?? other.media.tracks,
+      podcastEpisodes: media.podcastEpisodes ?? other.media.podcastEpisodes,
+      ebookFile: media.ebookFile ?? other.media.ebookFile,
+      ebookFormat: media.ebookFormat ?? other.media.ebookFormat,
+      tags: media.tags ?? other.media.tags
+    )
+    return ABSBook(
+      id: id,
+      libraryId: libraryId ?? other.libraryId,
+      media: mergedMedia,
+      addedAt: addedAt ?? other.addedAt,
+      updatedAt: updatedAt ?? other.updatedAt,
+      mediaId: mediaId ?? other.mediaId,
+      libraryFiles: mergedLibraryFilesForList(with: other)
     )
   }
 

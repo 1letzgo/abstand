@@ -3,7 +3,6 @@ import UIKit
 
 struct BookDetailView: View {
   @EnvironmentObject private var model: AppModel
-  @Environment(\.themeAccent) private var themeAccent
   @Environment(\.dismiss) private var dismiss
   let bookId: String
   @State private var detail: ABSBook?
@@ -12,6 +11,7 @@ struct BookDetailView: View {
   @State private var chaptersExpanded = false
   @State private var bookmarksExpanded = false
   @State private var sessionsExpanded = false
+  @State private var descriptionExpanded = false
   @State private var listeningSessions: [ABSListeningSession] = []
   @State private var confirmDiscardListeningProgress = false
   @State private var confirmMarkBookFinished = false
@@ -20,6 +20,12 @@ struct BookDetailView: View {
   @State private var confirmResetEbookRead = false
   /// Autor/Serie/Genre/Sprecher oberhalb des Buch-Details — nicht `libraryEntityDetailNav` (würde Detail poppen).
   @State private var linkedEntityDetailNav: BooksEntityDetailNav?
+  /// Match-Metadaten-Sheet (Admin/Root) — absorb-style Online-Match.
+  @State private var showMatchSheet = false
+  /// Kapitel-Editor-Sheet (Admin/Root) — Audible-Kapitel über Audnexus übernehmen.
+  @State private var showChaptersSheet = false
+  /// Metadaten-Editor-Sheet (Admin/Root) — manuelle Bearbeitung + Cover-Online-Suche.
+  @State private var showEditSheet = false
 
   private var book: ABSBook {
     detail
@@ -45,28 +51,8 @@ struct BookDetailView: View {
           coverSection
           infoSection
           if let d = detail {
-            detailActionsAndMeta(book: d)
+            detailBelowPlaySection(book: d)
           }
-        }
-        if let d = detail {
-          bookChaptersSection(book: d)
-          BookmarksDisclosure(
-            expanded: $bookmarksExpanded,
-            libraryItemId: bookId,
-            onJump: { mark in
-              Task { await model.jumpToBookmark(mark, autoPlay: true) }
-            }
-          )
-          ListeningHistoryDisclosure(
-            expanded: $sessionsExpanded,
-            sessions: listeningSessions,
-            isNetworkReachable: model.isNetworkReachable,
-            emptyOnlineText: "No listening sessions recorded for this book yet.",
-            emptyOfflineText: "Listening history is unavailable offline.",
-            onJumpToSessionStart: { session in
-              Task { await model.play(book: d, resumeAtOverride: session.startTime, autoPlay: true) }
-            }
-          )
         }
       }
       .padding(.horizontal, AppTheme.Layout.tabPaddingH)
@@ -143,11 +129,68 @@ struct BookDetailView: View {
     .navigationDestination(item: $linkedEntityDetailNav) { nav in
       BooksEntityDetailView(nav: nav)
     }
+    .sheet(isPresented: $showMatchSheet, onDismiss: reloadDetailAfterEdit) {
+      MatchMetadataSheet(
+        itemId: bookId,
+        currentTitle: (detail ?? book).media.metadata.title,
+        currentAuthor: (detail ?? book).media.metadata.authorName
+      )
+      .environmentObject(model)
+      .themeAccentFromAppModel(model)
+    }
+    .sheet(isPresented: $showChaptersSheet, onDismiss: reloadDetailAfterEdit) {
+      ChaptersEditorSheet(
+        itemId: bookId,
+        currentASIN: (detail ?? book).media.metadata.asin,
+        mediaDuration: (detail ?? book).media.duration
+      )
+      .environmentObject(model)
+      .themeAccentFromAppModel(model)
+    }
+    .sheet(isPresented: $showEditSheet, onDismiss: reloadDetailAfterEdit) {
+      EditMetadataSheet(
+        itemId: bookId,
+        metadata: (detail ?? book).media.metadata,
+        tags: (detail ?? book).media.tags
+      )
+      .environmentObject(model)
+      .themeAccentFromAppModel(model)
+    }
   }
 
-  private func openLinkedEntityDetail(_ nav: BooksEntityDetailNav) {
+  /// Nach Admin-Edit-Sheets: Detail + Cover-Tint neu laden (Metadaten/Kapitel/Cover wurden ggf. geändert).
+  private func reloadDetailAfterEdit() {
+    Task {
+      let loaded = await model.loadBookDetail(id: bookId)
+      if let loaded { detail = loaded }
+      coverImageForTint = nil
+      await loadCoverTint()
+    }
+  }
+
+  private func openLinkedEntityDetail(
+    kind: BooksEntityDetailNav.Kind,
+    entityId: String,
+    title: String,
+    from book: ABSBook,
+    numBooks: Int? = nil
+  ) {
+    let nav = BooksEntityDetailNav(
+      kind: kind,
+      entityId: entityId,
+      title: title,
+      numBooks: numBooks,
+      libraryId: entityDetailLibraryId(for: book))
     model.prepareEntityDetail(for: nav)
     linkedEntityDetailNav = nav
+  }
+
+  /// eBooks und Hörbücher teilen dieselbe Server-Bibliothek.
+  private func entityDetailLibraryId(for book: ABSBook) -> String? {
+    if let lid = book.libraryId?.trimmingCharacters(in: .whitespacesAndNewlines), !lid.isEmpty {
+      return lid
+    }
+    return model.selectedBooksLibrary?.id
   }
 
   private func applyCoverTintFromStoredImage() {
@@ -177,14 +220,20 @@ struct BookDetailView: View {
   @ViewBuilder
   private func bookDetailUtilityToolbarItems(book d: ABSBook) -> some View {
     let rowProgress = model.progressByItemId[d.id]
-    let canDiscardProgress: Bool = {
+    let canDiscardListeningProgress: Bool = {
+      guard !isPureEbookDetail else { return false }
       guard let p = rowProgress else { return false }
       if p.isFinished { return true }
       if p.currentTime > 1 { return true }
       if p.duration > 0, p.progress > 0.001 { return true }
       return false
     }()
-    let discardEnabled = canDiscardProgress && model.isNetworkReachable
+    let canResetEbookProgress: Bool = {
+      guard isPureEbookDetail else { return false }
+      guard let f = model.ebookDisplayProgressFraction(libraryItemId: d.id) else { return false }
+      return f > 0.005
+    }()
+    let discardEnabled = (canDiscardListeningProgress || canResetEbookProgress) && model.isNetworkReachable
     let storageId = model.downloadStorageIdForLibraryItem(d.id) ?? d.id
 
     DetailToolbarDownloadItem(
@@ -194,9 +243,38 @@ struct BookDetailView: View {
     )
 
     DetailToolbarResetProgressItem(enabled: discardEnabled) {
-      confirmDiscardListeningProgress = true
+      if isPureEbookDetail {
+        confirmResetEbookRead = true
+      } else {
+        confirmDiscardListeningProgress = true
+      }
     }
     .tint(discardEnabled ? AppTheme.danger : AppTheme.textSecondary)
+
+    // Match-Metadaten + Kapitel-Editor nur für Admin/Root (ABS `isAdminOrUp`).
+    if model.isServerAdmin || model.isServerRoot {
+      Menu {
+        Button {
+          showEditSheet = true
+        } label: {
+          Label("Edit Metadata", systemImage: "pencil")
+        }
+        Button {
+          showMatchSheet = true
+        } label: {
+          Label("Match Metadata", systemImage: "magnifyingglass")
+        }
+        Button {
+          showChaptersSheet = true
+        } label: {
+          Label("Edit Chapters", systemImage: "list.bullet.below.rectangle")
+        }
+      } label: {
+        Image(systemName: "ellipsis.circle")
+          .foregroundStyle(AppTheme.textPrimary)
+      }
+      .disabled(!model.isNetworkReachable)
+    }
   }
 
   private func resolvedEbookFormat(for book: ABSBook) -> ABSEbookFormat? {
@@ -213,50 +291,60 @@ struct BookDetailView: View {
     await model.resetEbookReadingProgress(libraryItemId: book.id, format: format)
   }
 
-  private var coverSection: some View {
-    let b = detail ?? book
-    let heroScope = model.coverImageCacheScopeId(for: bookId, tier: .hero)
-    let cover = CoverImageView(
-      url: model.coverURL(for: bookId, tier: .hero),
-      token: model.token,
-      itemId: bookId,
-      cacheAccount: model.coverImageCacheAccountDirectory(),
-      cacheScopeId: heroScope,
-      cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: b.updatedAt),
-      contentMode: .fit
-    )
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
+  private var heroBook: ABSBook { detail ?? book }
+  private var isPureEbookDetail: Bool { heroBook.isPureEbookLibraryItem }
 
-    return Group {
-      if b.isPureEbookLibraryItem {
-        cover
-          .frame(maxWidth: DetailHeroLayoutMetrics.ebookCoverMaxWidth)
-          .frame(maxWidth: .infinity)
-      } else {
-        cover
-          .aspectRatio(1, contentMode: .fit)
-          .frame(maxWidth: .infinity)
-      }
+  private var coverSection: some View {
+    let b = heroBook
+    let heroScope = model.coverImageCacheScopeId(for: bookId, tier: .hero)
+    return DetailHeroCoverFrame(aspectRatio: 1) {
+      SquareCoverImageView(
+        url: model.coverURL(for: bookId, tier: .hero),
+        token: model.token,
+        itemId: bookId,
+        cacheAccount: model.coverImageCacheAccountDirectory(),
+        cacheScopeId: heroScope,
+        cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: b.updatedAt)
+      )
     }
-    .padding(.top, DetailHeroLayoutMetrics.coverTopPadding)
   }
 
   private var infoSection: some View {
-    VStack {
-      Text(book.displayTitle)
-        .font(DetailHeroTypography.heroTitle)
-        .foregroundStyle(AppTheme.textPrimary)
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
-      if !book.displayAuthors.isEmpty && book.displayAuthors != "—" {
-        Text(book.displayAuthors)
-          .font(DetailHeroTypography.heroSubtitle)
-          .foregroundStyle(AppTheme.textSecondary)
-          .multilineTextAlignment(.center)
-          .frame(maxWidth: .infinity)
-      }
+    let m = heroBook.media.metadata
+    return DetailHeroInfoSection(
+      title: heroBook.displayTitle,
+      subtitle: heroAuthorLinks.isEmpty ? heroAuthorSubtitle : nil,
+      authorLinks: heroAuthorLinks,
+      onAuthorTap: { id, name in
+        openLinkedEntityDetail(
+          kind: .author,
+          entityId: id,
+          title: name,
+          from: heroBook)
+      },
+      tertiaryParts: isPureEbookDetail
+        ? [bookDurationLabel(for: heroBook), m.publishedYear ?? ""].filter { $0 != "—" }
+        : [bookDurationLabel(for: heroBook), m.publishedYear ?? ""]
+    )
+  }
+
+  private var heroAuthorLinks: [(id: String, name: String)] {
+    let m = heroBook.media.metadata
+    if let authors = m.authors, !authors.isEmpty {
+      return authors.map { ($0.id, $0.name) }
     }
-    .padding(.top, DetailHeroLayoutMetrics.titleTopSpacing)
+    if let name = m.authorName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+      return [(name, name)]
+    }
+    let line = heroBook.displayAuthors.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !line.isEmpty, line != "—" else { return [] }
+    return [(line, line)]
+  }
+
+  private var heroAuthorSubtitle: String? {
+    let authors = heroBook.displayAuthors.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !authors.isEmpty, authors != "—" else { return nil }
+    return authors
   }
 
   private var bookPlayProgress01: Double {
@@ -348,10 +436,19 @@ struct BookDetailView: View {
     return actions
   }
 
-  private func detailActionsAndMeta(book d: ABSBook) -> some View {
+  private func detailBelowPlaySection(book d: ABSBook) -> some View {
     let m = d.media.metadata
     let isListenFinished = prog?.isFinished == true
-    return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+    let narrators = m.narratorNamesForLibraryBrowseCoverMatch()
+    let hasPeople = !narrators.isEmpty
+    let hasSeries = hasSeriesContent(metadata: m)
+    let publisher = trimmedMetaValue(m.publisher)
+    let year = trimmedMetaValue(m.publishedYear)
+    let genres = resolvedGenres(metadata: m)
+    let tags = resolvedTags(book: d)
+    let aboutText = bookAboutText(metadata: m)
+
+    return VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
       DetailHeroActionsBar(
         actions: bookDetailHeroActions(
           for: d,
@@ -362,169 +459,185 @@ struct BookDetailView: View {
       .padding(.top, AppTheme.Layout.detailPlayButtonTopPadding)
       .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
 
-      if let authors = m.authors, !authors.isEmpty {
-        detailMetaLabeledRow(title: "Author") {
-          VStack(alignment: .leading, spacing: 4) {
-            ForEach(authors, id: \.id) { author in
-              Button {
-                openLinkedEntityDetail(
-                  BooksEntityDetailNav(
-                    kind: .author,
-                    entityId: author.id,
-                    title: author.name,
-                    numBooks: nil))
-              } label: {
-                Text(author.name)
-                  .font(DetailHeroTypography.metaLink)
-                  .foregroundStyle(themeAccent)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-              }
-              .buttonStyle(.plain)
+      VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
+        if let aboutText {
+          DetailDetailSectionCard {
+            DetailMetaField(title: "Description") {
+              DetailMetaExpandableTextBlock(text: aboutText, isExpanded: $descriptionExpanded)
             }
           }
         }
+
+        if d.isPlayableAudiobook, hasPeople {
+          DetailDetailSectionCard {
+            DetailMetaField(title: narrators.count == 1 ? "Narrator" : "Narrators") {
+              VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.linkRowSpacing) {
+                ForEach(narrators, id: \.self) { narrator in
+                  DetailMetaLink(title: narrator) {
+                    openLinkedEntityDetail(
+                      kind: .narrator,
+                      entityId: narrator,
+                      title: narrator,
+                      from: d)
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        if hasSeries {
+          DetailDetailSectionCard {
+            DetailMetaField(title: "Series") {
+              detailSeriesContent(book: d, metadata: m)
+            }
+          }
+        }
+
+        if let publishedLine = publishedDisplayLine(publisher: publisher, year: year) {
+          DetailDetailSectionCard {
+            DetailMetaField(title: "Published") {
+              DetailMetaTextBlock(text: publishedLine)
+            }
+          }
+        }
+
+        if !genres.isEmpty {
+          DetailDetailSectionCard {
+            DetailMetaField(title: "Genres") {
+              detailGenresLinks(genres, book: d)
+            }
+          }
+        }
+
+        if !tags.isEmpty {
+          DetailDetailSectionCard {
+            DetailMetaField(title: "Tags") {
+              detailTagsLinks(tags, book: d)
+            }
+          }
+        }
+
+        if d.isPlayableAudiobook {
+          bookChaptersSection(book: d)
+          BookmarksDisclosure(
+            expanded: $bookmarksExpanded,
+            libraryItemId: bookId,
+            onJump: { mark in
+              Task { await model.jumpToBookmark(mark, autoPlay: true) }
+            }
+          )
+          ListeningHistoryDisclosure(
+            expanded: $sessionsExpanded,
+            sessions: listeningSessions,
+            isNetworkReachable: model.isNetworkReachable,
+            emptyOnlineText: "No listening sessions recorded for this book yet.",
+            emptyOfflineText: "Listening history is unavailable offline.",
+            onJumpToSessionStart: { session in
+              Task { await model.play(book: d, resumeAtOverride: session.startTime, autoPlay: true) }
+            }
+          )
+        }
       }
-      if let narrators = m.narratorName?.trimmingCharacters(in: .whitespacesAndNewlines), !narrators.isEmpty {
-        detailMetaLabeledRow(title: "Narrator") {
-          Button {
+      .padding(.top, AppTheme.Layout.detailMetaAfterPlaySpacing)
+    }
+  }
+
+  private func trimmedMetaValue(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let t = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty, t != "—" else { return nil }
+    return t
+  }
+
+  /// „Verlag - Jahr“ für die Published-Zeile.
+  private func publishedDisplayLine(publisher: String?, year: String?) -> String? {
+    switch (publisher, year) {
+    case let (p?, y?): return "\(p) - \(y)"
+    case let (p?, nil): return p
+    case let (nil, y?): return y
+    case (nil, nil): return nil
+    }
+  }
+
+  private func hasSeriesContent(metadata m: ABSBookMediaMetadata) -> Bool {
+    if let seriesList = m.series, !seriesList.isEmpty { return true }
+    if let line = m.resolvedSeriesDisplay?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !line.isEmpty
+    { return true }
+    return false
+  }
+
+  private func bookAboutText(metadata m: ABSBookMediaMetadata) -> String? {
+    absPlainText(fromHTML: m.descriptionPlain ?? m.description).nilIfEmpty
+  }
+
+  private func resolvedGenres(metadata m: ABSBookMediaMetadata) -> [String] {
+    (m.genres ?? [])
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+  }
+
+  private func resolvedTags(book: ABSBook) -> [String] {
+    (book.media.tags ?? [])
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+  }
+
+  @ViewBuilder
+  private func detailSeriesContent(book: ABSBook, metadata m: ABSBookMediaMetadata) -> some View {
+    if let seriesList = m.series, !seriesList.isEmpty {
+      VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.linkRowSpacing) {
+        ForEach(seriesList, id: \.id) { s in
+          DetailMetaLink(title: seriesDisplayLine(for: s)) {
             openLinkedEntityDetail(
-              BooksEntityDetailNav(
-                kind: .narrator,
-                entityId: narrators,
-                title: narrators,
-                numBooks: nil))
-          } label: {
-            Text(narrators)
-              .font(DetailHeroTypography.metaLink)
-              .foregroundStyle(themeAccent)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          }
-          .buttonStyle(.plain)
-        }
-      }
-      if let seriesList = m.series, !seriesList.isEmpty {
-        detailMetaLabeledRow(title: "Series") {
-          VStack(alignment: .leading, spacing: 4) {
-            ForEach(seriesList, id: \.id) { s in
-              Button {
-                openLinkedEntityDetail(
-                  BooksEntityDetailNav(
-                    kind: .series,
-                    entityId: s.id,
-                    title: s.name,
-                    numBooks: nil))
-              } label: {
-                Text(seriesDisplayLine(for: s))
-                  .font(DetailHeroTypography.metaLink)
-                  .foregroundStyle(themeAccent)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-              }
-              .buttonStyle(.plain)
-            }
+              kind: .series,
+              entityId: s.id,
+              title: s.name,
+              from: book)
           }
         }
-      } else if let line = m.resolvedSeriesDisplay, !line.isEmpty {
-        detailMetaRow("Series", line)
       }
-      detailMetaRow("Duration", bookDurationLabel(for: d))
-      detailMetaRow("Year", m.publishedYear ?? "—")
-      detailMetaRow("Publisher", m.publisher ?? "—")
-      detailCategoriesRow(metadata: m)
-      detailTagsRow(book: d)
-      detailMetaRow(
-        "Description",
-        absPlainText(fromHTML: m.descriptionPlain ?? m.description).nilIfEmpty ?? "—")
+    } else if let line = m.resolvedSeriesDisplay?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !line.isEmpty
+    {
+      DetailMetaTextBlock(text: line)
     }
   }
 
   @ViewBuilder
-  private func detailTagsRow(book: ABSBook) -> some View {
-    let tags = (book.media.tags ?? [])
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-    if tags.isEmpty {
-      detailMetaRow("Tags", "—")
-    } else {
-      detailMetaLabeledRow(title: "Tags") {
-        VStack(alignment: .leading, spacing: 4) {
-          ForEach(tags, id: \.self) { tag in
-            Button {
-              openLinkedEntityDetail(
-                BooksEntityDetailNav(
-                  kind: .tag,
-                  entityId: tag,
-                  title: tag,
-                  numBooks: model.browseTags.first {
-                    $0.name.localizedCaseInsensitiveCompare(tag) == .orderedSame
-                  }?.numBooks
-                ))
-            } label: {
-              Text(tag)
-                .font(DetailHeroTypography.metaLink)
-                .foregroundStyle(themeAccent)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-          }
+  private func detailGenresLinks(_ genres: [String], book: ABSBook) -> some View {
+    VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.linkRowSpacing) {
+      ForEach(genres, id: \.self) { genre in
+        DetailMetaLink(title: genre) {
+          openLinkedEntityDetail(
+            kind: .genre,
+            entityId: genre,
+            title: genre,
+            from: book,
+            numBooks: model.browseGenres.first {
+              $0.name.localizedCaseInsensitiveCompare(genre) == .orderedSame
+            }?.numBooks)
         }
       }
     }
   }
 
   @ViewBuilder
-  private func detailCategoriesRow(metadata m: ABSBookMediaMetadata) -> some View {
-    let genres = (m.genres ?? [])
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-    if genres.isEmpty {
-      detailMetaRow("Genres", "—")
-    } else {
-      detailMetaLabeledRow(title: "Genres") {
-        VStack(alignment: .leading, spacing: 4) {
-          ForEach(genres, id: \.self) { genre in
-            Button {
-              openLinkedEntityDetail(
-                BooksEntityDetailNav(
-                  kind: .genre,
-                  entityId: genre,
-                  title: genre,
-                  numBooks: model.browseGenres.first {
-                    $0.name.localizedCaseInsensitiveCompare(genre) == .orderedSame
-                  }?.numBooks))
-            } label: {
-              Text(genre)
-                .font(DetailHeroTypography.metaLink)
-                .foregroundStyle(themeAccent)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-          }
+  private func detailTagsLinks(_ tags: [String], book: ABSBook) -> some View {
+    VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.linkRowSpacing) {
+      ForEach(tags, id: \.self) { tag in
+        DetailMetaLink(title: tag) {
+          openLinkedEntityDetail(
+            kind: .tag,
+            entityId: tag,
+            title: tag,
+            from: book,
+            numBooks: model.browseTags.first {
+              $0.name.localizedCaseInsensitiveCompare(tag) == .orderedSame
+            }?.numBooks)
         }
       }
-    }
-  }
-
-  private func detailMetaLabeledRow<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-    HStack(alignment: .top, spacing: 10) {
-      Text(title.uppercased())
-        .font(DetailHeroTypography.metaLabel)
-        .foregroundStyle(AppTheme.textSecondary)
-        .frame(width: 112, alignment: .leading)
-      content()
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-  }
-
-  private func detailMetaRow(_ k: String, _ v: String) -> some View {
-    HStack(alignment: .top, spacing: 10) {
-      Text(k.uppercased())
-        .font(DetailHeroTypography.metaLabel)
-        .foregroundStyle(AppTheme.textSecondary)
-        .frame(width: 112, alignment: .leading)
-      Text(v)
-        .font(DetailHeroTypography.metaValue)
-        .foregroundStyle(AppTheme.textPrimary)
-        .fixedSize(horizontal: false, vertical: true)
     }
   }
 
@@ -540,7 +653,7 @@ struct BookDetailView: View {
     if chapters.isEmpty {
       EmptyView()
     } else {
-      DisclosureGroup(isExpanded: $chaptersExpanded) {
+      DetailMetaDisclosure(title: "Chapters", isExpanded: $chaptersExpanded) {
         VStack(alignment: .leading, spacing: 0) {
           ForEach(Array(chapters.enumerated()), id: \.element.id) { idx, ch in
             bookChapterRow(chapter: ch, book: book)
@@ -549,13 +662,6 @@ struct BookDetailView: View {
             }
           }
         }
-        .padding(.top, 4)
-      } label: {
-        Text("Chapters")
-          .font(DetailHeroTypography.metaLabel)
-          .foregroundStyle(AppTheme.textSecondary)
-          .textCase(.uppercase)
-          .tracking(0.6)
       }
       .tint(model.appearanceAccentColor)
     }
@@ -581,12 +687,17 @@ struct BookDetailView: View {
       Image(systemName: "checkmark.circle.fill")
         .foregroundStyle(model.appearanceAccentColor)
         .font(.body)
+        .accessibilityLabel("Completed")
     case .inProgress:
       Image(systemName: "play.circle.fill")
         .foregroundStyle(model.appearanceAccentColor)
         .font(.body)
+        .accessibilityLabel("In progress")
     case .notStarted:
-      EmptyView()
+      Image(systemName: "circle")
+        .foregroundStyle(AppTheme.textSecondary.opacity(0.35))
+        .font(.body)
+        .accessibilityHidden(true)
     }
   }
 
@@ -608,9 +719,6 @@ struct BookDetailView: View {
         }
         Spacer(minLength: 8)
         chapterStatusIcon(state: state)
-        Image(systemName: "play.circle")
-          .font(.title3)
-          .foregroundStyle(model.appearanceAccentColor)
       }
       .padding(.vertical, 10)
       .contentShape(Rectangle())

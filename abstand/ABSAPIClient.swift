@@ -413,6 +413,121 @@ actor ABSAPIClient {
     try await sendData(req)
   }
 
+  /// Verfügbare Metadaten-Provider (`GET /api/search/providers`).
+  func metadataProviders() async throws -> ABSMetadataProvidersResponse {
+    let req = try authorizedRequest(path: "api/search/providers")
+    return try await send(req)
+  }
+
+  /// Online-Metadaten-Suche für Match (`GET /api/search/books`).
+  func searchBooks(title: String, author: String?, provider: String = "audible", region: String? = nil) async throws -> [ABSMetadataMatch] {
+    var query: [String: String] = ["title": title, "provider": provider]
+    if let author, !author.isEmpty { query["author"] = author }
+    if let region, !region.isEmpty { query["region"] = region }
+    let req = try authorizedRequest(path: "api/search/books", query: query)
+    // Antwort ist flaches JSON-Array; einzelne Treffer defensively dekodiert.
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    // Leere Antwort = keine Treffer.
+    guard !data.isEmpty else { return [] }
+    do {
+      let raw = try JSONSerialization.jsonObject(with: data) as? [Any] ?? []
+      // Manche Provider lieern `{ book: {...} }`-Wrapper pro Treffer.
+      return raw.compactMap { item in
+        guard let dict = item as? [String: Any] else { return nil }
+        // Wenn ein `book`-Sub-Objekt existiert, dessen Felder nach oben heben (für einheitliche Dekodierung).
+        if let nested = dict["book"] as? [String: Any] {
+          var merged = nested
+          for (k, v) in dict where k != "book" { merged[k] = merged[k] ?? v }
+          if let d = try? JSONSerialization.data(withJSONObject: merged) {
+            return try? decoder.decode(ABSMetadataMatch.self, from: d)
+          }
+        }
+        if let d = try? JSONSerialization.data(withJSONObject: dict) {
+          return try? decoder.decode(ABSMetadataMatch.self, from: d)
+        }
+        return nil
+      }
+    } catch {
+      throw ABSAPIError.decoding(error)
+    }
+  }
+
+  /// Wendet ausgewählte Match-Felder an (`PATCH /api/items/:id/media` + optional `POST /api/items/:id/cover`).
+  func updateItemMedia(itemId: String, patch: ABSItemMediaMetadataPatch, coverURL: String?) async throws {
+    let body = try encoder.encode(patch)
+    let req = try authorizedRequest(path: "api/items/\(itemId)/media", method: "PATCH", body: body)
+    try await sendData(req)
+    // Cover separater Endpunkt, falls gewünscht.
+    if let coverURL, !coverURL.isEmpty {
+      try await postCoverURL(itemId: itemId, url: coverURL)
+    }
+  }
+
+  /// Setzt ein Cover per Remote-URL (`POST /api/items/:id/cover` mit `{ url }`-JSON).
+  func applyCoverURL(itemId: String, url: String) async throws {
+    try await postCoverURL(itemId: itemId, url: url)
+  }
+
+  /// Gemeinsamer Cover-Apply-Pfad — von `updateItemMedia` und `applyCoverURL` genutzt.
+  private func postCoverURL(itemId: String, url: String) async throws {
+    guard let payload = try? encoder.encode(["url": url]) else { return }
+    let req = try authorizedRequest(path: "api/items/\(itemId)/cover", method: "POST", body: payload)
+    try await sendData(req)
+  }
+
+  /// Online-Cover-Suche (`GET /api/search/covers?title=&author=&provider=`).
+  /// Liefert normalisierte URL-Strings — unabhängig von der variablen Server-Antwortform.
+  func searchCovers(title: String, author: String?, provider: String = "google") async throws -> [String] {
+    var query: [String: String] = ["title": title, "provider": provider]
+    if let author, !author.isEmpty { query["author"] = author }
+    let req = try authorizedRequest(path: "api/search/covers", query: query, timeout: 25)
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    guard !data.isEmpty else { return [] }
+    do {
+      let parsed = try decoder.decode(ABSCoverSearchResponse.self, from: data)
+      // Deduplizieren, Reihenfolge erhalten.
+      var seen = Set<String>()
+      return parsed.urls.filter { seen.insert($0).inserted }
+    } catch {
+      throw ABSAPIError.decoding(error)
+    }
+  }
+
+  /// Audible-Kapitel-Lookup via Audnexus (`GET /api/search/chapters?asin=&region=`).
+  /// Liefert die Roh-Antwort inkl. `chapters`, `runtimeLengthSec` und Branding-Dauern — oder `{ error }`.
+  func searchChapters(asin: String, region: String = "us") async throws -> ABSAudibleChaptersResponse {
+    let req = try authorizedRequest(
+      path: "api/search/chapters",
+      query: ["asin": asin, "region": region],
+      timeout: 20
+    )
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    do {
+      return try decoder.decode(ABSAudibleChaptersResponse.self, from: data)
+    } catch {
+      throw ABSAPIError.decoding(error)
+    }
+  }
+
+  /// Speichert Kapitel (`POST /api/items/:id/chapters`). Body: `{ "chapters": [{ id, start, end, title }] }`.
+  func updateItemChapters(itemId: String, chapters: [ABSItemChaptersPayload.Chapter]) async throws {
+    let body = try encoder.encode(ABSItemChaptersPayload(chapters: chapters))
+    let req = try authorizedRequest(path: "api/items/\(itemId)/chapters", method: "POST", body: body)
+    try await sendData(req)
+  }
+
   func search(libraryId: String, query: String, limit: Int = 48) async throws -> ABSSearchResponse {
     let req = try authorizedRequest(
       path: "api/libraries/\(libraryId)/search",
@@ -476,9 +591,12 @@ actor ABSAPIClient {
           guard let sub = try? JSONSerialization.data(withJSONObject: e),
             let book = try? dec.decode(ABSBook.self, from: sub)
           else { continue }
-          let include =
-            book.isPlayableAudiobook
-            || (category == "continueSeries" && book.isPureEbookLibraryItem)
+          let include: Bool
+          if category == "continueSeries" {
+            include = book.isPlayableAudiobook || book.isPureEbookLibraryItem
+          } else {
+            include = book.isPlayableAudiobook
+          }
           guard include else { continue }
           books.append(book)
         }
@@ -491,24 +609,14 @@ actor ABSAPIClient {
       } else if type == "series" {
         let isContinueSeries = category == "continueSeries"
         var series: [ABSLibrarySeriesListItem] = []
-        var extractedEbooks: [ABSBook] = []
-        var seenEbookIds = Set<String>()
         for ser in entities {
           guard let sub = try? JSONSerialization.data(withJSONObject: ser),
             let item = try? dec.decode(ABSLibrarySeriesListItem.self, from: sub)
           else { continue }
           if isContinueSeries {
             let books = item.books ?? []
-            let audiobooks = books.filter(\.isPlayableAudiobook)
-            for book in books where !book.isPlayableAudiobook && book.isPureEbookLibraryItem {
-              guard seenEbookIds.insert(book.id).inserted else { continue }
-              extractedEbooks.append(book)
-            }
-            if !audiobooks.isEmpty {
-              series.append(item)
-            } else if extractedEbooks.isEmpty,
-              !item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            {
+            let hasContent = books.contains(where: { $0.isPlayableAudiobook || $0.isPureEbookLibraryItem })
+            if hasContent || !item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
               series.append(item)
             }
             continue
@@ -519,11 +627,11 @@ actor ABSAPIClient {
             series.append(item)
           }
         }
-        guard !series.isEmpty || !extractedEbooks.isEmpty else { continue }
+        guard !series.isEmpty else { continue }
         let title = ABSStartShelfLocalization.displayTitle(category: category, serverLabel: label)
         out.append(
           ABSStartShelfSection(
-            id: sid, category: category, displayTitle: title, books: extractedEbooks, series: series))
+            id: sid, category: category, displayTitle: title, books: [], series: series))
       } else if type == "authors" {
         var authors: [ABSAuthorShelfEntity] = []
         for e in entities {

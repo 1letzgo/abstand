@@ -75,6 +75,16 @@ final class PlaybackController: NSObject, ObservableObject {
   static let playbackRatePresets: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
   private static let playbackRateDefaultsKey = "abstand_playback_rate"
 
+  /// EQ-Preset für die Wiedergabe (Voice Focus etc.) — über `MTAudioProcessingTap` auf `AVPlayerItem`.
+  @Published private(set) var eqPreset: AudioEQPreset = AudioEQPreset.loadSaved()
+  private static let eqPresetDefaultsKey = "abstand_eq_preset"
+  /// Tap + Context müssen für die Lebensdauer des Player-Items gehalten werden.
+  private var eqTap: MTAudioProcessingTap?
+  private var eqTapContext: AudioEQTapContext?
+  /// Player-Item, an dem der EQ-Tap hängt — für sauberes Abriss beim Trackwechsel
+  /// (`currentItem` zeigt dann schon das neue Item; Tap muss am alten Item abgehängt werden).
+  private weak var eqTapPlayerItem: AVPlayerItem?
+
   /// Skip-Intervalle für Zurück/Vor (Player, Mini-Player, Sperrbildschirm).
   /// Nur Werte mit SF-Symbolen (`gobackward.N` / `goforward.N`).
   static let skipIntervalOptions = ABSPlaybackSkipDefaults.intervalOptions
@@ -612,6 +622,7 @@ final class PlaybackController: NSObject, ObservableObject {
     playbackEngineStateObserver = nil
     player?.pause()
     player = nil
+    teardownEQTap()
     tracks = []
     trackStarts = []
     sortedChapters = []
@@ -879,6 +890,7 @@ final class PlaybackController: NSObject, ObservableObject {
     player = AVPlayer(playerItem: item)
     applyBackgroundPlaybackPolicy(player)
     installObservers()
+    applyEQToCurrentItem()
     let resumeSnapshot = resumeAt
     player?.seek(to: CMTime(seconds: offsetInTrack, preferredTimescale: 600)) { [weak self] _ in
       guard let self else { return }
@@ -950,6 +962,7 @@ final class PlaybackController: NSObject, ObservableObject {
     player = AVPlayer(playerItem: item)
     applyBackgroundPlaybackPolicy(player)
     installObservers()
+    applyEQToCurrentItem()
     let resumeSnapshot = safeResume
     player?.seek(to: CMTime(seconds: offsetInTrack, preferredTimescale: 600)) { [weak self] _ in
       guard let self else { return }
@@ -1158,6 +1171,7 @@ final class PlaybackController: NSObject, ObservableObject {
 
     player?.replaceCurrentItem(with: item)
     installObservers()
+    applyEQToCurrentItem()
     let offsetSnapshot = localOffset
     player?.seek(to: CMTime(seconds: localOffset, preferredTimescale: 600)) { [weak self] _ in
       guard let self else { return }
@@ -1205,6 +1219,61 @@ final class PlaybackController: NSObject, ObservableObject {
     guard v > 0.09 else { return 1.0 }
     let f = Float(v)
     return playbackRatePresets.min(by: { abs($0 - f) < abs($1 - f) }) ?? 1.0
+  }
+
+  // MARK: - EQ
+
+  /// Setzt das EQ-Preset und wendet es auf das aktuelle Player-Item an.
+  /// Live-Reconfigure des Processors — kein Tap-Rebuild, kein audioMix-Swap während
+  /// der Audio-Realtime-Thread läuft (das wäre die Crash-Ursache beim Preset-Wechsel).
+  func setEQPreset(_ preset: AudioEQPreset) {
+    guard preset != eqPreset else { return }
+    eqPreset = preset
+    UserDefaults.standard.set(preset.rawValue, forKey: Self.eqPresetDefaultsKey)
+    if let ctx = eqTapContext {
+      // Tap existiert schon: nur Filterkoeffizienten tauschen (thread-sicher im Processor).
+      ctx.reconfigure(preset: preset)
+    } else {
+      // Noch kein Tap (z. B. Player noch nicht geladen) — beim nächsten Apply greift das neue Preset.
+      applyEQToCurrentItem()
+    }
+  }
+
+  /// Hängt den EQ-Tap ans aktive `AVPlayerItem`. Bei Preset-Wechsel wird der Tap
+  /// NICHT neu gebaut — stattdessen rekonfiguriert `setEQPreset` den Processor live.
+  /// Der Tap bleibt auch bei `.flat` bestehen (Processor mit leerer Filterliste = Passthrough),
+  /// damit ein späterer Wechsel kein audioMix-Swap-while-playing braucht.
+  /// Bei Item-Wechsel (anderes `currentItem`) muss der alte Tap abgerissen werden —
+  /// erkannt daran, dass `eqTapPlayerItem` nicht mehr das aktuelle Item ist.
+  func applyEQToCurrentItem() {
+    guard let item = player?.currentItem else { return }
+    // Bereits am selben Item? Nichts tun.
+    if eqTapContext != nil, eqTapPlayerItem === item { return }
+    // Anderes Item (Trackwechsel) — alten Tap sauber abreißen.
+    teardownEQTap()
+
+    let processor = AudioEQProcessor()
+    let context = AudioEQTapContext(processor: processor, preset: eqPreset)
+    guard let tap = AudioEQTapFactory.makeTap(context: context) else { return }
+
+    let params = AVMutableAudioMixInputParameters()
+    params.audioTapProcessor = tap
+    let mix = AVMutableAudioMix()
+    mix.inputParameters = [params]
+    item.audioMix = mix
+
+    eqTap = tap
+    eqTapContext = context
+    eqTapPlayerItem = item
+  }
+
+  /// Gibt den aktuellen EQ-Tap + Context frei. Zuerst `audioMix` am Item abhängen —
+  /// triggert `finalize` auf dem Tap, bevor der Controller seine Context-Referenz loslässt.
+  private func teardownEQTap() {
+    eqTapPlayerItem?.audioMix = nil
+    eqTap = nil
+    eqTapContext = nil
+    eqTapPlayerItem = nil
   }
 
   func play() {

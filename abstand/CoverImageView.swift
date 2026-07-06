@@ -17,12 +17,63 @@ enum CoverImageTier {
 }
 
 enum CoverImageContentMode {
-  /// Wie Mini-Player und Karten: füllt den Rahmen, kann oben/unten oder an den Seiten beschneiden.
+  /// Wie Karten/Mini-Player: füllt den Rahmen, Beschnitt aus der Mitte (`scaledToFill`).
   case fill
   /// Vollansicht: komplettes Cover sichtbar, Briefkasten nach Bedarf.
   case fit
-  /// eBook-Zeilen: Höhe fix, Breite folgt dem Seitenverhältnis des Covers (kein Beschnitt, kein Strecken).
+  /// Zeilen-Cover: 1:1-Slot, Breite variabel (Legacy — bevorzugt `squareFit` via `SquareCoverImageView`).
   case fitVariableWidth
+}
+
+/// Einheitliches 1:1-Cover: Bild zentriert (`scaledToFit`), Letterboxing mit cover-abgeleiteter Farbe.
+struct SquareCoverImageView: View {
+  let url: URL?
+  let token: String
+  let itemId: String
+  let cacheAccount: URL?
+  var cacheScopeId: String? = nil
+  var cacheRevision: Int = 0
+  var requiresAuthorization: Bool = true
+
+  @State private var tint: Color = AppTheme.card
+
+  private var tintLoadIdentity: String {
+    "\(cacheScopeId ?? itemId)|\(cacheRevision)|\(url?.absoluteString ?? "")"
+  }
+
+  var body: some View {
+    ZStack {
+      tint
+      CoverImageView(
+        url: url,
+        token: token,
+        itemId: itemId,
+        cacheAccount: cacheAccount,
+        cacheScopeId: cacheScopeId,
+        cacheRevision: cacheRevision,
+        requiresAuthorization: requiresAuthorization,
+        contentMode: .fit
+      )
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .task(id: tintLoadIdentity) {
+      tint = AppTheme.card
+      if let c = CoverDerivedTintLoader.colorFromDiskOrCoverCache(
+        account: cacheAccount, itemId: itemId, revision: cacheRevision)
+      {
+        tint = c
+      }
+      if let c = await CoverDerivedTintLoader.colorFromNetwork(
+        account: cacheAccount,
+        itemId: itemId,
+        revision: cacheRevision,
+        coverURL: url,
+        token: token
+      ) {
+        tint = c
+      }
+    }
+  }
 }
 
 struct CoverImageView: View {
@@ -136,9 +187,9 @@ struct CoverImageView: View {
         content
           .frame(minWidth: 44, minHeight: 44)
       case .fitVariableWidth:
-        // Platzhalter im typischen Buch-Hochformat (10:16).
+        // Platzhalter quadratisch bis das Cover geladen ist.
         content
-          .aspectRatio(10 / 16, contentMode: .fit)
+          .aspectRatio(1, contentMode: .fit)
       }
     }
   }

@@ -315,7 +315,7 @@ private enum StatsLibraryRowLayout {
     cover()
       .frame(width: coverSide, height: coverSide)
       .clipShape(coverClipShape)
-      .overlay(alignment: .bottomTrailing) {
+      .overlay(alignment: .bottomLeading) {
         overlay()
       }
   }
@@ -397,7 +397,7 @@ private struct StatsTopListenedBookCard: View {
     ) {
       HStack(alignment: .top, spacing: StatsLibraryRowLayout.cardInset) {
         StatsLibraryRowLayout.coverSlot {
-          CoverImageView(
+          SquareCoverImageView(
             url: model.coverURL(for: book.id),
             token: model.token,
             itemId: book.id,
@@ -513,7 +513,7 @@ private struct StatsRecentSessionCard: View {
     ) {
       HStack(alignment: .top, spacing: StatsLibraryRowLayout.cardInset) {
         StatsLibraryRowLayout.coverSlot {
-          CoverImageView(
+          SquareCoverImageView(
             url: model.coverURL(for: libraryItemId),
             token: model.token,
             itemId: libraryItemId,

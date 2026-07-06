@@ -45,6 +45,7 @@ private struct AppRootContainer: View {
             .themeAccentFromAppModel(model)
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+            .presentationBackgroundInteraction(.enabled(upThrough: .large))
         }
         .onChange(of: model.nowPlayingSheetPresentationCounter) { _, _ in
           nowPlayingSheetPresented = true
@@ -75,6 +76,9 @@ private struct AppRootContainer: View {
       // Sperrbildschirm) erneutes `setCategory`/`setActive` kann die laufende Wiedergabe unterbrechen.
       if phase == .active {
         model.player.handleReturnToForeground()
+        // Self-Heal: Podcast-Liste nachladen, falls während Sperre eine Folge beendet wurde
+        // (oder die Liste leer gefallen ist), sonst bleibt der "New"-Bereich leer.
+        model.applyPendingPodcastRefreshIfNeeded()
       } else if phase == .background {
         model.player.disableTeleprompterIfNeeded()
       }

@@ -772,22 +772,6 @@ struct SettingsAccountView: View {
       })
   }
 
-  private var ebooksLibraryPickerSelection: Binding<String> {
-    Binding(
-      get: {
-        if model.ebooksLibraryPreferenceIsNone { return AppModel.libraryPickerNoneTag }
-        return model.selectedEbooksLibrary?.id ?? AppModel.libraryPickerNoneTag
-      },
-      set: { newId in
-        if newId == AppModel.libraryPickerNoneTag {
-          model.clearEbooksLibrarySelection()
-        } else if let lib = model.sortedBookLibraries.first(where: { $0.id == newId }) {
-          model.selectEbooksLibrary(lib)
-          Task { await model.reloadEbooksLibrary(reset: true) }
-        }
-      })
-  }
-
   var body: some View {
     ServerAdminSection(title: "Accounts") {
       LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
@@ -879,14 +863,14 @@ struct SettingsAccountView: View {
 
         ServerAdminCard {
           if model.sortedBookLibraries.isEmpty {
-            Text("No audiobook libraries on this server.")
+            Text("No book libraries on this server.")
               .font(.subheadline)
               .foregroundStyle(AppTheme.textSecondary)
               .settingsCardCompactRowFrame(alignment: .leading)
           } else {
             SettingsCardPickerRow(
               icon: "books.vertical.fill",
-              title: "Audiobooks library",
+              title: "Books library",
               selection: booksLibraryPickerSelection,
               options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
                 + model.sortedBookLibraries.map { (id: $0.id, label: $0.name) }
@@ -907,23 +891,6 @@ struct SettingsAccountView: View {
               selection: podcastsLibraryPickerSelection,
               options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
                 + model.sortedPodcastLibraries.map { (id: $0.id, label: $0.name) }
-            )
-          }
-        }
-
-        ServerAdminCard {
-          if model.sortedBookLibraries.isEmpty {
-            Text("No audiobook libraries on this server.")
-              .font(.subheadline)
-              .foregroundStyle(AppTheme.textSecondary)
-              .settingsCardCompactRowFrame(alignment: .leading)
-          } else {
-            SettingsCardPickerRow(
-              icon: "book.closed.fill",
-              title: "eBooks library",
-              selection: ebooksLibraryPickerSelection,
-              options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
-                + model.sortedBookLibraries.map { (id: $0.id, label: $0.name) }
             )
           }
         }
@@ -1179,7 +1146,7 @@ struct SettingsAppearanceView: View {
           ServerAdminCard {
             SettingsCardPickerRow(
               icon: "books.vertical.fill",
-              title: "Audiobook",
+              title: "Book",
               selection: Binding(
                 get: { model.libraryBookCardStyle.rawValue },
                 set: { raw in
@@ -1204,21 +1171,6 @@ struct SettingsAppearanceView: View {
                 }
               ),
               options: LibraryPodcastCardStyle.allCases.map { (id: $0.rawValue, label: $0.label) }
-            )
-          }
-          ServerAdminCard {
-            SettingsCardPickerRow(
-              icon: "book.closed.fill",
-              title: "eBook tab cards",
-              selection: Binding(
-                get: { model.ebooksTabCardStyle.rawValue },
-                set: { raw in
-                  if let style = LibraryEbookCardStyle(rawValue: raw) {
-                    model.ebooksTabCardStyle = style
-                  }
-                }
-              ),
-              options: LibraryEbookCardStyle.allCases.map { (id: $0.rawValue, label: $0.label) }
             )
           }
           NavigationLink {

@@ -12,7 +12,7 @@ final class LocalStoreMeta {
   var schemaVersion: Int
   var lastOpenedAt: Date
 
-  init(id: String = "meta", schemaVersion: Int = 1, lastOpenedAt: Date = Date()) {
+  init(id: String = "meta", schemaVersion: Int = 2, lastOpenedAt: Date = Date()) {
     self.id = id
     self.schemaVersion = schemaVersion
     self.lastOpenedAt = lastOpenedAt
@@ -195,7 +195,7 @@ final class LocalNarrator {
 }
 
 /// Bücher-/eBook-/Podcast-Show-"Server-Kopie" — 1:1-Ersatz für die Katalog-Slug-Seiten (`catalog/<libraryId>/<slug>/page_*.json`)
-/// und für `bookFromMergedDiskCaches`. Eine Zeile pro `libraryItemId`, unabhängig davon über welchen Weg
+/// und für `bookFromLocalStore`. Eine Zeile pro `libraryItemId`, unabhängig davon über welchen Weg
 /// (Katalog, Serie, Sammlung, eBook-Liste, …) sie zuletzt gesehen wurde — siehe Migrationsplan Prinzip 1+2.
 /// Core-Felder für Sortierung/Anzeige echt, restliche Tiefe (Kapitel, Spuren, `ebookFile`, …) als Blob.
 @Model
@@ -209,8 +209,11 @@ final class LocalBook {
   var duration: Double
   var isUsableLibraryCatalogRow: Bool
   var isUsableEbookListRow: Bool
-  /// eBooks-Browse „Supplementary“-Sektion (EPUB/PDF neben einem Hörbuch) — ersetzt `supplementary.json`
-  /// (Migrationsplan Etappe 6). Unabhängig von `apply()`/Katalog-Upserts gepflegt, siehe `LocalLibraryStore`.
+  /// Katalogfilter „eBook“ (reines eBook oder supplementäres eBook) — aus Server-Metadaten beim Upsert.
+  var catalogHasEbook: Bool = false
+  /// Hörbuch mit supplementärem eBook — Cover-Badge unten rechts.
+  var catalogHasSupplementaryEbook: Bool = false
+  /// eBooks-Browse „Supplementary“-Sektion (Schema V1, ungenutzt) — Spalte bleibt für leichte Migration.
   var isEbookSupplementary: Bool = false
   @Attribute(.externalStorage) var blob: Data
   /// Erweiterte Detail-Antwort (`GET /api/items/:id?expanded=1`, u. a. Beschreibung) — bewusst getrennt vom
@@ -229,6 +232,8 @@ final class LocalBook {
     duration = book.totalDuration
     isUsableLibraryCatalogRow = book.isUsableLibraryCatalogRow
     isUsableEbookListRow = book.isUsableEbookListRow
+    catalogHasEbook = book.matchesBooksEbookCatalogFilter
+    catalogHasSupplementaryEbook = book.isCatalogSupplementaryEbook
     isEbookSupplementary = false
     blob = (try? ABSJSON.encoder().encode(book)) ?? Data()
   }
@@ -242,6 +247,8 @@ final class LocalBook {
     duration = book.totalDuration
     isUsableLibraryCatalogRow = book.isUsableLibraryCatalogRow
     isUsableEbookListRow = book.isUsableEbookListRow
+    catalogHasEbook = book.matchesBooksEbookCatalogFilter || catalogHasEbook
+    catalogHasSupplementaryEbook = book.isCatalogSupplementaryEbook || catalogHasSupplementaryEbook
     blob = (try? ABSJSON.encoder().encode(book)) ?? blob
   }
 
@@ -251,6 +258,8 @@ final class LocalBook {
 
   func applyDetail(_ book: ABSBook) {
     detailBlob = try? ABSJSON.encoder().encode(book)
+    catalogHasEbook = book.matchesBooksEbookCatalogFilter || catalogHasEbook
+    catalogHasSupplementaryEbook = book.isCatalogSupplementaryEbook || catalogHasSupplementaryEbook
   }
 
   func toABSBookDetail() -> ABSBook? {
@@ -297,9 +306,7 @@ final class LocalCatalogEntry {
   }
 }
 
-/// Merkt sich Filter/Sortierung/Gesamtzahl der zuletzt gecachten eBooks-Seite je Bibliothek — eigene
-/// Tabelle statt Wiederverwendung von `LocalCatalogListState`, da eBooks-Browse ein eigener, unabhängig
-/// paginierter Filter (`ebooks:ebook`) auf derselben Bibliothek ist (Migrationsplan Etappe 6).
+/// Legacy: früherer eBooks-Browse-Cache (Schema V1) — nur noch für Migration V1→V2.
 @Model
 final class LocalEbookListState {
   @Attribute(.unique) var libraryId: String
@@ -315,8 +322,7 @@ final class LocalEbookListState {
   }
 }
 
-/// Reihenfolge-Index der zuletzt gecachten eBooks-Seite — getrennt von `LocalCatalogEntry` (siehe
-/// `LocalEbookListState`), referenziert dieselbe geteilte `LocalBook`-Zeile.
+/// Legacy: früherer eBooks-Browse-Reihenfolge-Index (Schema V1) — nur noch für Migration V1→V2.
 @Model
 final class LocalEbookEntry {
   @Attribute(.unique) var compositeKey: String
@@ -618,21 +624,85 @@ final class LocalOneTimeAchievementState {
   }
 }
 
-/// Zentrale Liste aller `@Model`-Typen — wächst mit jeder Migrations-Etappe.
+// MARK: - Schema-Versionen (SwiftData)
+
+private enum LocalLibrarySchemaModels {
+  static let core: [any PersistentModel.Type] = [
+    LocalStoreMeta.self, LocalProgress.self, LocalBookmark.self,
+    LocalGenreStat.self, LocalTagStat.self,
+    LocalAuthorListState.self, LocalAuthor.self, LocalNarrator.self,
+    LocalBook.self, LocalCatalogListState.self, LocalCatalogEntry.self,
+    LocalSeriesListState.self, LocalSeries.self,
+    LocalCollectionListState.self, LocalCollection.self,
+    LocalPodcastEpisodeListState.self, LocalPodcastEpisode.self,
+    LocalPodcastShowListState.self, LocalPodcastShowEntry.self,
+    LocalHomeShelvesSnapshot.self, LocalEbookContinueEntry.self,
+    LocalListeningStatsSnapshot.self, LocalAchievementState.self, LocalOneTimeAchievementState.self,
+  ]
+
+  static let v1BrowseEbooks: [any PersistentModel.Type] = [
+    LocalEbookListState.self, LocalEbookEntry.self,
+  ]
+}
+
+/// Produktionsschema vor Entfernung des eBooks-Browse-Caches (identisch zur bisher unversionierten DB).
+enum LocalLibrarySchemaV1: VersionedSchema {
+  static var versionIdentifier = Schema.Version(1, 0, 0)
+
+  static var models: [any PersistentModel.Type] {
+    LocalLibrarySchemaModels.core + LocalLibrarySchemaModels.v1BrowseEbooks
+  }
+}
+
+/// Aktuelles Schema — eBooks-Browse-Tabellen entfernt; Lesefortschritt über `LocalEbookContinueEntry`.
+enum LocalLibrarySchemaV2: VersionedSchema {
+  static var versionIdentifier = Schema.Version(2, 0, 0)
+
+  static var models: [any PersistentModel.Type] {
+    LocalLibrarySchemaModels.core
+  }
+}
+
+enum LocalLibraryMigrationPlan: SchemaMigrationPlan {
+  static var schemas: [any VersionedSchema.Type] {
+    [LocalLibrarySchemaV1.self, LocalLibrarySchemaV2.self]
+  }
+
+  static var stages: [MigrationStage] {
+    [migrateV1toV2]
+  }
+
+  static let migrateV1toV2 = MigrationStage.custom(
+    fromVersion: LocalLibrarySchemaV1.self,
+    toVersion: LocalLibrarySchemaV2.self,
+    willMigrate: { context in
+      try context.delete(model: LocalEbookEntry.self)
+      try context.delete(model: LocalEbookListState.self)
+      let supplementaryBooks = try context.fetch(
+        FetchDescriptor<LocalBook>(predicate: #Predicate { $0.isEbookSupplementary == true })
+      )
+      for book in supplementaryBooks {
+        book.isEbookSupplementary = false
+      }
+      try context.save()
+    },
+    didMigrate: { context in
+      let descriptor = FetchDescriptor<LocalStoreMeta>()
+      if let meta = try context.fetch(descriptor).first {
+        meta.schemaVersion = 2
+      } else {
+        context.insert(LocalStoreMeta(schemaVersion: 2))
+      }
+      try context.save()
+    }
+  )
+}
+
 enum LocalLibrarySchema {
   static var current: Schema {
-    Schema([
-      LocalStoreMeta.self, LocalProgress.self, LocalBookmark.self,
-      LocalGenreStat.self, LocalTagStat.self,
-      LocalAuthorListState.self, LocalAuthor.self, LocalNarrator.self,
-      LocalBook.self, LocalCatalogListState.self, LocalCatalogEntry.self,
-      LocalSeriesListState.self, LocalSeries.self,
-      LocalCollectionListState.self, LocalCollection.self,
-      LocalEbookListState.self, LocalEbookEntry.self,
-      LocalPodcastEpisodeListState.self, LocalPodcastEpisode.self,
-      LocalPodcastShowListState.self, LocalPodcastShowEntry.self,
-      LocalHomeShelvesSnapshot.self, LocalEbookContinueEntry.self,
-      LocalListeningStatsSnapshot.self, LocalAchievementState.self, LocalOneTimeAchievementState.self,
-    ])
+    Schema(versionedSchema: LocalLibrarySchemaV2.self)
   }
+
+  /// Logische Meta-Version in `LocalStoreMeta` — Backfill der eBook-Katalog-Flags (`catalogHasEbook`, …).
+  static let ebookCatalogFlagsMetaVersion = 3
 }
