@@ -3,6 +3,22 @@ import Combine
 import SwiftUI
 import UIKit
 
+// MARK: - Display-Eckenradius (für abgerundete obere Ecken des Vollbild-Players)
+
+extension UIScreen {
+  /// Physischer Eckenradius des Displays — Apple bietet dafür keine öffentliche API, das
+  /// private Symbol `_displayCornerRadius` ist aber unter allen modernen iOS-Versionen
+  /// stabil verfügbar. Fällt das Symbol weg, greift ein grober Näherungswert pro Geräteklasse.
+  var abstandDisplayCornerRadius: CGFloat {
+    if let value = value(forKey: "_displayCornerRadius") as? CGFloat {
+      return value
+    }
+    return UIDevice.current.userInterfaceIdiom == .pad
+      ? MiniPlayerMetrics.fullPlayerCornerRadiusFallbackPad
+      : MiniPlayerMetrics.fullPlayerCornerRadiusFallbackPhone
+  }
+}
+
 // MARK: - Abspielgeschwindigkeit (Label, locale Zahlenformat)
 
 private func miniPlayerFormatPlaybackRate(_ rate: Float) -> String {
@@ -33,10 +49,20 @@ enum MiniPlayerMetrics {
 
   /// Now-Playing-Sheet: seitlicher Abstand zum Rand (Safe Area kommt zusätzlich).
   static let fullPlayerCoverInset: CGFloat = 20
-  /// Quadratisches Cover: Anteil der verfügbaren Containerbreite (statt fixer pt).
-  static let fullPlayerCoverWidthFraction: CGFloat = 0.75
+  /// Fallback-Eckenradius für `UIScreen.displayCornerRadius`, falls das private Symbol
+  /// mal verschwindet — grobe Näherung an moderne iPhones/iPads mit abgerundetem Display.
+  static let fullPlayerCornerRadiusFallbackPhone: CGFloat = 47
+  static let fullPlayerCornerRadiusFallbackPad: CGFloat = 18
+  /// Quadratisches Cover: Rand-Marge innerhalb der zugeteilten Fläche (Portrait-Spalte
+  /// oder Landscape-Hälfte) — `aspectRatio(.fit)` füllt den Rest proportional.
+  static let fullPlayerCoverCardMargin: CGFloat = 28
   /// Abstand Titel/Autor → Fortschrittsbalken (Apple-Music-nah).
   static let titleToScrubberSpacing: CGFloat = 8
+
+  /// Floatingbar-Innenabstand links/rechts: auf iPad mehr Luft zum Kapsel-Rand,
+  /// da die Bar dort volle Bildschirmbreite nutzt statt der schmalen iPhone-Breite.
+  static let accessoryHorizontalPaddingCompact: CGFloat = 12
+  static let accessoryHorizontalPaddingRegular: CGFloat = 24
 
   /// Eine Zeile: Sleep · Transport · AirPlay (Höhe = max(Transport, Play-Orb)).
   static var miniPlayerControlsTotalHeight: CGFloat {
@@ -1144,6 +1170,7 @@ private struct NowPlayingCoverHeaderShell<Content: View>: View {
 struct NowPlayingDetailView: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.verticalSizeClass) private var verticalSizeClass
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
@@ -1158,6 +1185,9 @@ struct NowPlayingDetailView: View {
   @State private var coverTintColor: Color = AppTheme.background
   @State private var coverImageForTint: UIImage?
   @State private var didSeedCoverTintFromCache = false
+  /// Ersatz für den nativen Sheet-Drag-Indicator/Swipe-to-dismiss, seit `.fullScreenCover`
+  /// (für echtes Vollbild auf iPad) statt `.sheet` verwendet wird.
+  @State private var dismissDragOffset: CGFloat = 0
 
   private var player: PlaybackController { model.player }
 
@@ -1317,21 +1347,112 @@ struct NowPlayingDetailView: View {
   }
 
   private var fullPlayerStack: some View {
-    ZStack {
-      fullPlayerBackground
-        .accessibilityHidden(true)
-        .ignoresSafeArea()
+    // `.ignoresSafeArea()` am `GeometryReader` selbst (statt nur am Hintergrund) ist entscheidend
+    // dafür, dass `geo.size` die ECHTE Bildschirmgröße meldet statt der kleineren „sicheren"
+    // Content-Fläche. `.safeAreaPadding(...)` auf `Group` weiter unten sorgt trotzdem weiterhin
+    // für korrekten Abstand des Inhalts zu Notch/Home-Indicator — das ist genau das dafür
+    // vorgesehene Zusammenspiel. Ohne dieses `.ignoresSafeArea()` hier würde `.clipShape`
+    // (Ecken-Rundung) exakt an der kleineren `geo.size`-Grenze kappen: oben/unten bliebe ein
+    // durchsichtiger Rand statt echtem Vollbild.
+    GeometryReader { geo in
+      ZStack(alignment: .top) {
+        fullPlayerBackground
+          .accessibilityHidden(true)
+          .ignoresSafeArea()
 
-      Group {
-        if verticalSizeClass == .compact {
-          landscapeLayout
+        Group {
+          if isFullPlayerLandscapeLayout(size: geo.size) {
+            landscapeLayout
+          } else {
+            portraitLayout
+          }
+        }
+        .safeAreaPadding(.horizontal, MiniPlayerMetrics.fullPlayerCoverInset)
+        .safeAreaPadding(.vertical, MiniPlayerMetrics.fullPlayerCoverInset)
+
+        fullPlayerDismissGrabber
+      }
+      .frame(width: geo.size.width, height: geo.size.height)
+      // Obere Ecken im echten Display-Radius abgerundet: Im Ruhezustand (Offset 0) deckt sich
+      // das exakt mit der physischen Display-Rundung (unsichtbar, da vom Gehäuse ohnehin
+      // verdeckt) — sobald beim Drag-to-dismiss der Inhalt vom oberen Bildschirmrand wegrutscht,
+      // wird die Rundung sichtbar und die Karte wirkt wie in Apple Music wie eine echte Karte.
+      .clipShape(
+        UnevenRoundedRectangle(
+          topLeadingRadius: UIScreen.main.abstandDisplayCornerRadius,
+          bottomLeadingRadius: 0,
+          bottomTrailingRadius: 0,
+          topTrailingRadius: UIScreen.main.abstandDisplayCornerRadius,
+          style: .continuous
+        )
+      )
+      // Der ganze Stack (inkl. Hintergrund) wird beim Drag verschoben: Der hostende
+      // `UIHostingController` ist per `FullScreenOverlayPresenter` transparent, dahinter bleibt
+      // die App (per `.overFullScreen`) aktiv im Hintergrund — die Lücke oben zeigt also die
+      // echte App statt einer leeren Fläche, genau wie beim Herunterziehen in Apple Music.
+      .offset(y: dismissDragOffset)
+      .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: dismissDragOffset)
+      .gesture(fullPlayerDismissDragGesture)
+    }
+    .ignoresSafeArea()
+  }
+
+  /// Kleiner Griff wie beim nativen Sheet-Drag-Indicator — rein visuell, die Geste liegt auf
+  /// dem ganzen Stack (Kind-Views wie `ScrollView` gewinnen die Geste trotzdem zuerst).
+  private var fullPlayerDismissGrabber: some View {
+    Capsule()
+      .fill(AppTheme.textSecondary.opacity(0.35))
+      .frame(width: 36, height: 5)
+      // Fester Abstand zum echten Fenster-Safe-Area-Top statt `.safeAreaPadding` (verhielt sich
+      // auf einer kleinen Fixed-Frame-View unvorhersehbar — der Griff verschwand komplett) oder
+      // reinem `.padding` (seit `fullPlayerStack` per `.ignoresSafeArea()` bis unter Notch/
+      // Dynamic Island blutet, säße er sonst IN der Notch statt sichtbar darunter).
+      .padding(.top, keyWindowTopSafeAreaInset + 8)
+      .accessibilityHidden(true)
+  }
+
+  /// Safe-Area-Inset des echten Fensters — `fullPlayerStack` blutet per `.ignoresSafeArea()`
+  /// bis an die echten Bildschirmränder, darum reicht das SwiftUI-Environment dafür nicht.
+  private var keyWindowTopSafeAreaInset: CGFloat {
+    UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap { $0.windows }
+      .first { $0.isKeyWindow }?
+      .safeAreaInsets.top ?? 0
+  }
+
+  /// Ersatz für `.presentationDragIndicator` + Swipe-to-dismiss von `.sheet`, seit
+  /// `NowPlayingDetailView` per `.fullScreenCover` präsentiert wird (siehe `abstandApp.swift`).
+  /// Nur eindeutig vertikale Nach-unten-Gesten zählen, damit horizontales Scrollen (Kapitel,
+  /// Teleprompter) sowie vertikales Scrollen in Panels unangetastet bleibt.
+  private var fullPlayerDismissDragGesture: some Gesture {
+    DragGesture(minimumDistance: 24)
+      .onChanged { value in
+        guard value.translation.height > 0,
+          abs(value.translation.height) > abs(value.translation.width) * 1.5
+        else { return }
+        // Rubber-Banding: Karte folgt dem Finger, wird zum Rand hin zunehmend zäher.
+        dismissDragOffset = 60 * log(1 + value.translation.height / 60)
+      }
+      .onEnded { value in
+        let shouldDismiss = value.translation.height > 110 || value.predictedEndTranslation.height > 500
+        if shouldDismiss {
+          // Offset bewusst NICHT zurücksetzen: Die Karte bleibt an der aktuellen Fingerposition
+          // stehen, der System-Dismiss (`FullScreenOverlayPresenter`) übernimmt nahtlos von dort
+          // weiter nach unten — ein Reset auf 0 würde vorher sichtbar zurückspringen.
+          model.requestDismissNowPlayingSheet()
         } else {
-          portraitLayout
+          dismissDragOffset = 0
         }
       }
-      .safeAreaPadding(.horizontal, MiniPlayerMetrics.fullPlayerCoverInset)
-      .safeAreaPadding(.bottom, MiniPlayerMetrics.fullPlayerCoverInset)
-    }
+  }
+
+  /// iPhone-Querformat meldet `verticalSizeClass == .compact`; iPad bleibt in beiden
+  /// Ausrichtungen `.regular` — ohne die zusätzliche Breiten-/Höhen-Prüfung bliebe iPad im
+  /// Querformat beim vertikalen Layout, das Cover würde durch die geringe Höhe gestaucht
+  /// und wirkt kleiner als die (auf 800pt gedeckelte) Textspalte darunter.
+  private func isFullPlayerLandscapeLayout(size: CGSize) -> Bool {
+    verticalSizeClass == .compact || size.width > size.height
   }
 
   @ViewBuilder
@@ -1415,10 +1536,11 @@ struct NowPlayingDetailView: View {
     let panelExpanded = isCoverPanelExpanded
     VStack(spacing: 0) {
       if panelExpanded {
+        // Gleiche Breite wie im Cover-Zustand (800pt-Spalte) — Inhalt/Teleprompter
+        // sollen nicht breiter werden als der Bereich, in dem sonst das Cover sitzt.
         playerHeaderArea(book: book)
-          .frame(maxWidth: .infinity)
+          .frame(maxWidth: 800)
           .frame(maxHeight: .infinity, alignment: .top)
-          .layoutPriority(1)
       } else {
         VStack(spacing: 0) {
           Spacer(minLength: 0)
@@ -1467,18 +1589,28 @@ struct NowPlayingDetailView: View {
   @ViewBuilder
   private func fullPlayerLandscapeLayout(book: ABSBook) -> some View {
     let panelExpanded = isCoverPanelExpanded
-    HStack(alignment: .top, spacing: MiniPlayerMetrics.fullPlayerCoverInset) {
+    // Auf iPad (regular Breite) ist neben dem Panel/Teleprompter genug Platz für Titel/
+    // Scrubber übrig — die müssen dort nicht weichen wie im schmalen iPhone-Querformat.
+    let showsTitleAndScrubber = !panelExpanded || horizontalSizeClass == .regular
+    HStack(alignment: .center, spacing: MiniPlayerMetrics.fullPlayerCoverInset) {
+      // Kein erhöhtes `layoutPriority` mehr im aufgeklappten Zustand: Inhalt- und
+      // Teleprompter-Panel sollen exakt den linken Bereich einnehmen, wo sonst das Cover
+      // sitzt — nicht breiter werden und dabei die rechte Spalte zusammendrücken.
       playerHeaderArea(book: book)
         .frame(maxWidth: .infinity, alignment: panelExpanded ? .leading : .center)
         .frame(maxHeight: .infinity, alignment: panelExpanded ? .top : .center)
-        .layoutPriority(panelExpanded ? 1 : 0)
       VStack(spacing: 0) {
-        if !panelExpanded {
+        // Nur Titel/Scrubber zwischen zwei Spacern zentrieren (nicht den Controls-Block
+        // mit einschließen) — dadurch bleibt die Distanz von den Controls zum unteren
+        // Rand in beiden Ästen identisch (Summe der beiden Spacer ist gleich groß), die
+        // Transport-/Utility-Reihe springt beim Ein-/Ausblenden des Covers also nicht.
+        if showsTitleAndScrubber {
           Spacer(minLength: 0)
           fullPlayerTitleArea(book: book)
           TimelineView(.periodic(from: .now, by: 0.5)) { _ in
             scrubberSection(book: book)
           }
+          Spacer(minLength: 0)
         } else {
           Spacer(minLength: 0)
         }
@@ -1549,24 +1681,26 @@ struct NowPlayingDetailView: View {
     }
   }
 
-  /// Quadratische Cover-Karte (1:1) — 75 % der verfügbaren Containerbreite.
+  /// Quadratische Cover-Karte (1:1) — füllt die zugeteilte Fläche (mit Rand-Marge).
+  /// `containerRelativeFrame` löst hier nicht zuverlässig gegen die tatsächlich verfügbare
+  /// Breite auf (z. B. im Landscape-Layout nur die halbe HStack-Spalte statt ganzer Screen) —
+  /// stattdessen `aspectRatio(.fit)` innerhalb eines per `padding` verkleinerten Proposals.
   private func fullPlayerSquareCoverCard<Overlay: View>(
     cardOpacity: CGFloat = 1,
     @ViewBuilder overlay: @escaping () -> Overlay
   ) -> some View {
     let corner = DetailHeroLayoutMetrics.coverCornerRadius
     let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
-    let widthFraction = MiniPlayerMetrics.fullPlayerCoverWidthFraction
     return overlay()
       .aspectRatio(1, contentMode: .fit)
-      .containerRelativeFrame(.horizontal) { length, _ in length * widthFraction }
       .background(AppTheme.card.opacity(cardOpacity), in: shape)
       .clipShape(shape)
       .overlay {
         shape.strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
       }
       .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
-      .frame(maxWidth: .infinity)
+      .padding(MiniPlayerMetrics.fullPlayerCoverCardMargin)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
   /// Nur Cover-Bild (1:1, vollständig sichtbar — Letterboxing mit Cover-Farbe).
@@ -2328,16 +2462,20 @@ struct FloatingAccessoryLayer: View {
   let keyboardVisible: Bool
 
   private var showsFloatingPlayer: Bool {
-    gate.chromeVisible && !sheetPresented && !keyboardVisible
+    gate.chromeVisible && !sheetPresented && !keyboardVisible && chrome.playbackController != nil
   }
 
   var body: some View {
-    if showsFloatingPlayer, chrome.playbackController != nil {
-      TabAccessoryMiniPlayer(snapshot: gate.snapshot, chrome: chrome)
-        .equatable()
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-    }
+    // Immer gemountet (nicht per `if`) — sonst misst der native `tabViewBottomAccessory`-Host
+    // beim Wiedererscheinen (z. B. nach Schließen des Now-Playing-Sheets) kurz eine leere Breite
+    // und schrumpft die Floatingbar auf iPad auf ein Minimum, statt volle Breite zu nutzen.
+    TabAccessoryMiniPlayer(snapshot: gate.snapshot, chrome: chrome)
+      .equatable()
+      .frame(maxWidth: .infinity)
+      .contentShape(Rectangle())
+      .opacity(showsFloatingPlayer ? 1 : 0)
+      .allowsHitTesting(showsFloatingPlayer)
+      .accessibilityHidden(!showsFloatingPlayer)
   }
 }
 
@@ -2346,15 +2484,21 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
   let snapshot: TabAccessoryMiniPlayerSnapshot
   let chrome: FloatingPlayerChromeController
 
-  @Environment(\.tabViewBottomAccessoryPlacement) private var placement
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   private static let rowMinHeight: CGFloat = 48
   private static let accessoryTransportSide: CGFloat = 44
 
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.snapshot == rhs.snapshot && lhs.themeRevision == rhs.themeRevision
+  }
+
+  private var horizontalPadding: CGFloat {
+    horizontalSizeClass == .regular
+      ? MiniPlayerMetrics.accessoryHorizontalPaddingRegular
+      : MiniPlayerMetrics.accessoryHorizontalPaddingCompact
   }
 
   var body: some View {
@@ -2377,7 +2521,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
       }
     }
     .frame(maxWidth: .infinity, minHeight: Self.rowMinHeight + 16, alignment: .center)
-    .padding(.horizontal, 12)
+    .padding(.horizontal, horizontalPadding)
     .contentShape(Rectangle())
   }
 

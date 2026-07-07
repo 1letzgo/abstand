@@ -76,6 +76,7 @@ struct LoginView: View {
           .disabled(busy || server.isEmpty || username.isEmpty || password.isEmpty)
         }
         .padding(24)
+        .frame(maxWidth: AppTheme.Layout.readableFormMaxWidth)
         .frame(maxWidth: .infinity)
       }
       .abstandScrollScreenBackground()

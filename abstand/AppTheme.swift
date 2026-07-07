@@ -237,6 +237,16 @@ enum AppTheme {
     static let libraryRowTextInset: CGFloat = 6
     /// Höhe des Fortschrittsstreifens am unteren Kartenrand (Library-Zeilen).
     static let libraryRowBottomProgressHeight: CGFloat = 4
+
+    /// Max. Breite für Formulare (Login, Settings-Sheets) auf großen Screens (iPad) — sonst
+    /// laufen Textfelder/Buttons über die volle Breite oder hängen links im leeren Raum.
+    static let readableFormMaxWidth: CGFloat = 480
+
+    /// Facet-Kacheln (Narrators/Collections/Genres/Tags): adaptive statt starrer 2 Spalten —
+    /// auf iPad passen so automatisch mehr Kacheln pro Zeile.
+    static let facetTileGridColumns: [GridItem] = [
+      GridItem(.adaptive(minimum: 160), spacing: withinSectionSpacing)
+    ]
   }
 
   /// Akzentfarbe setzen und System-Chrome (Tab-Bar) aktualisieren.
@@ -878,12 +888,14 @@ struct AbstandLabeledTextField: View {
       .textInputAutocapitalization(.never)
       .autocorrectionDisabled()
       .padding(12)
+      .frame(maxWidth: .infinity, alignment: .leading)
       .foregroundStyle(model.appearancePalette.textPrimary)
       .background(model.appearancePalette.card)
       .clipShape(
         RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
       )
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
     .abstandThemeRefresh()
   }
 }

@@ -56,6 +56,8 @@ private enum Keys {
   static let browseTagsSortDescending = "abstand_browse_tags_sort_desc"
   /// Podcast-Tab in der Tab-Leiste (gecacht; unabhängig vom Bootstrap-Fetch).
   static let showPodcastsTab = "abstand_show_podcasts_tab"
+  /// eBooks/Supplementary als eigener Tab statt Einträge im Books-Tab.
+  static let ebooksSeparateTabEnabled = "abstand_ebooks_separate_tab_enabled"
   /// Akzentfarbe als „r,g,b“ (0…1) in sRGB.
   static let appearanceAccentRGB = "abstand_appearance_accent_rgb"
   static let appearanceAccentRGBDark = "abstand_appearance_accent_rgb_dark"
@@ -242,6 +244,15 @@ enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
     .search, .books, .series, .author, .collections, .genres, .narrators, .tags,
     .ebooks, .ebooksSupplementary,
   ]
+
+  /// Strip im separaten eBook-Tab (nur die beiden eBook-Sektionen).
+  static let ebookTabStripOrder: [BooksBrowseSection] = [.ebooks, .ebooksSupplementary]
+
+  /// Books-Tab-Strip ohne die eBook-Einträge, wenn diese als eigener Tab laufen.
+  static func stripOrder(ebooksSeparateTabEnabled: Bool) -> [BooksBrowseSection] {
+    guard ebooksSeparateTabEnabled else { return stripOrder }
+    return stripOrder.filter { $0 != .ebooks && $0 != .ebooksSupplementary }
+  }
 
   var systemImage: String {
     switch self {
@@ -668,6 +679,24 @@ final class AppModel: ObservableObject {
       }
     }
   }
+  /// Settings/Appearance/Views: eBooks & Supplementary als eigener Tab statt im Books-Strip.
+  @Published var ebooksSeparateTabEnabled: Bool = UserDefaults.standard.bool(
+    forKey: Keys.ebooksSeparateTabEnabled
+  ) {
+    didSet {
+      guard ebooksSeparateTabEnabled != oldValue else { return }
+      UserDefaults.standard.set(ebooksSeparateTabEnabled, forKey: Keys.ebooksSeparateTabEnabled)
+      if ebooksSeparateTabEnabled {
+        if booksBrowseSection == .ebooks || booksBrowseSection == .ebooksSupplementary {
+          booksBrowseSection = .books
+        }
+      } else if mainTab == .ebooks {
+        mainTab = .library
+      }
+    }
+  }
+  /// Eigene Strip-Auswahl für den separaten eBook-Tab (unabhängig vom Books-Tab-Strip).
+  @Published var ebooksBrowseSection: BooksBrowseSection = .ebooks
   @Published private(set) var browseCollectionBooksById: [String: [ABSBook]] = [:]
   @Published private(set) var browseAuthorsLoading = false
   @Published private(set) var browseNarratorsLoading = false
@@ -1232,6 +1261,8 @@ final class AppModel: ObservableObject {
     case podcasts = "Podcasts"
     case search = "Search"
     case settings = "Settings"
+    /// Nur sichtbar, wenn `ebooksSeparateTabEnabled` aktiv ist — sonst Einträge im `.library`-Strip.
+    case ebooks = "eBooks"
   }
 
   /// Einziges Home-Regal für „Continue listening“ (kein separates Fallback-Regal).
@@ -1549,7 +1580,7 @@ final class AppModel: ObservableObject {
       return books
     case .podcasts:
       return []
-    case .start, .settings, .search:
+    case .start, .settings, .search, .ebooks:
       return []
     }
   }
@@ -4455,7 +4486,7 @@ final class AppModel: ObservableObject {
       }()
       async let cachedShelvesTask: [ABSStartShelfSection]? = {
         guard let localStore else { return nil }
-        return try? await localStore.fetchHomeShelves(libraryId: libId)
+        return await localStore.fetchHomeShelves(libraryId: libId)
       }()
       let (progressList, bookmarksList) = await localSnapshot
       let cachedShelves = await cachedShelvesTask
@@ -5392,7 +5423,7 @@ final class AppModel: ObservableObject {
       }
       coverPrefetchInFlightKeys.insert(key)
       Task.detached(priority: .utility) { [weak self] in
-        defer { Task { @MainActor in self?.coverPrefetchInFlightKeys.remove(key) } }
+        defer { Task { @MainActor [weak self] in self?.coverPrefetchInFlightKeys.remove(key) } }
         if let account, let data = CoverImageCache.loadFromDisk(account: account, itemId: key),
           let ui = UIImage(data: data)
         {
@@ -5600,6 +5631,25 @@ final class AppModel: ObservableObject {
       scheduleSearch()
     }
     Task { await loadBooksBrowseSectionContentIfNeeded() }
+  }
+
+  /// Strip-Auswahl im separaten eBook-Tab (`.ebooks`/`.ebooksSupplementary`) — beide teilen eine Liste.
+  func selectEbooksBrowseSection(_ section: BooksBrowseSection) {
+    ebooksBrowseSection = section
+    Task { await loadBrowseEbooks(force: false) }
+  }
+
+  /// Erstbefüllung beim Öffnen des separaten eBook-Tabs.
+  func loadEbooksTabContentIfNeeded() async {
+    await loadBrowseEbooks(force: false)
+  }
+
+  /// Pull-to-Refresh im separaten eBook-Tab.
+  func refreshEbooksCatalog() async {
+    await performPullToRefresh { [self] in
+      await refreshProgressFromServer()
+      await loadBrowseEbooks(force: true)
+    }
   }
 
   func reloadBrowseAuthorsAfterSortChange() async {
@@ -7348,7 +7398,7 @@ final class AppModel: ObservableObject {
       mainTab = .library
       booksBrowseSection = .search
       libraryEntityDetailNav = nav
-    case .podcasts, .settings:
+    case .podcasts, .settings, .ebooks:
       break
     }
   }

@@ -10,6 +10,7 @@ struct MainRootView: View {
   @State private var activatedTabs: Set<AppModel.MainTab> = [.start]
   @State private var libraryRelayoutEpoch = 0
   @State private var podcastsRelayoutEpoch = 0
+  @State private var ebooksRelayoutEpoch = 0
 
   var body: some View {
     let _ = model.appearanceThemeRevision
@@ -42,6 +43,8 @@ struct MainRootView: View {
         libraryRelayoutEpoch += 1
       case .podcasts:
         podcastsRelayoutEpoch += 1
+      case .ebooks:
+        ebooksRelayoutEpoch += 1
       default:
         break
       }
@@ -54,6 +57,9 @@ struct MainRootView: View {
       var tabs: Set<AppModel.MainTab> = [.library, .settings]
       if model.showPodcastsTab {
         tabs.insert(.podcasts)
+      }
+      if model.ebooksSeparateTabEnabled {
+        tabs.insert(.ebooks)
       }
       activatedTabs.formUnion(tabs)
     }
@@ -119,12 +125,24 @@ struct MainRootView: View {
       }
 
       // Tabs immer registrieren — sonst baut TabView beim Bootstrap neu (Ampel flackert).
-      Tab(AppModel.MainTab.library.rawValue, systemImage: "books.vertical", value: AppModel.MainTab.library) {
+      Tab(booksTabTitle, systemImage: "books.vertical", value: AppModel.MainTab.library) {
         lazyTabContent(.library) {
           if model.selectedBooksLibrary != nil {
             libraryTabRoot
           } else {
             tabLibraryBootstrapPlaceholder
+          }
+        }
+      }
+
+      if model.ebooksSeparateTabEnabled {
+        Tab(AppModel.MainTab.ebooks.rawValue, systemImage: "book.closed.fill", value: AppModel.MainTab.ebooks) {
+          lazyTabContent(.ebooks) {
+            if model.selectedBooksLibrary != nil {
+              ebooksTabRoot
+            } else {
+              tabLibraryBootstrapPlaceholder
+            }
           }
         }
       }
@@ -146,6 +164,11 @@ struct MainRootView: View {
       }
     }
     .tabBarMinimizeBehavior(.onScrollDown)
+  }
+
+  /// „Books“ wird zu „Audiobooks“, sobald eBooks einen eigenen Tab haben.
+  private var booksTabTitle: String {
+    model.ebooksSeparateTabEnabled ? "Audiobooks" : AppModel.MainTab.library.rawValue
   }
 
   /// Platzhalter bis Bibliotheken aus Bootstrap da sind — Tab-Struktur bleibt stabil.
@@ -195,7 +218,7 @@ struct MainRootView: View {
     AbstandFixedBrowseStripSectionsLayout(
       relayoutTrigger: libraryRelayoutEpoch,
       selection: model.booksBrowseSection,
-      sectionIDs: BooksBrowseSection.stripOrder,
+      sectionIDs: BooksBrowseSection.stripOrder(ebooksSeparateTabEnabled: model.ebooksSeparateTabEnabled),
       scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
         + model.nowPlayingAccessoryScrollBottomInset,
       onRefresh: { await model.refreshBooksCatalog() }
@@ -210,13 +233,56 @@ struct MainRootView: View {
 
   private var booksBrowseSectionStrip: some View {
     AbstandBrowseStripIconMenu(
-      items: BooksBrowseSection.stripOrder.map {
+      items: BooksBrowseSection.stripOrder(ebooksSeparateTabEnabled: model.ebooksSeparateTabEnabled).map {
         AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
       },
       selectionID: model.booksBrowseSection.rawValue,
       onSelect: { id in
         if let section = BooksBrowseSection(rawValue: id) {
           model.selectBooksBrowseSection(section)
+        }
+      }
+    )
+  }
+
+  // MARK: - eBook tab (separater Tab, wenn `ebooksSeparateTabEnabled` aktiv ist)
+
+  private var ebooksTabRoot: some View {
+    NavigationStack {
+      ebooksCatalogScrollView
+        .abstandTabScreenChrome()
+        .navigationTitle(AppModel.MainTab.ebooks.rawValue)
+        .toolbarTitleDisplayMode(.inlineLarge)
+    }
+    .tint(model.appearanceAccentColor)
+    .id("ebooks-tab-\(model.accountSessionEpoch)")
+    .task { await model.loadEbooksTabContentIfNeeded() }
+  }
+
+  private var ebooksCatalogScrollView: some View {
+    AbstandFixedBrowseStripSectionsLayout(
+      relayoutTrigger: ebooksRelayoutEpoch,
+      selection: model.ebooksBrowseSection,
+      sectionIDs: BooksBrowseSection.ebookTabStripOrder,
+      scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
+        + model.nowPlayingAccessoryScrollBottomInset,
+      onRefresh: { await model.refreshEbooksCatalog() }
+    ) {
+      ebooksBrowseSectionStrip
+    } sectionBody: { section in
+      booksBrowseSectionScrollContent(for: section)
+    }
+  }
+
+  private var ebooksBrowseSectionStrip: some View {
+    AbstandBrowseStripIconMenu(
+      items: BooksBrowseSection.ebookTabStripOrder.map {
+        AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
+      },
+      selectionID: model.ebooksBrowseSection.rawValue,
+      onSelect: { id in
+        if let section = BooksBrowseSection(rawValue: id) {
+          model.selectEbooksBrowseSection(section)
         }
       }
     )
@@ -383,8 +449,7 @@ struct MainRootView: View {
     LibraryBookListCard(
       book: book,
       model: model,
-      showEbookBadge: model.bookShowsSupplementaryEbookBadge(book),
-      opensDetailOnTap: model.offlineHomeUIActive || model.libraryCatalogQuickFilter != .downloaded
+      showEbookBadge: model.bookShowsSupplementaryEbookBadge(book)
     )
     .task(id: book.id) {
       await model.loadMoreIfNeeded(currentItemId: book.id)
@@ -452,7 +517,7 @@ struct MainRootView: View {
   }
 
   private var booksBrowseNarratorListBody: some View {
-    let columns = [GridItem(.flexible()), GridItem(.flexible())]
+    let columns = AppTheme.Layout.facetTileGridColumns
 
     return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Narrators")
@@ -516,7 +581,7 @@ struct MainRootView: View {
   }
 
   private var booksBrowseCollectionsListBody: some View {
-    let columns = [GridItem(.flexible()), GridItem(.flexible())]
+    let columns = AppTheme.Layout.facetTileGridColumns
 
     return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Collections")
@@ -553,7 +618,7 @@ struct MainRootView: View {
   }
 
   private var booksBrowseTagsListBody: some View {
-    let columns = [GridItem(.flexible()), GridItem(.flexible())]
+    let columns = AppTheme.Layout.facetTileGridColumns
 
     return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Tags")
@@ -586,7 +651,7 @@ struct MainRootView: View {
   }
 
   private var booksBrowseGenresListBody: some View {
-    let columns = [GridItem(.flexible()), GridItem(.flexible())]
+    let columns = AppTheme.Layout.facetTileGridColumns
 
     return VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title:"Genres")
@@ -3159,13 +3224,21 @@ private struct LibraryPodcastCardsFlow<Content: View>: View {
 
 /// Hero-Karten zeilenweise (`LazyVGrid` vermeiden — Tab-Wechsel-Layout-Bug).
 private struct LibraryHeroMultiColumnRows<Item: Identifiable, Card: View>: View {
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let items: [Item]
   let columns: Int
   let spacing: CGFloat
   @ViewBuilder let card: (Item) -> Card
 
+  /// iPad (`regular`-Breite): mehr Spalten, sonst wirken die großen Cover-Karten in der
+  /// vollen Breite winzig verloren. Split View/Slide Over meldet `.compact` — bleibt unverändert.
+  private var effectiveColumns: Int {
+    let base = max(1, columns)
+    return horizontalSizeClass == .regular ? base + 2 : base
+  }
+
   var body: some View {
-    let columnCount = max(1, columns)
+    let columnCount = effectiveColumns
     ForEach(Array(stride(from: 0, to: items.count, by: columnCount)), id: \.self) { start in
       HStack(alignment: .top, spacing: spacing) {
         ForEach(0..<columnCount, id: \.self) { offset in
@@ -4166,7 +4239,7 @@ struct BooksEntityDetailNavigationModifier: ViewModifier {
         get: { model.searchEntityDetailNav },
         set: { model.searchEntityDetailNav = $0 }
       )
-    case .podcasts, .settings:
+    case .podcasts, .settings, .ebooks:
       Binding.constant(nil)
     }
   }

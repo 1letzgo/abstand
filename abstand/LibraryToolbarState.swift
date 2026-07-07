@@ -550,11 +550,16 @@ struct BooksLibraryTabShell<Catalog: View>: View {
     navigationRoot
   }
 
+  /// „Books“ wird zu „Audiobooks“, sobald eBooks einen eigenen Tab haben.
+  private var navigationTitle: String {
+    model.ebooksSeparateTabEnabled ? "Audiobooks" : AppModel.MainTab.library.rawValue
+  }
+
   private var navigationRoot: some View {
     NavigationStack {
       catalog()
         .abstandTabScreenChrome()
-        .navigationTitle(AppModel.MainTab.library.rawValue)
+        .navigationTitle(navigationTitle)
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
           if model.booksBrowseSection != .search {

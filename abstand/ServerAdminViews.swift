@@ -1173,6 +1173,13 @@ struct SettingsAppearanceView: View {
               options: LibraryPodcastCardStyle.allCases.map { (id: $0.rawValue, label: $0.label) }
             )
           }
+          ServerAdminCard {
+            SettingsCardToggleRow(
+              icon: "book.closed.fill",
+              title: "Separate eBook tab",
+              isOn: $model.ebooksSeparateTabEnabled
+            )
+          }
           NavigationLink {
             SettingsAppearanceHomeView()
           } label: {
