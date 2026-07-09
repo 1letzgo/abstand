@@ -5,12 +5,22 @@ import UIKit
 
 // MARK: - Display-Eckenradius (für abgerundete obere Ecken des Vollbild-Players)
 
-extension UIScreen {
+enum AbstandDisplayCorners {
   /// Physischer Eckenradius des Displays — Apple bietet dafür keine öffentliche API, das
   /// private Symbol `_displayCornerRadius` ist aber unter allen modernen iOS-Versionen
   /// stabil verfügbar. Fällt das Symbol weg, greift ein grober Näherungswert pro Geräteklasse.
-  var abstandDisplayCornerRadius: CGFloat {
-    if let value = value(forKey: "_displayCornerRadius") as? CGFloat {
+  /// Liefert den Screen über die aktive Window-Szene statt `UIScreen.main` (deprecated iOS 26).
+  static var radius: CGFloat {
+    let screen = UIApplication.shared.connectedScenes
+      .compactMap({ $0 as? UIWindowScene })
+      .flatMap({ $0.windows })
+      .first(where: { $0.isKeyWindow })?
+      .screen
+      ?? UIApplication.shared.connectedScenes
+        .compactMap({ $0 as? UIWindowScene })
+        .first?
+        .screen
+    if let screen, let value = screen.value(forKey: "_displayCornerRadius") as? CGFloat {
       return value
     }
     return UIDevice.current.userInterfaceIdiom == .pad
@@ -1404,10 +1414,10 @@ struct NowPlayingDetailView: View {
       // wird die Rundung sichtbar und die Karte wirkt wie in Apple Music wie eine echte Karte.
       .clipShape(
         UnevenRoundedRectangle(
-          topLeadingRadius: UIScreen.main.abstandDisplayCornerRadius,
+          topLeadingRadius: AbstandDisplayCorners.radius,
           bottomLeadingRadius: 0,
           bottomTrailingRadius: 0,
-          topTrailingRadius: UIScreen.main.abstandDisplayCornerRadius,
+          topTrailingRadius: AbstandDisplayCorners.radius,
           style: .continuous
         )
       )
