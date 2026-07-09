@@ -2,17 +2,25 @@
 
 # ci_post_clone.sh — Xcode Cloud
 #
-# Setzt CURRENT_PROJECT_VERSION automatisch auf die Xcode-Cloud-Build-Nummer,
-# damit jeder CI-Build eine eindeutige, monoton steigende Build-Nummer hat.
-# Der lokal in project.pbxproj hinterlegte Wert (z. B. „1") bleibt unangetastet —
-# das Skript überschreibt ihn nur im frisch geklonten CI-Checkout.
+# Setzt CURRENT_PROJECT_VERSION auf einen zeitstempelbasierten Build-Code
+# (YYJJJMMTTSS), der garantiert eindeutig und monoton steigend ist — unabhängig
+# davon, was bereits in App Store Connect / TestFlight hochgeladen wurde.
+#
+# `CI_BUILD_NUMBER` beginnt bei einem neuen Workflow bei 1 und ist damit oft
+# NIEDRIGER als bereits hochgeladene Builds → Validierungsfehler
+# „bundle version must be higher than the previously uploaded version".
+# Ein Zeitstempel umgeht das Problem dauerhaft.
 #
 # Doku: https://developer.apple.com/documentation/xcode/setting-the-next-build-number-for-xcode-cloud-builds
 
 set -euo pipefail
 
-# Build-Nummer aus dem Xcode-Cloud-Umfeld; Fallback für lokale Tests.
-build_number="${CI_BUILD_NUMBER:-1}"
+# Zeitstempel-basierter Build-Code: YYJJJMMTTSS (z. B. 261907091438).
+# Fallback auf CI_BUILD_NUMBER, falls der Zeitstempel leer bleibt (lokaler Test).
+build_number="$(date -u +%y%Y%m%d%H%M)"
+if [[ -z "$build_number" || "$build_number" -lt 1 ]]; then
+  build_number="${CI_BUILD_NUMBER:-1}"
+fi
 
 echo "ci_post_clone: setze CURRENT_PROJECT_VERSION auf ${build_number}"
 
