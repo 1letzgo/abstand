@@ -1563,9 +1563,15 @@ struct NowPlayingDetailView: View {
       if panelExpanded {
         // Gleiche Breite wie im Cover-Zustand (800pt-Spalte) — Inhalt/Teleprompter
         // sollen nicht breiter werden als der Bereich, in dem sonst das Cover sitzt.
+        // Top-Padding um die Notch-Höhe: `fullPlayerStack` blutet per `.ignoresSafeArea()`
+        // bis an den Bildschirmrand, `.safeAreaPadding(.vertical, 20)` allein reicht nicht
+        // unter die Notch. Das Cover rutscht durch Spacer-Zentrierung automatisch tief genug —
+        // Panels mit `.top`-Alignment nicht, darum hier der explizite Notch-Ausgleich.
+        let notchInset = max(0, keyWindowTopSafeAreaInset - MiniPlayerMetrics.fullPlayerCoverInset)
         playerHeaderArea(book: book)
           .frame(maxWidth: 800)
           .frame(maxHeight: .infinity, alignment: .top)
+          .padding(.top, notchInset)
       } else {
         VStack(spacing: 0) {
           Spacer(minLength: 0)
