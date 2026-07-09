@@ -6,6 +6,7 @@ CLAUDE.md
 .cursor/
 .codex/
 .continue/
+.autopilot.json
 
 # Markdown docs for agents/tools — public README stays in the repo
 *.md
