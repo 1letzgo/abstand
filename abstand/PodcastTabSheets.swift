@@ -202,15 +202,18 @@ struct PodcastAddFromSearchView: View {
   }
 
   private func podcastHitsList(_ hits: [ABSPodcastDirectorySearchHit]) -> some View {
-    List {
-      ForEach(hits) { hit in
-        PodcastDirectoryHitRow(hit: hit) {
-          Task { await model.subscribeToPodcastDirectoryHit(hit) }
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+        ForEach(hits) { hit in
+          PodcastDirectoryHitRow(hit: hit) {
+            Task { await model.subscribeToPodcastDirectoryHit(hit) }
+          }
         }
-        .padding(.vertical, 4)
       }
+      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
+      .padding(.top, 4)
+      .padding(.bottom, AppTheme.Layout.scrollBottomInsetBase)
     }
-    .listStyle(.plain)
     .abstandScrollScreenBackground()
   }
 }
@@ -262,59 +265,76 @@ private struct PodcastDirectoryHitRow: View {
   let onSubscribe: () -> Void
 
   var body: some View {
-    HStack(alignment: .top, spacing: 12) {
-      if let u = hit.cover.flatMap(URL.init(string:)) {
-        CoverImageView(
-          url: u,
+    let palette = model.appearancePalette
+    return HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
+      LibraryRowLayout.coverSlot {
+        LibraryRowLayout.rowCoverImage(
+          url: hit.cover.flatMap(URL.init(string:)),
           token: model.token,
           itemId: "podcast-dir:\(hit.id)",
           cacheAccount: model.coverImageCacheAccountDirectory(),
           cacheRevision: model.coverImageCacheRevision,
           requiresAuthorization: false
         )
-        .frame(width: 56, height: 56)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-      } else {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(AppTheme.card)
-          .frame(width: 56, height: 56)
+        .accessibilityHidden(true)
       }
-      VStack(alignment: .leading, spacing: 4) {
-        Text(hit.title)
-          .font(.headline)
-          .foregroundStyle(AppTheme.textPrimary)
-        if let a = hit.artistName, !a.isEmpty {
-          Text(a)
-            .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
-        }
-        if let n = hit.trackCount, n > 0 {
-          Text("\(n) episodes")
-            .font(.caption)
-            .foregroundStyle(AppTheme.textSecondary)
-        }
-      }
-      Spacer(minLength: 0)
-      if model.podcastDirectoryHitIsInLibrary(hit) {
-        Text("In library")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.horizontal, 4)
-      } else {
-        Button(action: onSubscribe) {
-          if model.podcastSubscribeInProgressDirectoryHitId == hit.id {
-            ProgressView()
-          } else {
-            Text("Subscribe")
+
+      LibraryRowLayout.metadataColumn(showsProgressBar: false) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(hit.title)
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(palette.textPrimary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .minimumScaleFactor(0.85)
+            .fixedSize(horizontal: false, vertical: true)
+          if let a = hit.artistName, !a.isEmpty {
+            Text(a)
+              .font(.subheadline)
+              .foregroundStyle(palette.textSecondary)
+              .lineLimit(1)
+          }
+          Spacer(minLength: 0)
+          LibraryRowLayout.metadataFooter {
+            if let n = hit.trackCount, n > 0 {
+              Text("\(n) episodes")
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(palette.textSecondary)
+            }
+          } trailing: {
+            subscribeControl
           }
         }
-        .buttonStyle(.borderedProminent)
-        .tint(model.appearanceAccentColor)
-        .disabled(
-          (hit.feedUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
-            || !model.isNetworkReachable)
-        .allowsHitTesting(model.podcastSubscribeInProgressDirectoryHitId == nil)
       }
+    }
+    .background(palette.card)
+    .clipShape(LibraryRowLayout.cardShape)
+    .overlay {
+      LibraryRowLayout.cardShape.strokeBorder(palette.textSecondary.opacity(0.22), lineWidth: 1)
+    }
+    .abstandCardElevation(.standard)
+  }
+
+  @ViewBuilder
+  private var subscribeControl: some View {
+    if model.podcastDirectoryHitIsInLibrary(hit) {
+      Text("In library")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(model.appearancePalette.textSecondary)
+    } else {
+      Button(action: onSubscribe) {
+        if model.podcastSubscribeInProgressDirectoryHitId == hit.id {
+          ProgressView()
+        } else {
+          Text("Subscribe")
+        }
+      }
+      .buttonStyle(.borderedProminent)
+      .tint(model.appearanceAccentColor)
+      .disabled(
+        (hit.feedUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
+          || !model.isNetworkReachable)
+      .allowsHitTesting(model.podcastSubscribeInProgressDirectoryHitId == nil)
     }
   }
 }

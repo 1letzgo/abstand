@@ -1156,23 +1156,14 @@ private struct PodcastLibrarySearchResultsView: View {
       }
 
       if !model.podcastLibrarySearchShows.isEmpty {
-        VStack(alignment: .leading, spacing: 10) {
+        LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
           TabContentSectionTitle(title:"Shows")
           ForEach(model.podcastLibrarySearchShows) { show in
             Button {
               model.applyPodcastShowFilterSelection(show.id)
               Task { await model.loadPodcastEpisodesForShowLibraryItem(show.id) }
             } label: {
-              BrowseEntityRowCard(
-                title: show.displayTitle,
-                detailLabel: "Episodes",
-                detailValue: (show.media.numTracks ?? 0) > 0
-                  ? "\(show.media.numTracks!)" : nil,
-                cacheItemId: show.id,
-                coverURL: model.coverURL(for: show.id),
-                coverBookIds: nil,
-                authorLine: show.displayAuthorsCardLine
-              )
+              PodcastShowRowCard(show: show)
             }
             .buttonStyle(.plain)
           }
@@ -1180,13 +1171,12 @@ private struct PodcastLibrarySearchResultsView: View {
       }
 
       if !model.podcastLibrarySearchEpisodes.isEmpty {
-        VStack(alignment: .leading, spacing: 10) {
+        LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
           TabContentSectionTitle(title:"Episodes")
           ForEach(model.podcastLibrarySearchEpisodes) { episode in
             LibraryPodcastListCard(
               episode: episode,
-              model: model,
-              forceCompactListStyle: true
+              model: model
             )
           }
         }
@@ -2956,7 +2946,7 @@ struct PodcastShowRowCard: View {
 
 // MARK: - Library row layout (Cover bündig links/oben/unten)
 
-private enum LibraryRowLayout {
+enum LibraryRowLayout {
   static let coverSide = AppTheme.Layout.libraryRowCoverSide
   static let cornerRadius = AppTheme.Layout.libraryRowCornerRadius
   static let cardInset = AppTheme.Layout.libraryRowCardInset
