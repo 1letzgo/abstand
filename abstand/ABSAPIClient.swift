@@ -1019,12 +1019,16 @@ actor ABSAPIClient {
     maxAttempts: Int = 3,
     progress: @escaping @Sendable (Double) -> Void
   ) async throws -> URL {
+    // Content-Length vorab via HEAD ermitteln — viele Stream-Responses liefern keine
+    // `expectedContentLength` an den Download-Delegate (dann ist `totalBytesExpectedToWrite == -1`
+    // und der Fortschritts-Callback schweigt → Sprung von 0 auf fertig bei Einzel-Track-Folgen).
+    let knownSize: Int64? = await fetchExpectedContentLength(url: streamURL)
     var lastError: Error?
     for attempt in 0..<maxAttempts {
       do {
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let delegate = FileDownloadProgressDelegate(onProgress: progress)
+        let delegate = FileDownloadProgressDelegate(onProgress: progress, knownExpectedBytes: knownSize)
         let (temp, resp) = try await downloadURLSession.download(for: req, delegate: delegate)
         guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
           try? FileManager.default.removeItem(at: temp)
@@ -1050,6 +1054,21 @@ actor ABSAPIClient {
       }
     }
     throw lastError ?? ABSAPIError.emptyBody
+  }
+
+  /// Ermittelt die Content-Length via HEAD-Request. Liefert `nil` bei Fehler oder unbekannter Größe
+  /// (z. B. Server ohne `Content-Length`-Header). Wird für den Intra-Track-Download-Fortschritt gebraucht,
+  /// da `URLSessionDownloadTask.expectedContentLength` bei gestreamten Responses oft -1 ist.
+  private func fetchExpectedContentLength(url: URL) async -> Int64? {
+    var req = URLRequest(url: url, timeoutInterval: 30)
+    req.httpMethod = "HEAD"
+    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    guard let resp = try? await downloadURLSession.data(for: req).1 as? HTTPURLResponse,
+      (200..<300).contains(resp.statusCode) else {
+      return nil
+    }
+    let len = resp.expectedContentLength
+    return len > 0 ? len : nil
   }
 
   /// Dateiendung ohne Punkt, Kleinbuchstaben.
@@ -1303,9 +1322,13 @@ actor ABSAPIClient {
 /// Läuft auf der URLSession-Delegate-Queue (nicht isoliert) — `onProgress` muss thread-safe sein.
 private final class FileDownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
   private let onProgress: @Sendable (Double) -> Void
+  /// Fallback-Größe (via HEAD ermittelt) — genutzt, wenn `totalBytesExpectedToWrite == -1`
+  /// (Server ohne `Content-Length`-Header).
+  private let knownExpectedBytes: Int64?
 
-  init(onProgress: @escaping @Sendable (Double) -> Void) {
+  init(onProgress: @escaping @Sendable (Double) -> Void, knownExpectedBytes: Int64?) {
     self.onProgress = onProgress
+    self.knownExpectedBytes = knownExpectedBytes
   }
 
   func urlSession(
@@ -1315,8 +1338,12 @@ private final class FileDownloadProgressDelegate: NSObject, URLSessionDownloadDe
     totalBytesWritten: Int64,
     totalBytesExpectedToWrite: Int64
   ) {
-    guard totalBytesExpectedToWrite > 0 else { return }
-    let fraction = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+    // Erwartete Größe: bevorzugt aus dem URLSession-Callback, Fallback aus HEAD-Request.
+    let expected = totalBytesExpectedToWrite > 0
+      ? totalBytesExpectedToWrite
+      : (knownExpectedBytes ?? -1)
+    guard expected > 0 else { return }
+    let fraction = Double(totalBytesWritten) / Double(expected)
     onProgress(min(max(0, fraction), 1))
   }
 
