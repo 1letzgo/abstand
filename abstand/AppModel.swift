@@ -8611,6 +8611,12 @@ final class AppModel: ObservableObject {
         presentNowPlayingSheetOnAutoPlayIfNeeded()
         if mayUseServerNetwork {
           Task { await loadStartDashboard() }
+          // Podcast-Liste neu laden (wie bei `markPodcastEpisodeFinished`), damit der „New"-Bereich
+          // konsistent bleibt — sonst wird die Liste u. U. leer/weiß, wenn die gestartete Folge
+          // aus dem Katalog rückt und keine neue vom Server nachrückt.
+          if mainTab == .podcasts {
+            Task { await reloadPodcastLibrary(reset: true) }
+          }
         }
       }
     } catch {
