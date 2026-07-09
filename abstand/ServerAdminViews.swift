@@ -2514,10 +2514,16 @@ private struct DownloadManageActiveRow: View {
           Text("Queued")
             .font(.caption2)
             .foregroundStyle(themeAccent)
-        } else {
+        } else if entry?.isPodcastEpisode != true {
+          // Fortschrittsbalken nur bei Hörbüchern — bei Podcast-Folgen (oft Einzel-Track
+          // ohne zuverlässige Content-Length) springt der Balken sonst nur von 0 auf fertig.
           ProgressView(value: progress)
             .tint(themeAccent)
             .padding(.top, 1)
+        } else {
+          Text("Downloading…")
+            .font(.caption2)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
       }
       Spacer(minLength: 8)
@@ -2574,10 +2580,6 @@ private struct DownloadManageSavedRow: View {
             .lineLimit(1)
         }
         HStack(spacing: 6) {
-          if row.isPodcastEpisode {
-            Label("Episode", systemImage: "antenna.radiowaves.left.and.right")
-              .labelStyle(.titleAndIcon)
-          }
           if let dur = row.durationLabel {
             Text(dur)
           }

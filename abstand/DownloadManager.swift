@@ -1,6 +1,5 @@
 import Combine
 import Foundation
-import os
 
 private struct DownloadWIP: Codable {
   var storageItemId: String
@@ -392,14 +391,12 @@ final class DownloadManager: ObservableObject {
           // Throttling über `lastProgressEmit`, damit nicht jedes Byte-Event einen Main-Actor-Hop auslöst.
           let progressSink: @Sendable (Double) -> Void = { [weak self] fraction in
             guard let self else { return }
-            os_log(.info, "DBG progressSink fraction=%.3f", fraction)
             Task { @MainActor [weak self] in
               guard let self else { return }
               let now = Date()
               if now.timeIntervalSince(self.lastIntraTrackEmit) < 0.08 { return }
               self.lastIntraTrackEmit = now
               self.progress = min(1, (baseDoneW + fraction * trackWeight) / sumW)
-              os_log(.info, "DBG progress set to %.3f", self.progress)
             }
           }
           let finalURL: URL
