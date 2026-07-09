@@ -52,6 +52,29 @@ enum ListeningAchievementTier: Int, Comparable, CaseIterable {
       return accent
     }
   }
+
+  /// Deckung der Badge-Fläche: je höher das Level, desto deckender ("dunkler").
+  func badgeFillOpacity(isDarkLike: Bool) -> Double {
+    switch self {
+    case .locked:
+      return isDarkLike ? 0.10 : 0.08
+    case .level1:
+      return isDarkLike ? 0.14 : 0.12
+    case .level2:
+      return isDarkLike ? 0.26 : 0.22
+    case .level3:
+      return isDarkLike ? 0.42 : 0.36
+    case .level4:
+      return isDarkLike ? 0.70 : 0.62
+    case .level5:
+      return 1.0
+    }
+  }
+
+  /// Ab Level 4 ist das Badge flächig gefüllt → Ziffer kontrastiert (weiß/dunkel).
+  var usesSolidBadgeFill: Bool {
+    self == .level4 || self == .level5
+  }
 }
 
 /// Messgröße für Stats-Achievements (Schwellen pro Level 1–5).
@@ -416,27 +439,31 @@ struct ListeningAchievementCard: View {
 
   @ViewBuilder
   private func levelBadge(edge: CGFloat, levelFont: Font, cornerRadius: CGFloat) -> some View {
-    if let level = achievement.tier.levelNumber {
+    let palette = model.appearancePalette
+    let tier = achievement.tier
+    let isSolid = tier.usesSolidBadgeFill
+    let fillOpacity = tier.badgeFillOpacity(isDarkLike: palette.isDarkLike)
+    if let level = tier.levelNumber {
       Text("\(level)")
         .font(levelFont)
         .monospacedDigit()
-        .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
+        .foregroundStyle(isSolid ? palette.foregroundOnAccent(themeAccent) : tierAccentColor)
         .frame(width: edge, height: edge)
         .background(
           RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(tierAccentColor.opacity(0.2))
+            .fill(tierAccentColor.opacity(fillOpacity))
         )
         .overlay {
           RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .strokeBorder(tierAccentColor, lineWidth: 1.5)
+            .strokeBorder(tierAccentColor, lineWidth: isSolid ? 0 : 1.5)
         }
-        .accessibilityLabel(achievement.tier.accessibilityLabel)
+        .accessibilityLabel(tier.accessibilityLabel)
     } else {
       Image(systemName: "lock.fill")
         .font(levelFont)
         .foregroundStyle(tierAccentColor)
         .frame(width: edge, height: edge)
-        .accessibilityLabel(achievement.tier.accessibilityLabel)
+        .accessibilityLabel(tier.accessibilityLabel)
     }
   }
 
