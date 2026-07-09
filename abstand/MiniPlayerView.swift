@@ -754,6 +754,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
   let offlineStorageId: String?
   let isDownloaded: Bool
   let isDownloading: Bool
+  let isQueued: Bool
   let downloadProgressBucket: Int
   let isLoggedIn: Bool
 
@@ -763,6 +764,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
       && lhs.offlineStorageId == rhs.offlineStorageId
       && lhs.isDownloaded == rhs.isDownloaded
       && lhs.isDownloading == rhs.isDownloading
+      && lhs.isQueued == rhs.isQueued
       && lhs.downloadProgressBucket == rhs.downloadProgressBucket
       && lhs.isLoggedIn == rhs.isLoggedIn
       && lhs.themeRevision == rhs.themeRevision
@@ -914,6 +916,24 @@ private struct FullPlayerUtilityBar: View, Equatable {
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Download in progress")
+      } else if isQueued {
+        VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
+          Image(systemName: "circle.dashed")
+            .font(.title3)
+            .foregroundStyle(themeAccent)
+            .frame(
+              maxWidth: .infinity,
+              minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+              maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+              alignment: .center
+            )
+          Text("Download", comment: "Player download control caption")
+            .font(.caption2)
+            .foregroundStyle(AppTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Queued")
       } else {
         Button {
           model.startDownloadForActivePlayback()
@@ -960,6 +980,7 @@ struct FullPlayerChromeSnapshot: Equatable {
   let offlineStorageId: String?
   let isDownloaded: Bool
   let isDownloading: Bool
+  let isQueued: Bool
   let downloadProgressBucket: Int
   let isLoggedIn: Bool
   let sleepTimerModeSignature: Int
@@ -978,6 +999,7 @@ struct FullPlayerChromeSnapshot: Equatable {
     offlineStorageId: nil,
     isDownloaded: false,
     isDownloading: false,
+    isQueued: false,
     downloadProgressBucket: -1,
     isLoggedIn: false,
     sleepTimerModeSignature: 0
@@ -988,6 +1010,7 @@ struct FullPlayerChromeSnapshot: Equatable {
     let player = model.player
     let sid = model.currentPlaybackOfflineStorageId()
     let isDownloading = sid != nil && model.downloads.activeItemId == sid
+    let isQueued = sid != nil && model.downloads.queuedItemIds.contains(sid!)
     let sleepSig: Int = {
       switch player.sleepTimerMode {
       case .off: return 0
@@ -1009,6 +1032,7 @@ struct FullPlayerChromeSnapshot: Equatable {
       offlineStorageId: sid,
       isDownloaded: sid.map { model.downloadedItemIds.contains($0) } ?? false,
       isDownloading: isDownloading,
+      isQueued: isQueued,
       downloadProgressBucket: isDownloading ? Int(model.downloads.progress * 20) : -1,
       isLoggedIn: model.isLoggedIn,
       sleepTimerModeSignature: sleepSig
@@ -2145,6 +2169,7 @@ struct NowPlayingDetailView: View {
       offlineStorageId: chromeSnapshot.offlineStorageId,
       isDownloaded: chromeSnapshot.isDownloaded,
       isDownloading: chromeSnapshot.isDownloading,
+      isQueued: chromeSnapshot.isQueued,
       downloadProgressBucket: chromeSnapshot.downloadProgressBucket,
       isLoggedIn: chromeSnapshot.isLoggedIn
     )

@@ -1296,6 +1296,13 @@ final class AppModel: ObservableObject {
         self?.objectWillChange.send()
       }
       .store(in: &cancellables)
+    downloads.$queuedItemIds
+      .removeDuplicates()
+      .receive(on: RunLoop.main)
+      .sink { [weak self] _ in
+        self?.objectWillChange.send()
+      }
+      .store(in: &cancellables)
     downloads.$progress
       .throttle(for: .milliseconds(450), scheduler: RunLoop.main, latest: true)
       .removeDuplicates()
@@ -1709,6 +1716,52 @@ final class AppModel: ObservableObject {
         manifest.libraryItemId == lid
       else { continue }
       return storageId
+    }
+    return nil
+  }
+
+  /// Anzeige-Metadaten für eine Storage-ID — zuerst aus dem Katalog (auch während des Downloads,
+  /// bevor das Manifest geschrieben wird), dann als Fallback aus dem Manifest. `nil`, wenn beides fehlt.
+  func downloadCatalogEntry(forStorageId storageId: String) -> DownloadCatalogEntry? {
+    let trimmed = storageId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    // Podcast-Folge: Storage-ID = „<libraryItemId>-<episodeId>".
+    if trimmed.contains("-") {
+      let parts = trimmed.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+      if parts.count == 2 {
+        let lid = String(parts[0])
+        let eid = String(parts[1])
+        if let ep = (mergedLocalPodcastEpisodes() + podcastEpisodes).first(where: {
+          $0.libraryItemId == lid && $0.episodeId == eid
+        }) {
+          return DownloadCatalogEntry(
+            libraryItemId: lid,
+            title: ep.episodeTitle,
+            subtitle: ep.showTitle,
+            isPodcastEpisode: true
+          )
+        }
+      }
+    }
+    // Hörbuch: Storage-ID == libraryItemId.
+    if let book = mergedLocalCatalogBooks().first(where: { $0.id == trimmed }) {
+      return DownloadCatalogEntry(
+        libraryItemId: book.id,
+        title: book.displayTitle,
+        subtitle: book.displayAuthors,
+        isPodcastEpisode: false
+      )
+    }
+    // Fallback: Manifest von der Platte (falls bereits vorhanden).
+    if let root = try? downloads.downloadFolder(for: trimmed),
+      let manifest = ABSDownloadManifest.load(from: root)
+    {
+      return DownloadCatalogEntry(
+        libraryItemId: manifest.libraryItemId,
+        title: manifest.displayTitle,
+        subtitle: manifest.displayAuthor,
+        isPodcastEpisode: manifest.episodeId != nil
+      )
     }
     return nil
   }
@@ -8777,9 +8830,51 @@ final class AppModel: ObservableObject {
   }
 
   func markUnfinished(bookId: String) async {
+    await applyMarkUnfinished(
+      libraryItemId: bookId,
+      episodeId: nil,
+      patchCatalog: { [weak self] in
+        self?.patchBooksCatalogAfterAudiobookProgressChange(bookId: bookId, finished: false)
+      },
+      reloadLibraryIfNeeded: { [weak self] in
+        guard let self else { return }
+        if self.needsFullLibraryReloadAfterAudiobookProgressChange(bookId: bookId, finished: false) {
+          await self.reloadLibrary(reset: true)
+        }
+      }
+    )
+  }
+
+  func markPodcastEpisodeUnfinished(_ episode: ABSPodcastEpisodeListItem) async {
+    await applyMarkUnfinished(
+      libraryItemId: episode.libraryItemId,
+      episodeId: episode.episodeId,
+      patchCatalog: { },
+      reloadLibraryIfNeeded: { [weak self] in
+        guard let self else { return }
+        if self.mainTab == .podcasts {
+          await self.reloadPodcastLibrary(reset: true)
+        }
+      }
+    )
+  }
+
+  /// Gemeinsamer Rumpf für „Mark as not finished" (Hörbücher & Podcast-Folgen).
+  /// `patchCatalog` wird nach `patchProgress` (vor `authorize`) aufgerufen, `reloadLibraryIfNeeded`
+  /// nach `authorize` (awaited).
+  private func applyMarkUnfinished(
+    libraryItemId: String,
+    episodeId: String?,
+    patchCatalog: @escaping () -> Void,
+    reloadLibraryIfNeeded: @escaping () async -> Void
+  ) async {
     ensureLocalProgressLoaded()
-    applyLocalMarkUnfinished(libraryItemId: bookId, episodeId: nil)
-    pendingLocalProgressSyncKeys.insert(bookId)
+    let key: String = {
+      let ep = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      return ep.isEmpty ? libraryItemId : "\(libraryItemId)-\(ep)"
+    }()
+    applyLocalMarkUnfinished(libraryItemId: libraryItemId, episodeId: episodeId)
+    pendingLocalProgressSyncKeys.insert(key)
     syncContinueListeningShelvesWithProgress()
     if defersProgressSyncToServer {
       await refreshStartDashboardIfNeeded()
@@ -8792,17 +8887,15 @@ final class AppModel: ObservableObject {
     }
     do {
       try await c.patchProgress(
-        libraryItemId: bookId,
-        episodeId: nil,
+        libraryItemId: libraryItemId,
+        episodeId: episodeId,
         patch: ABSProgressPatch(currentTime: nil, duration: nil, progress: nil, isFinished: false)
       )
-      patchBooksCatalogAfterAudiobookProgressChange(bookId: bookId, finished: false)
+      patchCatalog()
       let auth = try await c.authorize()
       applyAuthorizeSession(auth)
       syncContinueListeningShelvesWithProgress()
-      if needsFullLibraryReloadAfterAudiobookProgressChange(bookId: bookId, finished: false) {
-        await reloadLibrary(reset: true)
-      }
+      await reloadLibraryIfNeeded()
       await refreshStartDashboardIfNeeded()
     } catch {
       publishErrorUnlessBenignCancellation(error)
@@ -8896,42 +8989,18 @@ final class AppModel: ObservableObject {
         libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
       syncContinueListeningShelvesWithProgress()
       persistHomeShelvesSnapshot()
+      // Podcast-Liste neu laden (wie `reloadLibrary` bei Büchern), damit der „New"-Bereich
+      // konsistent bleibt — sonst wird die Liste u. U. leer/weiß, weil die fertige Folge
+      // bereits lokal entfernt wurde, aber keine neue vom Server nachrückt.
+      if mainTab == .podcasts {
+        await reloadPodcastLibrary(reset: true)
+      }
+      await loadStartDashboard()
       await finishMarkFinishedLocally(
         downloadRemovalStorageId: storageId,
         wasPlaying: wasPlaying,
         clearLastPlayedIfBookId: nil
       )
-      await loadStartDashboard()
-    } catch {
-      publishErrorUnlessBenignCancellation(error)
-    }
-  }
-
-  func markPodcastEpisodeUnfinished(_ episode: ABSPodcastEpisodeListItem) async {
-    ensureLocalProgressLoaded()
-    applyLocalMarkUnfinished(libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
-    pendingLocalProgressSyncKeys.insert(episode.progressLookupKey)
-    syncContinueListeningShelvesWithProgress()
-    if defersProgressSyncToServer {
-      await refreshStartDashboardIfNeeded()
-      return
-    }
-    restoreServerClientIfNeeded()
-    guard let c = client else {
-      await refreshStartDashboardIfNeeded()
-      return
-    }
-    do {
-      try await c.patchProgress(
-        libraryItemId: episode.libraryItemId,
-        episodeId: episode.episodeId,
-        patch: ABSProgressPatch(currentTime: nil, duration: nil, progress: nil, isFinished: false)
-      )
-      let auth = try await c.authorize()
-      applyAuthorizeSession(auth)
-      syncContinueListeningShelvesWithProgress()
-      await reloadPodcastLibrary(reset: true)
-      await loadStartDashboard()
     } catch {
       publishErrorUnlessBenignCancellation(error)
     }
@@ -8984,7 +9053,8 @@ final class AppModel: ObservableObject {
   }
 
   private func beginDownloadBackgroundExecution() {
-    endDownloadBackgroundExecution()
+    // BG-Task für die gesamte Download-Queue offenhalten (nicht pro Item neu starten).
+    guard downloadBackgroundTaskId == .invalid else { return }
     downloadBackgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "de.letzgo.abstand.media-download") {
       [weak self] in
       Task { @MainActor [weak self] in
@@ -9112,12 +9182,18 @@ final class AppModel: ObservableObject {
     ) { [weak self] ok in
       Task { @MainActor [weak self] in
         guard let model = self else { return }
-        model.endDownloadBackgroundExecution()
+        // BG-Task erst beenden, wenn die komplette Queue leer ist (kein aktiver/wartender Download).
+        if model.downloads.activeItemId == nil, model.downloads.queuedItemIds.isEmpty {
+          model.endDownloadBackgroundExecution()
+        }
         if ok {
           model.downloadedItemIds.insert(storageItemId)
           model.persistDownloads()
           await model.applyLocalPlaybackIfDownloadMatchesCurrent(storageId: storageItemId)
-        } else if model.downloads.activeItemId != storageItemId {
+        } else if model.downloads.activeItemId != storageItemId,
+          !model.downloads.queuedItemIds.contains(storageItemId)
+        {
+          // Weder aktiv noch wartend → echter Fehler (kein Queue-bedingter Cancel).
           model.errorMessage = "Download failed."
         }
       }
@@ -9125,9 +9201,8 @@ final class AppModel: ObservableObject {
   }
 
   func removeLocalDownload(bookId: String) {
-    if downloads.activeItemId == bookId {
-      downloads.cancel()
-    }
+    // Gezielter Cancel: entfernt das Item aus der Queue oder bricht nur es ab, falls aktiv.
+    downloads.cancel(itemId: bookId)
     downloads.deleteDownload(itemId: bookId)
     downloadedItemIds.remove(bookId)
     persistDownloads()
@@ -9600,7 +9675,7 @@ final class AppModel: ObservableObject {
     return ids
   }
 
-  private func downloadManifestBelongsToActiveAccount(_ manifest: ABSDownloadManifest) -> Bool {
+  func downloadManifestBelongsToActiveAccount(_ manifest: ABSDownloadManifest) -> Bool {
     // Während Account-Wechsel / Bootstrap sind `libraries` noch leer — dann nicht
     // alle Downloads blind akzeptieren, sondern anhand der gespeicherten Account-Library-IDs filtern.
     let activeLibs = activeLibraryIdSet()
@@ -10500,8 +10575,10 @@ final class AppModel: ObservableObject {
     }
     guard let existing else { return finish(incoming) }
     if pendingLocalProgressSyncKeys.contains(key) {
-      if existing.isFinished, !incoming.isFinished { return finish(existing) }
-      if !existing.isFinished, incoming.isFinished { return finish(incoming) }
+      // Lokal gesetzter Fortschritt (z. B. „mark as not finished") hat Vorrang vor veraltetem
+      // Server-Stand aus `authorize` — der `patchProgress`-Call hat den neuen Zustand bereits
+      // gesendet; ein kurz danach eintreffender `authorize` kann noch den alten Stand liefern.
+      if existing.isFinished != incoming.isFinished { return finish(existing) }
       let localTs = existing.lastUpdate ?? 0
       let serverTs = incoming.lastUpdate ?? 0
       if existing.currentTime + 1 >= incoming.currentTime || localTs >= serverTs {

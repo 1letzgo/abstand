@@ -49,6 +49,7 @@ final class LibraryBookRowLiveState: ObservableObject {
   @Published private(set) var progress: ABSUserMediaProgress?
   @Published private(set) var isDownloaded = false
   @Published private(set) var isDownloading = false
+  @Published private(set) var isQueued = false
   @Published private(set) var downloadProgress: Double = 0
   @Published private(set) var isPreparingEbook = false
   @Published private(set) var ebookProgressFraction: Double?
@@ -105,14 +106,15 @@ final class LibraryBookRowLiveState: ObservableObject {
         .sink { [weak self] in self?.isDownloaded = $0 }
         .store(in: &cancellables)
 
-      Publishers.CombineLatest(
+      Publishers.CombineLatest3(
         model.downloads.$activeItemId,
-        model.downloads.$progress
+        model.downloads.$progress,
+        model.downloads.$queuedItemIds
       )
       .receive(on: RunLoop.main)
-      .sink { [weak self] activeId, progress in
+      .sink { [weak self] activeId, progress, queuedIds in
         guard let self else { return }
-        self.syncDownloadState(model: model, activeItemId: activeId, progress: progress)
+        self.syncDownloadState(model: model, activeItemId: activeId, progress: progress, queuedItemIds: queuedIds)
       }
       .store(in: &cancellables)
     }
@@ -138,15 +140,22 @@ final class LibraryBookRowLiveState: ObservableObject {
     }
   }
 
-  private func syncDownloadState(model: AppModel, activeItemId: String? = nil, progress: Double = 0) {
+  private func syncDownloadState(
+    model: AppModel,
+    activeItemId: String? = nil,
+    progress: Double = 0,
+    queuedItemIds: [String] = []
+  ) {
     let activeId = (activeItemId ?? model.downloads.activeItemId)?
       .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let storageId = model.downloadStorageIdForLibraryItem(bookId) ?? bookId
+    let queueIds = queuedItemIds.isEmpty ? model.downloads.queuedItemIds : queuedItemIds
+    isQueued = queueIds.contains(bookId) || queueIds.contains(storageId)
     guard !activeId.isEmpty else {
       isDownloading = false
       downloadProgress = 0
       return
     }
-    let storageId = model.downloadStorageIdForLibraryItem(bookId) ?? bookId
     isDownloading = activeId == bookId || activeId == storageId
     downloadProgress = isDownloading ? progress : 0
   }
@@ -158,6 +167,7 @@ final class LibraryPodcastEpisodeRowLiveState: ObservableObject {
   @Published private(set) var progress: ABSUserMediaProgress?
   @Published private(set) var isDownloaded = false
   @Published private(set) var isDownloading = false
+  @Published private(set) var isQueued = false
   @Published private(set) var downloadProgress: Double = 0
 
   private let progressLookupKey: String
@@ -169,7 +179,11 @@ final class LibraryPodcastEpisodeRowLiveState: ObservableObject {
     self.offlineStorageId = offlineStorageId
     progress = model.progressByItemId[progressLookupKey]
     isDownloaded = model.downloadedItemIds.contains(offlineStorageId)
-    syncDownloadState(activeItemId: model.downloads.activeItemId, progress: model.downloads.progress)
+    syncDownloadState(
+      activeItemId: model.downloads.activeItemId,
+      progress: model.downloads.progress,
+      queuedItemIds: model.downloads.queuedItemIds
+    )
     bind(model)
   }
 
@@ -188,20 +202,22 @@ final class LibraryPodcastEpisodeRowLiveState: ObservableObject {
       .sink { [weak self] in self?.isDownloaded = $0 }
       .store(in: &cancellables)
 
-    Publishers.CombineLatest(
+    Publishers.CombineLatest3(
       model.downloads.$activeItemId,
-      model.downloads.$progress
+      model.downloads.$progress,
+      model.downloads.$queuedItemIds
     )
     .receive(on: RunLoop.main)
-    .sink { [weak self] activeId, progress in
-      self?.syncDownloadState(activeItemId: activeId, progress: progress)
+    .sink { [weak self] activeId, progress, queuedIds in
+      self?.syncDownloadState(activeItemId: activeId, progress: progress, queuedItemIds: queuedIds)
     }
     .store(in: &cancellables)
   }
 
-  private func syncDownloadState(activeItemId: String?, progress: Double) {
+  private func syncDownloadState(activeItemId: String?, progress: Double, queuedItemIds: [String]) {
     let active = activeItemId == self.offlineStorageId
     isDownloading = active
+    isQueued = queuedItemIds.contains(self.offlineStorageId)
     downloadProgress = active ? progress : 0
   }
 }

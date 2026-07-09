@@ -2945,6 +2945,11 @@ struct PodcastShowRowCard: View {
         .frame(width: 36)
         .tint(model.appearanceAccentColor)
         .accessibilityLabel("Downloading")
+    } else if model.downloads.queuedItemIds.contains(show.id) {
+      Image(systemName: "circle.dashed")
+        .foregroundStyle(model.appearanceAccentColor)
+        .font(.caption)
+        .accessibilityLabel("Queued")
     }
   }
 }
@@ -3956,6 +3961,7 @@ struct BookRowCard: View {
     let isFinished = rowProgress?.isFinished == true
     let isDownloaded = d.id == book.id ? live.isDownloaded : model.downloadedItemIds.contains(d.id)
     let isDownloading = d.id == book.id ? live.isDownloading : model.downloads.activeItemId == d.id
+    let isQueued = d.id == book.id ? live.isQueued : model.downloads.queuedItemIds.contains(d.id)
     let downloadProgress = d.id == book.id ? live.downloadProgress : model.downloads.progress
 
     VStack(alignment: .leading, spacing: 8) {
@@ -3984,6 +3990,14 @@ struct BookRowCard: View {
             .frame(maxWidth: .infinity)
             .frame(height: MiniPlayerMetrics.controlMinHeight)
             .accessibilityLabel("Download in progress")
+          } else if isQueued {
+            // Wartet in der Download-Queue — noch nicht aktiv, kein Cancel hier (nur über Entfernen).
+            Image(systemName: "circle.dashed")
+              .font(.callout)
+              .foregroundStyle(themeAccent)
+              .frame(maxWidth: .infinity)
+              .frame(height: MiniPlayerMetrics.controlMinHeight)
+              .accessibilityLabel("Queued")
           } else if isDownloaded {
             Button {
               model.removeLocalDownload(bookId: d.id)

@@ -208,6 +208,14 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Für `.shouldResume` nach Telefonanruf / Unterbrechung.
   private var wasPlayingBeforeInterruption = false
 
+  /// Intelligenter Sleep-Timer: letzte Konfiguration + Zeitstempel bei natürlichem Ablauf.
+  /// Wenn die Wiedergabe innerhalb von `sleepTimerGraceSeconds` nach Ablauf neu startet,
+  /// wird der Timer mit derselben Dauer (nur `.minutes`) automatisch wiederhergestellt.
+  private static let sleepTimerGraceSeconds: TimeInterval = 60
+  private var lastExpiredSleepMode: SleepTimerMode?
+  private var lastExpiredSleepSeconds: TimeInterval?
+  private var lastExpiredSleepDate: Date?
+
   override init() {
     let sp = AppLog.launchSignposter.beginInterval("playbackControllerInit")
     defer { AppLog.launchSignposter.endInterval("playbackControllerInit", sp) }
@@ -300,17 +308,28 @@ final class PlaybackController: NSObject, ObservableObject {
     }
   }
 
-  /// Sleep-Timer komplett aus (manuell „Aus“, Ablauf, Track-Ende).
+  /// Sleep-Timer komplett aus (manuell „Aus”, Ablauf, Track-Ende).
   func clearSleepTimer() {
     sleepWakeTask?.cancel()
     sleepWakeTask = nil
     sleepTimerRemaining = nil
     sleepTimerPaused = false
     sleepEndDate = nil
+    // Manuelles „Aus” oder Track-Ende → kein intelligenter Restart mehr.
+    lastExpiredSleepMode = nil
+    lastExpiredSleepSeconds = nil
+    lastExpiredSleepDate = nil
   }
 
   func applySleepTimerRemaining(_ seconds: TimeInterval) {
     sleepTimerRemaining = max(0, seconds)
+    // Konfiguration für intelligenten Restart merken (nur `.minutes` — Kapitel-Dauer wäre nach
+    // Restart semantisch falsch). Bei aktivem Timer altes Grace-Fenster verwerfen.
+    if seconds > 0, case .minutes(let m) = sleepTimerMode, m > 0 {
+      lastExpiredSleepMode = .minutes(m)
+      lastExpiredSleepSeconds = TimeInterval(m * 60)
+    }
+    lastExpiredSleepDate = nil
     if isPlaying {
       sleepTimerPaused = false
       scheduleSleepTimerWakeIfNeeded()
@@ -356,7 +375,7 @@ final class PlaybackController: NSObject, ObservableObject {
     guard let end else { return }
     let delay = end.timeIntervalSinceNow
     if delay <= 0 {
-      clearSleepTimer()
+      markSleepTimerExpired()
       pause()
       return
     }
@@ -371,9 +390,43 @@ final class PlaybackController: NSObject, ObservableObject {
       guard let self else { return }
       guard !Task.isCancelled else { return }
       guard self.sleepEndDate == expectedEnd else { return }
-      self.clearSleepTimer()
+      self.markSleepTimerExpired()
       self.pause()
     }
+  }
+
+  /// Natürlicher Ablauf: Timer-Daten zurücksetzen, aber Grace-Fenster (60 s) für intelligenten
+  /// Restart öffnen — im Gegensatz zu `clearSleepTimer()`, das auch die Grace-Daten löscht.
+  private func markSleepTimerExpired() {
+    let mode = sleepTimerMode
+    let seconds = sleepTimerRemaining
+    sleepWakeTask?.cancel()
+    sleepWakeTask = nil
+    sleepTimerRemaining = nil
+    sleepTimerPaused = false
+    sleepEndDate = nil
+    sleepTimerMode = .off
+    // Nur `.minutes`-Modus für intelligenten Restart; Konfiguration wurde beim Setzen gemerkt.
+    if case .minutes = mode, seconds ?? 0 > 0 {
+      lastExpiredSleepDate = Date()
+    } else {
+      lastExpiredSleepMode = nil
+      lastExpiredSleepSeconds = nil
+      lastExpiredSleepDate = nil
+    }
+  }
+
+  /// Intelligenter Restart: bei Wiedergabe-Start innerhalb des Grace-Fensters (60 s) nach
+  /// natürlichem Ablauf den Sleep-Timer mit derselben Dauer (`.minutes`) automatisch neu starten.
+  private func restoreSleepTimerIfWithinGraceIfNeeded() {
+    guard let expired = lastExpiredSleepDate,
+      Date().timeIntervalSince(expired) <= Self.sleepTimerGraceSeconds,
+      case .minutes(let m) = lastExpiredSleepMode ?? .off,
+      let seconds = lastExpiredSleepSeconds, seconds > 0, m > 0
+    else { return }
+    sleepTimerMode = .minutes(m)
+    applySleepTimerRemaining(seconds)
+    lastExpiredSleepDate = nil
   }
 
   /// Session für Hintergrund / Sperrbildschirm; `setCategory` nur bei Bedarf (erneuter Aufruf kann sonst kurz unterbrechen).
@@ -1312,6 +1365,11 @@ final class PlaybackController: NSObject, ObservableObject {
     applyPlayingRate()
     isPlaying = true
     lastListenTick = Date()
+    // Intelligenter Restart: nur greifen, wenn gerade kein aktiver Timer läuft (sonst hat der User
+    // nach Ablauf selbst neu gesetzt → dessen Wahl respektieren).
+    if sleepTimerMode == .off {
+      restoreSleepTimerIfWithinGraceIfNeeded()
+    }
     resumeSleepTimerIfNeeded()
     updateNowPlaying()
   }

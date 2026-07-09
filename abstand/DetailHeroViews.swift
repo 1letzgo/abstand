@@ -97,6 +97,11 @@ struct DetailToolbarDownloadItem: View {
         ProgressView(value: model.downloads.progress)
           .progressViewStyle(.circular)
           .tint(themeAccent)
+      } else if model.downloads.queuedItemIds.contains(storageId) {
+        // Wartet in der Queue — kein Cancel-Button (nur über „Remove offline copy" nach Aktivierung).
+        Image(systemName: "circle.dashed")
+          .foregroundStyle(themeAccent)
+          .accessibilityLabel("Queued")
       } else if model.downloadedItemIds.contains(storageId) {
         Button(action: onRemoveDownload) {
           Image(systemName: "arrow.down.circle.badge.xmark")

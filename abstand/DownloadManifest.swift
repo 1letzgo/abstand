@@ -1,5 +1,14 @@
 import Foundation
 
+/// Anzeige-Metadaten zu einer Download-Storage-ID, unabhängig davon ob Katalog- oder
+/// Manifest-Quelle (siehe `AppModel.downloadCatalogEntry(forStorageId:)`).
+struct DownloadCatalogEntry: Equatable {
+  let libraryItemId: String
+  let title: String?
+  let subtitle: String?
+  let isPodcastEpisode: Bool
+}
+
 /// Gespeichert neben den Track-Dateien (`download.json`), damit lokale Wiedergabe
 /// dieselbe Track-Liste/Indizes wie der Download nutzt.
 struct ABSDownloadManifest: Codable {

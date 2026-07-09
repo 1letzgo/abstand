@@ -598,6 +598,19 @@ struct SettingsHubRootView: View {
     return ByteCountFormatter.string(fromByteCount: coverCacheByteCount, countStyle: .file)
   }
 
+  /// Untertitel für „Manage downloads": Anzahl fertiger Downloads + ggf. aktive/wartende.
+  private var manageDownloadsSubtitle: String? {
+    let total = model.downloadedItemIds.count
+    let active = model.downloads.activeItemId != nil ? 1 : 0
+    let queued = model.downloads.queuedItemIds.count
+    if total == 0, active == 0, queued == 0 { return nil }
+    var parts: [String] = []
+    if total > 0 { parts.append("\(total) saved") }
+    let inFlight = active + queued
+    if inFlight > 0 { parts.append("\(inFlight) pending") }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
+  }
+
   @ViewBuilder
   private func settingsHubSectionBody(_ section: SettingsHubSection) -> some View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
@@ -623,6 +636,20 @@ struct SettingsHubRootView: View {
                 isOn: $model.smartDownloadRemoveWhenFinished
               )
             }
+            NavigationLink {
+              SettingsDownloadsManageView()
+                .navigationTitle("Downloads")
+                .toolbarTitleDisplayMode(.inline)
+            } label: {
+              ServerAdminCard {
+                ServerAdminNavRow(
+                  icon: "list.bullet.below.rectangle",
+                  title: "Manage downloads",
+                  subtitle: manageDownloadsSubtitle
+                )
+              }
+            }
+            .buttonStyle(.plain)
           }
         }
         ServerAdminSection(title: "Cache") {
@@ -2185,6 +2212,401 @@ private struct ServerAdminPodcastSettingsSection: View {
           .disabled(!model.isNetworkReachable)
           .opacity(model.isNetworkReachable ? 1 : 0.45)
         }
+      }
+    }
+  }
+}
+
+// MARK: - Manage downloads (aktive + gespeicherte Downloads verwalten)
+
+/// Zeigt laufende/wartende Downloads sowie alle gespeicherten Offline-Dateien mit Löschfunktion.
+private struct SettingsDownloadsManageView: View {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+
+  /// Geladene Manifeste + Ordnergrößen; einmal beim Erscheinen und nach Löschungen neu aufgebaut.
+  @State private var rows: [DownloadManageRow] = []
+  @State private var totalBytes: Int64 = 0
+
+  var body: some View {
+    ServerAdminScrollScreen {
+      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+        activeSection
+        savedSection
+      }
+    }
+    .themeAccentFromAppModel(model)
+    .abstandThemeRefresh()
+    .toolbarTitleDisplayMode(.inlineLarge)
+    .tint(model.appearanceAccentColor)
+    .task { await reload() }
+    .onReceive(model.$downloadedItemIds) { _ in
+      Task { await reload() }
+    }
+    .onReceive(model.downloads.$activeItemId) { _ in
+      Task { await reload() }
+    }
+    .onReceive(model.downloads.$queuedItemIds) { _ in
+      Task { await reload() }
+    }
+  }
+
+  // MARK: Active / queued
+
+  @ViewBuilder
+  private var activeSection: some View {
+    let activeId = model.downloads.activeItemId
+    let queued = model.downloads.queuedItemIds
+    if activeId != nil || !queued.isEmpty {
+      ServerAdminSection(title: "In progress") {
+        LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
+          if let activeId {
+            let entry = model.downloadCatalogEntry(forStorageId: activeId)
+            ServerAdminCard {
+              DownloadManageActiveRow(
+                storageId: activeId,
+                entry: entry,
+                progress: model.downloads.progress,
+                isQueued: false,
+                token: model.token,
+                coverURL: entry.flatMap { model.coverURL(for: $0.libraryItemId) },
+                cacheAccount: model.coverImageCacheAccountDirectory(),
+                cacheRevision: model.coverImageCacheRevision,
+                onCancel: { model.removeLocalDownload(bookId: activeId) }
+              )
+            }
+          }
+          ForEach(Array(queued.enumerated()), id: \.element) { _, qid in
+            let entry = model.downloadCatalogEntry(forStorageId: qid)
+            ServerAdminCard {
+              DownloadManageActiveRow(
+                storageId: qid,
+                entry: entry,
+                progress: 0,
+                isQueued: true,
+                token: model.token,
+                coverURL: entry.flatMap { model.coverURL(for: $0.libraryItemId) },
+                cacheAccount: model.coverImageCacheAccountDirectory(),
+                cacheRevision: model.coverImageCacheRevision,
+                onCancel: { model.removeLocalDownload(bookId: qid) }
+              )
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // MARK: Saved downloads
+
+  @ViewBuilder
+  private var savedSection: some View {
+    ServerAdminSection(title: "Saved offline") {
+      if rows.isEmpty {
+        ServerAdminCard {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("No downloads yet.")
+              .font(.body)
+              .foregroundStyle(model.appearancePalette.textPrimary)
+            Text("Downloads appear here once you save an audiobook or episode offline.")
+              .font(.caption)
+              .foregroundStyle(model.appearancePalette.textSecondary)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.vertical, 6)
+        }
+      } else {
+        LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
+          if totalBytes > 0 {
+            ServerAdminCard {
+              HStack(spacing: 12) {
+                SettingsCardIcon(systemName: "internaldrive")
+                VStack(alignment: .leading, spacing: 2) {
+                  Text("Total storage")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(model.appearancePalette.textPrimary)
+                  Text(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))
+                    .font(.caption)
+                    .foregroundStyle(model.appearancePalette.textSecondary)
+                }
+                Spacer(minLength: 0)
+              }
+            }
+          }
+          ForEach(rows) { row in
+            ServerAdminCard {
+              DownloadManageSavedRow(
+                row: row,
+                token: model.token,
+                coverURL: model.coverURL(for: row.libraryItemId),
+                cacheAccount: model.coverImageCacheAccountDirectory(),
+                cacheRevision: model.coverImageCacheRevision,
+                onDelete: { delete(row) }
+              )
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // MARK: Helpers
+
+  /// Lädt alle Manifeste + Ordnergrößen; sortiert nach Speicherdatum (neu zuerst).
+  private func reload() async {
+    var collected: [DownloadManageRow] = []
+    var sum: Int64 = 0
+    for id in model.downloadedItemIds.sorted() {
+      guard let root = try? model.downloads.downloadFolder(for: id),
+        let manifest = ABSDownloadManifest.load(from: root),
+        model.downloadManifestBelongsToActiveAccount(manifest)
+      else { continue }
+      let bytes = folderSize(at: root)
+      sum += bytes
+      collected.append(
+        DownloadManageRow(
+          storageId: id,
+          libraryItemId: manifest.libraryItemId,
+          episodeId: manifest.episodeId,
+          title: manifest.displayTitle ?? "Unknown title",
+          author: manifest.displayAuthor,
+          isPodcastEpisode: manifest.episodeId != nil,
+          savedAtEpoch: manifest.savedAtEpoch,
+          totalDuration: manifest.totalDuration,
+          byteCount: bytes
+        )
+      )
+    }
+    collected.sort { $0.savedAtEpoch > $1.savedAtEpoch }
+    rows = collected
+    totalBytes = sum
+  }
+
+  private func delete(_ row: DownloadManageRow) {
+    model.removeLocalDownload(bookId: row.storageId)
+  }
+
+  /// Rekursive Verzeichnisgröße (Bytes) — nur für Anzeige, bewusst einfach gehalten.
+  private func folderSize(at url: URL) -> Int64 {
+    var total: Int64 = 0
+    let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
+    guard let enumerator = FileManager.default.enumerator(
+      at: url,
+      includingPropertiesForKeys: keys,
+      options: [.skipsHiddenFiles]
+    ) else { return 0 }
+    for case let fileURL as URL in enumerator {
+      guard let values = try? fileURL.resourceValues(forKeys: Set(keys)),
+        values.isRegularFile == true,
+        let size = values.fileSize
+      else { continue }
+      total += Int64(size)
+    }
+    return total
+  }
+}
+
+/// Eine gespeicherte Download-Zeile (Manifest-Metadaten + Größe).
+private struct DownloadManageRow: Identifiable {
+  let storageId: String
+  let libraryItemId: String
+  let episodeId: String?
+  let title: String
+  let author: String?
+  let isPodcastEpisode: Bool
+  let savedAtEpoch: TimeInterval
+  let totalDuration: Double?
+  let byteCount: Int64
+
+  var id: String { storageId }
+
+  var sizeLabel: String {
+    ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
+  }
+
+  var durationLabel: String? {
+    guard let d = totalDuration, d > 0 else { return nil }
+    return formatDuration(seconds: d)
+  }
+
+  var savedLabel: String {
+    guard savedAtEpoch > 0 else { return "" }
+    let date = Date(timeIntervalSince1970: savedAtEpoch)
+    let fmt = DateFormatter()
+    fmt.dateStyle = .medium
+    fmt.timeStyle = .none
+    return fmt.string(from: date)
+  }
+
+  /// Kompakte Daueranzeige (z. B. „10h 23m").
+  private func formatDuration(seconds: Double) -> String {
+    let total = Int(seconds.rounded())
+    let h = total / 3600
+    let m = (total % 3600) / 60
+    if h > 0 { return "\(h)h \(m)m" }
+    return "\(m)m"
+  }
+}
+
+/// Zeile für aktiven oder wartenden Download mit Cover, Titel, Medienart und Progress / „Queued"-Badge.
+private struct DownloadManageActiveRow: View {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+  let storageId: String
+  let entry: DownloadCatalogEntry?
+  let progress: Double
+  let isQueued: Bool
+  let token: String
+  let coverURL: URL?
+  let cacheAccount: URL?
+  let cacheRevision: Int
+  let onCancel: () -> Void
+
+  private var titleText: String {
+    entry?.title?.nilIfEmpty ?? (isQueued ? "Waiting…" : "Downloading…")
+  }
+
+  var body: some View {
+    HStack(spacing: 12) {
+      // Cover (quadratisch, 44 pt) — falls Library-ID bekannt; sonst Platzhalter-Icon.
+      if let lid = entry?.libraryItemId {
+        ZStack {
+          model.appearancePalette.cardShadow
+          CoverImageView(
+            url: coverURL,
+            token: token,
+            itemId: lid,
+            cacheAccount: cacheAccount,
+            cacheRevision: cacheRevision,
+            contentMode: .fill
+          )
+          .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
+        }
+        .frame(width: 44, height: 44)
+      } else {
+        SettingsCardIcon(
+          systemName: isQueued ? "circle.dashed" : "arrow.down.circle",
+          tint: themeAccent
+        )
+      }
+
+      VStack(alignment: .leading, spacing: 4) {
+        Text(titleText)
+          .font(.body.weight(.medium))
+          .foregroundStyle(model.appearancePalette.textPrimary)
+          .lineLimit(2)
+        if let subtitle = entry?.subtitle, !subtitle.isEmpty {
+          Text(subtitle)
+            .font(.caption)
+            .foregroundStyle(model.appearancePalette.textSecondary)
+            .lineLimit(1)
+        }
+        if isQueued {
+          Text("Queued")
+            .font(.caption2)
+            .foregroundStyle(themeAccent)
+        } else {
+          ProgressView(value: progress)
+            .tint(themeAccent)
+            .padding(.top, 1)
+        }
+      }
+      Spacer(minLength: 8)
+      Button(action: onCancel) {
+        Image(systemName: "xmark.circle.fill")
+          .font(.title3)
+          .foregroundStyle(AppTheme.textSecondary)
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel(isQueued ? "Remove from queue" : "Cancel download")
+    }
+  }
+}
+
+/// Gespeicherte Download-Zeile mit Cover, Titel, Metadaten und Löschen-Button.
+private struct DownloadManageSavedRow: View {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+  let row: DownloadManageRow
+  let token: String
+  let coverURL: URL?
+  let cacheAccount: URL?
+  let cacheRevision: Int
+  let onDelete: () -> Void
+
+  @State private var confirmDelete = false
+
+  var body: some View {
+    HStack(spacing: 12) {
+      // Cover (quadratisch, 44 pt) — serverseitig gecacht, funktioniert dank CoverImageCache auch offline.
+      ZStack {
+        model.appearancePalette.cardShadow
+        CoverImageView(
+          url: coverURL,
+          token: token,
+          itemId: row.libraryItemId,
+          cacheAccount: cacheAccount,
+          cacheRevision: cacheRevision,
+          contentMode: .fill
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
+      }
+      .frame(width: 44, height: 44)
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text(row.title)
+          .font(.body.weight(.medium))
+          .foregroundStyle(model.appearancePalette.textPrimary)
+          .lineLimit(2)
+        if let author = row.author, !author.isEmpty {
+          Text(author)
+            .font(.caption)
+            .foregroundStyle(model.appearancePalette.textSecondary)
+            .lineLimit(1)
+        }
+        HStack(spacing: 6) {
+          if row.isPodcastEpisode {
+            Label("Episode", systemImage: "antenna.radiowaves.left.and.right")
+              .labelStyle(.titleAndIcon)
+          }
+          if let dur = row.durationLabel {
+            Text(dur)
+          }
+          if !row.savedLabel.isEmpty {
+            Text("·")
+            Text(row.savedLabel)
+          }
+        }
+        .font(.caption2)
+        .foregroundStyle(model.appearancePalette.textSecondary)
+        .lineLimit(1)
+      }
+      Spacer(minLength: 8)
+
+      Text(row.sizeLabel)
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(model.appearancePalette.textSecondary)
+
+      Button(role: .destructive) {
+        confirmDelete = true
+      } label: {
+        Image(systemName: "trash")
+          .font(.body)
+          .foregroundStyle(AppTheme.danger)
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Delete download")
+      .confirmationDialog(
+        "Delete \"\(row.title)\"?",
+        isPresented: $confirmDelete,
+        titleVisibility: .visible
+      ) {
+        Button("Delete", role: .destructive) {
+          onDelete()
+        }
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text("This removes the offline copy from this device. The item stays on your server.")
       }
     }
   }

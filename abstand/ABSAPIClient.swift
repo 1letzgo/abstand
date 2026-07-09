@@ -24,6 +24,9 @@ actor ABSAPIClient {
   private let decoder = ABSJSON.decoder()
   private let encoder = ABSJSON.encoder()
   private let urlSession: URLSession
+  /// Separate Session für Datei-Downloads — eigener Connection-Pool, damit langlaufende Downloads
+  /// API-Calls (z. B. `startPlaySession` für Streaming) nicht blockieren (vgl. `waitsForConnectivity`).
+  private let downloadURLSession: URLSession
 
   init(baseURL: URL, token: String) {
     self.baseURL = baseURL
@@ -37,6 +40,14 @@ actor ABSAPIClient {
     cfg.timeoutIntervalForRequest = 12
     cfg.timeoutIntervalForResource = 3_600
     self.urlSession = URLSession(configuration: cfg)
+
+    // Download-Session: eigenes Limit, damit Streaming-API nicht hinter Downloads in die Warteschlange gerät.
+    let dlCfg = URLSessionConfiguration.default
+    dlCfg.waitsForConnectivity = true
+    dlCfg.timeoutIntervalForRequest = 60
+    dlCfg.timeoutIntervalForResource = 3_600
+    dlCfg.httpMaximumConnectionsPerHost = 4
+    self.downloadURLSession = URLSession(configuration: dlCfg)
   }
 
 
@@ -73,7 +84,7 @@ actor ABSAPIClient {
       do {
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (temp, resp) = try await urlSession.download(for: req)
+        let (temp, resp) = try await downloadURLSession.download(for: req)
         guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
           try? FileManager.default.removeItem(at: temp)
           throw ABSAPIError.httpStatus((resp as? HTTPURLResponse)?.statusCode ?? -1, nil)
@@ -973,7 +984,48 @@ actor ABSAPIClient {
       do {
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (temp, resp) = try await urlSession.download(for: req)
+        let (temp, resp) = try await downloadURLSession.download(for: req)
+        guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
+          try? FileManager.default.removeItem(at: temp)
+          throw ABSAPIError.httpStatus((resp as? HTTPURLResponse)?.statusCode ?? -1, nil)
+        }
+        let ext = Self.pickAudioFileExtension(mimeType: http.mimeType, fileURL: temp)
+        let stem = suggestedDestination.deletingPathExtension().lastPathComponent
+        let dir = suggestedDestination.deletingLastPathComponent()
+        let finalURL = dir.appendingPathComponent("\(stem).\(ext)")
+        if FileManager.default.fileExists(atPath: finalURL.path) {
+          try FileManager.default.removeItem(at: finalURL)
+        }
+        try FileManager.default.moveItem(at: temp, to: finalURL)
+        return finalURL
+      } catch {
+        lastError = error
+        if error is CancellationError { throw error }
+        if let urlErr = error as? URLError, urlErr.code == .cancelled { throw error }
+        if attempt < maxAttempts - 1 {
+          let delay = min(8.0, 0.6 * Double(attempt + 1))
+          try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        }
+      }
+    }
+    throw lastError ?? ABSAPIError.emptyBody
+  }
+
+  /// Lädt die Datei mit Byte-Fortschritt-Rückruf (`fractionCompleted` 0…1) und Wiederholungen.
+  /// Für Aufrufer, die Intra-Track-Fortschritt zeigen wollen (z. B. `DownloadManager` bei Einzel-Tracks).
+  func downloadAuthenticatedFile(
+    from streamURL: URL,
+    to suggestedDestination: URL,
+    maxAttempts: Int = 3,
+    progress: @escaping @Sendable (Double) -> Void
+  ) async throws -> URL {
+    var lastError: Error?
+    for attempt in 0..<maxAttempts {
+      do {
+        var req = URLRequest(url: streamURL, timeoutInterval: 600)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let delegate = FileDownloadProgressDelegate(onProgress: progress)
+        let (temp, resp) = try await downloadURLSession.download(for: req, delegate: delegate)
         guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
           try? FileManager.default.removeItem(at: temp)
           throw ABSAPIError.httpStatus((resp as? HTTPURLResponse)?.statusCode ?? -1, nil)
@@ -1244,5 +1296,35 @@ actor ABSAPIClient {
         DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Missing podcast id in response")))
     }
     return id
+  }
+}
+
+/// Downloads-Fortschritt-Delegate: reicht `bytesWritten/totalBytes` als `fractionCompleted` weiter.
+/// Läuft auf der URLSession-Delegate-Queue (nicht isoliert) — `onProgress` muss thread-safe sein.
+private final class FileDownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
+  private let onProgress: @Sendable (Double) -> Void
+
+  init(onProgress: @escaping @Sendable (Double) -> Void) {
+    self.onProgress = onProgress
+  }
+
+  func urlSession(
+    _ session: URLSession,
+    downloadTask: URLSessionDownloadTask,
+    didWriteData bytesWritten: Int64,
+    totalBytesWritten: Int64,
+    totalBytesExpectedToWrite: Int64
+  ) {
+    guard totalBytesExpectedToWrite > 0 else { return }
+    let fraction = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+    onProgress(min(max(0, fraction), 1))
+  }
+
+  func urlSession(
+    _ session: URLSession,
+    downloadTask: URLSessionDownloadTask,
+    didFinishDownloadingTo location: URL
+  ) {
+    // `download(for:delegate:)` kümmert sich um die temporäre Datei; kein Handling nötig.
   }
 }

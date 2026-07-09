@@ -17,10 +17,23 @@ private struct DownloadTrackResolution {
   var serverSession: ABSPlaySession?
 }
 
+/// Vollständige Parameter eines Download-Requests (für sequenzielle Queue-Ausführung).
+private struct QueuedDownload {
+  var client: ABSAPIClient
+  var book: ABSBook
+  var episodeId: String?
+  var storageItemId: String
+  var reusePlaySessionId: String?
+  var reusePlaySessionTracks: [ABSAudioTrack]?
+  var completion: ((Bool) -> Void)?
+}
+
 @MainActor
 final class DownloadManager: ObservableObject {
   @Published private(set) var activeItemId: String?
   @Published private(set) var progress: Double = 0
+  /// Wartende Downloads (FIFO). `activeItemId`/`progress` beschreiben weiterhin nur den aktiven Lauf.
+  @Published private(set) var queuedItemIds: [String] = []
 
   private var task: Task<Void, Never>?
 
@@ -29,11 +42,36 @@ final class DownloadManager: ObservableObject {
 
   private var downloadRunId: Int = 0
 
+  /// Zeitstempel des letzten Intra-Track-Progress-Emits (Throttling der Byte-Callback-Flut).
+  private var lastIntraTrackEmit: Date = .distantPast
+
+  /// Interne FIFO-Queue mit allen Parametern für verzögerten Start.
+  private var downloadQueue: [QueuedDownload] = []
+
+  /// Bricht nur den aktuell laufenden Download ab (falls vorhanden). Für gezieltes Abbrechen
+  /// eines bestimmten Items `cancel(itemId:)` verwenden — sonst bleibt die Queue unberührt.
   func cancel() {
     task?.cancel()
     task = nil
     activeItemId = nil
     progress = 0
+  }
+
+  /// Bricht den Download für `itemId` gezielt ab: entweder aus der Queue entfernen (wartet noch)
+  /// oder, falls aktiv, den Lauf canceln und anschließend das nächste Queue-Element starten.
+  func cancel(itemId: String) {
+    if let idx = downloadQueue.firstIndex(where: { $0.storageItemId == itemId }) {
+      downloadQueue.remove(at: idx)
+      queuedItemIds = downloadQueue.map(\.storageItemId)
+      // Wartender Download wurde nie gestartet → kein Completion-Call, kein BG-Task-Ende nötig.
+      return
+    }
+    guard activeItemId == itemId else { return }
+    task?.cancel()
+    task = nil
+    activeItemId = nil
+    progress = 0
+    startNextQueuedDownload()
   }
 
   /// Wurzel `…/Downloads` (ohne Item-ID).
@@ -74,7 +112,7 @@ final class DownloadManager: ObservableObject {
   private func loadWIP(folder: URL, storageId: String, episodeId: String?) -> DownloadWIP? {
     let url = wipURL(in: folder)
     guard let data = try? Data(contentsOf: url) else { return nil }
-    guard let wip = try? JSONDecoder().decode(DownloadWIP.self, from: data) else { return nil }
+    guard let wip = try? ABSJSON.decoder().decode(DownloadWIP.self, from: data) else { return nil }
     guard wip.storageItemId == storageId else { return nil }
     let wEp = wip.episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let eEp = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -83,7 +121,7 @@ final class DownloadManager: ObservableObject {
   }
 
   private func saveWIP(_ wip: DownloadWIP, folder: URL) throws {
-    let data = try JSONEncoder().encode(wip)
+    let data = try ABSJSON.encoder().encode(wip)
     try data.write(to: wipURL(in: folder), options: .atomic)
   }
 
@@ -94,6 +132,7 @@ final class DownloadManager: ObservableObject {
     activeItemId = nil
     progress = 0
     completion?(false)
+    startNextQueuedDownload()
   }
 
   private func finishDownloadInterruptedIfCurrent(runId: Int, completion: ((Bool) -> Void)?) {
@@ -101,6 +140,7 @@ final class DownloadManager: ObservableObject {
     activeItemId = nil
     progress = 0
     completion?(false)
+    startNextQueuedDownload()
   }
 
   private func finishDownloadSuccessIfCurrent(runId: Int, completion: ((Bool) -> Void)?) {
@@ -108,6 +148,20 @@ final class DownloadManager: ObservableObject {
     activeItemId = nil
     progress = 1
     completion?(true)
+    startNextQueuedDownload()
+  }
+
+  /// Startet den nächsten wartenden Download (FIFO), sofern keiner aktiv läuft.
+  /// Wird nach jedem Completion-Pfad aufgerufen — auch nach gezieltem `cancel(itemId:)`.
+  private func startNextQueuedDownload() {
+    guard activeItemId == nil, !downloadQueue.isEmpty else { return }
+    let entry = downloadQueue.removeFirst()
+    queuedItemIds = downloadQueue.map(\.storageItemId)
+    downloadRunId += 1
+    let runId = downloadRunId
+    activeItemId = entry.storageItemId
+    progress = 0
+    runDownload(entry, runId: runId)
   }
 
   private static func sortedCatalogTracks(from book: ABSBook) -> [ABSAudioTrack] {
@@ -218,21 +272,42 @@ final class DownloadManager: ObservableObject {
     completion: ((Bool) -> Void)? = nil
   ) {
     let id = storageItemId ?? book.id
-    // Erneuter Tap während laufendem Download: alten Request nicht abbrechen (sonst ABS „write EPIPE“).
-    if activeItemId == id, task != nil, !(task?.isCancelled ?? true) {
+    // Bereits aktiv oder wartend → idempotentes No-Op (kein Doppel-Enqueue, kein EPIPE-Risiko).
+    if activeItemId == id || queuedItemIds.contains(id) {
       return
     }
-    if activeItemId != id {
-      cancel()
+    let entry = QueuedDownload(
+      client: client,
+      book: book,
+      episodeId: episodeId,
+      storageItemId: id,
+      reusePlaySessionId: reusePlaySessionId,
+      reusePlaySessionTracks: reusePlaySessionTracks,
+      completion: completion
+    )
+    // Wenn gerade ein Download läuft → an Queue anhängen, späterer Start via `startNextQueuedDownload`.
+    if activeItemId != nil {
+      downloadQueue.append(entry)
+      queuedItemIds = downloadQueue.map(\.storageItemId)
+      return
     }
     downloadRunId += 1
     let runId = downloadRunId
-    let trimmedEp = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    let resolvedEp: String? = trimmedEp.isEmpty ? nil : trimmedEp
     activeItemId = id
     progress = 0
+    runDownload(entry, runId: runId)
+  }
+
+  /// Führt einen einzelnen Download-Lauf aus (aus `startDownload` oder `startNextQueuedDownload`).
+  private func runDownload(_ entry: QueuedDownload, runId: Int) {
+    let id = entry.storageItemId
+    let client = entry.client
+    let book = entry.book
+    let completion = entry.completion
+    let trimmedEp = entry.episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let resolvedEp: String? = trimmedEp.isEmpty ? nil : trimmedEp
     let reuseSid: String? = {
-      guard let r = reusePlaySessionId?.trimmingCharacters(in: .whitespacesAndNewlines), !r.isEmpty else {
+      guard let r = entry.reusePlaySessionId?.trimmingCharacters(in: .whitespacesAndNewlines), !r.isEmpty else {
         return nil
       }
       return r
@@ -266,6 +341,7 @@ final class DownloadManager: ObservableObject {
           activeItemId = nil
           progress = 0
           completion?(false)
+          startNextQueuedDownload()
           return
         }
 
@@ -274,7 +350,7 @@ final class DownloadManager: ObservableObject {
           book: book,
           episodeId: resolvedEp,
           reusePlaySessionId: reuseSid,
-          reusePlaySessionTracks: reusePlaySessionTracks
+          reusePlaySessionTracks: entry.reusePlaySessionTracks
         )
         let downloadBook = resolved.book
         let sorted = resolved.tracks
@@ -309,13 +385,28 @@ final class DownloadManager: ObservableObject {
           }
           progress = doneW / sumW
           let suggested = folder.appendingPathComponent(PlaybackController.trackFilename(index: tr.index))
+          let trackWeight = weights[i]
+          let baseDoneW = doneW
+          // Intra-Track-Fortschritt: `fraction` (0…1) vom Delegate → interpoliert in den Gesamtfortschritt.
+          // Throttling über `lastProgressEmit`, damit nicht jedes Byte-Event einen Main-Actor-Hop auslöst.
+          let progressSink: @Sendable (Double) -> Void = { [weak self] fraction in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+              guard let self else { return }
+              let now = Date()
+              if now.timeIntervalSince(self.lastIntraTrackEmit) < 0.08 { return }
+              self.lastIntraTrackEmit = now
+              self.progress = min(1, (baseDoneW + fraction * trackWeight) / sumW)
+            }
+          }
           let finalURL: URL
           if let ino = tr.ino, !ino.isEmpty {
             let fileURL = try await client.itemFileDownloadURL(itemId: downloadBook.id, ino: ino)
             finalURL = try await client.downloadAuthenticatedFile(
               from: fileURL,
               to: suggested,
-              maxAttempts: Self.trackDownloadMaxAttempts
+              maxAttempts: Self.trackDownloadMaxAttempts,
+              progress: progressSink
             )
           } else {
             guard !streamSessionId.isEmpty else { throw ABSPlaybackError.noTracks }
@@ -323,7 +414,8 @@ final class DownloadManager: ObservableObject {
             finalURL = try await client.downloadAuthenticatedFile(
               from: stream,
               to: suggested,
-              maxAttempts: Self.trackDownloadMaxAttempts
+              maxAttempts: Self.trackDownloadMaxAttempts,
+              progress: progressSink
             )
           }
           if savedAudioExtension == nil {
@@ -331,6 +423,7 @@ final class DownloadManager: ObservableObject {
           }
           doneW += weights[i]
           progress = min(1, doneW / sumW)
+          lastIntraTrackEmit = .distantPast
           resumeCompleted.insert(tr.index)
           wip.completedTrackIndexes = Array(resumeCompleted).sorted()
           try? saveWIP(wip, folder: folder)
