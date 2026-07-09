@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 enum ABSAPIError: LocalizedError {
   case invalidURL
@@ -1065,9 +1066,11 @@ actor ABSAPIClient {
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     guard let resp = try? await downloadURLSession.data(for: req).1 as? HTTPURLResponse,
       (200..<300).contains(resp.statusCode) else {
+      os_log(.info, "DBG HEAD failed or non-2xx for %{private}s", url.absoluteString)
       return nil
     }
     let len = resp.expectedContentLength
+    os_log(.info, "DBG HEAD status=%d expectedContentLength=%lld", resp.statusCode, len)
     return len > 0 ? len : nil
   }
 
@@ -1342,6 +1345,8 @@ private final class FileDownloadProgressDelegate: NSObject, URLSessionDownloadDe
     let expected = totalBytesExpectedToWrite > 0
       ? totalBytesExpectedToWrite
       : (knownExpectedBytes ?? -1)
+    os_log(.info, "DBG delegate didWriteData written=%lld expected=%lld known=%lld",
+           totalBytesWritten, totalBytesExpectedToWrite, knownExpectedBytes ?? -1)
     guard expected > 0 else { return }
     let fraction = Double(totalBytesWritten) / Double(expected)
     onProgress(min(max(0, fraction), 1))
