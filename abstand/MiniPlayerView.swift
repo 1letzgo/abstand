@@ -1358,6 +1358,7 @@ struct NowPlayingDetailView: View {
       .onReceive(player.$isBuffering) { _ in refreshChromeSnapshot() }
       .onReceive(player.$chapterCount) { _ in refreshChromeSnapshot() }
       .onReceive(player.$playbackRate) { _ in refreshChromeSnapshot() }
+      .onReceive(player.$eqPreset) { _ in refreshChromeSnapshot() }
       .onReceive(player.$skipBackwardSeconds) { _ in refreshChromeSnapshot() }
       .onReceive(player.$skipForwardSeconds) { _ in refreshChromeSnapshot() }
       .onReceive(player.$sleepTimerMode) { _ in refreshChromeSnapshot() }
