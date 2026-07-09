@@ -793,6 +793,10 @@ final class AppModel: ObservableObject {
   /// Erhöhen nach `clearCoverImageCache()`, damit `CoverImageView` neu lädt.
   @Published private(set) var coverImageCacheRevision = 0
   @Published var downloadedItemIds: Set<String> = []
+  /// Anzeige-Metadaten für laufende/wartende Downloads — wird beim Download-Start gefüllt,
+  /// damit der Download-Manager (Settings) Titel/Show zeigt, BEVOR das Manifest geschrieben ist.
+  /// Besonders wichtig für Podcast-Folgen, deren In-Memory-Katalog oft leer ist (Relaunch, BG-Download).
+  @Published private(set) var pendingDownloadCatalog: [String: DownloadCatalogEntry] = [:]
   /// Aus `download.json` gebaute Stubs für Home-Regal „Heruntergeladen“ und Offline-Katalog.
   @Published private(set) var downloadedShelfBooks: [ABSBook] = []
   /// Re-Entry-Guard für `refreshDownloadedShelfFromManifests` — verhindert redundante Manifest-Scans
@@ -1725,6 +1729,12 @@ final class AppModel: ObservableObject {
   func downloadCatalogEntry(forStorageId storageId: String) -> DownloadCatalogEntry? {
     let trimmed = storageId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
+    // In-Memory-Cache für laufende/wartende Downloads (gefüllt beim Download-Start).
+    // Wichtig für Podcast-Folgen, deren In-Memory-Katalog oft leer ist (Relaunch, BG-Download),
+    // und für ALLE Downloads, bevor das Manifest geschrieben ist.
+    if let cached = pendingDownloadCatalog[trimmed] {
+      return cached
+    }
     // Podcast-Folge: Storage-ID = „<libraryItemId>-<episodeId>".
     if trimmed.contains("-") {
       let parts = trimmed.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
@@ -9166,6 +9176,15 @@ final class AppModel: ObservableObject {
     storageItemId: String
   ) {
     guard let c = client else { return }
+    // Anzeige-Metadaten für den Download-Manager cachen — BEVOR der Download startet.
+    // Das Manifest existiert erst nach Abschluss; Podcast-Folgen sind oft nicht im In-Memory-Katalog.
+    let epId = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines)
+    pendingDownloadCatalog[storageItemId] = DownloadCatalogEntry(
+      libraryItemId: book.id,
+      title: book.displayTitle,
+      subtitle: book.displayAuthors,
+      isPodcastEpisode: (epId?.isEmpty == false)
+    )
     beginDownloadBackgroundExecution()
     let reuse = player.playSessionIdForReuseWhenDownloadingSameItem(
       libraryItemId: book.id,
@@ -9186,6 +9205,12 @@ final class AppModel: ObservableObject {
         if model.downloads.activeItemId == nil, model.downloads.queuedItemIds.isEmpty {
           model.endDownloadBackgroundExecution()
         }
+        // Cache-Eintrag aufräumen — nach Abschluss liefert das Manifest die Metadaten.
+        if ok || (!model.downloads.queuedItemIds.contains(storageItemId)
+          && model.downloads.activeItemId != storageItemId)
+        {
+          model.pendingDownloadCatalog.removeValue(forKey: storageItemId)
+        }
         if ok {
           model.downloadedItemIds.insert(storageItemId)
           model.persistDownloads()
@@ -9205,6 +9230,7 @@ final class AppModel: ObservableObject {
     downloads.cancel(itemId: bookId)
     downloads.deleteDownload(itemId: bookId)
     downloadedItemIds.remove(bookId)
+    pendingDownloadCatalog.removeValue(forKey: bookId)
     persistDownloads()
   }
 
