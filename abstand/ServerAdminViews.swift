@@ -2227,6 +2227,9 @@ private struct SettingsDownloadsManageView: View {
   /// Geladene Manifeste + Ordnergrößen; einmal beim Erscheinen und nach Löschungen neu aufgebaut.
   @State private var rows: [DownloadManageRow] = []
   @State private var totalBytes: Int64 = 0
+  /// Live-Fortschritt des aktiven Downloads — direkt (ohne AppModel-Throttling) beobachtet,
+  /// damit die ProgressView auch bei schnellen Podcast-Episoden (oft nur ein Track) sichtbar läuft.
+  @State private var activeDownloadProgress: Double = 0
 
   var body: some View {
     ServerAdminScrollScreen {
@@ -2244,7 +2247,13 @@ private struct SettingsDownloadsManageView: View {
       Task { await reload() }
     }
     .onReceive(model.downloads.$activeItemId) { _ in
+      activeDownloadProgress = model.downloads.progress
       Task { await reload() }
+    }
+    .onReceive(model.downloads.$progress) { p in
+      // Nur während ein Download aktiv ist — sonst bleibt die Anzeige auf dem letzten Stand.
+      guard model.downloads.activeItemId != nil else { return }
+      activeDownloadProgress = p
     }
     .onReceive(model.downloads.$queuedItemIds) { _ in
       Task { await reload() }
@@ -2266,7 +2275,7 @@ private struct SettingsDownloadsManageView: View {
               DownloadManageActiveRow(
                 storageId: activeId,
                 entry: entry,
-                progress: model.downloads.progress,
+                progress: activeDownloadProgress,
                 isQueued: false,
                 token: model.token,
                 coverURL: entry.flatMap { model.coverURL(for: $0.libraryItemId) },
