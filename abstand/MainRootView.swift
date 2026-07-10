@@ -906,12 +906,10 @@ struct MainRootView: View {
           .tint(model.appearanceAccentColor)
           .padding(.vertical, 32)
           .frame(maxWidth: .infinity)
-      }
-
-      if episodes.isEmpty,
-        !model.isLoadingPodcasts,
-        !model.isLoadingPodcastShowEpisodes
-      {
+      } else if episodes.isEmpty {
+        // Empty-State immer greifen lassen — auch wenn `isLoadingPodcasts` true ist (z. B. nach
+        // „Mark as finished" während `loadStartDashboard` läuft). Ohne diesen Zweig bleibt die
+        // Fläche weiß, wenn weder Spinner noch Content angezeigt werden.
         if isShowPane {
           Text("No episodes in the library for this show.")
             .font(.subheadline)
