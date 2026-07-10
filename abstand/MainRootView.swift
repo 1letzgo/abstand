@@ -87,17 +87,6 @@ struct MainRootView: View {
       booksLibraryToolbarState.resetForAccountSwitch()
       podcastCatalogToolbarState.resetForAccountSwitch()
     }
-    .onChange(of: model.nowPlayingSheetDismissCounter) { _, _ in
-      // Nach dem Schließen des Now-Playing-Sheets (UIKit `.overFullScreen`) SwiftUI-Views
-      // zum Re-Render zwingen — aufgeschobene @Published-Changes (z. B. entfernte Episode
-      // nach „Mark as finished") werden sonst nicht zuverlässig sichtbar → weißer View.
-      switch model.mainTab {
-      case .library: libraryRelayoutEpoch += 1
-      case .podcasts: podcastsRelayoutEpoch += 1
-      case .ebooks: ebooksRelayoutEpoch += 1
-      default: break
-      }
-    }
     .alert(
       "Error",
       isPresented: Binding(
@@ -918,9 +907,7 @@ struct MainRootView: View {
           .padding(.vertical, 32)
           .frame(maxWidth: .infinity)
       } else if episodes.isEmpty {
-        // Empty-State immer greifen lassen — auch wenn `isLoadingPodcasts` true ist (z. B. nach
-        // „Mark as finished" während `loadStartDashboard` läuft). Ohne diesen Zweig bleibt die
-        // Fläche weiß, wenn weder Spinner noch Content angezeigt werden.
+        // Leerzustand — Bibliothek hat keine Folgen für diese Sendung bzw. der Feed ist leer.
         if isShowPane {
           Text("No episodes in the library for this show.")
             .font(.subheadline)
