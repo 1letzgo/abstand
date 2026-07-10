@@ -238,7 +238,6 @@ struct MainRootView: View {
     } sectionBody: { section in
       booksBrowseSectionScrollContent(for: section)
     }
-    .id("books-catalog-scroll-\(model.nowPlayingSheetDismissCounter)")
   }
 
   private var browseStripAccent: Color { model.appearanceAccentColor }
@@ -799,11 +798,6 @@ struct MainRootView: View {
         podcastCatalogSectionScrollContent(showId: podcastCatalogShowId(forSectionId: sectionId))
       }
     }
-    // Kompletten Rebuild nach Now-Playing-Sheet-Dismiss erzwingen — bekannter SwiftUI-Bug:
-    // LazyVStack/ScrollView-Inhalte verschwinden (weißer View), wenn ein UIKit-.overFullScreen-
-    // Overlay (FullScreenOverlayPresenter) die View-Hierarchie beim Dismiss stört.
-    // Nur ein `.id()`-Wechsel baut die View zuverlässig neu auf (relayoutTrigger reicht nicht).
-    .id("podcast-catalog-scroll-\(model.nowPlayingSheetDismissCounter)")
   }
 
   private var podcastLibrarySearchContent: some View {

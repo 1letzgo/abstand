@@ -724,9 +724,12 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
   }
 
   private func shouldRenderSection(_ sectionID: ID) -> Bool {
-    retainOffscreenSections
+    // Die aktive Sektion wird IMMER gerendert — `mountedSectionIDs` steuert nur, ob
+    // zusätzlich besuchte (inaktive) Sektionen offscreen behalten werden.
+    if selection == sectionID { return true }
+    return retainOffscreenSections
       ? mountedSectionIDs.contains(sectionID)
-      : selection == sectionID
+      : false
   }
 
   private func scrollPositionBinding(for sectionID: ID) -> Binding<ScrollPosition> {
