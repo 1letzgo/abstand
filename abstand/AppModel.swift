@@ -8964,7 +8964,6 @@ final class AppModel: ObservableObject {
     }
     let storageId = podcastEpisodeOfflineStorageId(episode)
     applyLocalMarkFinished(libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
-    removeFinishedPodcastEpisodeFromCatalogLists(episode)
     pendingLocalProgressSyncKeys.insert(episode.progressLookupKey)
     syncContinueListeningShelvesWithProgress()
     if defersProgressSyncToServer {
@@ -8978,6 +8977,9 @@ final class AppModel: ObservableObject {
         wasPlaying: wasPlaying,
         clearLastPlayedIfBookId: nil
       )
+      // Folge erst NACH Sheet-Dismiss entfernen — sonst blockiert der UIKit-Overlay den
+      // Re-Render und die Liste erscheint weiß, wenn der Sheet schließt.
+      removeFinishedPodcastEpisodeFromCatalogLists(episode)
       return
     }
     restoreServerClientIfNeeded()
@@ -8988,6 +8990,7 @@ final class AppModel: ObservableObject {
         wasPlaying: wasPlaying,
         clearLastPlayedIfBookId: nil
       )
+      removeFinishedPodcastEpisodeFromCatalogLists(episode)
       return
     }
     do {
@@ -9005,9 +9008,9 @@ final class AppModel: ObservableObject {
         wasPlaying: wasPlaying,
         clearLastPlayedIfBookId: nil
       )
-      // KEIN `reloadPodcastLibrary(reset: true)` — das ersetzt die komplette Liste durch eine
-      // frische API-Antwort und verursacht den weißen View (siehe Commit 3e5a100). Die Folge
-      // wurde oben bereits aus `podcastEpisodes` entfernt; die restlichen Folgen bleiben sichtbar.
+      // Folge erst NACH Sheet-Dismiss entfernen — sonst blockiert der UIKit-Overlay den
+      // Re-Render und die Liste erscheint weiß, wenn der Sheet schließt.
+      removeFinishedPodcastEpisodeFromCatalogLists(episode)
     } catch {
       publishErrorUnlessBenignCancellation(error)
     }
