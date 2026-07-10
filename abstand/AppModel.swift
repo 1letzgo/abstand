@@ -8990,12 +8990,6 @@ final class AppModel: ObservableObject {
       )
       return
     }
-    // Podcast-Liste SOFORT parallel neu laden — die Folge wurde oben schon aus `podcastEpisodes`
-    // entfernt; ohne sofortigen Nachlade-Auftrag bleibt die Liste leer/weiß, bis der Server-Sync
-    // (`markFinished` + `authorize`) Sekunden später abgeschlossen ist.
-    let reloadTask: Task<Void, Never>? = mainTab == .podcasts
-      ? Task { await reloadPodcastLibrary(reset: true) }
-      : nil
     do {
       try await c.markFinished(libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
       let auth = try await c.authorize()
@@ -9006,14 +9000,15 @@ final class AppModel: ObservableObject {
       syncContinueListeningShelvesWithProgress()
       persistHomeShelvesSnapshot()
       await loadStartDashboard()
-      await reloadTask?.value
       await finishMarkFinishedLocally(
         downloadRemovalStorageId: storageId,
         wasPlaying: wasPlaying,
         clearLastPlayedIfBookId: nil
       )
+      // KEIN `reloadPodcastLibrary(reset: true)` — das ersetzt die komplette Liste durch eine
+      // frische API-Antwort und verursacht den weißen View (siehe Commit 3e5a100). Die Folge
+      // wurde oben bereits aus `podcastEpisodes` entfernt; die restlichen Folgen bleiben sichtbar.
     } catch {
-      reloadTask?.cancel()
       publishErrorUnlessBenignCancellation(error)
     }
   }
