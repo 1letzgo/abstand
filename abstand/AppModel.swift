@@ -8967,9 +8967,8 @@ final class AppModel: ObservableObject {
     pendingLocalProgressSyncKeys.insert(episode.progressLookupKey)
     syncContinueListeningShelvesWithProgress()
     if defersProgressSyncToServer {
-      // Gerät gesperrt / kein Netz: Liste wurde lokal um die fertige Episode erleichtert.
-      // Beim nächsten Vordergrund-Wechsel muss die Podcast-Liste nachgeladen werden, sonst
-      // bleibt sie u. U. leer (z. B. wenn nur noch diese Episode drin war). Siehe `applyPendingPodcastRefreshIfNeeded()`.
+      // Gerät gesperrt / kein Netz: Folge bleibt mit `isFinished`-Status in der Liste (wie Hörbücher);
+      // der Server-Sync passiert beim nächsten Vordergrund-Wechsel.
       pendingPodcastRefreshOnResume = true
       persistHomeShelvesSnapshot()
       await finishMarkFinishedLocally(
@@ -8977,9 +8976,6 @@ final class AppModel: ObservableObject {
         wasPlaying: wasPlaying,
         clearLastPlayedIfBookId: nil
       )
-      // Folge erst NACH Sheet-Dismiss entfernen — sonst blockiert der UIKit-Overlay den
-      // Re-Render und die Liste erscheint weiß, wenn der Sheet schließt.
-      removeFinishedPodcastEpisodeFromCatalogLists(episode)
       return
     }
     restoreServerClientIfNeeded()
@@ -8990,7 +8986,6 @@ final class AppModel: ObservableObject {
         wasPlaying: wasPlaying,
         clearLastPlayedIfBookId: nil
       )
-      removeFinishedPodcastEpisodeFromCatalogLists(episode)
       return
     }
     do {
@@ -9008,9 +9003,6 @@ final class AppModel: ObservableObject {
         wasPlaying: wasPlaying,
         clearLastPlayedIfBookId: nil
       )
-      // Folge erst NACH Sheet-Dismiss entfernen — sonst blockiert der UIKit-Overlay den
-      // Re-Render und die Liste erscheint weiß, wenn der Sheet schließt.
-      removeFinishedPodcastEpisodeFromCatalogLists(episode)
     } catch {
       publishErrorUnlessBenignCancellation(error)
     }
@@ -10794,22 +10786,6 @@ final class AppModel: ObservableObject {
 
   private func removeBookFromCatalogList(_ bookId: String) {
     books.removeAll { $0.id == bookId }
-  }
-
-  /// Podcast-Tab „New“ (`recent-episodes`) und Sendungs-Cache: fertige Folge sofort aus der Liste.
-  private func removeFinishedPodcastEpisodeFromCatalogLists(_ episode: ABSPodcastEpisodeListItem) {
-    let key = episode.progressLookupKey
-    let hadInNew = podcastEpisodes.contains { $0.progressLookupKey == key }
-    podcastEpisodes.removeAll { $0.progressLookupKey == key }
-    if hadInNew {
-      podcastLibraryTotal = max(podcastEpisodes.count, podcastLibraryTotal - 1)
-    }
-    podcastFilteredEpisodes.removeAll { $0.progressLookupKey == key }
-    let sid = episode.libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !sid.isEmpty, var cached = podcastFilteredEpisodesByShowId[sid] {
-      cached.removeAll { $0.progressLookupKey == key }
-      podcastFilteredEpisodesByShowId[sid] = cached
-    }
   }
 
   /// Nach Fortschritt-Reset: „not started“ — Karte über Live-State, Liste nur bei Fortschritts-Filtern anpassen.
