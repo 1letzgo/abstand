@@ -8996,6 +8996,12 @@ final class AppModel: ObservableObject {
       )
       return
     }
+    // Podcast-Liste SOFORT parallel neu laden — die Folge wurde oben schon aus `podcastEpisodes`
+    // entfernt; ohne sofortigen Nachlade-Auftrag bleibt die Liste leer/weiß, bis der Server-Sync
+    // (`markFinished` + `authorize`) Sekunden später abgeschlossen ist.
+    let reloadTask: Task<Void, Never>? = mainTab == .podcasts
+      ? Task { await reloadPodcastLibrary(reset: true) }
+      : nil
     do {
       try await c.markFinished(libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
       let auth = try await c.authorize()
@@ -9005,19 +9011,15 @@ final class AppModel: ObservableObject {
         libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
       syncContinueListeningShelvesWithProgress()
       persistHomeShelvesSnapshot()
-      // Podcast-Liste neu laden (wie `reloadLibrary` bei Büchern), damit der „New"-Bereich
-      // konsistent bleibt — sonst wird die Liste u. U. leer/weiß, weil die fertige Folge
-      // bereits lokal entfernt wurde, aber keine neue vom Server nachrückt.
-      if mainTab == .podcasts {
-        await reloadPodcastLibrary(reset: true)
-      }
       await loadStartDashboard()
+      await reloadTask?.value
       await finishMarkFinishedLocally(
         downloadRemovalStorageId: storageId,
         wasPlaying: wasPlaying,
         clearLastPlayedIfBookId: nil
       )
     } catch {
+      reloadTask?.cancel()
       publishErrorUnlessBenignCancellation(error)
     }
   }
