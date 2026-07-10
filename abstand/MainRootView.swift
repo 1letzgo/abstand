@@ -435,7 +435,20 @@ struct MainRootView: View {
       if model.isLibraryCatalogFiltered {
         catalogFilterBanner
       }
-      if model.libraryBookCardStyle == .heroCover {
+      if model.isLoadingLibrary, rows.isEmpty {
+        ProgressView()
+          .controlSize(.large)
+          .tint(model.appearanceAccentColor)
+          .padding(.vertical, 32)
+          .frame(maxWidth: .infinity)
+      } else if rows.isEmpty {
+        // Empty-State (wie eBooks/Podcasts) — verhindert den „weißen" View, wenn die Liste
+        // nach Filterwechsel, „Mark as finished" oder Progress-Sync leer wird.
+        Text("No books match the current filter.")
+          .font(.subheadline)
+          .foregroundStyle(AppTheme.textSecondary)
+          .padding(.vertical, 8)
+      } else if model.libraryBookCardStyle == .heroCover {
         libraryHeroMultiColumnBookRows(books: rows)
       } else {
         ForEach(rows) { book in
