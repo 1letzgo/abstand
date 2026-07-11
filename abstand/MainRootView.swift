@@ -87,6 +87,20 @@ struct MainRootView: View {
       booksLibraryToolbarState.resetForAccountSwitch()
       podcastCatalogToolbarState.resetForAccountSwitch()
     }
+    .onChange(of: model.nowPlayingSheetDismissCounter) { _, _ in
+      // Nach dem Schließen des Now-Playing-Overlays (UIKit `.overFullScreen` via
+      // FullScreenOverlayPresenter) die Catalog-ScrollViews zum Re-Layout zwingen.
+      // Bekannter SwiftUI-Bug: LazyVStack/ScrollView-Inhalte verschwinden (weißer View),
+      // wenn ein UIKit-Overlay die View-Hierarchie beim Dismiss stört. Der Relayout-Trigger
+      // revalidiert die Scroll-Position und baut die Lazy-Inhalte zuverlässig neu auf.
+      // Reproduzierbar z. B. nach „Fertig" aus BookDetail/EpisodeDetail.
+      switch model.mainTab {
+      case .library: libraryRelayoutEpoch += 1
+      case .podcasts: podcastsRelayoutEpoch += 1
+      case .ebooks: ebooksRelayoutEpoch += 1
+      default: break
+      }
+    }
     .alert(
       "Error",
       isPresented: Binding(
