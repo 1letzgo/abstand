@@ -679,6 +679,10 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
   var retainOffscreenSections: Bool = true
   /// Tab-Wechsel o. Ä.: gespeicherte Scroll-Position erneut anwenden, damit Lazy-Inhalte layouten.
   var relayoutTrigger: AnyHashable?
+  /// Wenn sich dieser Wert ändert (z. B. `nowPlayingAccessoryScrollBottomInset` 56↔0, wenn die
+  /// Floating Bar erscheint/verschwindet), wird die Scroll-Position revalidiert. Ohne das behält
+  /// `sectionScrollPositions` eine veraltete Position für die alte Content-Höhe → weißer View.
+  var bottomInsetRevalidationTrigger: AnyHashable?
   let selection: ID
   let sectionIDs: [ID]
   let scrollBottomInset: CGFloat
@@ -719,6 +723,9 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
     }
     .onChange(of: relayoutTrigger) { _, _ in
       guard relayoutTrigger != nil else { return }
+      reapplyScrollPosition(for: selection)
+    }
+    .onChange(of: bottomInsetRevalidationTrigger) { _, _ in
       reapplyScrollPosition(for: selection)
     }
   }

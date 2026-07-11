@@ -101,6 +101,7 @@ struct StartDashboardView: View {
       : stripIDs
     return AbstandFixedBrowseStripSectionsLayout(
       showsStrip: true,
+      bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
       selection: model.homeBrowseCategory,
       sectionIDs: layoutSectionIDs,
       scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase

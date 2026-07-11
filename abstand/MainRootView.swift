@@ -217,6 +217,7 @@ struct MainRootView: View {
   private var booksCatalogScrollView: some View {
     AbstandFixedBrowseStripSectionsLayout(
       relayoutTrigger: libraryRelayoutEpoch,
+      bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
       selection: model.booksBrowseSection,
       sectionIDs: BooksBrowseSection.stripOrder(ebooksSeparateTabEnabled: model.ebooksSeparateTabEnabled),
       scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
@@ -262,6 +263,7 @@ struct MainRootView: View {
   private var ebooksCatalogScrollView: some View {
     AbstandFixedBrowseStripSectionsLayout(
       relayoutTrigger: ebooksRelayoutEpoch,
+      bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
       selection: model.ebooksBrowseSection,
       sectionIDs: BooksBrowseSection.ebookTabStripOrder,
       scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
@@ -773,6 +775,7 @@ struct MainRootView: View {
   private var podcastCatalogScrollView: some View {
     AbstandFixedBrowseStripSectionsLayout(
       relayoutTrigger: podcastsRelayoutEpoch,
+      bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
       selection: podcastCatalogScrollSelection,
       sectionIDs: podcastCatalogScrollSectionIDs,
       scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
