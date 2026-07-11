@@ -3977,7 +3977,7 @@ final class AppModel: ObservableObject {
       return
     }
 
-    await dismissPlayer(idlePlaceholder: false)
+    await dismissPlayerAfterOverlay(idlePlaceholder: false)
     floatingChrome.syncChrome()
   }
 
@@ -4419,7 +4419,13 @@ final class AppModel: ObservableObject {
     podcastMaxNewEpisodesToDownload = 3
     podcastRssFeedPreviewEpisodes = []
     podcastRssFeedPreviewForShowId = nil
+    // Overlay zuerst schließen, dann Teardown — verhindert den weißen View, wenn das
+    // NowPlaying-Overlay während Account-Switch/Logout noch sichtbar ist. Keine Sleep-
+    // Brücke nötig: der View-Baum wird im Anschluss ohnehin komplett neu aufgebaut.
+    requestDismissNowPlayingSheet()
+    floatingChrome.syncChrome()
     player.tearDownPlayer()
+    floatingChrome.syncChrome()
     downloadedShelfBooks = []
     downloadedItemIds = []
     isRestoringLaunchPlayback = false
@@ -8756,6 +8762,16 @@ final class AppModel: ObservableObject {
     Self.debugLog.log("dismissPlayer END activeBook=\(player.activeBook?.id ?? "nil") episodes=\(podcastEpisodes.count) chromeVisible=\(floatingChrome.gate.chromeVisible) inset=\(nowPlayingAccessoryScrollBottomInset)")
   }
 
+  /// Teardown mit Overlay-Schutz: schließt zuerst das NowPlaying-Overlay und wartet die
+  /// UIKit-Dismiss-Animation ab, bevor `dismissPlayer` den Player wegreißt. Verhindert den
+  /// weißen View, der entsteht, wenn `activeBook = nil` gesetzt wird, während das Overlay
+  /// noch sichtbar heruntergleitet. Aufrufer: Löschen, Unsubscribe, Account-Switch.
+  private func dismissPlayerAfterOverlay(idlePlaceholder: Bool = false) async {
+    requestDismissNowPlayingSheet()
+    try? await Task.sleep(nanoseconds: 400_000_000)
+    await dismissPlayer(idlePlaceholder: idlePlaceholder)
+  }
+
   /// Hörbuch bis zum Ende gehört: lokal fertig (Offline) bzw. inkl. Server-Sync.
   private func handleAudiobookPlaybackCompleted() async {
     guard let bookId = player.activeBook?.id,
@@ -8799,10 +8815,18 @@ final class AppModel: ObservableObject {
     wasPlaying: Bool,
     clearLastPlayedIfBookId: String?
   ) async {
+    // Overlay ZUERST schließen und die UIKit-Dismiss-Animation abwarten, BEVOR wir
+    // activeBook aus dem Player reißen. Sonst kollabiert der NowPlaying-Content
+    // (Cover/Titel/Transport) schon während der Slide-Down-Animation → weißer View.
+    // Betrifft Hörbücher wie Podcast-Folgen, da beide Finish-Flows hier zusammenlaufen.
+    requestDismissNowPlayingSheet()
     if wasPlaying {
+      // Brücke zur UIKit-Dismiss-Animation (~0.3s): hält activeBook + Chrome am Leben,
+      // bis das Overlay vollständig weg ist. Erst dann teardown → Chrome kollabiert
+      // gemeinsam mit dem verschwundenen Overlay (kein weißer Flash).
+      try? await Task.sleep(nanoseconds: 400_000_000)
       await dismissPlayer(idlePlaceholder: false)
     }
-    requestDismissNowPlayingSheet()
     let dbgEpCount2 = podcastEpisodes.count
     let dbgFiltCount2 = podcastFilteredEpisodes.count
     let dbgChrome2 = floatingChrome.gate.chromeVisible
@@ -9179,7 +9203,8 @@ final class AppModel: ObservableObject {
       searchBooks.removeAll { $0.id == bookId }
       podcastSearchBooks.removeAll { $0.id == bookId }
       if player.activeBook?.id == bookId {
-        await dismissPlayer(idlePlaceholder: false)
+        // Overlay-VOR-Teardown: sonst weißer View während der Slide-Down-Animation.
+        await dismissPlayerAfterOverlay(idlePlaceholder: false)
       }
       if UserDefaults.standard.string(forKey: Keys.lastPlayedItemId) == bookId {
         UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
@@ -11424,7 +11449,8 @@ final class AppModel: ObservableObject {
     clearPodcastAutoDownloadSettingsDraft()
 
     if playingThisShow {
-      await dismissPlayer(idlePlaceholder: false)
+      // Overlay-VOR-Teardown: sonst weißer View während der Slide-Down-Animation.
+      await dismissPlayerAfterOverlay(idlePlaceholder: false)
     }
     if UserDefaults.standard.string(forKey: Keys.lastPlayedItemId) == sid {
       UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
