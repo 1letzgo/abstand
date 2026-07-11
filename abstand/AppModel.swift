@@ -8740,6 +8740,11 @@ final class AppModel: ObservableObject {
     await player.closeSessionIfNeeded()
     await pushPendingEbookProgressSyncIfSafe()
     player.tearDownPlayer()
+    // Gate + Inset sofort synchron leeren — tearDownPlayer setzt activeBook=nil, aber
+    // floatingChrome wird sonst erst im nächsten Runloop-Tick via Combine-Sink aktualisiert.
+    // In diesem stale-chrome Fenster (chromeVisible=true bei activeBook=nil) entsteht die
+    // White-View beim Podcast „Fertig"-Flow.
+    floatingChrome.syncChrome()
     player.setMiniPlayerPlaceholder(idlePlaceholder)
     // Floating-Bar-Visibility SYNCHRON aktualisieren — die Combine-Pipeline
     // (Publishers.MergeMany + .receive(on: .main)) feuert sonst erst asynchron,
