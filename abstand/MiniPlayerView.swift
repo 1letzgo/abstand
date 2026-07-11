@@ -2487,6 +2487,7 @@ final class FloatingPlayerChromeController: ObservableObject {
     let visible = hasLoadedTitle
     gate.apply(chromeVisible: visible, snapshot: next)
     if wasVisible != visible {
+      DebugLogCollector.shared.log("chromeController.refresh VISIBILITY CHANGED wasVisible=\(wasVisible) -> visible=\(visible) activeBookId=\(next.activeBookId ?? "nil") objectWillChange sent")
       model.objectWillChange.send()
     }
   }

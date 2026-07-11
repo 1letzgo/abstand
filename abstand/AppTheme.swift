@@ -723,9 +723,11 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
     }
     .onChange(of: relayoutTrigger) { _, _ in
       guard relayoutTrigger != nil else { return }
+      DebugLogCollector.shared.log("layout onChange relayoutTrigger selection=\(String(describing: selection))")
       reapplyScrollPosition(for: selection)
     }
-    .onChange(of: bottomInsetRevalidationTrigger) { _, _ in
+    .onChange(of: bottomInsetRevalidationTrigger) { _, newValue in
+      DebugLogCollector.shared.log("layout onChange bottomInsetRevalidationTrigger newValue=\(String(describing: newValue)) selection=\(String(describing: selection))")
       reapplyScrollPosition(for: selection)
     }
   }

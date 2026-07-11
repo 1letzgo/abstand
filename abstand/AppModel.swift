@@ -8735,10 +8735,12 @@ final class AppModel: ObservableObject {
 
   /// Wiedergabe beenden. `idlePlaceholder: false` entfernt die Mini-Player-Leiste vollständig (z. B. nach „Fertig“).
   func dismissPlayer(idlePlaceholder: Bool = true) async {
+    Self.debugLog.log("dismissPlayer START idlePlaceholder=\(idlePlaceholder) activeBook=\(player.activeBook?.id ?? "nil") episodes=\(podcastEpisodes.count) chromeVisible=\(floatingChrome.gate.chromeVisible)")
     await player.closeSessionIfNeeded()
     await pushPendingEbookProgressSyncIfSafe()
     player.tearDownPlayer()
     player.setMiniPlayerPlaceholder(idlePlaceholder)
+    Self.debugLog.log("dismissPlayer END activeBook=\(player.activeBook?.id ?? "nil") episodes=\(podcastEpisodes.count) chromeVisible=\(floatingChrome.gate.chromeVisible) inset=\(nowPlayingAccessoryScrollBottomInset)")
   }
 
   /// Hörbuch bis zum Ende gehört: lokal fertig (Offline) bzw. inkl. Server-Sync.
@@ -8751,9 +8753,13 @@ final class AppModel: ObservableObject {
 
   /// Podcast-Folge bis zum Ende gehört: lokal fertig (Offline) bzw. inkl. Server-Sync.
   private func handlePodcastEpisodePlaybackCompleted() async {
+    Self.debugLog.log("handlePodcastEpisodePlaybackCompleted CALLED episodeId=\(player.activePlaybackEpisodeId ?? "nil") activeBook=\(player.activeBook?.id ?? "nil")")
     guard player.activePlaybackEpisodeId != nil,
       let episode = podcastEpisodeForActivePlayback()
-    else { return }
+    else {
+      Self.debugLog.log("handlePodcastEpisodePlaybackCompleted GUARD FAILED — no active episode")
+      return
+    }
     await markPodcastEpisodeFinished(episode)
   }
 
