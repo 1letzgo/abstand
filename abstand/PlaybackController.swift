@@ -642,6 +642,7 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   func tearDownPlayer() {
+    DebugLogCollector.shared.log("tearDownPlayer START activeBook=\(activeBook?.id ?? "nil") episodeId=\(activePlaybackEpisodeId ?? "nil") isPlaying=\(isPlaying)")
     playResumeTask?.cancel()
     playResumeTask = nil
     liveTranscription.playbackDidStop()
@@ -1163,6 +1164,7 @@ final class PlaybackController: NSObject, ObservableObject {
 
   private func advanceToNextTrack() {
     guard currentTrackIndex + 1 < tracks.count else {
+      DebugLogCollector.shared.log("advanceToNextTrack END OF TRACKS episodeId=\(activePlaybackEpisodeId ?? "nil") isPodcast=\(activePlaybackEpisodeId != nil)")
       globalPosition = totalDuration
       updateChapterUI(global: globalPosition)
       pause()

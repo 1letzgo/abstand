@@ -8333,6 +8333,7 @@ final class AppModel: ObservableObject {
 
   /// Schließt das Now-Playing-Sheet (z. B. nach „Fertig“, sonst leerer weißer Screen).
   func requestDismissNowPlayingSheet() {
+    Self.debugLog.log("requestDismissNowPlayingSheet CALLED")
     nowPlayingSheetDismissCounter &+= 1
   }
 
@@ -9422,6 +9423,7 @@ final class AppModel: ObservableObject {
 
   /// Pause / Offline: immer lokal sichern; Server nur wenn online (Absorb: `saveLocal` zuerst).
   func handlePlaybackPaused() async {
+    Self.debugLog.log("handlePlaybackPaused CALLED mainTab=\(String(describing: mainTab)) activeBook=\(player.activeBook?.id ?? "nil")")
     recordActivePlaybackProgressLocally()
     if mayUseServerNetwork {
       if player.isRemotePlaySessionActive {
