@@ -132,6 +132,7 @@ enum AppLog {
   static let downloads = Logger(subsystem: subsystem, category: "downloads")
   static let library = Logger(subsystem: subsystem, category: "library")
   static let appearance = Logger(subsystem: subsystem, category: "appearance")
+  static let debug = Logger(subsystem: subsystem, category: "debug")
 
   static let launchSignposter = OSSignposter(subsystem: subsystem, category: "Launch")
 }

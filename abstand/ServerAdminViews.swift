@@ -457,6 +457,7 @@ private enum SettingsHubSection: String, CaseIterable, Identifiable, Hashable {
   case downloads = "Downloads"
   case account = "Account"
   case server = "Server"
+  case debug = "Debug"
 
   var id: String { rawValue }
 
@@ -467,6 +468,7 @@ private enum SettingsHubSection: String, CaseIterable, Identifiable, Hashable {
     case .downloads: return "arrow.down.circle"
     case .account: return "person.crop.circle"
     case .server: return "server.rack"
+    case .debug: return "ladybug"
     }
   }
 
@@ -474,6 +476,7 @@ private enum SettingsHubSection: String, CaseIterable, Identifiable, Hashable {
     var sections: [SettingsHubSection] = [.account, .appearance, .playback]
     if !offlineHome { sections.append(.downloads) }
     if isServerRoot { sections.append(.server) }
+    sections.append(.debug)
     return sections
   }
 }
@@ -674,6 +677,8 @@ struct SettingsHubRootView: View {
         SettingsAccountView()
       case .server:
         serverSettingsMenuSections
+      case .debug:
+        DebugLogExportView()
       }
     }
   }
@@ -2621,4 +2626,72 @@ private struct DownloadManageSavedRow: View {
       }
     }
   }
+}
+
+// MARK: - Debug log export
+
+private struct DebugLogExportView: View {
+  @EnvironmentObject private var model: AppModel
+  @ObservedObject private var collector = DebugLogCollector.shared
+  @State private var showShareSheet = false
+  @State private var shareText = ""
+
+  var body: some View {
+    ServerAdminSection(title: "Debug Log") {
+      ServerAdminCard {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+          Text("\(collector.entries.count) entries")
+            .font(.subheadline)
+            .foregroundStyle(AppTheme.textSecondary)
+
+          HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
+            Button {
+              shareText = collector.exportText
+              showShareSheet = true
+            } label: {
+              Label("Export", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(.bordered)
+            .tint(model.appearanceAccentColor)
+
+            Button(role: .destructive) {
+              collector.clear()
+            } label: {
+              Label("Clear", systemImage: "trash")
+            }
+            .buttonStyle(.bordered)
+          }
+        }
+      }
+
+      if collector.entries.isEmpty {
+        Text("No log entries yet.")
+          .font(.subheadline)
+          .foregroundStyle(AppTheme.textSecondary)
+          .padding(.vertical, 8)
+      } else {
+        ServerAdminCard {
+          VStack(alignment: .leading, spacing: 4) {
+            ForEach(collector.entries.suffix(50)) { entry in
+              Text(entry.message)
+                .font(.caption.monospaced())
+                .foregroundStyle(AppTheme.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+          }
+        }
+      }
+    }
+    .sheet(isPresented: $showShareSheet) {
+      ShareSheet(items: [shareText])
+    }
+  }
+}
+
+private struct ShareSheet: UIViewControllerRepresentable {
+  let items: [Any]
+  func makeUIViewController(context: Context) -> UIActivityViewController {
+    UIActivityViewController(activityItems: items, applicationActivities: nil)
+  }
+  func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

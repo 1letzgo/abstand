@@ -889,6 +889,15 @@ struct MainRootView: View {
   private func podcastPodcastsTabEpisodesContent(showId: String?) -> some View {
     let _ = model.appearanceThemeRevision
     let episodes = model.podcastEpisodesForPodcastsTab(showId: showId)
+    let _ = {
+      let dbgShow = showId ?? "nil"
+      let dbgEp = episodes.count
+      let dbgLoading = model.isLoadingPodcasts
+      let dbgChrome = model.floatingChrome.gate.chromeVisible
+      let dbgInset = model.nowPlayingAccessoryScrollBottomInset
+      let dbgTab = String(describing: model.mainTab)
+      DebugLogCollector.shared.log("podcastTabContent RENDER showId=\(dbgShow) episodes=\(dbgEp) isLoadingPodcasts=\(dbgLoading) chromeVisible=\(dbgChrome) inset=\(dbgInset) tab=\(dbgTab)")
+    }()
     let isShowPane = showId != nil
     let isActivePane =
       isShowPane

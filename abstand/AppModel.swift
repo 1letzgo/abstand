@@ -1196,6 +1196,9 @@ final class AppModel: ObservableObject {
 
   private var client: ABSAPIClient?
   private static let libraryCatalogPageLimit = 80
+
+  /// Temporäre Debug-Logger für White-View-Diagnose (In-Memory, exportierbar).
+  private static let debugLog = DebugLogCollector.shared
   /// Tag-Buchzähler: begrenzte Parallelität — `ABSAPIClient` ist ein Actor.
   private static let browseFacetNetworkConcurrency = 4
   private var libraryPage = 0
@@ -8781,6 +8784,12 @@ final class AppModel: ObservableObject {
       await dismissPlayer(idlePlaceholder: false)
     }
     requestDismissNowPlayingSheet()
+    let dbgEpCount2 = podcastEpisodes.count
+    let dbgFiltCount2 = podcastFilteredEpisodes.count
+    let dbgChrome2 = floatingChrome.gate.chromeVisible
+    let dbgInset2 = nowPlayingAccessoryScrollBottomInset
+    let dbgActiveBook = player.activeBook?.id ?? "nil"
+    Self.debugLog.log("finishMarkFinishedLocally AFTER dismiss wasPlaying=\(wasPlaying) episodes=\(dbgEpCount2) filtered=\(dbgFiltCount2) chromeVisible=\(dbgChrome2) inset=\(dbgInset2) activeBook=\(dbgActiveBook)")
     if let bid = clearLastPlayedIfBookId,
       UserDefaults.standard.string(forKey: Keys.lastPlayedItemId) == bid
     {
@@ -8956,6 +8965,13 @@ final class AppModel: ObservableObject {
   }
 
   func markPodcastEpisodeFinished(_ episode: ABSPodcastEpisodeListItem) async {
+    let dbgWasPlaying = player.activeBook?.id == episode.libraryItemId && player.activePlaybackEpisodeId == episode.episodeId
+    let dbgEpCount = podcastEpisodes.count
+    let dbgFiltCount = podcastFilteredEpisodes.count
+    let dbgChrome = floatingChrome.gate.chromeVisible
+    let dbgInset = nowPlayingAccessoryScrollBottomInset
+    let dbgTab = String(describing: mainTab)
+    Self.debugLog.log("markPodcastEpisodeFinished START wasPlaying=\(dbgWasPlaying) episodes=\(dbgEpCount) filtered=\(dbgFiltCount) tab=\(dbgTab) chromeVisible=\(dbgChrome) inset=\(dbgInset)")
     ensureLocalProgressLoaded()
     let wasPlaying =
       player.activeBook?.id == episode.libraryItemId && player.activePlaybackEpisodeId == episode.episodeId
