@@ -8997,7 +8997,6 @@ final class AppModel: ObservableObject {
         libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
       syncContinueListeningShelvesWithProgress()
       persistHomeShelvesSnapshot()
-      await loadStartDashboard()
       await finishMarkFinishedLocally(
         downloadRemovalStorageId: storageId,
         wasPlaying: wasPlaying,
