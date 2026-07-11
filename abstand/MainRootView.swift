@@ -91,15 +91,13 @@ struct MainRootView: View {
       // Nach dem Schließen des Now-Playing-Overlays (UIKit `.overFullScreen` via
       // FullScreenOverlayPresenter) die Catalog-ScrollViews zum Re-Layout zwingen.
       // Bekannter SwiftUI-Bug: LazyVStack/ScrollView-Inhalte verschwinden (weißer View),
-      // wenn ein UIKit-Overlay die View-Hierarchie beim Dismiss stört. Der Relayout-Trigger
-      // revalidiert die Scroll-Position und baut die Lazy-Inhalte zuverlässig neu auf.
-      // Reproduzierbar z. B. nach „Fertig" aus BookDetail/EpisodeDetail.
-      switch model.mainTab {
-      case .library: libraryRelayoutEpoch += 1
-      case .podcasts: podcastsRelayoutEpoch += 1
-      case .ebooks: ebooksRelayoutEpoch += 1
-      default: break
-      }
+      // wenn ein UIKit-Overlay die View-Hierarchie beim Dismiss stört.
+      // Alle Tabs bumpen (nicht nur den aktiven) — der User kann während der asynchronen
+      // Server-Antwort (markFinished → authorize) schon auf einen anderen Tab gewechselt
+      // haben, und der betroffene Tab ist nicht mehr `mainTab`.
+      libraryRelayoutEpoch += 1
+      podcastsRelayoutEpoch += 1
+      ebooksRelayoutEpoch += 1
     }
     .alert(
       "Error",
