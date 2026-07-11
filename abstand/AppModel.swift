@@ -8741,6 +8741,13 @@ final class AppModel: ObservableObject {
     await pushPendingEbookProgressSyncIfSafe()
     player.tearDownPlayer()
     player.setMiniPlayerPlaceholder(idlePlaceholder)
+    // Floating-Bar-Visibility SYNCHRON aktualisieren — die Combine-Pipeline
+    // (Publishers.MergeMany + .receive(on: .main)) feuert sonst erst asynchron,
+    // nachdem requestDismissNowPlayingSheet bereits gelaufen ist. Mit noch
+    // `chromeVisible=true` behält FloatingTabBottomAccessoryModifier das
+    // tabViewBottomAccessory im View-Tree, was SwiftUI beim gleichzeitigen
+    // Overlay-Dismiss lahmlegt → weißer View.
+    floatingChrome.syncChrome()
     Self.debugLog.log("dismissPlayer END activeBook=\(player.activeBook?.id ?? "nil") episodes=\(podcastEpisodes.count) chromeVisible=\(floatingChrome.gate.chromeVisible) inset=\(nowPlayingAccessoryScrollBottomInset)")
   }
 
