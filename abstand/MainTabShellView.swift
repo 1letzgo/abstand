@@ -38,18 +38,20 @@ private struct FloatingTabBottomAccessoryModifier: ViewModifier {
   let keyboardVisible: Bool
 
   func body(content: Content) -> some View {
-    // Nur bei geladenem Titel — sonst reserviert iOS 26 eine leere Accessory-Leiste.
-    if gate.chromeVisible {
-      content.tabViewBottomAccessory {
-        FloatingAccessoryLayer(
-          gate: gate,
-          chrome: chrome,
-          sheetPresented: sheetPresented,
-          keyboardVisible: keyboardVisible
-        )
-      }
-    } else {
-      content
+    // WICHTIG: `isEnabled:` (iOS 26.2) statt strukturellem `if gate.chromeVisible { … } else { content }`.
+    // Der frühere Branch-Wechsel war ein `_ConditionalContent`-Identitätswechsel des KOMPLETTEN
+    // TabView-Subtrees: Bei jedem `chromeVisible`-Flip (Playback-Start, `dismissPlayer` nach
+    // „Mark as finished") zerstörte SwiftUI den alten Baum samt allen `@State`-Werten darunter —
+    // `MainRootView.activatedTabs` fiel auf `[.start]` zurück, `lazyTabContent` renderte für den
+    // gerade sichtbaren Tab nur noch `Color.clear` → weißer Screen auf allen Tabs, zeitversetzt
+    // mit der Server-Antwort des Finish-Flows (dort kippt `chromeVisible` erst nach `authorize`).
+    content.tabViewBottomAccessory(isEnabled: gate.chromeVisible) {
+      FloatingAccessoryLayer(
+        gate: gate,
+        chrome: chrome,
+        sheetPresented: sheetPresented,
+        keyboardVisible: keyboardVisible
+      )
     }
   }
 }
