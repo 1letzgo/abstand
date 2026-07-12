@@ -1506,7 +1506,7 @@ struct NowPlayingDetailView: View {
       if palette.isDarkLike {
         coverTintColor
       } else {
-        coverTintColor.opacity(0.42)
+        coverTintColor.opacity(0.52)
       }
     }
   }
@@ -2065,6 +2065,7 @@ struct NowPlayingDetailView: View {
       }
     case .recap:
       let transcription = player.liveTranscription
+      let isDownloadReady = player.isReadAlongDownloadReady
       FullPlayerCoverOverlayButton(
         systemName: "sparkles",
         isActive: isRecapActive,
@@ -2073,7 +2074,7 @@ struct NowPlayingDetailView: View {
         accessibilityLabel: String(
           localized: "Recap of the last 5 minutes", comment: "Accessibility")
       ) {
-        guard player.isReadAlongDownloadReady else {
+        guard isDownloadReady else {
           readAlongDownloadWarningPresented = true
           return
         }
@@ -2087,6 +2088,16 @@ struct NowPlayingDetailView: View {
           await transcription.generateRecap(player: player)
         }
       }
+      // Gleicher nicht-verfügbar-Zustand wie der Teleprompter: der Button bleibt
+      // antippbar für den Hinweis, wird aber optisch gedimmt.
+      .opacity(isDownloadReady ? 1 : 0.45)
+      .accessibilityHint(
+        isDownloadReady
+          ? ""
+          : String(
+            localized: "Requires a full download of this audiobook or podcast.",
+            comment: "Recap accessibility hint")
+      )
     case .readAlong:
       ReadAlongPanelButton(readAlongDownloadWarningPresented: $readAlongDownloadWarningPresented) {
         coverPanel = .artwork
@@ -2567,6 +2578,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
   let snapshot: TabAccessoryMiniPlayerSnapshot
   let chrome: FloatingPlayerChromeController
 
+  @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -2605,6 +2617,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
     }
     .frame(maxWidth: .infinity, minHeight: Self.rowMinHeight + 16, alignment: .center)
     .padding(.horizontal, horizontalPadding)
+    .background(model.player.miniPlayerBarFillColor)
     .contentShape(Rectangle())
   }
 

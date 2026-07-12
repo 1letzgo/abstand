@@ -628,7 +628,7 @@ final class PlaybackController: NSObject, ObservableObject {
     showMiniPlayerPlaceholder = show
   }
 
-  /// Nach Dark ↔ Sepia/Light: Cover-Verlauf nur im Dark-Modus.
+  /// Nach einem Theme-Wechsel die palette-abhängige Cover-Tönung aktualisieren.
   func refreshMiniPlayerBarFillForAppearance() {
     applyMiniPlayerBarFillFromStoredCover()
   }
@@ -1785,8 +1785,10 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   private func applyMiniPlayerBarFillFromStoredCover() {
-    if AppTheme.palette.isDarkLike, let image = lastCoverImageForBarTint {
-      miniPlayerBarFillColor = Self.coverBarTintFromCoverImage(image)
+    if let image = lastCoverImageForBarTint {
+      // Dieselbe palette-sichere Cover-Tönung wie die Detailansichten; die
+      // Mini-Player-Leiste kann damit in hellen und dunklen Themes sichtbar reagieren.
+      miniPlayerBarFillColor = coverDominantBackgroundTint(from: image)
     } else {
       miniPlayerBarFillColor = AppTheme.card
     }
