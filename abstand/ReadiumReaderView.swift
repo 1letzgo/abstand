@@ -42,6 +42,8 @@ struct ReadiumReaderView: View {
   @State private var confirmMarkAsFinished = false
   @State private var isScrubbingProgress = false
   @State private var scrubProgress: Double = 0
+  @State private var bookmarks: [EbookReaderBookmark] = []
+  @State private var showsBookmarks = false
   @AppStorage("abstand_ebook_reader_chrome_hint_seen") private var didShowReaderChromeHint = false
   @State private var showsReaderChromeHint = false
   /// Verhindert Sync mit Anfangs-Locator, bevor Server-Resume oder gespeicherte Position gilt.
@@ -132,10 +134,27 @@ struct ReadiumReaderView: View {
     } message: {
       Text("Your reading progress will be saved as complete.")
     }
+    .sheet(isPresented: $showsBookmarks) {
+      ReaderBookmarksSheet(
+        bookmarks: bookmarks,
+        onSelect: { bookmark in
+          Task { await goToBookmark(bookmark) }
+        },
+        onDelete: { bookmark in
+          bookmarks = EbookLocalStore.deleteBookmark(
+            id: bookmark.id, libraryItemId: libraryItemId, format: format)
+        }
+      )
+    }
   }
 
   private var isEbookMarkedFinished: Bool {
     (model.ebookDisplayProgressFraction(libraryItemId: libraryItemId) ?? 0) >= 0.995
+  }
+
+  private var readerNavigator: Navigator? {
+    if let epubNavigator { return epubNavigator }
+    return pdfNavigator
   }
 
   private var readerChromeOverlay: some View {
@@ -222,6 +241,28 @@ struct ReadiumReaderView: View {
         }
 
         Spacer(minLength: 0)
+
+        Menu {
+          Button {
+            addBookmark()
+          } label: {
+            Label("Add bookmark", systemImage: "bookmark.fill")
+          }
+          .disabled(readerNavigator?.currentLocation == nil)
+
+          if !bookmarks.isEmpty {
+            Button {
+              showsBookmarks = true
+            } label: {
+              Label("Bookmarks (\(bookmarks.count))", systemImage: "bookmarks")
+            }
+          }
+        } label: {
+          Image(systemName: "bookmark")
+            .font(.body)
+            .frame(width: 40, height: 40)
+        }
+        .accessibilityLabel("Bookmarks")
 
         Button {
           continuousScroll.toggle()
@@ -430,6 +471,33 @@ struct ReadiumReaderView: View {
   }
 
   @MainActor
+  private func addBookmark() {
+    guard let navigator: Navigator = epubNavigator ?? pdfNavigator,
+      let locator = navigator.currentLocation
+    else { return }
+    bookmarks = EbookLocalStore.saveBookmark(
+      locator,
+      label: readProgressLabel,
+      libraryItemId: libraryItemId,
+      format: format
+    )
+  }
+
+  @MainActor
+  private func goToBookmark(_ bookmark: EbookReaderBookmark) async {
+    guard let navigator: Navigator = epubNavigator ?? pdfNavigator,
+      let locator = bookmark.locator()
+    else { return }
+    readerActionInProgress = true
+    defer { readerActionInProgress = false }
+    guard await navigator.go(to: locator, options: .animated) else { return }
+    showsBookmarks = false
+    withAnimation(.easeInOut(duration: 0.2)) {
+      showReaderChrome = false
+    }
+  }
+
+  @MainActor
   private func resetReadingPosition() async {
     guard let navigator: Navigator = epubNavigator ?? pdfNavigator else { return }
     readerActionInProgress = true
@@ -457,6 +525,8 @@ struct ReadiumReaderView: View {
     isLoading = true
     isInitialReaderLoad = true
     loadError = nil
+    bookmarks = []
+    showsBookmarks = false
     ReadiumReaderDelegate.shared.configure(libraryItemId: libraryItemId, format: format)
     let savedLocator = model.ebookResumeLocatorForReader(
       libraryItemId: libraryItemId, format: format)
@@ -477,6 +547,7 @@ struct ReadiumReaderView: View {
       navigatorController = vc
       epubNavigator = vc as? EPUBNavigatorViewController
       pdfNavigator = vc as? PDFNavigatorViewController
+      bookmarks = EbookLocalStore.loadBookmarks(libraryItemId: libraryItemId, format: format)
       // Ohne gespeicherten Locator: EPUB-WebView oft erst nach Layout bereit — ggf. erneut springen.
       if savedLocator == nil, let target = resumeTarget, format == .epub, let epub = epubNavigator {
         let atStart = (epub.currentLocation.map { ReadiumReaderProgressInfo.fraction(from: $0) } ?? 0) < target * 0.5
@@ -511,6 +582,59 @@ struct ReadiumReaderView: View {
     } catch {
       loadError = error.localizedDescription
       isLoading = false
+    }
+  }
+}
+
+private struct ReaderBookmarksSheet: View {
+  let bookmarks: [EbookReaderBookmark]
+  let onSelect: (EbookReaderBookmark) -> Void
+  let onDelete: (EbookReaderBookmark) -> Void
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    NavigationStack {
+      List {
+        ForEach(bookmarks) { bookmark in
+          Button {
+            onSelect(bookmark)
+            dismiss()
+          } label: {
+            VStack(alignment: .leading, spacing: 3) {
+              Text(bookmark.label)
+                .foregroundStyle(.primary)
+              Text(bookmark.createdAt, format: .dateTime.day().month().year().hour().minute())
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+          }
+          .swipeActions {
+            Button(role: .destructive) {
+              onDelete(bookmark)
+            } label: {
+              Label("Delete", systemImage: "trash")
+            }
+          }
+        }
+      }
+      .overlay {
+        if bookmarks.isEmpty {
+          ContentUnavailableView(
+            "No bookmarks",
+            systemImage: "bookmark",
+            description: Text("Save the current page from the reader controls.")
+          )
+        }
+      }
+      .navigationTitle("Bookmarks")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("Done") {
+            dismiss()
+          }
+        }
+      }
     }
   }
 }
