@@ -42,6 +42,7 @@ struct ReadiumReaderView: View {
   @State private var confirmMarkAsFinished = false
   @State private var isScrubbingProgress = false
   @State private var scrubProgress: Double = 0
+  @StateObject private var speechController = ReaderSpeechController()
   @State private var bookmarks: [EbookReaderBookmark] = []
   @State private var showsBookmarks = false
   @State private var tableOfContents: [Link] = []
@@ -100,6 +101,9 @@ struct ReadiumReaderView: View {
     .preferredColorScheme(chromeColorScheme)
     .statusBarHidden(!showReaderChrome)
     .persistentSystemOverlays(showReaderChrome ? .automatic : .hidden)
+    .onDisappear {
+      speechController.stop()
+    }
     .onReceive(NotificationCenter.default.publisher(for: .readiumReaderToggleChrome)) { _ in
       withAnimation(.easeInOut(duration: 0.2)) {
         showReaderChrome.toggle()
@@ -218,6 +222,15 @@ struct ReadiumReaderView: View {
   /// Primäre Lesesteuerung bewusst am unteren Bildschirmrand für einhändige Bedienung.
   private var readerBottomChrome: some View {
     VStack(alignment: .leading, spacing: 10) {
+      if let spokenText = speechController.currentUtteranceText {
+        Text(spokenText)
+          .font(.caption)
+          .foregroundStyle(readerChromeSecondary)
+          .lineLimit(2)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .accessibilityLabel("Currently reading aloud")
+      }
+
       readerProgressScrubber
 
       HStack(spacing: 12) {
@@ -248,6 +261,28 @@ struct ReadiumReaderView: View {
         }
 
         Spacer(minLength: 0)
+
+        if speechController.isAvailable {
+          Button {
+            speechController.togglePlayback()
+          } label: {
+            Image(systemName: speechController.isPlaying ? "pause.fill" : "speaker.wave.2.fill")
+              .font(.body)
+              .frame(width: 40, height: 40)
+          }
+          .accessibilityLabel(speechController.isPlaying ? "Pause read aloud" : "Read aloud")
+
+          if speechController.hasActiveSession {
+            Button {
+              speechController.stop()
+            } label: {
+              Image(systemName: "stop.fill")
+                .font(.body)
+                .frame(width: 40, height: 40)
+            }
+            .accessibilityLabel("Stop reading aloud")
+          }
+        }
 
         Menu {
           Button {
@@ -579,6 +614,9 @@ struct ReadiumReaderView: View {
       navigatorController = vc
       epubNavigator = vc as? EPUBNavigatorViewController
       pdfNavigator = vc as? PDFNavigatorViewController
+      if let navigator: Navigator = epubNavigator ?? pdfNavigator {
+        speechController.configure(navigator: navigator)
+      }
       bookmarks = EbookLocalStore.loadBookmarks(libraryItemId: libraryItemId, format: format)
       if let navigator = vc as? Navigator {
         tableOfContents = await navigator.publication.tableOfContents().getOrNil() ?? []
@@ -623,6 +661,75 @@ struct ReadiumReaderView: View {
   }
 }
 
+@MainActor
+private final class ReaderSpeechController: NSObject, ObservableObject, PublicationSpeechSynthesizerDelegate {
+  @Published private(set) var isAvailable = false
+  @Published private(set) var isPlaying = false
+  @Published private(set) var hasActiveSession = false
+  @Published private(set) var currentUtteranceText: String?
+
+  private var navigator: Navigator?
+  private var synthesizer: PublicationSpeechSynthesizer?
+
+  func configure(navigator: Navigator) {
+    stop()
+    self.navigator = navigator
+    synthesizer = PublicationSpeechSynthesizer(publication: navigator.publication, delegate: self)
+    isAvailable = synthesizer != nil
+  }
+
+  func togglePlayback() {
+    guard let synthesizer else { return }
+    switch synthesizer.state {
+    case .playing:
+      synthesizer.pause()
+    case .paused:
+      synthesizer.resume()
+    case .stopped:
+      synthesizer.start(from: navigator?.currentLocation)
+    }
+  }
+
+  func stop() {
+    synthesizer?.stop()
+    isPlaying = false
+    hasActiveSession = false
+    currentUtteranceText = nil
+  }
+
+  func publicationSpeechSynthesizer(
+    _ synthesizer: PublicationSpeechSynthesizer,
+    stateDidChange state: PublicationSpeechSynthesizer.State
+  ) {
+    switch state {
+    case .stopped:
+      isPlaying = false
+      hasActiveSession = false
+      currentUtteranceText = nil
+    case let .paused(utterance):
+      isPlaying = false
+      hasActiveSession = true
+      currentUtteranceText = utterance.text
+    case let .playing(utterance, _):
+      isPlaying = true
+      hasActiveSession = true
+      currentUtteranceText = utterance.text
+      guard let navigator else { return }
+      Task {
+        _ = await navigator.go(to: utterance.locator, options: .animated)
+      }
+    }
+  }
+
+  func publicationSpeechSynthesizer(
+    _ synthesizer: PublicationSpeechSynthesizer,
+    utterance: PublicationSpeechSynthesizer.Utterance,
+    didFailWithError error: PublicationSpeechSynthesizer.Error
+  ) {
+    stop()
+  }
+}
+
 private struct ReaderBookmarksSheet: View {
   let bookmarks: [EbookReaderBookmark]
   let onSelect: (EbookReaderBookmark) -> Void
@@ -638,8 +745,7 @@ private struct ReaderBookmarksSheet: View {
             dismiss()
           } label: {
             VStack(alignment: .leading, spacing: 3) {
-              Text(bookmark.label)
-                .foregroundStyle(.primary)
+              Text(bookmark.label).foregroundStyle(.primary)
               Text(bookmark.createdAt, format: .dateTime.day().month().year().hour().minute())
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -667,9 +773,7 @@ private struct ReaderBookmarksSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .topBarTrailing) {
-          Button("Done") {
-            dismiss()
-          }
+          Button("Done") { dismiss() }
         }
       }
     }
@@ -692,9 +796,7 @@ private struct ReaderTableOfContentsSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .topBarTrailing) {
-          Button("Done") {
-            dismiss()
-          }
+          Button("Done") { dismiss() }
         }
       }
     }
