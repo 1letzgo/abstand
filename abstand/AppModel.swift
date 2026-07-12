@@ -8847,6 +8847,14 @@ final class AppModel: ObservableObject {
       return
     }
     do {
+      if wasCurrentPlayback {
+        // Play-Session VOR dem PATCH schließen: `closeSessionIfNeeded` schickt einen letzten
+        // `syncPlaySession(currentTime:)` + `closePlaySession` — liefe das erst nach
+        // `markFinished` (wie früher via `finishMarkFinishedLocally`), würde der Server den
+        // Media-Progress wieder mit currentTime < duration überschreiben und `isFinished`
+        // zurücksetzen (Folge/Buch taucht nach Reload wieder als „neu"/angefangen auf).
+        await dismissPlayer(idlePlaceholder: false)
+      }
       try await c.markFinished(libraryItemId: bookId)
       let auth = try await c.authorize()
       applyAuthorizeUser(auth.user)
@@ -9028,6 +9036,13 @@ final class AppModel: ObservableObject {
       return
     }
     do {
+      if wasPlaying {
+        // Play-Session VOR dem PATCH schließen — sonst überschreibt der Session-Sync/-Close
+        // aus `dismissPlayer` (bisher erst nach der Server-Antwort in
+        // `finishMarkFinishedLocally`) den frisch gesetzten `isFinished`-Status auf dem Server
+        // wieder mit currentTime < duration, und die Folge bleibt in „New".
+        await dismissPlayer(idlePlaceholder: false)
+      }
       try await c.markFinished(libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
       let auth = try await c.authorize()
       applyAuthorizeUser(auth.user)
