@@ -140,6 +140,10 @@ struct ReadiumReaderView: View {
 
   private var readerChromeOverlay: some View {
     VStack(spacing: 0) {
+      if showReaderChrome {
+        readerTopChrome
+          .transition(.move(edge: .top).combined(with: .opacity))
+      }
       Spacer()
       if showReaderChrome {
         readerBottomChrome
@@ -151,36 +155,46 @@ struct ReadiumReaderView: View {
     .animation(.easeInOut(duration: 0.2), value: showReaderChrome)
   }
 
+  /// Orientierung und Schließen bleiben oben; alle Leseaktionen liegen separat am unteren Rand.
+  private var readerTopChrome: some View {
+    HStack(spacing: 12) {
+      Button {
+        dismiss()
+      } label: {
+        Image(systemName: "xmark.circle.fill")
+          .font(.title2)
+          .symbolRenderingMode(.hierarchical)
+          .foregroundStyle(readerChromeForeground)
+      }
+      .accessibilityLabel("Close")
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title)
+          .font(.subheadline.weight(.semibold))
+          .lineLimit(1)
+          .foregroundStyle(readerChromeForeground)
+
+        Text(author)
+          .font(.caption)
+          .lineLimit(1)
+          .foregroundStyle(readerChromeSecondary)
+      }
+
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(.ultraThinMaterial)
+    .safeAreaPadding(.top, 4)
+  }
+
   /// Primäre Lesesteuerung bewusst am unteren Bildschirmrand für einhändige Bedienung.
   private var readerBottomChrome: some View {
     VStack(alignment: .leading, spacing: 10) {
       readerProgressScrubber
 
       HStack(spacing: 12) {
-        Button {
-          dismiss()
-        } label: {
-          Image(systemName: "xmark.circle.fill")
-            .font(.title2)
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(readerChromeForeground)
-        }
-        .accessibilityLabel("Close")
-
-        VStack(alignment: .leading, spacing: 2) {
-          Text(title)
-            .font(.subheadline.weight(.semibold))
-            .lineLimit(1)
-            .foregroundStyle(readerChromeForeground)
-
-          Text(author)
-            .font(.caption)
-            .lineLimit(1)
-            .foregroundStyle(readerChromeSecondary)
-        }
-
-        Spacer(minLength: 0)
-
         if format == .epub {
           HStack(spacing: 8) {
             Button {
@@ -206,6 +220,8 @@ struct ReadiumReaderView: View {
             .disabled(fontSize >= EpubReaderSettings.maxFontSize)
           }
         }
+
+        Spacer(minLength: 0)
 
         Button {
           continuousScroll.toggle()
