@@ -56,6 +56,29 @@ enum PlayerLiveTranscriptionError: LocalizedError {
   }
 }
 
+private actor PlayerRecapTranscriptCollector {
+  private var segments: [String] = []
+
+  func append(_ raw: String) {
+    let segment = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !segment.isEmpty else { return }
+    guard let last = segments.last else {
+      segments.append(segment)
+      return
+    }
+    if segment == last || last.hasPrefix(segment) { return }
+    if segment.hasPrefix(last) {
+      segments[segments.count - 1] = segment
+    } else {
+      segments.append(segment)
+    }
+  }
+
+  var text: String {
+    segments.joined(separator: " ")
+  }
+}
+
 /// Ein Wort (oder Leerzeichen) mit Zeitfenster für Highlight / Scroll.
 struct PlayerTranscriptWord: Identifiable, Equatable {
   let id: String
@@ -132,7 +155,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   /// Sprache der laufenden Transkription (für Wort-Übersetzung).
   var transcriptionLocale: Locale? { activeContext?.locale }
-  var canGenerateRecap: Bool { !finalizedWords.isEmpty && !isGeneratingRecap }
+  var canGenerateRecap: Bool { !isGeneratingRecap }
 
   private var finalizedWords: [PlayerTranscriptWord] = []
   /// Volatile Speech-Ergebnisse während der Pufferphase (ersetzt, nicht angehängt).
@@ -355,16 +378,15 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     errorMessage = nil
   }
 
-  /// Fasst ausschließlich finalisierte, bereits gehörte Wörter aus den letzten fünf Minuten zusammen.
-  /// `FoundationModels` verwendet dabei ausschließlich das Systemmodell auf dem Gerät.
-  func generateRecap(endingAt playbackGlobalTime: Double) async {
+  /// Transkribiert die letzten fünf Minuten separat aus den lokalen Audiodateien und fasst
+  /// anschließend nur dieses Ergebnis mit dem Systemmodell auf dem Gerät zusammen.
+  func generateRecap(player: PlaybackController) async {
     guard !isGeneratingRecap else { return }
 
-    let transcript = recapSourceText(endingAt: playbackGlobalTime)
-    guard !transcript.isEmpty else {
+    guard player.isReadAlongDownloadReady else {
       recapText = nil
       recapErrorMessage = String(
-        localized: "There is not enough transcribed audio yet to create a recap.",
+        localized: "Download the audiobook to create an on-device recap.",
         comment: "Read along recap error"
       )
       return
@@ -380,12 +402,41 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       return
     }
 
+    player.syncGlobalPositionFromPlayer()
+    let end = player.liveGlobalPlaybackPosition
+    let contexts = player.makeLocalTranscriptionAudioContexts(
+      overlapping: max(0, end - 300)...end
+    )
+    guard !contexts.isEmpty else {
+      recapText = nil
+      recapErrorMessage = String(
+        localized: "The last five minutes of audio are unavailable for transcription.",
+        comment: "Read along recap error"
+      )
+      return
+    }
+
     isGeneratingRecap = true
     recapText = nil
     recapErrorMessage = nil
     defer { isGeneratingRecap = false }
 
     do {
+      try await ensureSpeechRecognitionAuthorized()
+      let languageTag = player.activeBook?.media.metadata.language
+      let locale = try await SpeechTranscriptionLocaleResolver.resolve(
+        preferredLanguageTag: languageTag
+      ).locale
+      try await ensureSpeechModel(locale: locale)
+      let transcript = try await transcribeRecapAudio(
+        contexts: contexts,
+        globalRange: max(0, end - 300)...end,
+        locale: locale
+      )
+      guard !transcript.isEmpty else {
+        throw PlayerLiveTranscriptionError.transcriptionProgressStalled
+      }
+
       let session = LanguageModelSession(model: model)
       let response = try await session.respond(
         to: """
@@ -410,6 +461,112 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   func clearRecap() {
     recapText = nil
     recapErrorMessage = nil
+  }
+
+  private func transcribeRecapAudio(
+    contexts: [PlayerTranscriptionAudioContext],
+    globalRange: ClosedRange<Double>,
+    locale: Locale
+  ) async throws -> String {
+    let transcriber = SpeechTranscriber(
+      locale: locale,
+      transcriptionOptions: [],
+      reportingOptions: [],
+      attributeOptions: []
+    )
+    let analyzer = SpeechAnalyzer(modules: [transcriber])
+    guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
+      throw PlayerLiveTranscriptionError.conversionFailed
+    }
+
+    let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
+    try await analyzer.start(inputSequence: stream)
+    let collector = PlayerRecapTranscriptCollector()
+    let resultTask = Task {
+      for try await result in transcriber.results where result.isFinal {
+        await collector.append(String(result.text.characters))
+      }
+    }
+
+    do {
+      try await feedRecapAudio(
+        contexts: contexts,
+        globalRange: globalRange,
+        targetFormat: format,
+        input: continuation
+      )
+      continuation.finish()
+      try await analyzer.finalizeAndFinishThroughEndOfInput()
+      _ = try await resultTask.value
+      return await collector.text
+    } catch {
+      continuation.finish()
+      resultTask.cancel()
+      try? await analyzer.finalizeAndFinishThroughEndOfInput()
+      throw error
+    }
+  }
+
+  private func feedRecapAudio(
+    contexts: [PlayerTranscriptionAudioContext],
+    globalRange: ClosedRange<Double>,
+    targetFormat: AVAudioFormat,
+    input: AsyncStream<AnalyzerInput>.Continuation
+  ) async throws {
+    for context in contexts {
+      let localStart = max(0, globalRange.lowerBound - context.trackGlobalOffset)
+      let localEnd = max(localStart, globalRange.upperBound - context.trackGlobalOffset)
+      guard localEnd > localStart else { continue }
+
+      let asset = AVURLAsset(url: context.assetURL)
+      let tracks = try await asset.loadTracks(withMediaType: .audio)
+      guard let audioTrack = tracks.first else {
+        throw PlayerLiveTranscriptionError.audioSourceUnavailable
+      }
+
+      let reader = try AVAssetReader(asset: asset)
+      let output = AVAssetReaderTrackOutput(
+        track: audioTrack,
+        outputSettings: [
+          AVFormatIDKey: kAudioFormatLinearPCM,
+          AVLinearPCMBitDepthKey: 16,
+          AVLinearPCMIsFloatKey: false,
+          AVLinearPCMIsBigEndianKey: false,
+          AVLinearPCMIsNonInterleaved: false,
+        ]
+      )
+      output.alwaysCopiesSampleData = false
+      guard reader.canAdd(output) else { throw PlayerLiveTranscriptionError.conversionFailed }
+      reader.add(output)
+      reader.timeRange = CMTimeRange(
+        start: CMTime(seconds: localStart, preferredTimescale: 600),
+        duration: CMTime(seconds: localEnd - localStart, preferredTimescale: 600)
+      )
+      guard reader.startReading() else {
+        throw reader.error ?? PlayerLiveTranscriptionError.audioSourceUnavailable
+      }
+
+      var converter: PlayerTranscriptionAudioConverter?
+      var bufferCount = 0
+      while reader.status == .reading, !Task.isCancelled {
+        guard let sample = output.copyNextSampleBuffer() else { continue }
+        guard let buffer = Self.sampleBufferToPCMBuffer(sample) else { continue }
+        if converter == nil {
+          converter = PlayerTranscriptionAudioConverter(
+            sourceFormat: buffer.format,
+            targetFormat: targetFormat
+          )
+        }
+        guard let converter else { throw PlayerLiveTranscriptionError.conversionFailed }
+        input.yield(AnalyzerInput(buffer: try converter.convert(buffer, to: targetFormat)))
+        bufferCount += 1
+        if bufferCount & 15 == 0 { await Task.yield() }
+      }
+      if Task.isCancelled { throw CancellationError() }
+      guard reader.status == .completed else {
+        throw reader.error ?? PlayerLiveTranscriptionError.audioSourceUnavailable
+      }
+    }
   }
 
   /// Modus beenden und Session vollständig stoppen (idempotent).
@@ -844,16 +1001,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     lastAppendedThroughGlobalTime = 0
     lastObservedTranscriptionEnd = 0
     clearRecap()
-  }
-
-  private func recapSourceText(endingAt playbackGlobalTime: Double) -> String {
-    let end = max(0, playbackGlobalTime)
-    let start = max(0, end - 300)
-    return finalizedWords
-      .filter { $0.globalEnd >= start && $0.globalStart <= end }
-      .map(\.text)
-      .joined()
-      .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   private func transcriptLinesForDisplay() -> [PlayerTranscriptLine] {

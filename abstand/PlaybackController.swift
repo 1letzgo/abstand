@@ -1948,6 +1948,38 @@ final class PlaybackController: NSObject, ObservableObject {
       return nil
     }
   }
+
+  /// Lokale Track-Dateien, die einen globalen Zeitbereich berühren — z. B. für einen
+  /// eigenständigen On-device-Recap. Anders als der Live-Teleprompter berücksichtigt
+  /// dies auch Track-Grenzen innerhalb des angeforderten Bereichs.
+  func makeLocalTranscriptionAudioContexts(
+    overlapping globalRange: ClosedRange<Double>
+  ) -> [PlayerTranscriptionAudioContext] {
+    guard
+      activeBook != nil,
+      isUsingLocalTrackFiles,
+      let root = localRoot,
+      tracks.count == trackStarts.count
+    else { return [] }
+
+    let manifest = ABSDownloadManifest.load(from: root)
+    let locale = Locale.current
+    return tracks.enumerated().compactMap { index, track in
+      let start = trackStarts[index]
+      let end = start + track.duration
+      guard end >= globalRange.lowerBound, start <= globalRange.upperBound else { return nil }
+      guard let url = Self.resolvedLocalTrackURL(root: root, trackIndex: track.index, manifest: manifest) else {
+        return nil
+      }
+      return PlayerTranscriptionAudioContext(
+        assetURL: url,
+        streamAuthToken: nil,
+        trackGlobalOffset: start,
+        locale: locale,
+        trackIndex: index
+      )
+    }
+  }
 }
 
 private extension Array {
