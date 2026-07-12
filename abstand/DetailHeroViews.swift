@@ -10,8 +10,8 @@ func coverDominantBackgroundTint(from image: UIImage) -> Color {
 /// Palette-abhängig — deshalb wird der rohe RGB gecacht und hier je aktueller Palette verrechnet.
 func coverDominantBackgroundTint(fromAverageRed r: CGFloat, green g: CGFloat, blue b: CGFloat) -> Color {
   if AppTheme.palette.isDarkLike {
-    let mix: CGFloat = 0.25
-    let floor: CGFloat = 0.04
+    let mix: CGFloat = 0.34
+    let floor: CGFloat = 0.045
     return Color(
       red: Double(min(1, r * mix + floor)),
       green: Double(min(1, g * mix + floor)),
@@ -25,7 +25,7 @@ func coverDominantBackgroundTint(fromAverageRed r: CGFloat, green g: CGFloat, bl
   var pb: CGFloat = 0
   var pa: CGFloat = 0
   paper.getRed(&pr, green: &pg, blue: &pb, alpha: &pa)
-  let coverWeight: CGFloat = 0.2
+  let coverWeight: CGFloat = 0.3
   let paperWeight = 1 - coverWeight
   return Color(
     red: Double(r * coverWeight + pr * paperWeight),
@@ -55,7 +55,7 @@ func detailSectionCardTint(forBackgroundTint tint: Color) -> Color {
   guard let p = colorRGBComponents(of: AppTheme.background) else { return AppTheme.card }
   let darken: CGFloat = 0.93
   func channel(_ tintValue: CGFloat, _ paperValue: CGFloat) -> Double {
-    let effective = tintValue * 0.42 + paperValue * 0.58
+    let effective = tintValue * 0.52 + paperValue * 0.48
     return Double(min(1, effective * darken))
   }
   return Color(

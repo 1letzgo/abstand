@@ -1506,7 +1506,7 @@ struct NowPlayingDetailView: View {
       if palette.isDarkLike {
         coverTintColor
       } else {
-        coverTintColor.opacity(0.42)
+        coverTintColor.opacity(0.52)
       }
     }
   }
@@ -2578,6 +2578,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
   let snapshot: TabAccessoryMiniPlayerSnapshot
   let chrome: FloatingPlayerChromeController
 
+  @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -2616,6 +2617,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
     }
     .frame(maxWidth: .infinity, minHeight: Self.rowMinHeight + 16, alignment: .center)
     .padding(.horizontal, horizontalPadding)
+    .background(model.player.miniPlayerBarFillColor)
     .contentShape(Rectangle())
   }
 

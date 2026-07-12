@@ -468,7 +468,7 @@ private struct AbstandDetailScreenBackgroundModifier: ViewModifier {
         if model.appearancePalette.isDarkLike {
           tint
         } else {
-          tint.opacity(0.42)
+          tint.opacity(0.52)
         }
       }
       .ignoresSafeArea()
