@@ -915,6 +915,19 @@ actor ABSAPIClient {
     }
   }
 
+  /// Löscht eine Hör-Sitzung (`DELETE /api/sessions/:id` — Session-Owner oder Admin, wie ABS-Web).
+  func deleteListeningSession(sessionId: String) async throws {
+    let id = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !id.isEmpty else { throw ABSAPIError.invalidURL }
+    let req = try authorizedRequest(path: "api/sessions/\(id)", method: "DELETE")
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    if http.statusCode == 404 { return }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+  }
+
   func markFinished(libraryItemId: String, episodeId: String? = nil) async throws {
     try await patchProgress(
       libraryItemId: libraryItemId,

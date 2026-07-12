@@ -84,10 +84,18 @@ struct PodcastEpisodeDetailView: View {
     .alert("Reset listening progress?", isPresented: $confirmDiscardEpisodeProgress) {
       Button("Cancel", role: .cancel) {}
       Button("Reset", role: .destructive) {
-        Task { await model.discardPodcastEpisodeProgress(episode) }
+        Task {
+          await model.discardPodcastEpisodeProgress(episode)
+          // Sessions wurden serverseitig mitgelöscht — Liste in der Detail-View nachziehen.
+          let showMid =
+            model.podcastShows.first(where: { $0.id == episode.libraryItemId })?.mediaId
+            ?? model.podcastSearchBooks.first(where: { $0.id == episode.libraryItemId })?.mediaId
+          listeningSessions = await model.loadPodcastEpisodeListeningSessions(
+            episode, showMediaId: showMid)
+        }
       }
     } message: {
-      Text("This removes your saved position for this episode. You cannot undo this.")
+      Text("This removes your saved position and listening sessions for this episode. You cannot undo this.")
     }
     .alert("Mark as finished?", isPresented: $confirmMarkEpisodeFinished) {
       Button("Cancel", role: .cancel) {}
