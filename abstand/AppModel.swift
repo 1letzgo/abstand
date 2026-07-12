@@ -592,9 +592,10 @@ final class AppModel: ObservableObject {
   @Published private(set) var podcastAutoDownloadSettingsLoading = false
   @Published private(set) var podcastAutoDownloadSettingsSaving = false
   @Published private(set) var podcastAutoDownloadSettingsShowId: String?
-  /// Lokale Sprachvorgabe je Podcast-Show für Teleprompter und Recap.
+  /// Server-Metadaten der Podcast-Show für Teleprompter und Recap.
   @Published var podcastShowTranscriptionLanguage = ""
   @Published private(set) var podcastShowTranscriptionLanguageShowId: String?
+  @Published private(set) var podcastShowTranscriptionLanguageSaving = false
   @Published private(set) var podcastCheckNewInProgressShowId: String?
   /// Alle Hörbücher auf dem Start-Tab (über alle sichtbaren Regale, für Detailsuche / Fallback).
   @Published var startBooks: [ABSBook] = []
@@ -4382,7 +4383,6 @@ final class AppModel: ObservableObject {
       UserDefaults.standard.removeObject(forKey: Keys.podcastsLibrary)
       UserDefaults.standard.removeObject(forKey: Keys.library)
     }
-    UserDefaults.standard.removeObject(forKey: "abstand_podcast_show_settings_v1")
     UserDefaults.standard.removeObject(forKey: Keys.startDisabledCategories)
     UserDefaults.standard.removeObject(forKey: Keys.homeBrowseCategory)
     startDisabledCategories = []
@@ -6547,42 +6547,46 @@ final class AppModel: ObservableObject {
   func preparePodcastShowSettingsSheet(showId: String) async {
     let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !sid.isEmpty else { return }
-    loadPodcastShowTranscriptionLanguage(showId: sid)
     await loadPodcastAutoDownloadSettings(showId: sid)
   }
 
-  private static let podcastShowTranscriptionLanguagesKey = "abstand_podcast_show_settings_v1"
-
   func podcastShowTranscriptionLanguage(for showId: String) -> String? {
-    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !sid.isEmpty else { return nil }
-    let values =
-      UserDefaults.standard.dictionary(forKey: Self.podcastShowTranscriptionLanguagesKey)
-      as? [String: String] ?? [:]
-    let language = values[sid]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return language.isEmpty ? nil : language
-  }
-
-  private func loadPodcastShowTranscriptionLanguage(showId: String) {
-    podcastShowTranscriptionLanguageShowId = showId
-    podcastShowTranscriptionLanguage = podcastShowTranscriptionLanguage(for: showId) ?? ""
-  }
-
-  func savePodcastShowTranscriptionLanguage(showId: String) {
-    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !sid.isEmpty, podcastShowTranscriptionLanguageShowId == sid else { return }
-    let language = podcastShowTranscriptionLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
-    var values =
-      UserDefaults.standard.dictionary(forKey: Self.podcastShowTranscriptionLanguagesKey)
-      as? [String: String] ?? [:]
-    if language.isEmpty {
-      values.removeValue(forKey: sid)
+    let language: String
+    if podcastShowTranscriptionLanguageShowId == showId {
+      language = podcastShowTranscriptionLanguage
     } else {
-      values[sid] = language
+      language = podcastShows.first(where: { $0.id == showId })?.media.metadata.language ?? ""
     }
-    UserDefaults.standard.set(values, forKey: Self.podcastShowTranscriptionLanguagesKey)
-    if player.activeBook?.id == sid, player.activePlaybackEpisodeId != nil {
-      player.setTranscriptionLanguageOverride(language)
+    let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  func savePodcastShowTranscriptionLanguage(showId: String) async {
+    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard
+      !sid.isEmpty,
+      podcastShowTranscriptionLanguageShowId == sid,
+      let c = client,
+      isNetworkReachable,
+      !podcastShowTranscriptionLanguageSaving
+    else { return }
+    let language = podcastShowTranscriptionLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
+    podcastShowTranscriptionLanguageSaving = true
+    defer { podcastShowTranscriptionLanguageSaving = false }
+    do {
+      var patch = ABSItemMediaMetadataPatch()
+      // Ein leerer Wert leert die Server-Metadaten und aktiviert den automatischen Fallback.
+      patch.language = language
+      try await c.updateItemMedia(itemId: sid, patch: patch, coverURL: nil)
+      let updated = try await c.item(id: sid, expanded: true)
+      replacePodcastShowInCatalog(updated)
+      applyPodcastAutoDownloadSettings(from: updated, showId: sid)
+      if player.activeBook?.id == sid, player.activePlaybackEpisodeId != nil {
+        player.setTranscriptionLanguageOverride(updated.media.metadata.language)
+      }
+      errorMessage = nil
+    } catch {
+      publishErrorUnlessBenignCancellation(error)
     }
   }
 
@@ -6726,6 +6730,8 @@ final class AppModel: ObservableObject {
     podcastAutoDownloadInterval = PodcastAutoDownloadInterval.from(cron: item.media.autoDownloadSchedule)
     podcastMaxEpisodesToKeep = item.media.maxEpisodesToKeep ?? 0
     podcastMaxNewEpisodesToDownload = item.media.maxNewEpisodesToDownload ?? 3
+    podcastShowTranscriptionLanguageShowId = showId
+    podcastShowTranscriptionLanguage = item.media.metadata.language ?? ""
   }
 
   private func clearPodcastAutoDownloadSettingsDraft() {

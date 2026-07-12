@@ -2196,7 +2196,7 @@ private struct PodcastShowTranscriptionLanguageSettingsContent: View {
       get: { model.podcastShowTranscriptionLanguage },
       set: { language in
         model.podcastShowTranscriptionLanguage = language
-        model.savePodcastShowTranscriptionLanguage(showId: showId)
+        Task { await model.savePodcastShowTranscriptionLanguage(showId: showId) }
       }
     )
   }
@@ -2225,8 +2225,9 @@ private struct PodcastShowTranscriptionLanguageSettingsContent: View {
               }
               .labelsHidden()
               .pickerStyle(.menu)
+              .disabled(!model.isNetworkReachable || model.podcastShowTranscriptionLanguageSaving)
             }
-            Text("Used for on-device transcription and recap. This setting stays on this device.")
+            Text("Saved in the show metadata and used for on-device transcription and recap.")
               .font(.caption)
               .foregroundStyle(AppTheme.textSecondary)
               .padding(.leading, 44)
