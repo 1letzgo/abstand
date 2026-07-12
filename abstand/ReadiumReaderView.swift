@@ -42,6 +42,8 @@ struct ReadiumReaderView: View {
   @State private var confirmMarkAsFinished = false
   @State private var isScrubbingProgress = false
   @State private var scrubProgress: Double = 0
+  @AppStorage("abstand_ebook_reader_chrome_hint_seen") private var didShowReaderChromeHint = false
+  @State private var showsReaderChromeHint = false
   /// Verhindert Sync mit Anfangs-Locator, bevor Server-Resume oder gespeicherte Position gilt.
   @State private var isInitialReaderLoad = true
 
@@ -84,6 +86,10 @@ struct ReadiumReaderView: View {
       if !isLoading, loadError == nil, navigatorController != nil {
         readerChromeOverlay
           .allowsHitTesting(showReaderChrome)
+      }
+
+      if showsReaderChromeHint {
+        readerChromeHint
       }
     }
     .background(readerBackground)
@@ -219,15 +225,19 @@ struct ReadiumReaderView: View {
 
         Menu {
           Button {
-            readerTheme = readerTheme.next()
-            EpubReaderSettings.saveTheme(readerTheme)
-            if format == .epub {
-              applyEPUBPrefs()
-            } else {
-              applyPDFPrefs()
-            }
+            applyReaderTheme(.light)
           } label: {
-            Label("Change reading theme", systemImage: readerTheme.nextThemeToolbarIcon)
+            Label("Light", systemImage: readerTheme == .light ? "checkmark" : "sun.max")
+          }
+          Button {
+            applyReaderTheme(.sepia)
+          } label: {
+            Label("Sepia", systemImage: readerTheme == .sepia ? "checkmark" : "text.page")
+          }
+          Button {
+            applyReaderTheme(.dark)
+          } label: {
+            Label("Dark", systemImage: readerTheme == .dark ? "checkmark" : "moon")
           }
 
           Divider()
@@ -274,6 +284,36 @@ struct ReadiumReaderView: View {
     .frame(height: 3)
     .allowsHitTesting(false)
     .accessibilityHidden(true)
+  }
+
+  private var readerChromeHint: some View {
+    VStack {
+      Spacer()
+      VStack(spacing: 10) {
+        Image(systemName: "hand.tap")
+          .font(.title2)
+          .foregroundStyle(themeAccent)
+        Text("Reading controls")
+          .font(.headline)
+        Text("Tap the middle of the page to show reading controls and progress.")
+          .font(.subheadline)
+          .foregroundStyle(readerChromeSecondary)
+          .multilineTextAlignment(.center)
+        Button("Got it") {
+          didShowReaderChromeHint = true
+          withAnimation(.easeOut(duration: 0.2)) {
+            showsReaderChromeHint = false
+          }
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(themeAccent)
+      }
+      .padding(20)
+      .frame(maxWidth: 320)
+      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+      .padding(.bottom, 44)
+    }
+    .padding(.horizontal, 24)
   }
 
   private var readerProgressScrubber: some View {
@@ -357,6 +397,17 @@ struct ReadiumReaderView: View {
     ReadiumReaderService.shared.applyEPUBPreferences(to: epubNavigator)
   }
 
+  private func applyReaderTheme(_ theme: EpubReaderTheme) {
+    guard readerTheme != theme else { return }
+    readerTheme = theme
+    EpubReaderSettings.saveTheme(theme)
+    if format == .epub {
+      applyEPUBPrefs()
+    } else {
+      applyPDFPrefs()
+    }
+  }
+
   private func applyPDFPrefs() {
     guard let pdfNavigator else { return }
     ReadiumReaderService.shared.applyPDFPreferences(to: pdfNavigator)
@@ -438,6 +489,9 @@ struct ReadiumReaderView: View {
         applyProgress(from: current)
       }
       isLoading = false
+      if !didShowReaderChromeHint {
+        showsReaderChromeHint = true
+      }
     } catch {
       loadError = error.localizedDescription
       isLoading = false
