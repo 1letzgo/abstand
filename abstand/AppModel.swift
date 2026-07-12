@@ -592,6 +592,9 @@ final class AppModel: ObservableObject {
   @Published private(set) var podcastAutoDownloadSettingsLoading = false
   @Published private(set) var podcastAutoDownloadSettingsSaving = false
   @Published private(set) var podcastAutoDownloadSettingsShowId: String?
+  /// Lokale Sprachvorgabe je Podcast-Show für Teleprompter und Recap.
+  @Published var podcastShowTranscriptionLanguage = ""
+  @Published private(set) var podcastShowTranscriptionLanguageShowId: String?
   @Published private(set) var podcastCheckNewInProgressShowId: String?
   /// Alle Hörbücher auf dem Start-Tab (über alle sichtbaren Regale, für Detailsuche / Fallback).
   @Published var startBooks: [ABSBook] = []
@@ -4403,6 +4406,8 @@ final class AppModel: ObservableObject {
     podcastAutoDownloadInterval = .default
     podcastMaxEpisodesToKeep = 0
     podcastMaxNewEpisodesToDownload = 3
+    podcastShowTranscriptionLanguage = ""
+    podcastShowTranscriptionLanguageShowId = nil
     podcastRssFeedPreviewEpisodes = []
     podcastRssFeedPreviewForShowId = nil
     player.tearDownPlayer()
@@ -6542,7 +6547,43 @@ final class AppModel: ObservableObject {
   func preparePodcastShowSettingsSheet(showId: String) async {
     let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !sid.isEmpty else { return }
+    loadPodcastShowTranscriptionLanguage(showId: sid)
     await loadPodcastAutoDownloadSettings(showId: sid)
+  }
+
+  private static let podcastShowTranscriptionLanguagesKey = "abstand_podcast_show_settings_v1"
+
+  func podcastShowTranscriptionLanguage(for showId: String) -> String? {
+    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !sid.isEmpty else { return nil }
+    let values =
+      UserDefaults.standard.dictionary(forKey: Self.podcastShowTranscriptionLanguagesKey)
+      as? [String: String] ?? [:]
+    let language = values[sid]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return language.isEmpty ? nil : language
+  }
+
+  private func loadPodcastShowTranscriptionLanguage(showId: String) {
+    podcastShowTranscriptionLanguageShowId = showId
+    podcastShowTranscriptionLanguage = podcastShowTranscriptionLanguage(for: showId) ?? ""
+  }
+
+  func savePodcastShowTranscriptionLanguage(showId: String) {
+    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !sid.isEmpty, podcastShowTranscriptionLanguageShowId == sid else { return }
+    let language = podcastShowTranscriptionLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
+    var values =
+      UserDefaults.standard.dictionary(forKey: Self.podcastShowTranscriptionLanguagesKey)
+      as? [String: String] ?? [:]
+    if language.isEmpty {
+      values.removeValue(forKey: sid)
+    } else {
+      values[sid] = language
+    }
+    UserDefaults.standard.set(values, forKey: Self.podcastShowTranscriptionLanguagesKey)
+    if player.activeBook?.id == sid, player.activePlaybackEpisodeId != nil {
+      player.setTranscriptionLanguageOverride(language)
+    }
   }
 
   /// Toolbar: Feed-Vorschau ein-/ausblenden; jeweils mit Reload der Episoden-Ansicht.
@@ -7846,6 +7887,7 @@ final class AppModel: ObservableObject {
           resumeAt: resume,
           localDownloadRoot: local,
           episodeId: episode.episodeId,
+          transcriptionLanguageOverride: podcastShowTranscriptionLanguage(for: episode.libraryItemId),
           autoPlay: false,
           attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable
         )
@@ -8601,6 +8643,7 @@ final class AppModel: ObservableObject {
         resumeAt: resume,
         localDownloadRoot: local,
         episodeId: episode.episodeId,
+        transcriptionLanguageOverride: podcastShowTranscriptionLanguage(for: episode.libraryItemId),
         autoPlay: autoPlay,
         attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable,
         preferClientResumePosition: restartFromBeginning
@@ -9197,6 +9240,9 @@ final class AppModel: ObservableObject {
         resumeAt: resume,
         localDownloadRoot: folder,
         episodeId: ep,
+        transcriptionLanguageOverride: ep == nil
+          ? nil
+          : podcastShowTranscriptionLanguage(for: manifest.libraryItemId),
         autoPlay: auto,
         attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable
       )

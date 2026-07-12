@@ -2161,6 +2161,88 @@ private enum PodcastAutoDownloadLimitInfo {
   }
 }
 
+private enum PodcastShowTranscriptionLanguage: String, CaseIterable, Identifiable {
+  case automatic = ""
+  case german = "de-DE"
+  case englishUS = "en-US"
+  case englishUK = "en-GB"
+  case french = "fr-FR"
+  case spanish = "es-ES"
+  case italian = "it-IT"
+  case dutch = "nl-NL"
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .automatic: return "Automatic"
+    case .german: return "German"
+    case .englishUS: return "English (US)"
+    case .englishUK: return "English (UK)"
+    case .french: return "French"
+    case .spanish: return "Spanish"
+    case .italian: return "Italian"
+    case .dutch: return "Dutch"
+    }
+  }
+}
+
+private struct PodcastShowTranscriptionLanguageSettingsContent: View {
+  @EnvironmentObject private var model: AppModel
+  let showId: String
+
+  private var selection: Binding<String> {
+    Binding(
+      get: { model.podcastShowTranscriptionLanguage },
+      set: { language in
+        model.podcastShowTranscriptionLanguage = language
+        model.savePodcastShowTranscriptionLanguage(showId: showId)
+      }
+    )
+  }
+
+  var body: some View {
+    ServerAdminCard {
+      Group {
+        if model.podcastShowTranscriptionLanguageShowId != showId {
+          ProgressView()
+            .controlSize(.small)
+            .tint(model.appearanceAccentColor)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+        } else {
+          VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+              SettingsCardIcon(systemName: "captions.bubble")
+              Text("Teleprompter language")
+                .font(.body.weight(.medium))
+                .foregroundStyle(AppTheme.textPrimary)
+              Spacer(minLength: 0)
+              Picker("Teleprompter language", selection: selection) {
+                ForEach(PodcastShowTranscriptionLanguage.allCases) { language in
+                  Text(language.title).tag(language.rawValue)
+                }
+              }
+              .labelsHidden()
+              .pickerStyle(.menu)
+            }
+            Text("Used for on-device transcription and recap. This setting stays on this device.")
+              .font(.caption)
+              .foregroundStyle(AppTheme.textSecondary)
+              .padding(.leading, 44)
+          }
+          .settingsCardRowFrame()
+        }
+      }
+    }
+    .task(id: showId) {
+      if model.podcastShowTranscriptionLanguageShowId != showId {
+        await model.preparePodcastShowSettingsSheet(showId: showId)
+      }
+    }
+  }
+}
+
 private struct ServerAdminPodcastSettingsSection: View {
   @EnvironmentObject private var model: AppModel
   let showId: String
@@ -2170,6 +2252,10 @@ private struct ServerAdminPodcastSettingsSection: View {
   var body: some View {
     ServerAdminScrollScreen {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+        ServerAdminSection(title: "Teleprompter") {
+          PodcastShowTranscriptionLanguageSettingsContent(showId: showId)
+        }
+
         ServerAdminSection(title: "Auto download") {
           PodcastShowAutoDownloadSettingsContent(showId: showId)
         }

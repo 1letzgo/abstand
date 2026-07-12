@@ -440,7 +440,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
     do {
       try await ensureSpeechRecognitionAuthorized()
-      let languageTag = player.activeBook?.media.metadata.language
+      let languageTag = player.preferredTranscriptionLanguageTag
       let locale = try await SpeechTranscriptionLocaleResolver.resolve(
         preferredLanguageTag: languageTag
       ).locale
@@ -816,7 +816,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       }
       throw PlayerLiveTranscriptionError.audioSourceUnavailable
     }
-    let languageTag = player.activeBook?.media.metadata.language
+    let languageTag = player.preferredTranscriptionLanguageTag
     let localeResolution = try await SpeechTranscriptionLocaleResolver.resolve(
       preferredLanguageTag: languageTag
     )

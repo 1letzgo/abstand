@@ -39,6 +39,8 @@ final class PlaybackController: NSObject, ObservableObject {
   @Published private(set) var activeBook: ABSBook?
   /// Gesetzte Podcast-Folge (`play/.../episodeId`); bei Hörbüchern `nil`.
   @Published private(set) var activePlaybackEpisodeId: String?
+  /// Lokale Show-Vorgabe für die Spracherkennung; hat Vorrang vor den Item-Metadaten.
+  private(set) var transcriptionLanguageOverride: String?
   @Published private(set) var isPlaying = false
   /// Laufende Position — absichtlich **nicht** `@Published`, damit SwiftUI nicht ~3×/s invalidiert
   /// (`tabViewBottomAccessory`, Listen). Vollplayer nutzt `TimelineView`; Sync/Now Playing lesen hier.
@@ -691,6 +693,7 @@ final class PlaybackController: NSObject, ObservableObject {
     isBuffering = false
     activeBook = nil
     activePlaybackEpisodeId = nil
+    transcriptionLanguageOverride = nil
     localRoot = nil
     MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
   }
@@ -701,6 +704,7 @@ final class PlaybackController: NSObject, ObservableObject {
     resumeAt resumeHint: Double,
     localDownloadRoot: URL?,
     episodeId: String? = nil,
+    transcriptionLanguageOverride: String? = nil,
     autoPlay: Bool = true,
     attemptServerPlaySession: Bool = true,
     /// Bei Neustart nach „Fertig“: Client-Position statt Server-Ende (`max(session, resume)`).
@@ -714,6 +718,8 @@ final class PlaybackController: NSObject, ObservableObject {
     shouldAutoPlayAfterLoad = autoPlay
     apiClient = client
     activeBook = book
+    let language = transcriptionLanguageOverride?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    self.transcriptionLanguageOverride = language.isEmpty ? nil : language
     let trimmedEp = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let resolvedEpisodeId: String? = trimmedEp.isEmpty ? nil : trimmedEp
     activePlaybackEpisodeId = resolvedEpisodeId
@@ -1893,6 +1899,15 @@ final class PlaybackController: NSObject, ObservableObject {
   var transcriptionTrackKey: String {
     let bookId = activeBook?.id ?? ""
     return "\(bookId)-\(currentTrackIndex)"
+  }
+
+  var preferredTranscriptionLanguageTag: String? {
+    transcriptionLanguageOverride ?? activeBook?.media.metadata.language
+  }
+
+  func setTranscriptionLanguageOverride(_ languageTag: String?) {
+    let language = languageTag?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    transcriptionLanguageOverride = language.isEmpty ? nil : language
   }
 
   var hasNextTranscriptionTrack: Bool {
