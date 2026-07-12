@@ -236,12 +236,26 @@ struct StartDashboardView: View {
         }
         if shelf.hasBooks {
           ForEach(shelf.books) { book in
-            LibraryBookListCard(
-              book: book,
-              model: model,
-              showEbookBadge: model.bookShowsSupplementaryEbookBadge(book),
-              forceCompactListStyle: true
-            )
+            if shelf.category == "continueEbooks" {
+              LibraryBookListCard(
+                book: book,
+                model: model,
+                showEbookBadge: true,
+                showsPlaybackControls: false,
+                forceCompactListStyle: true,
+                usesEbookProgressDisplay: true,
+                onOpen: {
+                  Task { await model.openAttachedEbook(for: book) }
+                }
+              )
+            } else {
+              LibraryBookListCard(
+                book: book,
+                model: model,
+                showEbookBadge: model.bookShowsSupplementaryEbookBadge(book),
+                forceCompactListStyle: true
+              )
+            }
           }
         }
         if shelf.hasAuthors {

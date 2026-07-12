@@ -3372,6 +3372,8 @@ struct LibraryBookListCard: View {
   var showsPlaybackControls = true
   var showsDownloadStatus = true
   var opensDetailOnTap = true
+  /// Optionaler Primär-Tap, z. B. „Weiterlesen“ aus dem Continue-Reading-Regal.
+  var onOpen: (() -> Void)?
   /// Offline-Downloadliste: immer kompakte Zeilen, unabhängig von Settings.
   var forceCompactListStyle = false
   /// Autor-Detail: Cover fest 1:1, Mitte beschnitten.
@@ -3407,6 +3409,7 @@ struct LibraryBookListCard: View {
         showsPlaybackControls: showsPlaybackControls,
         showsDownloadStatus: showsDownloadStatus,
         opensDetailOnTap: opensDetailOnTap,
+        onOpen: onOpen,
         usesSquareCenterCropCover: usesSquareCenterCropCover,
         usesEbookProgressDisplay: usesEbookProgressDisplay
       )
@@ -3733,6 +3736,7 @@ struct BookRowCard: View {
   var showsPlaybackControls = true
   var showsDownloadStatus = true
   var opensDetailOnTap = true
+  var onOpen: (() -> Void)?
   /// Autor-Detail: Cover fest 1:1, Mitte beschnitten.
   var usesSquareCenterCropCover = false
   /// eBooks-/Supplementary-Tab: Lesefortschritt statt Hörbuch-Dauer/-Fortschritt anzeigen.
@@ -3759,6 +3763,7 @@ struct BookRowCard: View {
     showsPlaybackControls: Bool = true,
     showsDownloadStatus: Bool = true,
     opensDetailOnTap: Bool = true,
+    onOpen: (() -> Void)? = nil,
     usesSquareCenterCropCover: Bool = false,
     usesEbookProgressDisplay: Bool = false
   ) {
@@ -3768,6 +3773,7 @@ struct BookRowCard: View {
     self.showsPlaybackControls = showsPlaybackControls
     self.showsDownloadStatus = showsDownloadStatus
     self.opensDetailOnTap = opensDetailOnTap
+    self.onOpen = onOpen
     self.usesSquareCenterCropCover = usesSquareCenterCropCover
     self.usesEbookProgressDisplay = usesEbookProgressDisplay
     self.model = model
@@ -3833,7 +3839,7 @@ struct BookRowCard: View {
       cardColor: AppTheme.card,
       showsBottomProgressBar: showsBottomProgressBar,
       progressValue: bottomProgressValue,
-      openDetails: opensDetailOnTap ? { showDetail = true } : nil
+      openDetails: onOpen ?? (opensDetailOnTap ? { showDetail = true } : nil)
     ) {
       HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
         Group {
@@ -3862,9 +3868,11 @@ struct BookRowCard: View {
     }
     .accessibilityElement(children: .contain)
     .accessibilityHint(
-      opensDetailOnTap
-        ? "Opens book details. Play button starts playback."
-        : "Play button starts playback."
+      onOpen != nil
+        ? "Opens this eBook at your reading position."
+        : opensDetailOnTap
+          ? "Opens book details. Play button starts playback."
+          : "Play button starts playback."
     )
   }
 
