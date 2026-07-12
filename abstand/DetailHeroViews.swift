@@ -3,7 +3,12 @@ import UIKit
 
 func coverDominantBackgroundTint(from image: UIImage) -> Color {
   guard let (r, g, b) = coverAverageRGB(from: image) else { return AppTheme.background }
+  return coverDominantBackgroundTint(fromAverageRed: r, green: g, blue: b)
+}
 
+/// Cover-Durchschnitts-RGB (z. B. aus `DetailCoverAverageRGBCache`) → getönter Detail-Hintergrund.
+/// Palette-abhängig — deshalb wird der rohe RGB gecacht und hier je aktueller Palette verrechnet.
+func coverDominantBackgroundTint(fromAverageRed r: CGFloat, green g: CGFloat, blue b: CGFloat) -> Color {
   if AppTheme.palette.isDarkLike {
     let mix: CGFloat = 0.25
     let floor: CGFloat = 0.04
@@ -70,7 +75,7 @@ private func colorRGBComponents(of color: Color) -> (r: CGFloat, g: CGFloat, b: 
   return (r, g, b)
 }
 
-private func coverAverageRGB(from image: UIImage) -> (CGFloat, CGFloat, CGFloat)? {
+func coverAverageRGB(from image: UIImage) -> (CGFloat, CGFloat, CGFloat)? {
   guard let ciImage = CIImage(image: image) else { return nil }
   var extent = ciImage.extent
   if !extent.width.isFinite || extent.width < 1 || !extent.height.isFinite || extent.height < 1 {
