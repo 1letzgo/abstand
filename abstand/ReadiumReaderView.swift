@@ -44,6 +44,8 @@ struct ReadiumReaderView: View {
   @State private var scrubProgress: Double = 0
   @State private var bookmarks: [EbookReaderBookmark] = []
   @State private var showsBookmarks = false
+  @State private var tableOfContents: [Link] = []
+  @State private var showsTableOfContents = false
   @AppStorage("abstand_ebook_reader_chrome_hint_seen") private var didShowReaderChromeHint = false
   @State private var showsReaderChromeHint = false
   /// Verhindert Sync mit Anfangs-Locator, bevor Server-Resume oder gespeicherte Position gilt.
@@ -145,6 +147,11 @@ struct ReadiumReaderView: View {
             id: bookmark.id, libraryItemId: libraryItemId, format: format)
         }
       )
+    }
+    .sheet(isPresented: $showsTableOfContents) {
+      ReaderTableOfContentsSheet(links: tableOfContents) { link in
+        Task { await goToTableOfContentsEntry(link) }
+      }
     }
   }
 
@@ -263,6 +270,17 @@ struct ReadiumReaderView: View {
             .frame(width: 40, height: 40)
         }
         .accessibilityLabel("Bookmarks")
+
+        if !tableOfContents.isEmpty {
+          Button {
+            showsTableOfContents = true
+          } label: {
+            Image(systemName: "list.bullet")
+              .font(.body)
+              .frame(width: 40, height: 40)
+          }
+          .accessibilityLabel("Table of contents")
+        }
 
         Button {
           continuousScroll.toggle()
@@ -498,6 +516,18 @@ struct ReadiumReaderView: View {
   }
 
   @MainActor
+  private func goToTableOfContentsEntry(_ link: Link) async {
+    guard let navigator: Navigator = epubNavigator ?? pdfNavigator else { return }
+    readerActionInProgress = true
+    defer { readerActionInProgress = false }
+    guard await navigator.go(to: link, options: .animated) else { return }
+    showsTableOfContents = false
+    withAnimation(.easeInOut(duration: 0.2)) {
+      showReaderChrome = false
+    }
+  }
+
+  @MainActor
   private func resetReadingPosition() async {
     guard let navigator: Navigator = epubNavigator ?? pdfNavigator else { return }
     readerActionInProgress = true
@@ -527,6 +557,8 @@ struct ReadiumReaderView: View {
     loadError = nil
     bookmarks = []
     showsBookmarks = false
+    tableOfContents = []
+    showsTableOfContents = false
     ReadiumReaderDelegate.shared.configure(libraryItemId: libraryItemId, format: format)
     let savedLocator = model.ebookResumeLocatorForReader(
       libraryItemId: libraryItemId, format: format)
@@ -548,6 +580,11 @@ struct ReadiumReaderView: View {
       epubNavigator = vc as? EPUBNavigatorViewController
       pdfNavigator = vc as? PDFNavigatorViewController
       bookmarks = EbookLocalStore.loadBookmarks(libraryItemId: libraryItemId, format: format)
+      if let navigator = vc as? Navigator {
+        tableOfContents = await navigator.publication.tableOfContents().getOrNil() ?? []
+      } else {
+        tableOfContents = []
+      }
       // Ohne gespeicherten Locator: EPUB-WebView oft erst nach Layout bereit — ggf. erneut springen.
       if savedLocator == nil, let target = resumeTarget, format == .epub, let epub = epubNavigator {
         let atStart = (epub.currentLocation.map { ReadiumReaderProgressInfo.fraction(from: $0) } ?? 0) < target * 0.5
@@ -636,6 +673,61 @@ private struct ReaderBookmarksSheet: View {
         }
       }
     }
+  }
+}
+
+private struct ReaderTableOfContentsSheet: View {
+  let links: [Link]
+  let onSelect: (Link) -> Void
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    NavigationStack {
+      List {
+        ForEach(links, id: \.self) { link in
+          tableOfContentsRow(link)
+        }
+      }
+      .navigationTitle("Table of contents")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("Done") {
+            dismiss()
+          }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func tableOfContentsRow(_ link: Link) -> some View {
+    if link.children.isEmpty {
+      Button {
+        onSelect(link)
+        dismiss()
+      } label: {
+        Text(tableOfContentsTitle(for: link))
+      }
+    } else {
+      DisclosureGroup {
+        ForEach(link.children, id: \.self) { child in
+          tableOfContentsRow(child)
+        }
+      } label: {
+        Button {
+          onSelect(link)
+          dismiss()
+        } label: {
+          Text(tableOfContentsTitle(for: link))
+        }
+      }
+    }
+  }
+
+  private func tableOfContentsTitle(for link: Link) -> String {
+    let title = link.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return title.isEmpty ? link.href : title
   }
 }
 
