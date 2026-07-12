@@ -2589,6 +2589,10 @@ final class AppModel: ObservableObject {
     }
     startShelves = shelves
     recomputeStartBooksUnion(from: shelves)
+    // Wenn Continue Reading das erste lokal rekonstruierte Regal ist, existiert noch kein
+    // Server-/Snapshot-Regal, das die Browse-Strip-Konfiguration initialisiert. Ohne dieses
+    // Update wird die Continue-Ansicht erst sichtbar, sobald ein anderes Regal geladen ist.
+    updateStartSettingsCategoryList(parsed: shelves)
     persistHomeShelvesToLocalStore()
   }
 
