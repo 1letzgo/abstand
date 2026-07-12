@@ -2505,7 +2505,7 @@ final class AppModel: ObservableObject {
     clampHomeBrowseSectionIfNeeded()
   }
 
-  /// Home-Regale „Continue reading“ / „Continue series“ aus lokalem Readium-Fortschritt (nicht beim Kaltstart).
+  /// Home-Regale „Continue reading“ / „Continue series“ aus lokalem Readium-Fortschritt.
   /// Offline: `applyOfflineStartDashboard()` ist alleiniger Eigentümer von `startShelves` (nur Downloads) —
   /// diese Regale würden sonst auch nicht heruntergeladene eBooks mit Fortschritt einschleusen.
   func refreshEbookContinueReadingShelf() {
@@ -2535,49 +2535,27 @@ final class AppModel: ObservableObject {
     return ids
   }
 
-  /// Kaltstart: Continue-Listening live aus `LocalProgress`+`LocalBook`/`LocalPodcastEpisode` (Grundprinzip 8),
-  /// eBook-Continue-Regale aus dem separaten SwiftData-Snapshot (`LocalEbookContinueEntry`).
+  /// Kaltstart: Beide Continue-Regale live aus dem lokalen Fortschritt aufbauen.
+  /// Dadurch ist „Continue reading“ nicht mehr von einem separaten Rank-Snapshot abhängig.
   private func applyHomeContinueCacheFromLocalStore() {
-    guard let context = currentLocalLibraryMainContext() else { return }
-    if let payload = LocalLibraryQueries.itemsInProgressPayload(context: context, limit: 80) {
+    if let context = currentLocalLibraryMainContext(),
+      let payload = LocalLibraryQueries.itemsInProgressPayload(context: context, limit: 80)
+    {
       ensureContinueListeningShelfIfMissing(itemsInProgress: payload)
       mergeServerAudiobooksIntoContinueShelves(payload)
       mergeServerPodcastEpisodesIntoContinueShelves(payload)
     }
-    let ebooksLibId =
-      selectedBooksLibrary?.id.trimmingCharacters(in: .whitespacesAndNewlines)
-      ?? UserDefaults.standard.string(forKey: Keys.booksLibrary)?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      ?? ""
-    guard !ebooksLibId.isEmpty, ebooksLibId != Keys.librarySelectionNone,
-      let entries = LocalLibraryQueries.ebookContinueEntries(context: context, libraryId: ebooksLibId)
-    else { return }
-    // eBooks mit Lesefortschritt gehören alle nach „Continue reading" — unabhängig von Serienzugehörigkeit.
-    // Die `series`-Fraktion älterer Snapshots (vor dieser Regel) wird hierher mit umgeleitet, damit
-    // einmal verwaiste Einträge nicht dauerhaft im falschen Regal stehen.
-    let reading = (entries.reading + entries.series).filter {
-      !$0.isPlayableAudiobook && ebookDisplayProgressFraction(libraryItemId: $0.id) != nil
-    }
-    if !reading.isEmpty {
-      applyEbookContinueReadingInjection(reading)
-    }
+    refreshEbookContinueReadingShelf()
   }
 
-  /// Home-Regale (inkl. gemergter Continue-Listening-Zeile) + eBook-Continue-Regale — ein SwiftData-Snapshot
-  /// je Bibliothek, 1:1-Ersatz für `homeContinue.json`/`personalized/<libraryId>.json` (Migrationsplan Etappe 8).
+  /// Home-Regale (inkl. gemergter Continue-Zeilen) — ein SwiftData-Snapshot je Bibliothek,
+  /// 1:1-Ersatz für `homeContinue.json`/`personalized/<libraryId>.json` (Migrationsplan Etappe 8).
   private func persistHomeShelvesToLocalStore() {
     guard let store = currentLocalLibraryStore() else { return }
     let libraryId = selectedBooksLibrary?.id ?? Keys.librarySelectionNone
     let sections = startShelves
-    let reading = startShelves.first(where: { $0.category == "continueEbooks" })?.books ?? []
-    let ebooksLibraryId = selectedBooksLibrary?.id
     Task.detached(priority: .utility) {
       try? await store.replaceHomeShelves(libraryId: libraryId, sections: sections)
-      if let ebooksLibraryId {
-        // Continue-series ist serverseitig (ungestartete Serien) — lokal nur Continue-reading persistieren.
-        try? await store.replaceEbookContinueEntries(
-          libraryId: ebooksLibraryId, reading: reading, series: [])
-      }
     }
   }
 
