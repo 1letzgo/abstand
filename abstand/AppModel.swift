@@ -10247,6 +10247,14 @@ final class AppModel: ObservableObject {
     book.hasSupplementalEpub
   }
 
+  /// Ein bereits lokal gespeichertes eBook bleibt auch ohne Serververbindung lesbar.
+  func cachedEbookFormat(libraryItemId: String) -> ABSEbookFormat? {
+    EbookLocalStore.cachedEbookIfPresent(
+      account: cacheAccountURL(),
+      libraryItemId: libraryItemId
+    )?.format
+  }
+
   /// EPUB oder PDF öffnen: lokaler Cache zuerst, sonst Download vom Server.
   func openAttachedEbook(for book: ABSBook) async {
     ensureEbookLocalSessionIfNeeded()

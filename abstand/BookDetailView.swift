@@ -328,7 +328,9 @@ struct BookDetailView: View {
   }
 
   private func resolvedEbookFormat(for book: ABSBook) -> ABSEbookFormat? {
-    book.readableAttachedEbook?.format ?? book.attachedEbookFormats.first
+    book.readableAttachedEbook?.format
+      ?? book.attachedEbookFormats.first
+      ?? model.cachedEbookFormat(libraryItemId: book.id)
   }
 
   private func markAttachedEbookAsRead(book: ABSBook) async {
@@ -459,7 +461,8 @@ struct BookDetailView: View {
         )
       )
     }
-    if d.hasReadableAttachedEbook {
+    let cachedEbookFormat = model.cachedEbookFormat(libraryItemId: d.id)
+    if d.hasReadableAttachedEbook || cachedEbookFormat != nil {
       actions.append(
         DetailHeroMediaAction(
           id: "read",
@@ -476,7 +479,8 @@ struct BookDetailView: View {
           kind: .read,
           progress01: bookEbookReadProgress01,
           isFinished: isEbookReadFinished,
-          primaryEnabled: !model.isPreparingEbook && model.isNetworkReachable,
+          primaryEnabled: !model.isPreparingEbook
+            && (model.isNetworkReachable || cachedEbookFormat != nil),
           onPrimary: {
             Task { await model.openAttachedEbook(for: d) }
           }
