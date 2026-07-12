@@ -1209,6 +1209,7 @@ struct NowPlayingDetailView: View {
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
   @State private var readAlongDownloadWarningPresented = false
+  @State private var recapPresented = false
   @State private var chromeSnapshot = FullPlayerChromeSnapshot.empty
   @State private var activeBook: ABSBook?
   @State private var isTeleprompterActive = false
@@ -1322,6 +1323,13 @@ struct NowPlayingDetailView: View {
         )
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+      }
+      .sheet(isPresented: $recapPresented, onDismiss: {
+        player.liveTranscription.clearRecap()
+      }) {
+        PlayerTranscriptRecapSheet(transcription: player.liveTranscription)
+          .presentationDetents([.medium, .large])
+          .presentationDragIndicator(.visible)
       }
       .alert(
         String(localized: "Download required", comment: "Read along alert title"),
@@ -1986,8 +1994,8 @@ struct NowPlayingDetailView: View {
     case bookmarkList
     case chapters
     case sessions
-    /// Leerer Platzhalter zwischen History und Read-along bei >3 Buttons.
-    case panelSpacer
+    /// Lokale Zusammenfassung der zuletzt transkribierten fünf Minuten.
+    case recap
     case readAlong
 
     var id: String {
@@ -1996,7 +2004,7 @@ struct NowPlayingDetailView: View {
       case .bookmarkList: "bookmarkList"
       case .chapters: "chapters"
       case .sessions: "sessions"
-      case .panelSpacer: "panelSpacer"
+      case .recap: "recap"
       case .readAlong: "readAlong"
       }
     }
@@ -2012,7 +2020,7 @@ struct NowPlayingDetailView: View {
     if showsSessionsButton { items.append(.sessions) }
     if showsReadAlong {
       if items.count > 3 {
-        items.append(.panelSpacer)
+        items.append(.recap)
       }
       items.append(.readAlong)
     }
@@ -2054,8 +2062,21 @@ struct NowPlayingDetailView: View {
       ) {
         toggleCoverPanel(.sessions)
       }
-    case .panelSpacer:
-      FullPlayerPanelControlSpacerPill()
+    case .recap:
+      let transcription = player.liveTranscription
+      FullPlayerCoverOverlayButton(
+        systemName: "sparkles",
+        isActive: false,
+        isBusy: transcription.isGeneratingRecap,
+        isEnabled: transcription.canGenerateRecap,
+        accessibilityLabel: String(
+          localized: "Recap of the last 5 minutes", comment: "Accessibility")
+      ) {
+        recapPresented = true
+        Task { @MainActor in
+          await transcription.generateRecap(endingAt: player.liveGlobalPlaybackPosition)
+        }
+      }
     case .readAlong:
       ReadAlongPanelButton(readAlongDownloadWarningPresented: $readAlongDownloadWarningPresented) {
         coverPanel = .artwork
@@ -2786,18 +2807,6 @@ private extension View {
       .padding(.bottom, bottom ? v : 0)
       .padding(.leading, leading ? h : 0)
       .padding(.trailing, trailing ? h : 0)
-  }
-}
-
-/// Unsichtbarer Platzhalter in der Panel-Steuerzeile — Abstand vor Read-along bei >3 Buttons.
-struct FullPlayerPanelControlSpacerPill: View {
-  var body: some View {
-    Color.clear
-      .frame(
-        width: FullPlayerCoverOverlayMetrics.panelControlButtonSize,
-        height: FullPlayerCoverOverlayMetrics.panelControlButtonSize
-      )
-      .accessibilityHidden(true)
   }
 }
 
