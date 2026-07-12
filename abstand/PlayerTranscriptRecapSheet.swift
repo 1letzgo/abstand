@@ -1,12 +1,15 @@
 import SwiftUI
 
-/// Ergebnis der ausschließlich lokalen Zusammenfassung des Read-along-Transkripts.
-struct PlayerTranscriptRecapSheet: View {
+/// Ergebnis der lokalen Recap-Transkription innerhalb der Vollplayer-Cover-Karte.
+struct PlayerTranscriptRecapCard: View {
   @ObservedObject var transcription: PlayerLiveTranscriptionController
-  @Environment(\.dismiss) private var dismiss
 
   var body: some View {
-    NavigationStack {
+    VStack(alignment: .leading, spacing: 12) {
+      Text(String(localized: "Last 5 minutes", comment: "Read along recap title"))
+        .font(.headline)
+        .foregroundStyle(AppTheme.textPrimary)
+
       Group {
         if transcription.isGeneratingRecap {
           VStack(spacing: 12) {
@@ -20,7 +23,6 @@ struct PlayerTranscriptRecapSheet: View {
             Text(recap)
               .frame(maxWidth: .infinity, alignment: .leading)
               .textSelection(.enabled)
-              .padding(AppTheme.Layout.tabPaddingH)
           }
         } else if let error = transcription.recapErrorMessage {
           ContentUnavailableView(
@@ -41,18 +43,7 @@ struct PlayerTranscriptRecapSheet: View {
           )
         }
       }
-      .padding(transcription.isGeneratingRecap ? AppTheme.Layout.tabPaddingH : 0)
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(AppTheme.background)
-      .navigationTitle(String(localized: "Last 5 minutes", comment: "Read along recap title"))
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button(String(localized: "Done", comment: "Dismiss sheet")) {
-            dismiss()
-          }
-        }
-      }
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
   }
 }

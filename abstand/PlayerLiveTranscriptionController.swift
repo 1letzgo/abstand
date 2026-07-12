@@ -124,6 +124,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   static let audioContextUnavailableSeconds: Double = 10
   /// Wiedergabe so weit voraus: Feed-Throttle aus, Audio maximal schnell nachschieben.
   static let transcriptionCatchUpLagSeconds: Double = 6
+  /// Ein Recap bleibt für mindestens eine weitere Hörminute gültig.
+  static let recapCachePlaybackSeconds: Double = 60
 
   /// Nutzer hat Read-Along/Teleprompter eingeschaltet — steuert UI und Lebenszyklus.
   @Published private(set) var isTeleprompterModeActive = false
@@ -158,6 +160,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   var canGenerateRecap: Bool { !isGeneratingRecap }
 
   private var finalizedWords: [PlayerTranscriptWord] = []
+  private var recapBookId: String?
+  private var recapPlaybackTime: Double?
   /// Volatile Speech-Ergebnisse während der Pufferphase (ersetzt, nicht angehängt).
   private var volatileTailWords: [PlayerTranscriptWord] = []
   private let lineAccumulator = PlayerTranscriptLineAccumulator()
@@ -383,6 +387,21 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   func generateRecap(player: PlaybackController) async {
     guard !isGeneratingRecap else { return }
 
+    player.syncGlobalPositionFromPlayer()
+    let end = player.liveGlobalPlaybackPosition
+    let bookId = player.activeBook?.id
+    if
+      let recapText,
+      recapBookId == bookId,
+      let recapPlaybackTime,
+      end >= recapPlaybackTime,
+      end - recapPlaybackTime < Self.recapCachePlaybackSeconds
+    {
+      self.recapText = recapText
+      recapErrorMessage = nil
+      return
+    }
+
     guard player.isReadAlongDownloadReady else {
       recapText = nil
       recapErrorMessage = String(
@@ -402,8 +421,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       return
     }
 
-    player.syncGlobalPositionFromPlayer()
-    let end = player.liveGlobalPlaybackPosition
     let contexts = player.makeLocalTranscriptionAudioContexts(
       overlapping: max(0, end - 300)...end
     )
@@ -448,7 +465,13 @@ final class PlayerLiveTranscriptionController: ObservableObject {
         \(transcript)
         """
       )
-      recapText = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+      let recap = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !recap.isEmpty else {
+        throw PlayerLiveTranscriptionError.transcriptionProgressStalled
+      }
+      recapText = recap
+      recapBookId = bookId
+      recapPlaybackTime = end
     } catch {
       recapText = nil
       recapErrorMessage = String(
@@ -461,6 +484,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   func clearRecap() {
     recapText = nil
     recapErrorMessage = nil
+    recapBookId = nil
+    recapPlaybackTime = nil
   }
 
   private func transcribeRecapAudio(
@@ -1000,7 +1025,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     lastTranscriptionProgressAt = nil
     lastAppendedThroughGlobalTime = 0
     lastObservedTranscriptionEnd = 0
-    clearRecap()
   }
 
   private func transcriptLinesForDisplay() -> [PlayerTranscriptLine] {
