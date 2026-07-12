@@ -96,10 +96,15 @@ struct BookDetailView: View {
     .alert("Reset listening progress?", isPresented: $confirmDiscardListeningProgress) {
       Button("Cancel", role: .cancel) {}
       Button("Reset", role: .destructive) {
-        Task { await model.discardBookProgress(bookId: bookId) }
+        Task {
+          await model.discardBookProgress(bookId: bookId)
+          // Sessions wurden serverseitig mitgelöscht — Liste in der Detail-View nachziehen.
+          listeningSessions = await model.loadBookListeningSessions(
+            libraryItemId: bookId, bookMediaId: (detail ?? book).mediaId)
+        }
       }
     } message: {
-      Text("This removes your saved position for this book. You cannot undo this.")
+      Text("This removes your saved position and listening sessions for this book. You cannot undo this.")
     }
     .alert("Mark as finished?", isPresented: $confirmMarkBookFinished) {
       Button("Cancel", role: .cancel) {}

@@ -8948,7 +8948,10 @@ final class AppModel: ObservableObject {
     }
   }
 
-  /// Hörbuch: Media-Progress-Eintrag löschen (wie Web „Fortschritt verwerfen“ / `DELETE /api/me/progress/:id`).
+  /// Hörbuch: Fortschritt UND Hör-Sitzungen vollständig löschen (`DELETE /api/me/progress/:id`
+  /// + `DELETE /api/sessions/:id` je Sitzung). Läuft der Titel gerade, wird die Wiedergabe
+  /// beendet — sonst legt der nächste Play-Session-Sync sofort wieder einen 0%-Progress an
+  /// („Reset wirkt erst beim zweiten Mal").
   func discardBookProgress(bookId: String) async {
     guard let c = client else { return }
     guard isNetworkReachable else {
@@ -8966,6 +8969,14 @@ final class AppModel: ObservableObject {
     syncContinueListeningShelvesWithProgress()
     patchBooksCatalogAfterAudiobookProgressDiscard(bookId: bookId)
     do {
+      if playing {
+        // Wiedergabe VOR dem Löschen beenden: schließt die offene Play-Session — sonst
+        // erzeugt deren nächster `syncPlaySession(currentTime:)` den Media-Progress direkt neu.
+        await dismissPlayer(idlePlaceholder: false)
+        requestDismissNowPlayingSheet()
+      }
+      clearPendingOfflineListeningSeconds(progressKey: bookId)
+      await deleteAllListeningSessions(client: c, libraryItemId: bookId, episodeId: nil)
       try await c.deleteMediaProgress(progressRowId: row.idForMediaProgressDeleteRequest)
       progressByItemId.removeValue(forKey: bookId)
       removeAudiobookFromContinueListeningShelves(bookId: bookId)
@@ -8979,12 +8990,12 @@ final class AppModel: ObservableObject {
       if needsFullLibraryReloadAfterAudiobookProgressDiscard(bookId: bookId) {
         await reloadLibrary(reset: true)
       }
-      if playing {
-        player.seek(global: 0)
-      }
       await refreshProgressFromServer()
       await refreshStartDashboardIfNeeded()
       suppressedContinueListeningKeys.remove(bookId)
+      // `refreshProgressFromServer` könnte eine Restspur re-mergen — lokal endgültig verwerfen.
+      progressByItemId.removeValue(forKey: bookId)
+      persistProgressToLocalStore()
     } catch {
       suppressedContinueListeningKeys.remove(bookId)
       publishErrorUnlessBenignCancellation(error)
@@ -9061,7 +9072,7 @@ final class AppModel: ObservableObject {
     }
   }
 
-  /// Podcast-Folge: Media-Progress-Eintrag löschen (`DELETE /api/me/progress/:id` wie beim Hörbuch).
+  /// Podcast-Folge: Fortschritt UND Hör-Sitzungen vollständig löschen (wie beim Hörbuch).
   func discardPodcastEpisodeProgress(_ episode: ABSPodcastEpisodeListItem) async {
     guard let c = client else { return }
     guard isNetworkReachable else {
@@ -9079,6 +9090,15 @@ final class AppModel: ObservableObject {
     persistProgressToLocalStore()
     syncContinueListeningShelvesWithProgress()
     do {
+      if playing {
+        // Wiedergabe VOR dem Löschen beenden: schließt die offene Play-Session — sonst
+        // erzeugt deren nächster `syncPlaySession(currentTime:)` den Media-Progress direkt neu.
+        await dismissPlayer(idlePlaceholder: false)
+        requestDismissNowPlayingSheet()
+      }
+      clearPendingOfflineListeningSeconds(progressKey: key)
+      await deleteAllListeningSessions(
+        client: c, libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
       try await c.deleteMediaProgress(progressRowId: row.idForMediaProgressDeleteRequest)
       purgeLocalProgressForPodcastEpisode(episode)
       removePodcastEpisodeFromContinueListeningShelves(episode)
@@ -9089,16 +9109,56 @@ final class AppModel: ObservableObject {
       purgeLocalProgressForPodcastEpisode(episode)
       removePodcastEpisodeFromContinueListeningShelves(episode)
       syncContinueListeningShelvesWithProgress()
-      if playing {
-        player.seek(global: 0)
-      }
       await refreshProgressFromServer()
       await refreshStartDashboardIfNeeded()
       suppressedContinueListeningKeys.remove(key)
+      // `refreshProgressFromServer` könnte eine Restspur re-mergen — lokal endgültig verwerfen.
+      purgeLocalProgressForPodcastEpisode(episode)
+      persistProgressToLocalStore()
     } catch {
       suppressedContinueListeningKeys.remove(key)
       publishErrorUnlessBenignCancellation(error)
     }
+  }
+
+  /// Alle Hör-Sitzungen eines Buchs / einer Folge auf dem Server löschen (Reset Progress).
+  /// Fehler einzelner Löschungen sind nicht fatal — der Progress-Delete läuft trotzdem weiter.
+  private func deleteAllListeningSessions(
+    client c: ABSAPIClient,
+    libraryItemId: String,
+    episodeId: String?
+  ) async {
+    let sessions: [ABSListeningSession]
+    if let eid = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines), !eid.isEmpty {
+      let episode = podcastEpisodes.first {
+        $0.libraryItemId == libraryItemId && $0.episodeId == eid
+      }
+      let showMid =
+        podcastShows.first(where: { $0.id == libraryItemId })?.mediaId
+        ?? podcastSearchBooks.first(where: { $0.id == libraryItemId })?.mediaId
+      if let episode {
+        sessions = await loadPodcastEpisodeListeningSessions(episode, showMediaId: showMid)
+      } else {
+        sessions = (try? await c.listeningSessionsForLibraryItem(
+          libraryItemId: libraryItemId, episodeId: eid, itemsPerPage: 100, page: 0))?.sessions ?? []
+      }
+    } else {
+      let mediaId =
+        books.first(where: { $0.id == libraryItemId })?.mediaId
+        ?? startBooks.first(where: { $0.id == libraryItemId })?.mediaId
+      sessions = await loadBookListeningSessions(libraryItemId: libraryItemId, bookMediaId: mediaId)
+    }
+    for session in sessions {
+      try? await c.deleteListeningSession(sessionId: session.id)
+    }
+  }
+
+  /// Reset Progress: aufgelaufene Offline-Hörsekunden für diesen Key verwerfen — sonst legt
+  /// `flushPendingOfflineListeningTime` beim nächsten Sync wieder eine Server-Session an.
+  private func clearPendingOfflineListeningSeconds(progressKey: String) {
+    var map = Self.loadPendingOfflineListeningSecondsMap()
+    guard map.removeValue(forKey: progressKey) != nil else { return }
+    Self.savePendingOfflineListeningSecondsMap(map)
   }
 
   private func endDownloadBackgroundExecution() {
