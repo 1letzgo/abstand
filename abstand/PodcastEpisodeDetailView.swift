@@ -24,6 +24,18 @@ struct PodcastEpisodeDetailView: View {
 
   private var prog: ABSUserMediaProgress? { model.progressByItemId[episode.progressLookupKey] }
 
+  /// Der persistierte Cover-Durchschnitt steht bereits vor `.onAppear` und `.task` zur Verfügung.
+  private var resolvedCoverTint: Color {
+    let scope = model.coverImageCacheScopeId(for: episode.libraryItemId, tier: .hero)
+    return CoverDominantTintSeed.resolve(
+      account: model.coverImageCacheAccountDirectory(),
+      itemId: episode.libraryItemId,
+      heroScopeId: scope,
+      fallbackScopeId: episode.libraryItemId,
+      revision: model.coverImageCacheRevision
+    )?.tint ?? coverTintColor
+  }
+
   /// `recentEpisode` in „items-in-progress" liefert oft keine Länge; die kommt dann aus `mediaProgress`.
   private var resolvedTotalDurationSeconds: Double {
     if episode.duration > 0 { return episode.duration }
@@ -48,9 +60,9 @@ struct PodcastEpisodeDetailView: View {
         .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
     .scrollContentBackground(.hidden)
-    .abstandDetailScrollBackground(coverTintColor)
+    .abstandDetailScrollBackground(resolvedCoverTint)
     // Karten in der Farbfamilie des Cover-Tint-Hintergrunds statt neutraler Palette-`card`.
-    .detailSectionCardsTinted(fromBackgroundTint: coverTintColor)
+    .detailSectionCardsTinted(fromBackgroundTint: resolvedCoverTint)
     .navigationTitle("")
     .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)

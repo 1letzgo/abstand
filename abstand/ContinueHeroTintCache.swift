@@ -109,6 +109,51 @@ enum DetailCoverAverageRGBCache {
   }
 }
 
+/// Synchroner Seed für dieselbe palette-abhängige Hintergrundtönung in Detail- und Player-Views.
+/// Die Daten liegen bereits lokal vor; dadurch muss die UI nicht erst mit dem neutralen
+/// Hintergrund erscheinen und nach dem ersten Frame auf die Cover-Farbe wechseln.
+enum CoverDominantTintSeed {
+  struct Value {
+    let tint: Color
+    let image: UIImage?
+    let averageRGB: (r: Double, g: Double, b: Double)?
+  }
+
+  static func resolve(
+    account: URL?,
+    itemId: String,
+    heroScopeId: String,
+    fallbackScopeId: String? = nil,
+    revision: Int = 0
+  ) -> Value? {
+    if let rgb = DetailCoverAverageRGBCache.load(account: account, itemId: itemId) {
+      return Value(
+        tint: coverDominantBackgroundTint(
+          fromAverageRed: rgb.r, green: rgb.g, blue: rgb.b),
+        image: nil,
+        averageRGB: rgb
+      )
+    }
+
+    let heroCacheKey = CoverImageCache.cacheKey(scopeId: heroScopeId, revision: revision)
+    let fallbackCacheKey = fallbackScopeId.map {
+      CoverImageCache.cacheKey(scopeId: $0, revision: revision)
+    }
+    guard let image =
+      CoverImageCache.syncUIImage(itemId: heroCacheKey, account: account)
+      ?? fallbackCacheKey.flatMap { CoverImageCache.syncUIImage(itemId: $0, account: account) }
+    else { return nil }
+    let averageRGB = coverAverageRGB(from: image).map {
+      (r: Double($0.0), g: Double($0.1), b: Double($0.2))
+    }
+    return Value(
+      tint: coverDominantBackgroundTint(from: image),
+      image: image,
+      averageRGB: averageRGB
+    )
+  }
+}
+
 /// Cover → Kartenfarbe (Cache, lokales Cover, optional Netz) für Continue-Hero und Home-Mini-Karten.
 @MainActor
 enum CoverDerivedTintLoader {
