@@ -1337,7 +1337,7 @@ struct NowPlayingDetailView: View {
       } message: {
         Text(
           String(
-            localized: "Read along only works when the audiobook is fully downloaded.",
+            localized: "Read along and recap only work when the audiobook or podcast is fully downloaded.",
             comment: "Read along download required alert")
         )
       }
@@ -2020,9 +2020,9 @@ struct NowPlayingDetailView: View {
     if showsChaptersButton { items.append(.chapters) }
     if showsSessionsButton { items.append(.sessions) }
     if showsReadAlong {
-      if items.count > 3 {
-        items.append(.recap)
-      }
+      // Auch Podcasts haben keine Kapitel-/Bookmark-Buttons und würden den Recap
+      // sonst nie erhalten.
+      items.append(.recap)
       items.append(.readAlong)
     }
     return items
@@ -2069,10 +2069,14 @@ struct NowPlayingDetailView: View {
         systemName: "sparkles",
         isActive: isRecapActive,
         isBusy: transcription.isGeneratingRecap,
-        isEnabled: player.isReadAlongDownloadReady && transcription.canGenerateRecap,
+        isEnabled: transcription.canGenerateRecap,
         accessibilityLabel: String(
           localized: "Recap of the last 5 minutes", comment: "Accessibility")
       ) {
+        guard player.isReadAlongDownloadReady else {
+          readAlongDownloadWarningPresented = true
+          return
+        }
         if isRecapActive {
           isRecapActive = false
           return

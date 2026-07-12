@@ -454,11 +454,16 @@ final class PlayerLiveTranscriptionController: ObservableObject {
         throw PlayerLiveTranscriptionError.transcriptionProgressStalled
       }
 
+      // Dieselbe Buchsprach-Auflösung wie der Teleprompter verwenden; die englische
+      // Aufgabenformulierung darf die Ausgabe nicht in Englisch umleiten.
+      let recapLanguage = locale.identifier(.bcp47)
       let session = LanguageModelSession(model: model)
       let response = try await session.respond(
         to: """
         Summarize the following audiobook transcript from the last five minutes.
-        Write in the transcript's original language. Be concise, factual, and use 3–5 bullet points.
+        Output language: \(recapLanguage).
+        Write the recap exclusively in that language. Do not translate it to English unless the
+        output language is English. Be concise, factual, and use 3–5 bullet points.
         Do not invent details or mention that this is a transcript.
 
         Transcript:
