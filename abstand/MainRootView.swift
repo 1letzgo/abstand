@@ -20,6 +20,23 @@ struct MainRootView: View {
       .background {
         AppThemeScreenBackground(ignoresSafeArea: true)
       }
+    // Selbstheilung: Sollte dieser View je seine Strukturidentität verlieren (alle `@State`
+    // zurückgesetzt, `activatedTabs` wieder `[.start]`), den gerade sichtbaren Tab sofort
+    // reaktivieren — sonst rendert `lazyTabContent` für ihn dauerhaft `Color.clear` (weißer
+    // Screen), weil `.onChange(of: model.mainTab)` ohne Tab-Wechsel nie feuert.
+    .onAppear {
+      activatedTabs.insert(model.mainTab)
+      if model.shouldPrewarmSecondaryTabs {
+        var tabs: Set<AppModel.MainTab> = [.library, .settings]
+        if model.showPodcastsTab {
+          tabs.insert(.podcasts)
+        }
+        if model.ebooksSeparateTabEnabled {
+          tabs.insert(.ebooks)
+        }
+        activatedTabs.formUnion(tabs)
+      }
+    }
     .fullScreenCover(item: $model.ebookReaderSession) { session in
       ReadiumReaderView(
         title: session.title,
