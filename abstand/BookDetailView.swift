@@ -45,6 +45,19 @@ struct BookDetailView: View {
         addedAt: nil, updatedAt: nil)
   }
 
+  /// Der persistierte Cover-Durchschnitt steht bereits vor `.task` zur Verfügung.
+  private var resolvedCoverTint: Color {
+    let scope = model.coverImageCacheScopeId(for: bookId, tier: .hero)
+    let revision = model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+    return CoverDominantTintSeed.resolve(
+      account: model.coverImageCacheAccountDirectory(),
+      itemId: bookId,
+      heroScopeId: scope,
+      fallbackScopeId: bookId,
+      revision: revision
+    )?.tint ?? coverTintColor
+  }
+
   private var prog: ABSUserMediaProgress? { model.progressByItemId[bookId] }
 
   var body: some View {
@@ -64,9 +77,9 @@ struct BookDetailView: View {
         .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
     .scrollContentBackground(.hidden)
-    .abstandDetailScrollBackground(coverTintColor)
+    .abstandDetailScrollBackground(resolvedCoverTint)
     // Karten in der Farbfamilie des Cover-Tint-Hintergrunds statt neutraler Palette-`card`.
-    .detailSectionCardsTinted(fromBackgroundTint: coverTintColor)
+    .detailSectionCardsTinted(fromBackgroundTint: resolvedCoverTint)
     .navigationTitle("")
     .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)

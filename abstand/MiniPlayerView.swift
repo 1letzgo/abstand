@@ -1219,6 +1219,7 @@ struct NowPlayingDetailView: View {
   @State private var panelListeningSessions: [ABSListeningSession] = []
   @State private var coverTintColor: Color = AppTheme.background
   @State private var coverImageForTint: UIImage?
+  @State private var cachedCoverAverageRGB: (r: Double, g: Double, b: Double)?
   @State private var didSeedCoverTintFromCache = false
   /// Ersatz für den nativen Sheet-Drag-Indicator/Swipe-to-dismiss, seit `.fullScreenCover`
   /// (für echtes Vollbild auf iPad) statt `.sheet` verwendet wird.
@@ -1304,6 +1305,7 @@ struct NowPlayingDetailView: View {
         panelListeningSessions = []
         didSeedCoverTintFromCache = false
         coverImageForTint = nil
+        cachedCoverAverageRGB = nil
         if let book = player.activeBook {
           seedCoverTintFromCacheIfNeeded(for: book)
         } else {
@@ -1500,15 +1502,30 @@ struct NowPlayingDetailView: View {
   private var fullPlayerBackground: some View {
     let _ = themeRevision
     let palette = model.appearancePalette
+    let tint = resolvedFullPlayerCoverTint
     // Gleiche Schichtung wie `.abstandDetailScrollBackground` (Buch-/Folgen-Detail).
     ZStack {
       palette.background
       if palette.isDarkLike {
-        coverTintColor
+        tint
       } else {
-        coverTintColor.opacity(0.52)
+        tint.opacity(0.52)
       }
     }
+  }
+
+  /// Liest den lokalen Tint-Cache schon während des ersten Body-Renderings.
+  private var resolvedFullPlayerCoverTint: Color {
+    guard let book = activeBook ?? player.activeBook else { return coverTintColor }
+    let scope = model.coverImageCacheScopeId(for: book.id, tier: .hero)
+    let revision = model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+    return CoverDominantTintSeed.resolve(
+      account: model.coverImageCacheAccountDirectory(),
+      itemId: book.id,
+      heroScopeId: scope,
+      fallbackScopeId: book.id,
+      revision: revision
+    )?.tint ?? coverTintColor
   }
 
   private func seedCoverTintFromCacheIfNeeded(for book: ABSBook) {
@@ -1520,9 +1537,17 @@ struct NowPlayingDetailView: View {
       return
     }
     let scope = model.coverImageCacheScopeId(for: book.id, tier: .hero)
-    if let image = CoverImageCache.syncUIImage(itemId: scope, account: account) {
-      coverImageForTint = image
-      coverTintColor = coverDominantBackgroundTint(from: image)
+    let revision = model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+    if let seed = CoverDominantTintSeed.resolve(
+      account: account,
+      itemId: book.id,
+      heroScopeId: scope,
+      fallbackScopeId: book.id,
+      revision: revision
+    {
+      coverTintColor = seed.tint
+      coverImageForTint = seed.image
+      cachedCoverAverageRGB = seed.averageRGB
     } else {
       coverTintColor = fallback
     }
@@ -1531,6 +1556,12 @@ struct NowPlayingDetailView: View {
   private func applyCoverTintFromStoredImage() {
     if let coverImageForTint {
       coverTintColor = coverDominantBackgroundTint(from: coverImageForTint)
+    } else if let cachedCoverAverageRGB {
+      coverTintColor = coverDominantBackgroundTint(
+        fromAverageRed: cachedCoverAverageRGB.r,
+        green: cachedCoverAverageRGB.g,
+        blue: cachedCoverAverageRGB.b
+      )
     } else {
       coverTintColor = model.appearancePalette.background
     }
@@ -1548,6 +1579,16 @@ struct NowPlayingDetailView: View {
       guard activeBook?.id == book.id else { return }
       coverImageForTint = image
       coverTintColor = coverDominantBackgroundTint(from: image)
+      if let (r, g, b) = coverAverageRGB(from: image) {
+        cachedCoverAverageRGB = (Double(r), Double(g), Double(b))
+        DetailCoverAverageRGBCache.save(
+          account: model.coverImageCacheAccountDirectory(),
+          itemId: book.id,
+          red: Double(r),
+          green: Double(g),
+          blue: Double(b)
+        )
+      }
     } catch {}
   }
 
@@ -2596,6 +2637,19 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
       : MiniPlayerMetrics.accessoryHorizontalPaddingCompact
   }
 
+  /// Direkt aus dem lokalen Cache, bevor der asynchrone Artwork-Loader die Player-Farbe setzt.
+  private var backgroundTint: Color {
+    guard let itemId = snapshot.activeBookId else { return model.player.miniPlayerBarFillColor }
+    let scope = model.coverImageCacheScopeId(for: itemId, tier: .hero)
+    return CoverDominantTintSeed.resolve(
+      account: snapshot.coverCacheAccount,
+      itemId: itemId,
+      heroScopeId: scope,
+      fallbackScopeId: itemId,
+      revision: snapshot.coverRevision
+    )?.tint ?? model.player.miniPlayerBarFillColor
+  }
+
   var body: some View {
     HStack(alignment: .center, spacing: 0) {
       Button {
@@ -2617,7 +2671,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
     }
     .frame(maxWidth: .infinity, minHeight: Self.rowMinHeight + 16, alignment: .center)
     .padding(.horizontal, horizontalPadding)
-    .background(model.player.miniPlayerBarFillColor)
+    .background(backgroundTint)
     .contentShape(Rectangle())
   }
 
