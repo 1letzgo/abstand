@@ -94,13 +94,14 @@ struct StartDashboardView: View {
   // MARK: - Home tab
 
   private var startDashboardOnlineLayout: some View {
+    let isRestoringContinue = model.isHomeContinueRestoreInProgress
     let stripIDs = model.homeBrowseStripCategoryIDs
     let layoutSectionIDs =
       stripIDs.isEmpty
       ? [ABSStartShelfLocalization.homeBrowseContinueSectionID]
       : stripIDs
     return AbstandFixedBrowseStripSectionsLayout(
-      showsStrip: true,
+      showsStrip: !isRestoringContinue,
       bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
       selection: model.homeBrowseCategory,
       sectionIDs: layoutSectionIDs,
@@ -109,13 +110,15 @@ struct StartDashboardView: View {
       topScrollEdgeEffectStyle: .soft,
       onRefresh: { await model.refreshStartTabPullToRefresh() }
     ) {
-      if stripIDs.isEmpty {
+      if isRestoringContinue || stripIDs.isEmpty {
         homeBrowseStripBootstrapPlaceholder
       } else {
         homeBrowseSectionStrip
       }
     } sectionBody: { category in
-      if stripIDs.isEmpty {
+      if isRestoringContinue {
+        homeBrowseContentBootstrapPlaceholder
+      } else if stripIDs.isEmpty {
         startDashboardAllShelvesDisabledState
           .frame(maxWidth: .infinity)
       } else {
@@ -155,6 +158,13 @@ struct StartDashboardView: View {
   private var homeBrowseStripBootstrapPlaceholder: some View {
     Color.clear
       .frame(maxWidth: .infinity)
+      .accessibilityHidden(true)
+  }
+
+  /// Hält den Home-Inhalt kurz leer, bis alle lokal rekonstruierten Continue-Regale atomar vorliegen.
+  private var homeBrowseContentBootstrapPlaceholder: some View {
+    Color.clear
+      .frame(maxWidth: .infinity, minHeight: 220)
       .accessibilityHidden(true)
   }
 

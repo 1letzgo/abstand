@@ -1013,6 +1013,8 @@ final class AppModel: ObservableObject {
   @Published private(set) var isServerConnectionProbeInProgress = false
   /// App-Start (Bootstrap): Verbindungs-Alert bis Floating Bar bereit (oder kein Resume).
   @Published private(set) var isAppBootstrapInProgress = false
+  /// Lokaler Home-Snapshot, Fortschritt und beide Continue-Regale werden gemeinsam zusammengeführt.
+  @Published private(set) var isHomeContinueRestoreInProgress = false
   /// Nutzer hat „Go offline“ während Bootstrap — laufenden Server-Sync abbrechen.
   private var bootstrapSupersededByOffline = false
   /// Nach Bootstrap: Tab-Inhalte im Hintergrund vorbauen (kein Erstaufbau beim Tab-Wechsel).
@@ -1223,6 +1225,8 @@ final class AppModel: ObservableObject {
   private var startDashboardPostProcessingTask: Task<Void, Never>?
   /// Kaltstart: Home-Regale-Restore off-MainActor — bei Logout/Account-Wechsel während Bootstrap abbrechen.
   private var homeLaunchLocalRestoreTask: Task<Void, Never>?
+  /// Verhindert, dass ein abgebrochener, älterer Restore den Aufbauzustand vorzeitig beendet.
+  private var homeContinueRestoreGeneration: UInt = 0
   private var launchLocalRestoreTask: Task<Void, Never>?
   private var bootstrapCatalogReloadTask: Task<Void, Never>?
   private var deferredCatalogLocalRestoreTask: Task<Void, Never>?
@@ -4502,6 +4506,9 @@ final class AppModel: ObservableObject {
       AppLog.launchSignposter.endInterval("restoreHome", sp)
       return
     }
+    homeContinueRestoreGeneration &+= 1
+    let restoreGeneration = homeContinueRestoreGeneration
+    isHomeContinueRestoreInProgress = true
     // Podcast-Bibliothek vor Continue-Cache — sonst fehlen Podcast-Zeilen beim Kaltstart. (billig, synchron)
     restorePodcastLibrarySelectionFromLocalStore()
     let libId =
@@ -4510,11 +4517,13 @@ final class AppModel: ObservableObject {
     if libId == Keys.librarySelectionNone {
       selectedBooksLibrary = nil
       applyLaunchHomeContinueAndEbookCache(libraryId: nil, parsed: [])
+      isHomeContinueRestoreInProgress = false
       AppLog.launchSignposter.endInterval("restoreHome", sp)
       return
     }
     guard !libId.isEmpty else {
       applyLaunchHomeContinueAndEbookCache(libraryId: nil, parsed: [])
+      isHomeContinueRestoreInProgress = false
       AppLog.launchSignposter.endInterval("restoreHome", sp)
       return
     }
@@ -4524,7 +4533,12 @@ final class AppModel: ObservableObject {
     homeLaunchLocalRestoreTask?.cancel()
     let localStore = currentLocalLibraryStore()
     homeLaunchLocalRestoreTask = Task(priority: .userInitiated) { @MainActor [weak self] in
-      defer { AppLog.launchSignposter.endInterval("restoreHome", sp) }
+      defer {
+        AppLog.launchSignposter.endInterval("restoreHome", sp)
+        if self?.homeContinueRestoreGeneration == restoreGeneration {
+          self?.isHomeContinueRestoreInProgress = false
+        }
+      }
       guard let self, !Task.isCancelled else { return }
       async let localSnapshot: ([ABSUserMediaProgress], [ABSAudioBookmark]) = {
         guard let localStore else { return ([], []) }
