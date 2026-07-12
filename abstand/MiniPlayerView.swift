@@ -1544,7 +1544,7 @@ struct NowPlayingDetailView: View {
       heroScopeId: scope,
       fallbackScopeId: book.id,
       revision: revision
-    {
+    ) {
       coverTintColor = seed.tint
       coverImageForTint = seed.image
       cachedCoverAverageRGB = seed.averageRGB

@@ -139,10 +139,10 @@ enum CoverDominantTintSeed {
     let fallbackCacheKey = fallbackScopeId.map {
       CoverImageCache.cacheKey(scopeId: $0, revision: revision)
     }
-    guard let image =
+    let image =
       CoverImageCache.syncUIImage(itemId: heroCacheKey, account: account)
       ?? fallbackCacheKey.flatMap { CoverImageCache.syncUIImage(itemId: $0, account: account) }
-    else { return nil }
+    guard let image else { return nil }
     let averageRGB = coverAverageRGB(from: image).map {
       (r: Double($0.0), g: Double($0.1), b: Double($0.2))
     }
