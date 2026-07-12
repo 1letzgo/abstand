@@ -134,17 +134,22 @@ struct ReadiumReaderView: View {
 
   private var readerChromeOverlay: some View {
     VStack(spacing: 0) {
-      if showReaderChrome {
-        readerToolbar
-          .transition(.move(edge: .top).combined(with: .opacity))
-      }
       Spacer()
+      if showReaderChrome {
+        readerBottomChrome
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+      } else {
+        readerPassiveProgressIndicator
+      }
     }
     .animation(.easeInOut(duration: 0.2), value: showReaderChrome)
   }
 
-  private var readerToolbar: some View {
+  /// Primäre Lesesteuerung bewusst am unteren Bildschirmrand für einhändige Bedienung.
+  private var readerBottomChrome: some View {
     VStack(alignment: .leading, spacing: 10) {
+      readerProgressScrubber
+
       HStack(spacing: 12) {
         Button {
           dismiss()
@@ -158,7 +163,7 @@ struct ReadiumReaderView: View {
 
         VStack(alignment: .leading, spacing: 2) {
           Text(title)
-            .font(.title3.weight(.semibold))
+            .font(.subheadline.weight(.semibold))
             .lineLimit(1)
             .foregroundStyle(readerChromeForeground)
 
@@ -169,11 +174,9 @@ struct ReadiumReaderView: View {
         }
 
         Spacer(minLength: 0)
-      }
 
-      HStack(spacing: 0) {
         if format == .epub {
-          HStack(spacing: 24) {
+          HStack(spacing: 8) {
             Button {
               fontSize = max(EpubReaderSettings.minFontSize, fontSize - EpubReaderSettings.fontSizeStep)
               EpubReaderSettings.saveFontSize(fontSize)
@@ -198,25 +201,23 @@ struct ReadiumReaderView: View {
           }
         }
 
-        Spacer(minLength: 20)
-
-        HStack(spacing: 20) {
-          Button {
-            continuousScroll.toggle()
-            EpubReaderSettings.saveContinuousScroll(continuousScroll)
-            if format == .epub {
-              applyEPUBPrefs()
-            } else {
-              applyPDFPrefs()
-            }
-          } label: {
-            Image(systemName: continuousScroll ? "scroll" : "book.pages")
-              .font(.body)
-              .frame(width: 36, height: 36)
+        Button {
+          continuousScroll.toggle()
+          EpubReaderSettings.saveContinuousScroll(continuousScroll)
+          if format == .epub {
+            applyEPUBPrefs()
+          } else {
+            applyPDFPrefs()
           }
-          .accessibilityLabel("Continuous scroll")
-          .accessibilityValue(continuousScroll ? "On" : "Off")
+        } label: {
+          Image(systemName: continuousScroll ? "scroll" : "book.pages")
+            .font(.body)
+            .frame(width: 40, height: 40)
+        }
+        .accessibilityLabel("Continuous scroll")
+        .accessibilityValue(continuousScroll ? "On" : "Off")
 
+        Menu {
           Button {
             readerTheme = readerTheme.next()
             EpubReaderSettings.saveTheme(readerTheme)
@@ -226,45 +227,53 @@ struct ReadiumReaderView: View {
               applyPDFPrefs()
             }
           } label: {
-            Image(systemName: readerTheme.nextThemeToolbarIcon)
-              .font(.body)
-              .frame(width: 36, height: 36)
+            Label("Change reading theme", systemImage: readerTheme.nextThemeToolbarIcon)
           }
-          .accessibilityLabel("Reading theme")
-          .accessibilityValue(readerTheme.rawValue.capitalized)
 
+          Divider()
           Button {
             confirmMarkAsFinished = true
           } label: {
-            Image(systemName: isEbookMarkedFinished ? "checkmark.circle.fill" : "checkmark.circle")
-              .font(.body)
-              .frame(width: 36, height: 36)
+            Label(
+              isEbookMarkedFinished ? "Finished reading" : "Mark as finished",
+              systemImage: isEbookMarkedFinished ? "checkmark.circle.fill" : "checkmark.circle"
+            )
           }
           .disabled(readerActionInProgress || isEbookMarkedFinished)
-          .accessibilityLabel(
-            isEbookMarkedFinished ? "Finished reading" : "Mark as finished"
-          )
 
-          Button {
+          Button(role: .destructive) {
             confirmResetReadingPosition = true
           } label: {
-            Image(systemName: "arrow.counterclockwise")
-              .font(.body)
-              .frame(width: 36, height: 36)
+            Label("Reset position", systemImage: "arrow.counterclockwise")
           }
           .disabled(readerActionInProgress)
-          .accessibilityLabel("Reset position")
+        } label: {
+          Image(systemName: "ellipsis.circle")
+            .font(.title3)
+            .frame(width: 40, height: 40)
         }
+        .accessibilityLabel("Reader options")
       }
       .foregroundStyle(readerChromeForeground)
-
-      readerProgressScrubber
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 10)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(.ultraThinMaterial)
-    .safeAreaPadding(.top, 4)
+    .safeAreaPadding(.bottom, 4)
+  }
+
+  /// Dezente Orientierung auch bei ausgeblendeter Steuerung, ohne den Lesefluss zu stören.
+  private var readerPassiveProgressIndicator: some View {
+    GeometryReader { geo in
+      Rectangle()
+        .fill(themeAccent.opacity(0.75))
+        .frame(width: geo.size.width * min(1, max(0, readProgress)), height: 3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .frame(height: 3)
+    .allowsHitTesting(false)
+    .accessibilityHidden(true)
   }
 
   private var readerProgressScrubber: some View {
