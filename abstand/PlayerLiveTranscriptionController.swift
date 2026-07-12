@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import Foundation
+import FoundationModels
 import Speech
 import SwiftUI
 import UIKit
@@ -124,9 +125,14 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   @Published private(set) var teleprompterSyncGeneration: UInt = 0
   /// Zielzeit für Teleprompter-Highlight nach Start-Sync (= Wiedergabe).
   @Published private(set) var teleprompterSyncedPlaybackTime: Double = 0
+  /// Ergebnis der lokalen Zusammenfassung des letzten Transkriptfensters.
+  @Published private(set) var recapText: String?
+  @Published private(set) var recapErrorMessage: String?
+  @Published private(set) var isGeneratingRecap = false
 
   /// Sprache der laufenden Transkription (für Wort-Übersetzung).
   var transcriptionLocale: Locale? { activeContext?.locale }
+  var canGenerateRecap: Bool { !finalizedWords.isEmpty && !isGeneratingRecap }
 
   private var finalizedWords: [PlayerTranscriptWord] = []
   /// Volatile Speech-Ergebnisse während der Pufferphase (ersetzt, nicht angehängt).
@@ -347,6 +353,63 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   /// Fehlerkarte manuell verworfen (z. B. anderes Panel geöffnet, View verlassen) — Session bereits beendet.
   func dismissError() {
     errorMessage = nil
+  }
+
+  /// Fasst ausschließlich finalisierte, bereits gehörte Wörter aus den letzten fünf Minuten zusammen.
+  /// `FoundationModels` verwendet dabei ausschließlich das Systemmodell auf dem Gerät.
+  func generateRecap(endingAt playbackGlobalTime: Double) async {
+    guard !isGeneratingRecap else { return }
+
+    let transcript = recapSourceText(endingAt: playbackGlobalTime)
+    guard !transcript.isEmpty else {
+      recapText = nil
+      recapErrorMessage = String(
+        localized: "There is not enough transcribed audio yet to create a recap.",
+        comment: "Read along recap error"
+      )
+      return
+    }
+
+    let model = SystemLanguageModel.default
+    guard case .available = model.availability else {
+      recapText = nil
+      recapErrorMessage = String(
+        localized: "On-device recap is unavailable. Enable Apple Intelligence and try again.",
+        comment: "Read along recap error"
+      )
+      return
+    }
+
+    isGeneratingRecap = true
+    recapText = nil
+    recapErrorMessage = nil
+    defer { isGeneratingRecap = false }
+
+    do {
+      let session = LanguageModelSession(model: model)
+      let response = try await session.respond(
+        to: """
+        Summarize the following audiobook transcript from the last five minutes.
+        Write in the transcript's original language. Be concise, factual, and use 3–5 bullet points.
+        Do not invent details or mention that this is a transcript.
+
+        Transcript:
+        \(transcript)
+        """
+      )
+      recapText = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    } catch {
+      recapText = nil
+      recapErrorMessage = String(
+        localized: "The on-device recap could not be created. Please try again.",
+        comment: "Read along recap error"
+      )
+    }
+  }
+
+  func clearRecap() {
+    recapText = nil
+    recapErrorMessage = nil
   }
 
   /// Modus beenden und Session vollständig stoppen (idempotent).
@@ -780,6 +843,17 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     lastTranscriptionProgressAt = nil
     lastAppendedThroughGlobalTime = 0
     lastObservedTranscriptionEnd = 0
+    clearRecap()
+  }
+
+  private func recapSourceText(endingAt playbackGlobalTime: Double) -> String {
+    let end = max(0, playbackGlobalTime)
+    let start = max(0, end - 300)
+    return finalizedWords
+      .filter { $0.globalEnd >= start && $0.globalStart <= end }
+      .map(\.text)
+      .joined()
+      .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   private func transcriptLinesForDisplay() -> [PlayerTranscriptLine] {
