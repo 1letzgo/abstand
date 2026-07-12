@@ -1209,7 +1209,7 @@ struct NowPlayingDetailView: View {
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
   @State private var readAlongDownloadWarningPresented = false
-  @State private var recapPresented = false
+  @State private var isRecapActive = false
   @State private var chromeSnapshot = FullPlayerChromeSnapshot.empty
   @State private var activeBook: ABSBook?
   @State private var isTeleprompterActive = false
@@ -1226,9 +1226,9 @@ struct NowPlayingDetailView: View {
 
   private var player: PlaybackController { model.player }
 
-  /// Cover durch Teleprompter oder Kapitel-/Sessions-/Bookmarks-Panel ersetzt.
+  /// Cover durch Teleprompter, Recap oder Kapitel-/Sessions-/Bookmarks-Panel ersetzt.
   private var isCoverPanelExpanded: Bool {
-    isTeleprompterActive || coverPanel != .artwork || showsReadAlongErrorCard
+    isTeleprompterActive || isRecapActive || coverPanel != .artwork || showsReadAlongErrorCard
   }
 
   /// Nach fehlgeschlagenem Start: Karte mit „Try again“ statt sofort zum Cover zurückspringen.
@@ -1283,10 +1283,14 @@ struct NowPlayingDetailView: View {
         } else if player.liveTranscription.errorMessage != nil {
           player.liveTranscription.dismissError()
         }
+        isRecapActive = false
         coverPanel = .artwork
       }
       .onChange(of: isTeleprompterActive) { _, active in
-        if active { coverPanel = .artwork }
+        if active {
+          isRecapActive = false
+          coverPanel = .artwork
+        }
       }
       .onChange(of: player.liveTranscription.errorMessage) { _, err in
         if let err, !AbstandErrorFilter.isBenignCancellationMessage(err) {
@@ -1294,6 +1298,7 @@ struct NowPlayingDetailView: View {
         }
       }
       .onChange(of: player.activeBook?.id) { _, _ in
+        isRecapActive = false
         coverPanel = .artwork
         panelBookDetail = nil
         panelListeningSessions = []
@@ -1323,13 +1328,6 @@ struct NowPlayingDetailView: View {
         )
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-      }
-      .sheet(isPresented: $recapPresented, onDismiss: {
-        player.liveTranscription.clearRecap()
-      }) {
-        PlayerTranscriptRecapSheet(transcription: player.liveTranscription)
-          .presentationDetents([.medium, .large])
-          .presentationDragIndicator(.visible)
       }
       .alert(
         String(localized: "Download required", comment: "Read along alert title"),
@@ -1719,6 +1717,8 @@ struct NowPlayingDetailView: View {
       Group {
         if isTeleprompterActive || showsReadAlongErrorCard {
           readAlongKaraokeCard()
+        } else if isRecapActive {
+          recapKaraokeCard()
         } else if coverPanel == .bookmarks, let audiobookId = activeAudiobookBookmarkId {
           bookmarksCoverCard(audiobookId: audiobookId)
         } else if coverPanel != .artwork {
@@ -1957,6 +1957,7 @@ struct NowPlayingDetailView: View {
     } else if player.liveTranscription.errorMessage != nil {
       player.liveTranscription.dismissError()
     }
+    isRecapActive = false
     coverPanel = panel
   }
 
@@ -1994,7 +1995,7 @@ struct NowPlayingDetailView: View {
     case bookmarkList
     case chapters
     case sessions
-    /// Lokale Zusammenfassung der zuletzt transkribierten fünf Minuten.
+    /// Lokale Zusammenfassung eines eigenständig transkribierten Fünf-Minuten-Fensters.
     case recap
     case readAlong
 
@@ -2066,13 +2067,18 @@ struct NowPlayingDetailView: View {
       let transcription = player.liveTranscription
       FullPlayerCoverOverlayButton(
         systemName: "sparkles",
-        isActive: false,
+        isActive: isRecapActive,
         isBusy: transcription.isGeneratingRecap,
         isEnabled: player.isReadAlongDownloadReady && transcription.canGenerateRecap,
         accessibilityLabel: String(
           localized: "Recap of the last 5 minutes", comment: "Accessibility")
       ) {
-        recapPresented = true
+        if isRecapActive {
+          isRecapActive = false
+          return
+        }
+        isRecapActive = true
+        coverPanel = .artwork
         Task { @MainActor in
           await transcription.generateRecap(player: player)
         }
@@ -2182,6 +2188,15 @@ struct NowPlayingDetailView: View {
       }
     }
     .accessibilityLabel(String(localized: "Read along transcript", comment: "Accessibility"))
+  }
+
+  /// Recap nutzt dieselbe Cover-Karte wie der Teleprompter statt eines separaten Sheets.
+  private func recapKaraokeCard() -> some View {
+    fullPlayerExpandedCoverCard {
+      PlayerTranscriptRecapCard(transcription: player.liveTranscription)
+        .padding(PlayerTeleprompterMetrics.cardContentPadding)
+    }
+    .accessibilityLabel(String(localized: "Recap of the last 5 minutes", comment: "Accessibility"))
   }
 
   private func scrubberSection(book: ABSBook) -> some View {
