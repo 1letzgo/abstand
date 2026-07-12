@@ -45,7 +45,7 @@ struct ReadiumReaderView: View {
   @StateObject private var speechController = ReaderSpeechController()
   @State private var bookmarks: [EbookReaderBookmark] = []
   @State private var showsBookmarks = false
-  @State private var tableOfContents: [Link] = []
+  @State private var tableOfContents: [ReadiumShared.Link] = []
   @State private var showsTableOfContents = false
   @AppStorage("abstand_ebook_reader_chrome_hint_seen") private var didShowReaderChromeHint = false
   @State private var showsReaderChromeHint = false
@@ -551,7 +551,7 @@ struct ReadiumReaderView: View {
   }
 
   @MainActor
-  private func goToTableOfContentsEntry(_ link: Link) async {
+  private func goToTableOfContentsEntry(_ link: ReadiumShared.Link) async {
     guard let navigator: Navigator = epubNavigator ?? pdfNavigator else { return }
     readerActionInProgress = true
     defer { readerActionInProgress = false }
@@ -684,7 +684,7 @@ private final class ReaderSpeechController: NSObject, ObservableObject, Publicat
     case .playing:
       synthesizer.pause()
     case .paused:
-      synthesizer.resume()
+      synthesizer.pauseOrResume()
     case .stopped:
       synthesizer.start(from: navigator?.currentLocation)
     }
@@ -781,8 +781,8 @@ private struct ReaderBookmarksSheet: View {
 }
 
 private struct ReaderTableOfContentsSheet: View {
-  let links: [Link]
-  let onSelect: (Link) -> Void
+  let links: [ReadiumShared.Link]
+  let onSelect: (ReadiumShared.Link) -> Void
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
@@ -803,7 +803,7 @@ private struct ReaderTableOfContentsSheet: View {
   }
 
   @ViewBuilder
-  private func tableOfContentsRow(_ link: Link) -> some View {
+  private func tableOfContentsRow(_ link: ReadiumShared.Link) -> some View {
     if link.children.isEmpty {
       Button {
         onSelect(link)
@@ -827,7 +827,7 @@ private struct ReaderTableOfContentsSheet: View {
     }
   }
 
-  private func tableOfContentsTitle(for link: Link) -> String {
+  private func tableOfContentsTitle(for link: ReadiumShared.Link) -> String {
     let title = link.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return title.isEmpty ? link.href : title
   }
