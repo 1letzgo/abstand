@@ -2068,13 +2068,13 @@ struct NowPlayingDetailView: View {
         systemName: "sparkles",
         isActive: false,
         isBusy: transcription.isGeneratingRecap,
-        isEnabled: transcription.canGenerateRecap,
+        isEnabled: player.isReadAlongDownloadReady && transcription.canGenerateRecap,
         accessibilityLabel: String(
           localized: "Recap of the last 5 minutes", comment: "Accessibility")
       ) {
         recapPresented = true
         Task { @MainActor in
-          await transcription.generateRecap(endingAt: player.liveGlobalPlaybackPosition)
+          await transcription.generateRecap(player: player)
         }
       }
     case .readAlong:
