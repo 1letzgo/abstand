@@ -29,6 +29,47 @@ func coverDominantBackgroundTint(from image: UIImage) -> Color {
   )
 }
 
+/// Kartenfläche für Buch-/Folgen-Detail, abgestimmt auf den Cover-Tint-Hintergrund
+/// (`abstandDetailScrollBackground`): gleiche Farbfamilie wie der getönte Hintergrund statt der
+/// neutralen Palette-`card`. Dark: etwas heller als der Tint (erhabene Fläche, gleiches Delta wie
+/// Palette #121212 → #252525). Light: die tatsächlich gerenderte Fläche (Tint 0.42 über Papier)
+/// nachbilden und leicht abdunkeln (Verhältnis Papier → Karte der Light-Palette, ~0.93).
+/// Ohne echten Cover-Tint (Fallback = Palette-Hintergrund) konvergiert das Ergebnis auf die
+/// normale Palette-`card`-Fläche.
+func detailSectionCardTint(forBackgroundTint tint: Color) -> Color {
+  guard let t = colorRGBComponents(of: tint) else { return AppTheme.card }
+
+  if AppTheme.palette.isDarkLike {
+    return Color(
+      red: Double(min(1, t.r * 1.15 + 0.065)),
+      green: Double(min(1, t.g * 1.15 + 0.065)),
+      blue: Double(min(1, t.b * 1.15 + 0.065))
+    )
+  }
+
+  guard let p = colorRGBComponents(of: AppTheme.background) else { return AppTheme.card }
+  let darken: CGFloat = 0.93
+  func channel(_ tintValue: CGFloat, _ paperValue: CGFloat) -> Double {
+    let effective = tintValue * 0.42 + paperValue * 0.58
+    return Double(min(1, effective * darken))
+  }
+  return Color(
+    red: channel(t.r, p.r),
+    green: channel(t.g, p.g),
+    blue: channel(t.b, p.b)
+  )
+}
+
+private func colorRGBComponents(of color: Color) -> (r: CGFloat, g: CGFloat, b: CGFloat)? {
+  let ui = UIColor(color)
+  var r: CGFloat = 0
+  var g: CGFloat = 0
+  var b: CGFloat = 0
+  var a: CGFloat = 0
+  guard ui.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
+  return (r, g, b)
+}
+
 private func coverAverageRGB(from image: UIImage) -> (CGFloat, CGFloat, CGFloat)? {
   guard let ciImage = CIImage(image: image) else { return nil }
   var extent = ciImage.extent
@@ -657,9 +698,31 @@ struct DetailMetaDisclosureLabel: View {
   }
 }
 
+/// Kartenfläche in Buch-/Folgen-Details: aus dem Cover-Tint abgeleitet (siehe
+/// `detailSectionCardTint(forBackgroundTint:)`) statt neutraler Palette-`card`.
+/// `nil` (Default, z. B. Entity-Details ohne Cover-Tint) = Palette-`card`.
+private struct DetailSectionCardBackgroundKey: EnvironmentKey {
+  static let defaultValue: Color? = nil
+}
+
+extension EnvironmentValues {
+  var detailSectionCardBackground: Color? {
+    get { self[DetailSectionCardBackgroundKey.self] }
+    set { self[DetailSectionCardBackgroundKey.self] = newValue }
+  }
+}
+
+extension View {
+  /// Buch-/Folgen-Detail: Karten in einer aus dem Cover-Tint abgesetzten Fläche rendern.
+  func detailSectionCardsTinted(fromBackgroundTint tint: Color) -> some View {
+    environment(\.detailSectionCardBackground, detailSectionCardTint(forBackgroundTint: tint))
+  }
+}
+
 /// Disclosure mit Meta-Label-Stil (statt gemischter `.caption.bold`-Varianten).
 /// Rendert eine Karte (wie `DetailDetailSectionCard`) — einheitlich für Chapters, Bookmarks, Sessions.
 struct DetailMetaDisclosure<Content: View>: View {
+  @Environment(\.detailSectionCardBackground) private var cardBackground
   let title: String
   @Binding var isExpanded: Bool
   @ViewBuilder var content: () -> Content
@@ -673,7 +736,7 @@ struct DetailMetaDisclosure<Content: View>: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(AppTheme.Layout.detailSectionCardPadding)
-    .background(AppTheme.card, in: detailSectionCardShape)
+    .background(cardBackground ?? AppTheme.card, in: detailSectionCardShape)
     .abstandCardElevation(.subtle)
   }
 
@@ -687,13 +750,14 @@ struct DetailMetaDisclosure<Content: View>: View {
 
 /// Gruppierter Meta-Block unter Play (People, Publication, Explore).
 struct DetailDetailSectionCard<Content: View>: View {
+  @Environment(\.detailSectionCardBackground) private var cardBackground
   @ViewBuilder var content: () -> Content
 
   var body: some View {
     content()
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(AppTheme.Layout.detailSectionCardPadding)
-      .background(AppTheme.card, in: detailSectionCardShape)
+      .background(cardBackground ?? AppTheme.card, in: detailSectionCardShape)
       .abstandCardElevation(.subtle)
   }
 

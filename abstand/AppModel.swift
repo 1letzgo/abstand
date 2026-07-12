@@ -9001,9 +9001,13 @@ final class AppModel: ObservableObject {
     applyLocalMarkFinished(libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
     pendingLocalProgressSyncKeys.insert(episode.progressLookupKey)
     syncContinueListeningShelvesWithProgress()
+    // „New“-Feed sofort erleichtern (nicht erst beim nächsten Listen-Refresh) — Sendungs-Listen
+    // bleiben unangetastet, dort steht die Folge wie bei Hörbüchern mit Häkchen weiter drin.
+    removeFinishedPodcastEpisodeFromNewFeed(episode)
     if defersProgressSyncToServer {
-      // Gerät gesperrt / kein Netz: Folge bleibt mit `isFinished`-Status in der Liste (wie Hörbücher);
-      // der Server-Sync passiert beim nächsten Vordergrund-Wechsel.
+      // Gerät gesperrt / kein Netz: New-Feed wurde lokal um die fertige Folge erleichtert;
+      // beim nächsten Vordergrund-Wechsel Liste nachladen (sonst bleibt sie u. U. leer) und
+      // Server-Sync durchführen. Siehe `applyPendingPodcastRefreshIfNeeded()`.
       pendingPodcastRefreshOnResume = true
       persistHomeShelvesSnapshot()
       await finishMarkFinishedLocally(
@@ -10821,6 +10825,19 @@ final class AppModel: ObservableObject {
 
   private func removeBookFromCatalogList(_ bookId: String) {
     books.removeAll { $0.id == bookId }
+  }
+
+  /// Podcast-Tab „New“ (`recent-episodes`): fertige Folge sofort ausblenden. Bewusst NUR der
+  /// New-Feed — in Sendungs-Listen (`podcastFilteredEpisodes` / Show-Cache) bleibt die Folge wie
+  /// bei Hörbüchern mit `isFinished`-Häkchen stehen. Das Mutieren während des Overlay-Dismiss war
+  /// früher nur deshalb problematisch, weil der `chromeVisible`-Branch in `MainTabShellView` bei
+  /// jedem Flip die View-Identität zerstörte (seit `tabViewBottomAccessory(isEnabled:)` behoben).
+  private func removeFinishedPodcastEpisodeFromNewFeed(_ episode: ABSPodcastEpisodeListItem) {
+    let key = episode.progressLookupKey
+    let hadInNew = podcastEpisodes.contains { $0.progressLookupKey == key }
+    guard hadInNew else { return }
+    podcastEpisodes.removeAll { $0.progressLookupKey == key }
+    podcastLibraryTotal = max(podcastEpisodes.count, podcastLibraryTotal - 1)
   }
 
   /// Nach Fortschritt-Reset: „not started“ — Karte über Live-State, Liste nur bei Fortschritts-Filtern anpassen.

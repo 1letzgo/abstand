@@ -62,6 +62,8 @@ struct BookDetailView: View {
     }
     .scrollContentBackground(.hidden)
     .abstandDetailScrollBackground(coverTintColor)
+    // Karten in der Farbfamilie des Cover-Tint-Hintergrunds statt neutraler Palette-`card`.
+    .detailSectionCardsTinted(fromBackgroundTint: coverTintColor)
     .navigationTitle("")
     .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
