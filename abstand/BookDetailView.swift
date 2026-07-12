@@ -8,6 +8,9 @@ struct BookDetailView: View {
   @State private var detail: ABSBook?
   @State private var coverTintColor: Color = AppTheme.background
   @State private var coverImageForTint: UIImage?
+  /// Persistierter Cover-Durchschnitts-RGB (`DetailCoverAverageRGBCache`) — Seed beim Öffnen,
+  /// bevor das Hero-Cover geladen ist; auch Basis für Theme-Wechsel ohne Bild im Speicher.
+  @State private var cachedCoverAverageRGB: (r: Double, g: Double, b: Double)?
   @State private var chaptersExpanded = false
   @State private var bookmarksExpanded = false
   @State private var sessionsExpanded = false
@@ -81,7 +84,9 @@ struct BookDetailView: View {
       if detail?.id != bookId {
         detail = model.cachedBookDetail(id: bookId)
         coverImageForTint = nil
+        cachedCoverAverageRGB = nil
       }
+      seedCoverTintFromLocalCache()
       let loaded = await model.loadBookDetail(id: bookId)
       if let loaded { detail = loaded }
       await loadCoverTint()
@@ -198,9 +203,26 @@ struct BookDetailView: View {
   private func applyCoverTintFromStoredImage() {
     if let coverImageForTint {
       coverTintColor = coverDominantBackgroundTint(from: coverImageForTint)
+    } else if let rgb = cachedCoverAverageRGB {
+      // Theme-Wechsel ohne Bild im Speicher: Tint aus dem persistierten RGB mit neuer Palette.
+      coverTintColor = coverDominantBackgroundTint(
+        fromAverageRed: rgb.r, green: rgb.g, blue: rgb.b)
     } else {
       coverTintColor = AppTheme.background
     }
+  }
+
+  /// Zweiter Aufruf desselben Buchs: Tint sofort aus dem beim ersten Besuch persistierten
+  /// Cover-Durchschnitts-RGB — kein Warten auf den Hero-Cover-Download.
+  private func seedCoverTintFromLocalCache() {
+    guard coverImageForTint == nil else { return }
+    guard
+      let rgb = DetailCoverAverageRGBCache.load(
+        account: model.coverImageCacheAccountDirectory(), itemId: bookId)
+    else { return }
+    cachedCoverAverageRGB = rgb
+    coverTintColor = coverDominantBackgroundTint(
+      fromAverageRed: rgb.r, green: rgb.g, blue: rgb.b)
   }
 
   private func loadCoverTint() async {
@@ -215,6 +237,14 @@ struct BookDetailView: View {
       await MainActor.run {
         coverImageForTint = image
         coverTintColor = coverDominantBackgroundTint(from: image)
+        if let (r, g, b) = coverAverageRGB(from: image) {
+          cachedCoverAverageRGB = (Double(r), Double(g), Double(b))
+          DetailCoverAverageRGBCache.save(
+            account: model.coverImageCacheAccountDirectory(),
+            itemId: bookId,
+            red: Double(r), green: Double(g), blue: Double(b)
+          )
+        }
       }
     } catch {}
   }

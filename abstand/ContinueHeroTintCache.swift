@@ -58,6 +58,57 @@ enum ContinueHeroTintCache {
   }
 }
 
+/// Roher Cover-Durchschnitts-RGB pro Item (Buch-/Folgen-Detail) — bewusst NICHT die fertige
+/// Tint-Farbe: `coverDominantBackgroundTint` rechnet palette-abhängig (Dark/Light), der
+/// Durchschnitts-RGB ist dagegen stabil und wird beim Seed mit der aktuellen Palette verrechnet.
+/// Beim ersten Detail-Aufruf geschrieben, beim zweiten sofort da (kein Cover-Fetch/CIAreaAverage).
+enum DetailCoverAverageRGBCache {
+  private static let fm = FileManager.default
+  private static let subdir = "detailCoverAvgRGB"
+
+  private struct Payload: Codable {
+    var r: Double
+    var g: Double
+    var b: Double
+  }
+
+  private static func dir(account: URL) -> URL {
+    let u = account.appendingPathComponent(subdir, isDirectory: true)
+    try? fm.createDirectory(at: u, withIntermediateDirectories: true)
+    return u
+  }
+
+  private static func fileURL(account: URL, itemId: String) -> URL {
+    let h = SHA256.hash(data: Data(itemId.utf8))
+    let name = h.map { String(format: "%02x", $0) }.joined() + ".json"
+    return dir(account: account).appendingPathComponent(name)
+  }
+
+  static func load(account: URL?, itemId: String) -> (r: Double, g: Double, b: Double)? {
+    guard let account else { return nil }
+    let u = fileURL(account: account, itemId: itemId)
+    guard fm.fileExists(atPath: u.path),
+      let data = try? Data(contentsOf: u),
+      let p = try? JSONDecoder().decode(Payload.self, from: data)
+    else { return nil }
+    return (p.r, p.g, p.b)
+  }
+
+  static func save(account: URL?, itemId: String, red: Double, green: Double, blue: Double) {
+    guard let account else { return }
+    let p = Payload(r: red, g: green, b: blue)
+    guard let data = try? JSONEncoder().encode(p) else { return }
+    let u = fileURL(account: account, itemId: itemId)
+    try? data.write(to: u, options: .atomic)
+  }
+
+  static func clearAll(account: URL) {
+    let d = dir(account: account)
+    try? fm.removeItem(at: d)
+    try? fm.createDirectory(at: d, withIntermediateDirectories: true)
+  }
+}
+
 /// Cover → Kartenfarbe (Cache, lokales Cover, optional Netz) für Continue-Hero und Home-Mini-Karten.
 @MainActor
 enum CoverDerivedTintLoader {

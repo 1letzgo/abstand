@@ -9325,6 +9325,7 @@ final class AppModel: ObservableObject {
     guard let account = cacheAccountURL() else { return }
     CoverImageCache.clearAll(account: account)
     ContinueHeroTintCache.clearAll(account: account)
+    DetailCoverAverageRGBCache.clearAll(account: account)
     coverImageCacheRevision &+= 1
   }
 

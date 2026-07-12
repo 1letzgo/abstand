@@ -10,6 +10,9 @@ struct PodcastEpisodeDetailView: View {
   @State private var detail: ABSPodcastEpisodeExpandedDetail?
   @State private var coverTintColor: Color = AppTheme.background
   @State private var coverImageForTint: UIImage?
+  /// Persistierter Cover-Durchschnitts-RGB (`DetailCoverAverageRGBCache`) — Seed beim Öffnen,
+  /// bevor das Hero-Cover geladen ist; auch Basis für Theme-Wechsel ohne Bild im Speicher.
+  @State private var cachedCoverAverageRGB: (r: Double, g: Double, b: Double)?
   @State private var sessionsExpanded = false
   @State private var descriptionExpanded = false
   @State private var showNotesExpanded = false
@@ -112,6 +115,15 @@ struct PodcastEpisodeDetailView: View {
       coverTintColor = fallback
       return
     }
+    // Erste Wahl: der beim letzten Besuch persistierte Cover-Durchschnitts-RGB — liefert exakt
+    // denselben Tint wie nach dem Cover-Download (sofort, ohne Fetch/CIAreaAverage).
+    if let rgb = DetailCoverAverageRGBCache.load(account: account, itemId: episode.libraryItemId) {
+      cachedCoverAverageRGB = rgb
+      coverTintColor = coverDominantBackgroundTint(
+        fromAverageRed: rgb.r, green: rgb.g, blue: rgb.b)
+      return
+    }
+    // Fallback: Hero-Karten-Tint als Näherung, bis `loadCoverTint()` den echten Wert liefert.
     if let cached = CoverDerivedTintLoader.colorFromDiskOrCoverCache(
       account: account,
       itemId: episode.libraryItemId
@@ -125,6 +137,10 @@ struct PodcastEpisodeDetailView: View {
   private func applyCoverTintFromStoredImage() {
     if let coverImageForTint {
       coverTintColor = coverDominantBackgroundTint(from: coverImageForTint)
+    } else if let rgb = cachedCoverAverageRGB {
+      // Theme-Wechsel ohne Bild im Speicher: Tint aus dem persistierten RGB mit neuer Palette.
+      coverTintColor = coverDominantBackgroundTint(
+        fromAverageRed: rgb.r, green: rgb.g, blue: rgb.b)
     } else {
       coverTintColor = model.appearancePalette.background
     }
@@ -142,6 +158,14 @@ struct PodcastEpisodeDetailView: View {
       await MainActor.run {
         coverImageForTint = image
         coverTintColor = coverDominantBackgroundTint(from: image)
+        if let (r, g, b) = coverAverageRGB(from: image) {
+          cachedCoverAverageRGB = (Double(r), Double(g), Double(b))
+          DetailCoverAverageRGBCache.save(
+            account: model.coverImageCacheAccountDirectory(),
+            itemId: episode.libraryItemId,
+            red: Double(r), green: Double(g), blue: Double(b)
+          )
+        }
       }
     } catch {}
   }
