@@ -266,13 +266,13 @@ struct MainRootView: View {
       if let alphabetIndexLetters {
         LibraryAlphabetQuickIndex(letters: alphabetIndexLetters) { letter in
           Task { @MainActor in
-            DebugLogCollector.shared.log("alphabet onSelect letter=\(letter) START")
             let loaded = await model.loadCatalogPagesThroughAlphabetLetter(letter)
-            DebugLogCollector.shared.log("alphabet onSelect letter=\(letter) loaded=\(loaded) booksCount=\(model.booksForDisplay().count)")
             guard loaded else { return }
             libraryAlphabetScrollTarget = libraryAlphabetAnchorID(for: letter)
+            // LazyVStack braucht einen Runloop-Tick, um neu geladene Sektionen zu
+            // instantiieren, bevor ScrollViewReader die Ziel-ID finden kann.
+            try? await Task.sleep(nanoseconds: 100_000_000)
             libraryAlphabetScrollRevision += 1
-            DebugLogCollector.shared.log("alphabet onSelect letter=\(letter) scrollTarget=\(libraryAlphabetAnchorID(for: letter)) revision=\(libraryAlphabetScrollRevision)")
           }
         }
         .padding(.trailing, 2)
