@@ -265,8 +265,11 @@ struct MainRootView: View {
 
       if let alphabetIndexLetters {
         LibraryAlphabetQuickIndex(letters: alphabetIndexLetters) { letter in
-          libraryAlphabetScrollTarget = libraryAlphabetAnchorID(for: letter)
-          libraryAlphabetScrollRevision += 1
+          Task { @MainActor in
+            guard await model.loadCatalogPagesThroughAlphabetLetter(letter) else { return }
+            libraryAlphabetScrollTarget = libraryAlphabetAnchorID(for: letter)
+            libraryAlphabetScrollRevision += 1
+          }
         }
         .padding(.trailing, 3)
       }
@@ -524,14 +527,7 @@ struct MainRootView: View {
 
   private var alphabetIndexLetters: [String]? {
     guard isAlphabeticalBookIndexVisible else { return nil }
-    let letters = libraryAlphabeticalSections(model.booksForDisplay()).map(\.letter)
-    return letters.count > 1 ? letters.sorted(by: alphabetIndexOrder) : nil
-  }
-
-  private func alphabetIndexOrder(_ lhs: String, _ rhs: String) -> Bool {
-    if lhs == "#" { return rhs != "#" }
-    if rhs == "#" { return false }
-    return lhs.localizedStandardCompare(rhs) == .orderedAscending
+    return ["#"] + "ABCDEFGHIJKLMNOPQRSTUVWXYZ".map(String.init)
   }
 
   private func libraryAlphabeticalSections(_ books: [ABSBook]) -> [LibraryAlphabetSection] {
@@ -550,43 +546,7 @@ struct MainRootView: View {
   }
 
   private func libraryAlphabetLetter(for book: ABSBook) -> String {
-    let value = libraryAlphabetSortValue(for: book)
-    guard let first = value.uppercased().first,
-      first.unicodeScalars.contains(where: { $0.properties.isAlphabetic })
-    else {
-      return "#"
-    }
-    return String(first)
-  }
-
-  private func libraryAlphabetSortValue(for book: ABSBook) -> String {
-    switch model.catalogSortField {
-    case .title:
-      return book.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-    case .authorName:
-      return book.media.metadata.authorName?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        ?? book.media.metadata.authors?.first?.name
-        ?? ""
-    case .authorNameLF:
-      let author = book.media.metadata.authorName?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        ?? book.media.metadata.authors?.first?.name
-        ?? ""
-      // ABS liefert den für `authorNameLF` verwendeten Schlüssel nicht in den Listendaten.
-      // Bei „Vorname Nachname“ ist das letzte Namenssegment der passende Sprungbuchstabe;
-      // bei bereits als „Nachname, Vorname“ gespeicherten Werten der Teil vor dem Komma.
-      if let comma = author.firstIndex(of: ",") {
-        return String(author[..<comma]).trimmingCharacters(in: .whitespacesAndNewlines)
-      }
-      return author
-        .split(whereSeparator: \.isWhitespace)
-        .last
-        .map(String.init)
-        ?? author
-    default:
-      return ""
-    }
+    model.catalogAlphabetLetter(for: book)
   }
 
   private func libraryAlphabetAnchorID(for letter: String) -> String {
@@ -1115,8 +1075,8 @@ private struct LibraryAlphabetSection: Identifiable {
   var id: String { letter }
 }
 
-/// Seitliche Schnellnavigation wie in Kontakte. Es werden nur Buchstaben angezeigt, für die
-/// in der aktuell nach Titel oder Autor sortierten Liste mindestens ein Buch vorhanden ist.
+/// Seitliche Schnellnavigation wie in Kontakte. Sie enthält stets den vollständigen Index und
+/// lädt bei einem Sprung fehlende Katalogseiten nach.
 private struct LibraryAlphabetQuickIndex: View {
   @EnvironmentObject private var model: AppModel
 

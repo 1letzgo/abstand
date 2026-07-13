@@ -1607,6 +1607,72 @@ final class AppModel: ObservableObject {
     }
   }
 
+  /// Buchstabe des aktuell gewählten Katalog-Sortierschlüssels für die Alphabet-Schnellnavigation.
+  func catalogAlphabetLetter(for book: ABSBook) -> String {
+    let value: String
+    switch catalogSortField {
+    case .title:
+      value = book.displayTitle
+    case .authorName:
+      value = book.media.metadata.authorName
+        ?? book.media.metadata.authors?.first?.name
+        ?? ""
+    case .authorNameLF:
+      let author = book.media.metadata.authorName
+        ?? book.media.metadata.authors?.first?.name
+        ?? ""
+      if let comma = author.firstIndex(of: ",") {
+        value = String(author[..<comma])
+      } else {
+        value = author
+          .split(whereSeparator: \.isWhitespace)
+          .last
+          .map(String.init)
+          ?? author
+      }
+    default:
+      value = ""
+    }
+    let normalized = value
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+      .uppercased()
+    guard let first = normalized.first,
+      first.unicodeScalars.contains(where: { $0.properties.isAlphabetic })
+    else {
+      return "#"
+    }
+    let letter = String(first)
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZ".contains(letter) ? letter : "#"
+  }
+
+  /// Lädt bei Bedarf weitere Katalogseiten, bis der angeforderte Alphabetabschnitt verfügbar ist.
+  /// Der ABS-Endpoint unterstützt keine Bereichsabfrage nach einem Anfangsbuchstaben; deshalb wird
+  /// die vorhandene sortierte Pagination fortgesetzt und erst danach zu dem Abschnitt gescrollt.
+  func loadCatalogPagesThroughAlphabetLetter(_ letter: String) async -> Bool {
+    guard mainTab == .library,
+      booksBrowseSection == .books,
+      [.title, .authorName, .authorNameLF].contains(catalogSortField),
+      libraryCatalogQuickFilter != .downloaded,
+      !offlineHomeUIActive
+    else {
+      return books.contains { catalogAlphabetLetter(for: $0) == letter }
+    }
+
+    if books.isEmpty || libraryTotal == 0 {
+      await reloadLibrary(reset: true)
+    }
+    while !books.contains(where: { catalogAlphabetLetter(for: $0) == letter }),
+      books.count < libraryTotal,
+      !isLoadingLibrary
+    {
+      let countBeforeLoad = books.count
+      await reloadLibrary(reset: false)
+      guard books.count > countBeforeLoad else { break }
+    }
+    return books.contains { catalogAlphabetLetter(for: $0) == letter }
+  }
+
   /// ABS erwartet `gruppe.<base64(wert)>` (vgl. Tags/Autoren / Audiobookshelf-Web-UI).
   static func catalogFilterKey(group: String, value: String) -> String {
     let b64 = Data(value.utf8).base64EncodedString()
