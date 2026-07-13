@@ -2163,13 +2163,12 @@ private enum PodcastAutoDownloadLimitInfo {
 
 private enum PodcastShowTranscriptionLanguage: String, CaseIterable, Identifiable {
   case automatic = ""
-  case german = "de-DE"
-  case englishUS = "en-US"
-  case englishUK = "en-GB"
-  case french = "fr-FR"
-  case spanish = "es-ES"
-  case italian = "it-IT"
-  case dutch = "nl-NL"
+  case german = "German"
+  case english = "English"
+  case french = "French"
+  case spanish = "Spanish"
+  case italian = "Italian"
+  case dutch = "Dutch"
 
   var id: String { rawValue }
 
@@ -2177,8 +2176,7 @@ private enum PodcastShowTranscriptionLanguage: String, CaseIterable, Identifiabl
     switch self {
     case .automatic: return "Automatic"
     case .german: return "German"
-    case .englishUS: return "English (US)"
-    case .englishUK: return "English (UK)"
+    case .english: return "English"
     case .french: return "French"
     case .spanish: return "Spanish"
     case .italian: return "Italian"
@@ -2211,14 +2209,14 @@ private struct PodcastShowTranscriptionLanguageSettingsContent: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 24)
         } else {
-          VStack(alignment: .leading, spacing: 6) {
+          VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
               SettingsCardIcon(systemName: "captions.bubble")
-              Text("Teleprompter language")
+              Text("Language")
                 .font(.body.weight(.medium))
                 .foregroundStyle(AppTheme.textPrimary)
               Spacer(minLength: 0)
-              Picker("Teleprompter language", selection: selection) {
+              Picker("Language", selection: selection) {
                 ForEach(PodcastShowTranscriptionLanguage.allCases) { language in
                   Text(language.title).tag(language.rawValue)
                 }
@@ -2227,10 +2225,6 @@ private struct PodcastShowTranscriptionLanguageSettingsContent: View {
               .pickerStyle(.menu)
               .disabled(!model.isNetworkReachable || model.podcastShowTranscriptionLanguageSaving)
             }
-            Text("Saved in the show metadata and used for on-device transcription and recap.")
-              .font(.caption)
-              .foregroundStyle(AppTheme.textSecondary)
-              .padding(.leading, 44)
           }
           .settingsCardRowFrame()
         }
@@ -2253,7 +2247,7 @@ private struct ServerAdminPodcastSettingsSection: View {
   var body: some View {
     ServerAdminScrollScreen {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-        ServerAdminSection(title: "Teleprompter") {
+        ServerAdminSection(title: "Language") {
           PodcastShowTranscriptionLanguageSettingsContent(showId: showId)
         }
 
