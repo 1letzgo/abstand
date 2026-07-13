@@ -432,16 +432,14 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   /// Session für Hintergrund / Sperrbildschirm; `setCategory` nur bei Bedarf (erneuter Aufruf kann sonst kurz unterbrechen).
-  /// `reclaimFromOtherApps`: Tonspur von anderer App zurückholen (explizites Play), nicht beim bloßen Vordergrund-Wechsel.
-  func ensureAudioSessionForPlayback(reclaimFromOtherApps: Bool = false) {
+  /// Die Rückgabe verhindert, dass die UI eine Wiedergabe signalisiert, wenn iOS die Session
+  /// nach einer Fremd-App-Unterbrechung noch nicht wieder aktivieren konnte.
+  @discardableResult
+  func ensureAudioSessionForPlayback(reclaimFromOtherApps _: Bool = false) -> Bool {
     let session = AVAudioSession.sharedInstance()
     let categoryOpts: AVAudioSession.CategoryOptions = [
       .allowBluetoothHFP, .allowBluetoothA2DP, .allowAirPlay,
     ]
-    var activeOpts: AVAudioSession.SetActiveOptions = []
-    if reclaimFromOtherApps {
-      activeOpts.insert(.notifyOthersOnDeactivation)
-    }
     do {
       if session.category != .playback || session.mode != .spokenAudio {
         try session.setCategory(
@@ -451,14 +449,24 @@ final class PlaybackController: NSObject, ObservableObject {
           options: categoryOpts
         )
       }
-      try session.setActive(true, options: activeOpts)
+      // `.notifyOthersOnDeactivation` ist ausschließlich fürs Deaktivieren bestimmt und darf
+      // nicht beim erneuten Aktivieren nach einer Unterbrechung verwendet werden.
+      try session.setActive(true)
+      return true
     } catch {
-      try? session.setCategory(
-        .playback,
-        mode: .default,
-        options: categoryOpts
-      )
-      try? session.setActive(true, options: activeOpts)
+      DebugLogCollector.shared.log("Audio session activation failed: \(error.localizedDescription)")
+      do {
+        try session.setCategory(
+          .playback,
+          mode: .default,
+          options: categoryOpts
+        )
+        try session.setActive(true)
+        return true
+      } catch {
+        DebugLogCollector.shared.log("Audio session fallback activation failed: \(error.localizedDescription)")
+        return false
+      }
     }
   }
 
@@ -1347,7 +1355,10 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Resume nach Pause, Unterbrechung oder Fremd-App: Session + Stream ggf. neu verbinden.
   private func performPlayResume() async {
     guard !Task.isCancelled else { return }
-    ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
+    guard ensureAudioSessionForPlayback(reclaimFromOtherApps: true) else {
+      syncPlayingStateFromPlayerIfNeeded()
+      return
+    }
 
     if localRoot != nil, playSessionId == nil, attemptServerPlaySessionForLocal {
       await recreatePlaySessionForLocalPlaybackIfNeeded()
@@ -1399,8 +1410,19 @@ final class PlaybackController: NSObject, ObservableObject {
 
     // Nach langer Pause / Fremd-App: oft abgelaufene Session oder stale Stream-URL.
     if await recoverStaleRemotePlaybackIfNeeded() {
-      ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
-      applyPlayingRate()
+      if ensureAudioSessionForPlayback(reclaimFromOtherApps: true) {
+        applyPlayingRate()
+        updateNowPlaying()
+        return
+      }
+    }
+
+    // Kein „spielt“-Zustand ohne tatsächlich laufende Engine: Nach einer Session-Übernahme
+    // durch eine andere App kann iOS den Start ablehnen. Der nächste Tap bleibt dadurch ein
+    // Startversuch statt fälschlich als Pause interpretiert zu werden.
+    if let stalledPlayer = player, !Self.engineIndicatesPlaying(stalledPlayer) {
+      isPlaying = false
+      pauseSleepTimer()
       updateNowPlaying()
     }
   }
