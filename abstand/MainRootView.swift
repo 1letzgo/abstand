@@ -518,7 +518,7 @@ struct MainRootView: View {
 
   private var isAlphabeticalBookIndexVisible: Bool {
     model.booksBrowseSection == .books
-      && model.catalogSortField == .title
+      && [.title, .authorName, .authorNameLF].contains(model.catalogSortField)
       && model.libraryBookCardStyle != .heroCover
   }
 
@@ -550,13 +550,43 @@ struct MainRootView: View {
   }
 
   private func libraryAlphabetLetter(for book: ABSBook) -> String {
-    let title = book.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard let first = title.uppercased().first,
+    let value = libraryAlphabetSortValue(for: book)
+    guard let first = value.uppercased().first,
       first.unicodeScalars.contains(where: { $0.properties.isAlphabetic })
     else {
       return "#"
     }
     return String(first)
+  }
+
+  private func libraryAlphabetSortValue(for book: ABSBook) -> String {
+    switch model.catalogSortField {
+    case .title:
+      return book.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    case .authorName:
+      return book.media.metadata.authorName?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        ?? book.media.metadata.authors?.first?.name
+        ?? ""
+    case .authorNameLF:
+      let author = book.media.metadata.authorName?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        ?? book.media.metadata.authors?.first?.name
+        ?? ""
+      // ABS liefert den für `authorNameLF` verwendeten Schlüssel nicht in den Listendaten.
+      // Bei „Vorname Nachname“ ist das letzte Namenssegment der passende Sprungbuchstabe;
+      // bei bereits als „Nachname, Vorname“ gespeicherten Werten der Teil vor dem Komma.
+      if let comma = author.firstIndex(of: ",") {
+        return String(author[..<comma]).trimmingCharacters(in: .whitespacesAndNewlines)
+      }
+      return author
+        .split(whereSeparator: \.isWhitespace)
+        .last
+        .map(String.init)
+        ?? author
+    default:
+      return ""
+    }
   }
 
   private func libraryAlphabetAnchorID(for letter: String) -> String {
@@ -1086,7 +1116,7 @@ private struct LibraryAlphabetSection: Identifiable {
 }
 
 /// Seitliche Schnellnavigation wie in Kontakte. Es werden nur Buchstaben angezeigt, für die
-/// in der aktuell geladenen, alphabetisch sortierten Liste mindestens ein Buch vorhanden ist.
+/// in der aktuell nach Titel oder Autor sortierten Liste mindestens ein Buch vorhanden ist.
 private struct LibraryAlphabetQuickIndex: View {
   @EnvironmentObject private var model: AppModel
 
