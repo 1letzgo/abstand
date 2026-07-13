@@ -1,3 +1,4 @@
+import Combine
 import ReadiumNavigator
 import ReadiumShared
 import SwiftUI
