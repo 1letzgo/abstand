@@ -734,12 +734,6 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
       DebugLogCollector.shared.log("layout onChange bottomInsetRevalidationTrigger newValue=\(String(describing: newValue)) selection=\(String(describing: selection))")
       reapplyScrollPosition(for: selection)
     }
-    .onChange(of: scrollTargetRevision) { _, _ in
-      guard let scrollTargetID else { return }
-      var position = ScrollPosition()
-      position.scrollTo(id: scrollTargetID, anchor: .top)
-      sectionScrollPositions[selection] = position
-    }
   }
 
   private func shouldRenderSection(_ sectionID: ID) -> Bool {
@@ -772,29 +766,39 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
   private func sectionScrollView(for sectionID: ID, screenBackground: Color) -> some View {
     // Horizontales Inset per `contentMargins` — nicht als Padding auf `scrollTargetLayout`,
     // sonst falsche Scroll-Breite (Settings-Karten ragen links aus dem Rand).
-    let base = ScrollView {
-      sectionBody(sectionID)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(
-          .top,
-          showsStrip ? 0 : AppTheme.Layout.tabTitleToHeaderBlockSpacing
-        )
-        .padding(.bottom, scrollBottomInset)
-        .background(screenBackground)
-        .scrollTargetLayout()
-    }
-    .contentMargins(.horizontal, AppTheme.Layout.tabPaddingH, for: .scrollContent)
-    .scrollPosition(scrollPositionBinding(for: sectionID))
-    .scrollContentBackground(.hidden)
-    .background(screenBackground)
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .id(sectionID)
-    .modifier(AbstandTopScrollEdgeEffectModifier(style: topScrollEdgeEffectStyle))
+    ScrollViewReader { proxy in
+      let base = ScrollView {
+        sectionBody(sectionID)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(
+            .top,
+            showsStrip ? 0 : AppTheme.Layout.tabTitleToHeaderBlockSpacing
+          )
+          .padding(.bottom, scrollBottomInset)
+          .background(screenBackground)
+          .scrollTargetLayout()
+      }
+      .contentMargins(.horizontal, AppTheme.Layout.tabPaddingH, for: .scrollContent)
+      .scrollPosition(scrollPositionBinding(for: sectionID))
+      .scrollContentBackground(.hidden)
+      .background(screenBackground)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .id(sectionID)
+      .modifier(AbstandTopScrollEdgeEffectModifier(style: topScrollEdgeEffectStyle))
+      .onChange(of: scrollTargetRevision) { _, _ in
+        guard let scrollTargetID else { return }
+        // `ScrollViewReader` löst Sprünge zu Lazy-Abschnitten zuverlässig auf, während
+        // `ScrollPosition` hier nur den gespeicherten Offset aktualisiert hat.
+        withAnimation(.easeInOut(duration: 0.22)) {
+          proxy.scrollTo(scrollTargetID, anchor: .top)
+        }
+      }
 
-    if let onRefresh {
-      base.refreshable { await onRefresh() }
-    } else {
-      base
+      if let onRefresh {
+        base.refreshable { await onRefresh() }
+      } else {
+        base
+      }
     }
   }
 }
