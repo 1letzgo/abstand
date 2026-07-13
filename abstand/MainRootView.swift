@@ -11,8 +11,6 @@ struct MainRootView: View {
   @State private var libraryRelayoutEpoch = 0
   @State private var podcastsRelayoutEpoch = 0
   @State private var ebooksRelayoutEpoch = 0
-  @State private var libraryAlphabetScrollTarget: String?
-  @State private var libraryAlphabetScrollRevision = 0
 
   var body: some View {
     let _ = model.appearanceThemeRevision
@@ -246,37 +244,18 @@ struct MainRootView: View {
   }
 
   private var booksCatalogScrollView: some View {
-    ZStack(alignment: .trailing) {
-      AbstandFixedBrowseStripSectionsLayout(
-        relayoutTrigger: libraryRelayoutEpoch,
-        bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
-        selection: model.booksBrowseSection,
-        sectionIDs: BooksBrowseSection.stripOrder(ebooksSeparateTabEnabled: model.ebooksSeparateTabEnabled),
-        scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
-          + model.nowPlayingAccessoryScrollBottomInset,
-        scrollTargetID: libraryAlphabetScrollTarget,
-        scrollTargetRevision: libraryAlphabetScrollRevision,
-        onRefresh: { await model.refreshBooksCatalog() }
-      ) {
-        booksBrowseSectionStrip
-      } sectionBody: { section in
-        booksBrowseSectionScrollContent(for: section)
-      }
-
-      if let alphabetIndexLetters {
-        LibraryAlphabetQuickIndex(letters: alphabetIndexLetters) { letter in
-          Task { @MainActor in
-            let loaded = await model.loadCatalogPagesThroughAlphabetLetter(letter)
-            guard loaded else { return }
-            libraryAlphabetScrollTarget = libraryAlphabetAnchorID(for: letter)
-            // LazyVStack braucht einen Runloop-Tick, um neu geladene Sektionen zu
-            // instantiieren, bevor ScrollViewReader die Ziel-ID finden kann.
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            libraryAlphabetScrollRevision += 1
-          }
-        }
-        .padding(.trailing, 2)
-      }
+    AbstandFixedBrowseStripSectionsLayout(
+      relayoutTrigger: libraryRelayoutEpoch,
+      bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
+      selection: model.booksBrowseSection,
+      sectionIDs: BooksBrowseSection.stripOrder(ebooksSeparateTabEnabled: model.ebooksSeparateTabEnabled),
+      scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
+        + model.nowPlayingAccessoryScrollBottomInset,
+      onRefresh: { await model.refreshBooksCatalog() }
+    ) {
+      booksBrowseSectionStrip
+    } sectionBody: { section in
+      booksBrowseSectionScrollContent(for: section)
     }
   }
 
@@ -480,7 +459,6 @@ struct MainRootView: View {
 
   private var booksCatalogBookListBody: some View {
     let rows = model.booksForDisplay()
-    let alphabeticalSections = libraryAlphabeticalSections(rows)
     return LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       if let lib = model.selectedBooksLibrary {
         TabContentSectionTitle(title:lib.name)
@@ -503,58 +481,12 @@ struct MainRootView: View {
           .padding(.vertical, 8)
       } else if model.libraryBookCardStyle == .heroCover {
         libraryHeroMultiColumnBookRows(books: rows)
-      } else if isAlphabeticalBookIndexVisible {
-        ForEach(alphabeticalSections) { section in
-          VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-            Text(section.letter)
-              .font(.title3.weight(.semibold))
-              .foregroundStyle(model.appearancePalette.textPrimary)
-              .id(libraryAlphabetAnchorID(for: section.letter))
-            ForEach(section.books) { book in
-              libraryCatalogBookCard(book)
-            }
-          }
-        }
       } else {
         ForEach(rows) { book in
           libraryCatalogBookCard(book)
         }
       }
     }
-  }
-
-  private var isAlphabeticalBookIndexVisible: Bool {
-    model.booksBrowseSection == .books
-      && [.title, .authorName, .authorNameLF].contains(model.catalogSortField)
-      && model.libraryBookCardStyle != .heroCover
-  }
-
-  private var alphabetIndexLetters: [String]? {
-    guard isAlphabeticalBookIndexVisible else { return nil }
-    return ["#"] + "ABCDEFGHIJKLMNOPQRSTUVWXYZ".map(String.init)
-  }
-
-  private func libraryAlphabeticalSections(_ books: [ABSBook]) -> [LibraryAlphabetSection] {
-    var sections: [LibraryAlphabetSection] = []
-    var indices: [String: Int] = [:]
-    for book in books {
-      let letter = libraryAlphabetLetter(for: book)
-      if let index = indices[letter] {
-        sections[index].books.append(book)
-      } else {
-        indices[letter] = sections.count
-        sections.append(LibraryAlphabetSection(letter: letter, books: [book]))
-      }
-    }
-    return sections
-  }
-
-  private func libraryAlphabetLetter(for book: ABSBook) -> String {
-    model.catalogAlphabetLetter(for: book)
-  }
-
-  private func libraryAlphabetAnchorID(for letter: String) -> String {
-    "library-alphabet-\(letter)"
   }
 
   private func libraryCatalogBookCard(_ book: ABSBook) -> some View {
@@ -1069,93 +1001,6 @@ struct MainRootView: View {
           .padding(.vertical, 8)
       }
     }
-  }
-}
-
-private struct LibraryAlphabetSection: Identifiable {
-  let letter: String
-  var books: [ABSBook]
-
-  var id: String { letter }
-}
-
-/// Seitliche Schnellnavigation wie in Kontakte. Sie enthält stets den vollständigen Index und
-/// lädt bei einem Sprung fehlende Katalogseiten nach.
-/// Drag-to-Scrub: Tap oder Finger-Entlangstreichen wie bei der iOS-Kontakte-Leiste.
-private struct LibraryAlphabetQuickIndex: View {
-  @EnvironmentObject private var model: AppModel
-
-  let letters: [String]
-  let onSelect: (String) -> Void
-
-  @State private var highlightedLetter: String?
-
-  private let cellWidth: CGFloat = 28
-  private let cellHeight: CGFloat = 16
-
-  var body: some View {
-    VStack(spacing: 0) {
-      ForEach(letters, id: \.self) { letter in
-        Text(letter)
-          .font(.caption2.weight(.bold))
-          .foregroundStyle(
-            highlightedLetter == letter
-              ? model.appearancePalette.background
-              : model.appearanceAccentColor
-          )
-          .frame(width: cellWidth, height: cellHeight)
-          .contentShape(Rectangle())
-      }
-    }
-    .padding(.vertical, 5)
-    .background(
-      Capsule().fill(.thinMaterial)
-    )
-    .overlay(alignment: .top) {
-      // Highlight-Kapsel folgt dem aktiv gedrückten Buchstaben.
-      if let highlightedLetter,
-        let idx = letters.firstIndex(of: highlightedLetter)
-      {
-        Capsule()
-          .fill(model.appearanceAccentColor)
-          .frame(width: cellWidth, height: cellHeight)
-          .offset(y: 5 + CGFloat(idx) * cellHeight)
-          .allowsHitTesting(false)
-      }
-    }
-    // Größere Touch-Fläche als der sichtbare Buchstabe — Apple-Minimum 44pt Breite.
-    .frame(width: 44)
-    .contentShape(Rectangle())
-    .gesture(dragScrubGesture)
-    .accessibilityElement(children: .contain)
-    .accessibilityLabel("Alphabetical quick navigation")
-  }
-
-  /// Drag-Geste wie iOS-Kontakte: Tap und/oder Finger-Entlangstreichen — der Buchstabe unter
-  /// dem Finger wird live gehighlighted und beim Loslassen angesprungen.
-  private var dragScrubGesture: some Gesture {
-    DragGesture(minimumDistance: 0)
-      .onChanged { value in
-        let idx = letterIndex(at: value.location.y)
-        if idx != nil {
-          highlightedLetter = letters[idx!]
-        }
-      }
-      .onEnded { value in
-        if let idx = letterIndex(at: value.location.y) {
-          onSelect(letters[idx])
-        }
-        highlightedLetter = nil
-      }
-  }
-
-  /// Mapt eine Y-Position innerhalb der Leiste auf den Buchstaben-Index.
-  private func letterIndex(at y: CGFloat) -> Int? {
-    let contentY = y - 5 // oberes Vertical-Padding abziehen
-    guard contentY >= 0 else { return nil }
-    let raw = Int(contentY / cellHeight)
-    guard raw >= 0, raw < letters.count else { return nil }
-    return raw
   }
 }
 

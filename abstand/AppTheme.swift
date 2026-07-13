@@ -688,10 +688,6 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
   let scrollBottomInset: CGFloat
   /// Home-Nav: Trailing-Toolbar bleibt beim Scrollen sichtbar (iOS 26 Scroll-Edge).
   var topScrollEdgeEffectStyle: ScrollEdgeEffectStyle?
-  /// Optionaler programmatischer Sprung innerhalb der aktuell sichtbaren Sektion.
-  var scrollTargetID: AnyHashable? = nil
-  /// Erhöhen, um auch denselben Buchstaben erneut anzuspringen.
-  var scrollTargetRevision = 0
   var onRefresh: (() async -> Void)?
   @ViewBuilder var strip: () -> Strip
   @ViewBuilder var sectionBody: (ID) -> Content
@@ -766,39 +762,29 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
   private func sectionScrollView(for sectionID: ID, screenBackground: Color) -> some View {
     // Horizontales Inset per `contentMargins` — nicht als Padding auf `scrollTargetLayout`,
     // sonst falsche Scroll-Breite (Settings-Karten ragen links aus dem Rand).
-    ScrollViewReader { proxy in
-      let base = ScrollView {
-        sectionBody(sectionID)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(
-            .top,
-            showsStrip ? 0 : AppTheme.Layout.tabTitleToHeaderBlockSpacing
-          )
-          .padding(.bottom, scrollBottomInset)
-          .background(screenBackground)
-          .scrollTargetLayout()
-      }
-      .contentMargins(.horizontal, AppTheme.Layout.tabPaddingH, for: .scrollContent)
-      .scrollPosition(scrollPositionBinding(for: sectionID))
-      .scrollContentBackground(.hidden)
-      .background(screenBackground)
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .id(sectionID)
-      .modifier(AbstandTopScrollEdgeEffectModifier(style: topScrollEdgeEffectStyle))
-      .onChange(of: scrollTargetRevision) { _, _ in
-        guard let scrollTargetID else { return }
-        // `ScrollViewReader` löst Sprünge zu Lazy-Abschnitten zuverlässig auf, während
-        // `ScrollPosition` hier nur den gespeicherten Offset aktualisiert hat.
-        withAnimation(.easeInOut(duration: 0.22)) {
-          proxy.scrollTo(scrollTargetID, anchor: .top)
-        }
-      }
+    let base = ScrollView {
+      sectionBody(sectionID)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(
+          .top,
+          showsStrip ? 0 : AppTheme.Layout.tabTitleToHeaderBlockSpacing
+        )
+        .padding(.bottom, scrollBottomInset)
+        .background(screenBackground)
+        .scrollTargetLayout()
+    }
+    .contentMargins(.horizontal, AppTheme.Layout.tabPaddingH, for: .scrollContent)
+    .scrollPosition(scrollPositionBinding(for: sectionID))
+    .scrollContentBackground(.hidden)
+    .background(screenBackground)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .id(sectionID)
+    .modifier(AbstandTopScrollEdgeEffectModifier(style: topScrollEdgeEffectStyle))
 
-      if let onRefresh {
-        base.refreshable { await onRefresh() }
-      } else {
-        base
-      }
+    if let onRefresh {
+      base.refreshable { await onRefresh() }
+    } else {
+      base
     }
   }
 }
