@@ -3372,8 +3372,8 @@ struct LibraryBookListCard: View {
   var showsPlaybackControls = true
   var showsDownloadStatus = true
   var opensDetailOnTap = true
-  /// Optionaler Primär-Tap, z. B. „Weiterlesen“ aus dem Continue-Reading-Regal.
-  var onOpen: (() -> Void)?
+  /// Optionaler Cover-Tap, z. B. „Weiterlesen“ aus dem Continue-Reading-Regal.
+  var onCoverOpen: (() -> Void)?
   /// Offline-Downloadliste: immer kompakte Zeilen, unabhängig von Settings.
   var forceCompactListStyle = false
   /// Autor-Detail: Cover fest 1:1, Mitte beschnitten.
@@ -3409,7 +3409,7 @@ struct LibraryBookListCard: View {
         showsPlaybackControls: showsPlaybackControls,
         showsDownloadStatus: showsDownloadStatus,
         opensDetailOnTap: opensDetailOnTap,
-        onOpen: onOpen,
+        onCoverOpen: onCoverOpen,
         usesSquareCenterCropCover: usesSquareCenterCropCover,
         usesEbookProgressDisplay: usesEbookProgressDisplay
       )
@@ -3736,7 +3736,7 @@ struct BookRowCard: View {
   var showsPlaybackControls = true
   var showsDownloadStatus = true
   var opensDetailOnTap = true
-  var onOpen: (() -> Void)?
+  var onCoverOpen: (() -> Void)?
   /// Autor-Detail: Cover fest 1:1, Mitte beschnitten.
   var usesSquareCenterCropCover = false
   /// eBooks-/Supplementary-Tab: Lesefortschritt statt Hörbuch-Dauer/-Fortschritt anzeigen.
@@ -3763,7 +3763,7 @@ struct BookRowCard: View {
     showsPlaybackControls: Bool = true,
     showsDownloadStatus: Bool = true,
     opensDetailOnTap: Bool = true,
-    onOpen: (() -> Void)? = nil,
+    onCoverOpen: (() -> Void)? = nil,
     usesSquareCenterCropCover: Bool = false,
     usesEbookProgressDisplay: Bool = false
   ) {
@@ -3773,7 +3773,7 @@ struct BookRowCard: View {
     self.showsPlaybackControls = showsPlaybackControls
     self.showsDownloadStatus = showsDownloadStatus
     self.opensDetailOnTap = opensDetailOnTap
-    self.onOpen = onOpen
+    self.onCoverOpen = onCoverOpen
     self.usesSquareCenterCropCover = usesSquareCenterCropCover
     self.usesEbookProgressDisplay = usesEbookProgressDisplay
     self.model = model
@@ -3839,11 +3839,18 @@ struct BookRowCard: View {
       cardColor: AppTheme.card,
       showsBottomProgressBar: showsBottomProgressBar,
       progressValue: bottomProgressValue,
-      openDetails: onOpen ?? (opensDetailOnTap ? { showDetail = true } : nil)
+      openDetails: opensDetailOnTap ? { showDetail = true } : nil
     ) {
       HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
         Group {
-          if showsAudiobookPlayControl {
+          if let onCoverOpen {
+            Button(action: onCoverOpen) {
+              libraryRowCoverWithPlayBadge
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Continue reading")
+            .accessibilityHint("Opens this eBook at your reading position.")
+          } else if showsAudiobookPlayControl {
             Button {
               Task { await model.play(book: book) }
             } label: {
@@ -3868,8 +3875,8 @@ struct BookRowCard: View {
     }
     .accessibilityElement(children: .contain)
     .accessibilityHint(
-      onOpen != nil
-        ? "Opens this eBook at your reading position."
+      onCoverOpen != nil
+        ? "Cover opens this eBook at your reading position. The rest opens book details."
         : opensDetailOnTap
           ? "Opens book details. Play button starts playback."
           : "Play button starts playback."

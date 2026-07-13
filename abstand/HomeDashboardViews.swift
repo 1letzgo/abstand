@@ -242,7 +242,7 @@ struct StartDashboardView: View {
                 model: model,
                 showEbookBadge: true,
                 showsPlaybackControls: false,
-                onOpen: {
+                onCoverOpen: {
                   Task { await model.openAttachedEbook(for: book) }
                 },
                 forceCompactListStyle: true,
