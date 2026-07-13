@@ -6,21 +6,19 @@ enum EpubReaderTheme: String, CaseIterable {
   case sepia
   case dark
 
-  /// Nächstes Theme (Hell → Sepia → Dunkel).
-  func next() -> EpubReaderTheme {
+  var themeToolbarIcon: String {
     switch self {
-    case .light: return .sepia
-    case .sepia: return .dark
-    case .dark: return .light
+    case .light: return "sun.max"
+    case .sepia: return "text.page"
+    case .dark: return "moon"
     }
   }
 
-  /// Symbol für den Theme-Button (zeigt das nächste Theme an).
-  var nextThemeToolbarIcon: String {
-    switch next() {
-    case .light: return "sun.max.fill"
-    case .sepia: return "text.page.fill"
-    case .dark: return "moon.fill"
+  var displayName: String {
+    switch self {
+    case .light: return "Light"
+    case .sepia: return "Sepia"
+    case .dark: return "Dark"
     }
   }
 }
@@ -182,18 +180,6 @@ struct EbookDownloadMeta: Codable {
   let title: String?
 }
 
-/// Ein lokales, seitengenaues Lesezeichen. Es wird bewusst nicht mit dem Server synchronisiert.
-struct EbookReaderBookmark: Codable, Identifiable, Hashable {
-  let id: UUID
-  let locatorJSON: String
-  let label: String
-  let createdAt: Date
-
-  func locator() -> Locator? {
-    try? Locator(jsonString: locatorJSON)
-  }
-}
-
 /// Lokale E-Book-Dateien (EPUB/PDF) pro Account; Lesestand pro angemeldetem User.
 enum EbookLocalStore {
   private static let fm = FileManager.default
@@ -238,13 +224,6 @@ enum EbookLocalStore {
   ) -> URL {
     readingProgressDir(account: account, userId: userId)
       .appendingPathComponent("\(libraryItemId).\(format.rawValue).pages.json", isDirectory: false)
-  }
-
-  private static func bookmarksFileURL(
-    account: URL, userId: String, libraryItemId: String, format: ABSEbookFormat
-  ) -> URL {
-    readingProgressDir(account: account, userId: userId)
-      .appendingPathComponent("\(libraryItemId).\(format.rawValue).bookmarks.json", isDirectory: false)
   }
 
   private static func migrateLegacyGlobalReadingProgressIfNeeded(account: URL, userId: String) {
@@ -395,57 +374,6 @@ enum EbookLocalStore {
       account: session.account, userId: session.userId, libraryItemId: libraryItemId, format: format)
     try? fm.removeItem(at: locatorURL)
     clearPageProgress(libraryItemId: libraryItemId, format: format)
-  }
-
-  static func loadBookmarks(libraryItemId: String, format: ABSEbookFormat) -> [EbookReaderBookmark] {
-    guard let session = requireSession() else { return [] }
-    let url = bookmarksFileURL(
-      account: session.account, userId: session.userId, libraryItemId: libraryItemId, format: format)
-    guard let data = try? Data(contentsOf: url),
-      let bookmarks = try? ABSJSON.decoder().decode([EbookReaderBookmark].self, from: data)
-    else { return [] }
-    return bookmarks.sorted { $0.createdAt > $1.createdAt }
-  }
-
-  @discardableResult
-  static func saveBookmark(
-    _ locator: Locator, label: String, libraryItemId: String, format: ABSEbookFormat
-  ) -> [EbookReaderBookmark] {
-    guard let session = requireSession(),
-      let locatorJSON = try? locator.jsonString()
-    else { return loadBookmarks(libraryItemId: libraryItemId, format: format) }
-    let bookmark = EbookReaderBookmark(
-      id: UUID(),
-      locatorJSON: locatorJSON,
-      label: label,
-      createdAt: Date()
-    )
-    let bookmarks = ([bookmark] + loadBookmarks(libraryItemId: libraryItemId, format: format))
-      .sorted { $0.createdAt > $1.createdAt }
-      .prefix(50)
-    let url = bookmarksFileURL(
-      account: session.account, userId: session.userId, libraryItemId: libraryItemId, format: format)
-    if let data = try? ABSJSON.encoder().encode(Array(bookmarks)) {
-      try? data.write(to: url, options: .atomic)
-    }
-    return Array(bookmarks)
-  }
-
-  @discardableResult
-  static func deleteBookmark(
-    id: UUID, libraryItemId: String, format: ABSEbookFormat
-  ) -> [EbookReaderBookmark] {
-    guard let session = requireSession() else { return [] }
-    let bookmarks = loadBookmarks(libraryItemId: libraryItemId, format: format)
-      .filter { $0.id != id }
-    let url = bookmarksFileURL(
-      account: session.account, userId: session.userId, libraryItemId: libraryItemId, format: format)
-    if bookmarks.isEmpty {
-      try? fm.removeItem(at: url)
-    } else if let data = try? ABSJSON.encoder().encode(bookmarks) {
-      try? data.write(to: url, options: .atomic)
-    }
-    return bookmarks
   }
 
   /// Buchweite Seiten (EPUB, gerendert) — für Listen-Metadaten und Resume-Hilfe.
