@@ -2123,9 +2123,14 @@ struct NowPlayingDetailView: View {
           isRecapActive = false
           return
         }
-        isRecapActive = true
-        coverPanel = .artwork
         Task { @MainActor in
+          // Die Teleprompter-Card hat im Header Vorrang. Zuerst ihre Session beenden,
+          // sonst bleibt sie trotz aktivem Recap-Flag sichtbar.
+          if transcription.isTeleprompterModeActive {
+            await transcription.disable()
+          }
+          isRecapActive = true
+          coverPanel = .artwork
           await transcription.generateRecap(player: player)
         }
       }
@@ -2141,6 +2146,7 @@ struct NowPlayingDetailView: View {
       )
     case .readAlong:
       ReadAlongPanelButton(readAlongDownloadWarningPresented: $readAlongDownloadWarningPresented) {
+        isRecapActive = false
         coverPanel = .artwork
       }
     }
