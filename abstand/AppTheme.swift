@@ -688,6 +688,10 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
   let scrollBottomInset: CGFloat
   /// Home-Nav: Trailing-Toolbar bleibt beim Scrollen sichtbar (iOS 26 Scroll-Edge).
   var topScrollEdgeEffectStyle: ScrollEdgeEffectStyle?
+  /// Optionaler programmatischer Sprung innerhalb der aktuell sichtbaren Sektion.
+  var scrollTargetID: AnyHashable? = nil
+  /// Erhöhen, um auch denselben Buchstaben erneut anzuspringen.
+  var scrollTargetRevision = 0
   var onRefresh: (() async -> Void)?
   @ViewBuilder var strip: () -> Strip
   @ViewBuilder var sectionBody: (ID) -> Content
@@ -729,6 +733,12 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
     .onChange(of: bottomInsetRevalidationTrigger) { _, newValue in
       DebugLogCollector.shared.log("layout onChange bottomInsetRevalidationTrigger newValue=\(String(describing: newValue)) selection=\(String(describing: selection))")
       reapplyScrollPosition(for: selection)
+    }
+    .onChange(of: scrollTargetRevision) { _, _ in
+      guard let scrollTargetID else { return }
+      var position = ScrollPosition()
+      position.scrollTo(id: scrollTargetID, anchor: .top)
+      sectionScrollPositions[selection] = position
     }
   }
 
