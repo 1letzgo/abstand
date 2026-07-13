@@ -271,7 +271,7 @@ struct MainRootView: View {
             libraryAlphabetScrollRevision += 1
           }
         }
-        .padding(.trailing, 3)
+        .padding(.trailing, 2)
       }
     }
   }
@@ -1077,32 +1077,81 @@ private struct LibraryAlphabetSection: Identifiable {
 
 /// Seitliche Schnellnavigation wie in Kontakte. Sie enthält stets den vollständigen Index und
 /// lädt bei einem Sprung fehlende Katalogseiten nach.
+/// Drag-to-Scrub: Tap oder Finger-Entlangstreichen wie bei der iOS-Kontakte-Leiste.
 private struct LibraryAlphabetQuickIndex: View {
   @EnvironmentObject private var model: AppModel
 
   let letters: [String]
   let onSelect: (String) -> Void
 
+  @State private var highlightedLetter: String?
+
+  private let cellWidth: CGFloat = 28
+  private let cellHeight: CGFloat = 16
+
   var body: some View {
     VStack(spacing: 0) {
       ForEach(letters, id: \.self) { letter in
-        Button {
-          onSelect(letter)
-        } label: {
-          Text(letter)
-            .font(.caption2.weight(.bold))
-            .foregroundStyle(model.appearanceAccentColor)
-            .frame(width: 26, height: 14)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Jump to \(letter)")
+        Text(letter)
+          .font(.caption2.weight(.bold))
+          .foregroundStyle(
+            highlightedLetter == letter
+              ? model.appearancePalette.background
+              : model.appearanceAccentColor
+          )
+          .frame(width: cellWidth, height: cellHeight)
+          .contentShape(Rectangle())
       }
     }
     .padding(.vertical, 5)
-    .background(.thinMaterial, in: Capsule())
+    .background(
+      Capsule().fill(.thinMaterial)
+    )
+    .overlay(alignment: .top) {
+      // Highlight-Kapsel folgt dem aktiv gedrückten Buchstaben.
+      if let highlightedLetter,
+        let idx = letters.firstIndex(of: highlightedLetter)
+      {
+        Capsule()
+          .fill(model.appearanceAccentColor)
+          .frame(width: cellWidth, height: cellHeight)
+          .offset(y: 5 + CGFloat(idx) * cellHeight)
+          .allowsHitTesting(false)
+      }
+    }
+    // Größere Touch-Fläche als der sichtbare Buchstabe — Apple-Minimum 44pt Breite.
+    .frame(width: 44)
+    .contentShape(Rectangle())
+    .gesture(dragScrubGesture)
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Alphabetical quick navigation")
+  }
+
+  /// Drag-Geste wie iOS-Kontakte: Tap und/oder Finger-Entlangstreichen — der Buchstabe unter
+  /// dem Finger wird live gehighlighted und beim Loslassen angesprungen.
+  private var dragScrubGesture: some Gesture {
+    DragGesture(minimumDistance: 0)
+      .onChanged { value in
+        let idx = letterIndex(at: value.location.y)
+        if idx != nil {
+          highlightedLetter = letters[idx!]
+        }
+      }
+      .onEnded { value in
+        if let idx = letterIndex(at: value.location.y) {
+          onSelect(letters[idx])
+        }
+        highlightedLetter = nil
+      }
+  }
+
+  /// Mapt eine Y-Position innerhalb der Leiste auf den Buchstaben-Index.
+  private func letterIndex(at y: CGFloat) -> Int? {
+    let contentY = y - 5 // oberes Vertical-Padding abziehen
+    guard contentY >= 0 else { return nil }
+    let raw = Int(contentY / cellHeight)
+    guard raw >= 0, raw < letters.count else { return nil }
+    return raw
   }
 }
 
