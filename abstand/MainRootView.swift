@@ -266,9 +266,13 @@ struct MainRootView: View {
       if let alphabetIndexLetters {
         LibraryAlphabetQuickIndex(letters: alphabetIndexLetters) { letter in
           Task { @MainActor in
-            guard await model.loadCatalogPagesThroughAlphabetLetter(letter) else { return }
+            DebugLogCollector.shared.log("alphabet onSelect letter=\(letter) START")
+            let loaded = await model.loadCatalogPagesThroughAlphabetLetter(letter)
+            DebugLogCollector.shared.log("alphabet onSelect letter=\(letter) loaded=\(loaded) booksCount=\(model.booksForDisplay().count)")
+            guard loaded else { return }
             libraryAlphabetScrollTarget = libraryAlphabetAnchorID(for: letter)
             libraryAlphabetScrollRevision += 1
+            DebugLogCollector.shared.log("alphabet onSelect letter=\(letter) scrollTarget=\(libraryAlphabetAnchorID(for: letter)) revision=\(libraryAlphabetScrollRevision)")
           }
         }
         .padding(.trailing, 2)

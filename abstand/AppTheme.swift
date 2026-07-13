@@ -787,6 +787,7 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
       .modifier(AbstandTopScrollEdgeEffectModifier(style: topScrollEdgeEffectStyle))
       .onChange(of: scrollTargetRevision) { _, _ in
         guard let scrollTargetID else { return }
+        DebugLogCollector.shared.log("layout onChange scrollTargetRevision targetID=\(scrollTargetID) sectionID=\(sectionID)")
         // `ScrollViewReader` löst Sprünge zu Lazy-Abschnitten zuverlässig auf, während
         // `ScrollPosition` hier nur den gespeicherten Offset aktualisiert hat.
         withAnimation(.easeInOut(duration: 0.22)) {
