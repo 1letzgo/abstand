@@ -11,6 +11,8 @@ struct MainRootView: View {
   @State private var libraryRelayoutEpoch = 0
   @State private var podcastsRelayoutEpoch = 0
   @State private var ebooksRelayoutEpoch = 0
+  @State private var libraryAlphabetScrollTarget: String?
+  @State private var libraryAlphabetScrollRevision = 0
 
   var body: some View {
     let _ = model.appearanceThemeRevision
@@ -244,18 +246,30 @@ struct MainRootView: View {
   }
 
   private var booksCatalogScrollView: some View {
-    AbstandFixedBrowseStripSectionsLayout(
-      relayoutTrigger: libraryRelayoutEpoch,
-      bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
-      selection: model.booksBrowseSection,
-      sectionIDs: BooksBrowseSection.stripOrder(ebooksSeparateTabEnabled: model.ebooksSeparateTabEnabled),
-      scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
-        + model.nowPlayingAccessoryScrollBottomInset,
-      onRefresh: { await model.refreshBooksCatalog() }
-    ) {
-      booksBrowseSectionStrip
-    } sectionBody: { section in
-      booksBrowseSectionScrollContent(for: section)
+    ZStack(alignment: .trailing) {
+      AbstandFixedBrowseStripSectionsLayout(
+        relayoutTrigger: libraryRelayoutEpoch,
+        bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
+        selection: model.booksBrowseSection,
+        sectionIDs: BooksBrowseSection.stripOrder(ebooksSeparateTabEnabled: model.ebooksSeparateTabEnabled),
+        scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
+          + model.nowPlayingAccessoryScrollBottomInset,
+        scrollTargetID: libraryAlphabetScrollTarget,
+        scrollTargetRevision: libraryAlphabetScrollRevision,
+        onRefresh: { await model.refreshBooksCatalog() }
+      ) {
+        booksBrowseSectionStrip
+      } sectionBody: { section in
+        booksBrowseSectionScrollContent(for: section)
+      }
+
+      if let alphabetIndexLetters {
+        LibraryAlphabetQuickIndex(letters: alphabetIndexLetters) { letter in
+          libraryAlphabetScrollTarget = libraryAlphabetAnchorID(for: letter)
+          libraryAlphabetScrollRevision += 1
+        }
+        .padding(.trailing, 3)
+      }
     }
   }
 
@@ -459,6 +473,7 @@ struct MainRootView: View {
 
   private var booksCatalogBookListBody: some View {
     let rows = model.booksForDisplay()
+    let alphabeticalSections = libraryAlphabeticalSections(rows)
     return LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       if let lib = model.selectedBooksLibrary {
         TabContentSectionTitle(title:lib.name)
@@ -481,12 +496,71 @@ struct MainRootView: View {
           .padding(.vertical, 8)
       } else if model.libraryBookCardStyle == .heroCover {
         libraryHeroMultiColumnBookRows(books: rows)
+      } else if isAlphabeticalBookIndexVisible {
+        ForEach(alphabeticalSections) { section in
+          VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+            Text(section.letter)
+              .font(.title3.weight(.semibold))
+              .foregroundStyle(model.appearancePalette.textPrimary)
+              .id(libraryAlphabetAnchorID(for: section.letter))
+            ForEach(section.books) { book in
+              libraryCatalogBookCard(book)
+            }
+          }
+        }
       } else {
         ForEach(rows) { book in
           libraryCatalogBookCard(book)
         }
       }
     }
+  }
+
+  private var isAlphabeticalBookIndexVisible: Bool {
+    model.booksBrowseSection == .books
+      && model.catalogSortField == .title
+      && model.libraryBookCardStyle != .heroCover
+  }
+
+  private var alphabetIndexLetters: [String]? {
+    guard isAlphabeticalBookIndexVisible else { return nil }
+    let letters = libraryAlphabeticalSections(model.booksForDisplay()).map(\.letter)
+    return letters.count > 1 ? letters.sorted(by: alphabetIndexOrder) : nil
+  }
+
+  private func alphabetIndexOrder(_ lhs: String, _ rhs: String) -> Bool {
+    if lhs == "#" { return rhs != "#" }
+    if rhs == "#" { return false }
+    return lhs.localizedStandardCompare(rhs) == .orderedAscending
+  }
+
+  private func libraryAlphabeticalSections(_ books: [ABSBook]) -> [LibraryAlphabetSection] {
+    var sections: [LibraryAlphabetSection] = []
+    var indices: [String: Int] = [:]
+    for book in books {
+      let letter = libraryAlphabetLetter(for: book)
+      if let index = indices[letter] {
+        sections[index].books.append(book)
+      } else {
+        indices[letter] = sections.count
+        sections.append(LibraryAlphabetSection(letter: letter, books: [book]))
+      }
+    }
+    return sections
+  }
+
+  private func libraryAlphabetLetter(for book: ABSBook) -> String {
+    let title = book.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let first = title.uppercased().first,
+      first.unicodeScalars.contains(where: { $0.properties.isAlphabetic })
+    else {
+      return "#"
+    }
+    return String(first)
+  }
+
+  private func libraryAlphabetAnchorID(for letter: String) -> String {
+    "library-alphabet-\(letter)"
   }
 
   private func libraryCatalogBookCard(_ book: ABSBook) -> some View {
@@ -1001,6 +1075,44 @@ struct MainRootView: View {
           .padding(.vertical, 8)
       }
     }
+  }
+}
+
+private struct LibraryAlphabetSection: Identifiable {
+  let letter: String
+  var books: [ABSBook]
+
+  var id: String { letter }
+}
+
+/// Seitliche Schnellnavigation wie in Kontakte. Es werden nur Buchstaben angezeigt, für die
+/// in der aktuell geladenen, alphabetisch sortierten Liste mindestens ein Buch vorhanden ist.
+private struct LibraryAlphabetQuickIndex: View {
+  @EnvironmentObject private var model: AppModel
+
+  let letters: [String]
+  let onSelect: (String) -> Void
+
+  var body: some View {
+    VStack(spacing: 0) {
+      ForEach(letters, id: \.self) { letter in
+        Button {
+          onSelect(letter)
+        } label: {
+          Text(letter)
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(model.appearanceAccentColor)
+            .frame(width: 26, height: 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Jump to \(letter)")
+      }
+    }
+    .padding(.vertical, 5)
+    .background(.thinMaterial, in: Capsule())
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Alphabetical quick navigation")
   }
 }
 
