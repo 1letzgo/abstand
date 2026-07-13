@@ -789,7 +789,7 @@ private struct ReaderTableOfContentsSheet: View {
     NavigationStack {
       List {
         ForEach(links, id: \.self) { link in
-          tableOfContentsRow(link)
+          ReaderTableOfContentsRow(link: link, onSelect: onSelect)
         }
       }
       .navigationTitle("Table of contents")
@@ -802,32 +802,40 @@ private struct ReaderTableOfContentsSheet: View {
     }
   }
 
-  @ViewBuilder
-  private func tableOfContentsRow(_ link: ReadiumShared.Link) -> some View {
+}
+
+/// Eigenständiger View-Typ statt rekursivem `some View`-Helper.
+/// Damit kann Swift den verschachtelten Inhaltsbaum ohne zyklischen Opaque-Type aufbauen.
+private struct ReaderTableOfContentsRow: View {
+  let link: ReadiumShared.Link
+  let onSelect: (ReadiumShared.Link) -> Void
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
     if link.children.isEmpty {
       Button {
         onSelect(link)
         dismiss()
       } label: {
-        Text(tableOfContentsTitle(for: link))
+        Text(title)
       }
     } else {
       DisclosureGroup {
         ForEach(link.children, id: \.self) { child in
-          tableOfContentsRow(child)
+          ReaderTableOfContentsRow(link: child, onSelect: onSelect)
         }
       } label: {
         Button {
           onSelect(link)
           dismiss()
         } label: {
-          Text(tableOfContentsTitle(for: link))
+          Text(title)
         }
       }
     }
   }
 
-  private func tableOfContentsTitle(for link: ReadiumShared.Link) -> String {
+  private var title: String {
     let title = link.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return title.isEmpty ? link.href : title
   }
