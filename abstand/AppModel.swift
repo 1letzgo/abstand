@@ -6731,7 +6731,22 @@ final class AppModel: ObservableObject {
     podcastMaxEpisodesToKeep = item.media.maxEpisodesToKeep ?? 0
     podcastMaxNewEpisodesToDownload = item.media.maxNewEpisodesToDownload ?? 3
     podcastShowTranscriptionLanguageShowId = showId
-    podcastShowTranscriptionLanguage = item.media.metadata.language ?? ""
+    podcastShowTranscriptionLanguage = Self.podcastShowLanguageSettingValue(
+      from: item.media.metadata.language)
+  }
+
+  /// Bestehende ISO-/BCP-47-Werte aus dem Server für die menschenlesbare Settings-Auswahl normalisieren.
+  private static func podcastShowLanguageSettingValue(from raw: String?) -> String {
+    let language = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    switch language.lowercased() {
+    case "de", "de-de": return "German"
+    case "en", "en-us", "en-gb": return "English"
+    case "fr", "fr-fr": return "French"
+    case "es", "es-es": return "Spanish"
+    case "it", "it-it": return "Italian"
+    case "nl", "nl-nl": return "Dutch"
+    default: return language
+    }
   }
 
   private func clearPodcastAutoDownloadSettingsDraft() {
