@@ -620,7 +620,12 @@ struct ReadiumReaderView: View {
       }
       bookmarks = EbookLocalStore.loadBookmarks(libraryItemId: libraryItemId, format: format)
       if let navigator = vc as? Navigator {
-        tableOfContents = await navigator.publication.tableOfContents().getOrNil() ?? []
+        switch await navigator.publication.tableOfContents() {
+        case let .success(links):
+          tableOfContents = links
+        case .failure:
+          tableOfContents = []
+        }
       } else {
         tableOfContents = []
       }

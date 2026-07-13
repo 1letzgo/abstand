@@ -242,11 +242,11 @@ struct StartDashboardView: View {
                 model: model,
                 showEbookBadge: true,
                 showsPlaybackControls: false,
-                forceCompactListStyle: true,
-                usesEbookProgressDisplay: true,
                 onOpen: {
                   Task { await model.openAttachedEbook(for: book) }
-                }
+                },
+                forceCompactListStyle: true,
+                usesEbookProgressDisplay: true
               )
             } else {
               LibraryBookListCard(
