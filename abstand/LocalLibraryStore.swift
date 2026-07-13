@@ -755,6 +755,42 @@ enum LocalLibraryQueries {
     return (try? context.fetch(descriptor))?.first?.toABSBookDetail()
   }
 
+  /// Voller lokaler Katalog aus `LocalBook`-Reihen (Superset — mehr als `LocalCatalogEntry`).
+  /// Sortierung client-seitig; Felder die nicht auf `LocalBook` liegen (progress, random, etc.)
+  /// fallen auf `\.title` zurück und werden vom Server-Reload korrigiert.
+  static func allBooks(
+    context: ModelContext, libraryId: String,
+    sortField: CatalogSortField, descending: Bool
+  ) -> [ABSBook] {
+    let lid = libraryId
+    var descriptor = FetchDescriptor<LocalBook>(
+      predicate: #Predicate { $0.libraryId == lid },
+      sortBy: [localBookSortDescriptor(sortField, descending)]
+    )
+    descriptor.fetchLimit = 0
+    let rows = (try? context.fetch(descriptor)) ?? []
+    return decodeLocalBookRows(rows)
+  }
+
+  /// Mappt `CatalogSortField` auf einen `SortDescriptor<LocalBook>`.
+  /// Felder die nicht direkt auf `LocalBook` gespeichert sind, fallen auf `\.title` zurück.
+  private static func localBookSortDescriptor(
+    _ sortField: CatalogSortField, _ descending: Bool
+  ) -> SortDescriptor<LocalBook> {
+    switch sortField {
+    case .title:
+      return SortDescriptor(\.title, order: descending ? .reverse : .forward)
+    case .authorName, .authorNameLF:
+      return SortDescriptor(\.authorName, order: descending ? .reverse : .forward)
+    case .addedAt:
+      return SortDescriptor(\.addedAt, order: descending ? .reverse : .forward)
+    case .duration:
+      return SortDescriptor(\.duration, order: descending ? .reverse : .forward)
+    default:
+      return SortDescriptor(\.title, order: descending ? .reverse : .forward)
+    }
+  }
+
   /// Bücher zu einer Menge von IDs aus der geteilten `LocalBook`-Tabelle nachladen (für `LocalSeries`/
   /// `LocalCollection`, die nur `bookIds` statt eingebetteter Kopien speichern).
   private static func booksById(context: ModelContext, ids: [String]) -> [String: ABSBook] {

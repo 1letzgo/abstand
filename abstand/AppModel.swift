@@ -4745,6 +4745,30 @@ final class AppModel: ObservableObject {
     }
   }
 
+  /// Lädt den VOLLSTÄNDIGEN Katalog aus der lokalen SwiftData-DB (`LocalBook`-Superset),
+  /// client-seitig sortiert. Keine Pagination, kein Server-Roundtrip.
+  /// Wird vor dem Server-Reload aufgerufen, damit die Liste sofort vollständig steht.
+  private func loadLibraryFromLocalStore() {
+    guard let context = currentLocalLibraryMainContext(),
+      let libId = selectedBooksLibrary?.id else { return }
+    let localBooks = LocalLibraryQueries.allBooks(
+      context: context, libraryId: libId,
+      sortField: catalogSortField, descending: catalogSortDescending
+    )
+    guard !localBooks.isEmpty else { return }
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction) {
+      books = localBooks
+      libraryTotal = localBooks.count
+      // Lokale Quelle ist komplett — keine serverseitige Pagination mehr nötig.
+      // `libraryPage` hochsetzen, damit `loadMoreIfNeeded` (books.count < libraryTotal)
+      // nicht erneut Server-Seiten anfordert, solange der Refresh noch läuft.
+      libraryPage = max(1, (localBooks.count + Self.libraryCatalogPageLimit - 1)
+        / Self.libraryCatalogPageLimit)
+    }
+  }
+
   private func browseEbooksSortKey() -> (sort: String, descending: Bool) {
     let descending = catalogSortField == .random ? false : catalogSortDescending
     return (catalogSortField.apiSortParameter, descending)
@@ -4879,8 +4903,18 @@ final class AppModel: ObservableObject {
   /// verlieren. Bei echtem Sort-/Filter-/Bibliothekswechsel bleibt der destruktive Wipe (Default) korrekt,
   /// weil alte Seiten dort ohnehin nicht mehr zur neuen Reihenfolge passen.
   func reloadLibrary(reset: Bool, preserveOtherCachedPages: Bool = false) async {
-    guard let c = client, let lib = selectedBooksLibrary else {
+    guard let lib = selectedBooksLibrary else {
       await loadStartDashboard()
+      return
+    }
+    // NEU: Lokale DB als Primärquelle — füllt `books` sofort komplett (alle Bücher, client-seitig
+    // sortiert). Der Server-Refresh unten aktualisiert/ergänzt nur noch; offline bleibt die Liste
+    // trotzdem vollständig sichtbar.
+    if reset {
+      loadLibraryFromLocalStore()
+    }
+    guard let c = client else {
+      if startShelves.isEmpty { await loadStartDashboard() }
       return
     }
     if !isNetworkReachable {
@@ -4892,9 +4926,6 @@ final class AppModel: ObservableObject {
     defer { isLoadingLibrary = false }
     let ascending = catalogSortField == .random ? true : !catalogSortDescending
     let sortKey = catalogSortField.apiSortParameter
-    if reset, books.isEmpty {
-      restoreBooksCatalogAndHomeFromLocalStore(libraryIdOverride: lib.id)
-    }
     do {
       if reset {
         libraryPage = 0
