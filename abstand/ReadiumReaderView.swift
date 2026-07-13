@@ -60,11 +60,11 @@ struct ReadiumReaderView: View {
   }
 
   private var readerChromeForeground: SwiftUI.Color {
-    readerTheme == .dark ? AppTheme.textPrimary : .primary
+    readerTheme == .dark ? .white : .primary
   }
 
   private var readerChromeSecondary: SwiftUI.Color {
-    readerTheme == .dark ? AppTheme.textSecondary : .secondary
+    readerTheme == .dark ? .white.opacity(0.72) : .secondary
   }
 
   var body: some View {
@@ -288,6 +288,7 @@ struct ReadiumReaderView: View {
         .accessibilityLabel("Reader options")
       }
       .foregroundStyle(readerChromeForeground)
+      .tint(readerChromeForeground)
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 10)
