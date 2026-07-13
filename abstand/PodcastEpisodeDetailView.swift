@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -282,12 +283,27 @@ struct PodcastEpisodeDetailView: View {
     return formatPlaybackTime(sec)
   }
 
+  /// Der Server liefert Veröffentlichungsdaten häufig als ISO-8601-Zeitstempel.
+  /// Das Kalenderdatum wird direkt aus dem Wert übernommen, damit keine Zeitzonen-
+  /// umrechnung den angezeigten Tag verändert.
+  private func episodePublishedDateLabel(_ rawValue: String?) -> String? {
+    guard let value = trimmedMetaValue(rawValue) else { return nil }
+    let datePrefix = String(value.prefix(10))
+    guard datePrefix.range(
+      of: #"^\d{4}-\d{2}-\d{2}$"#,
+      options: .regularExpression
+    ) != nil else {
+      return value
+    }
+    return datePrefix
+  }
+
   private func detailBelowPlaySection(_ d: ABSPodcastEpisodeExpandedDetail) -> some View {
     let isFinished = prog?.isFinished == true
     let episodeText = episodePlainDescription(d)
     let showNotesText = episodePlainShowNotes(d)
     let subtitle = trimmedMetaValue(d.subtitle)
-    let publishedLine = trimmedMetaValue(d.pubDate)
+    let publishedLine = episodePublishedDateLabel(d.pubDate)
     let categories = resolvedCategories(d)
 
     return VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
