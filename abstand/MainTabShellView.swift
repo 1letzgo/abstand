@@ -45,7 +45,9 @@ private struct FloatingTabBottomAccessoryModifier: ViewModifier {
     // `MainRootView.activatedTabs` fiel auf `[.start]` zurück, `lazyTabContent` renderte für den
     // gerade sichtbaren Tab nur noch `Color.clear` → weißer Screen auf allen Tabs, zeitversetzt
     // mit der Server-Antwort des Finish-Flows (dort kippt `chromeVisible` erst nach `authorize`).
-    content.tabViewBottomAccessory(isEnabled: gate.chromeVisible && selectedTab != .player) {
+    content.tabViewBottomAccessory(
+      isEnabled: gate.chromeVisible && selectedTab != .player && !keyboardVisible
+    ) {
       FloatingAccessoryLayer(
         gate: gate,
         chrome: chrome,

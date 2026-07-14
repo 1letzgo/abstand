@@ -1095,14 +1095,20 @@ final class AppModel: ObservableObject {
   }
 
   func clampMediaCatalogKindIfNeeded() {
-    guard !visibleMediaCatalogKinds.contains(mediaCatalogKind) else { return }
-    mediaCatalogKind = visibleMediaCatalogKinds.first ?? .audiobooks
+    let visibleKinds = visibleMediaCatalogKinds
+    guard !visibleKinds.contains(mediaCatalogKind) else { return }
+    mediaCatalogKind = visibleKinds.first ?? .audiobooks
+    if visibleKinds.isEmpty, mainTab == .library {
+      mainTab = .start
+    }
   }
 
   func navigateToMedia(_ kind: MediaCatalogKind) {
     guard visibleMediaCatalogKinds.contains(kind) else {
       clampMediaCatalogKindIfNeeded()
-      mainTab = .library
+      if !visibleMediaCatalogKinds.isEmpty {
+        mainTab = .library
+      }
       return
     }
     mediaCatalogKind = kind
@@ -8602,7 +8608,11 @@ final class AppModel: ObservableObject {
 
   func returnFromPlayerTabIfNeeded() {
     guard mainTab == .player else { return }
-    mainTab = lastNonPlayerMainTab == .player ? .start : lastNonPlayerMainTab
+    if lastNonPlayerMainTab == .library, visibleMediaCatalogKinds.isEmpty {
+      mainTab = .start
+    } else {
+      mainTab = lastNonPlayerMainTab == .player ? .start : lastNonPlayerMainTab
+    }
   }
 
   /// Nach `play` / `playPodcastEpisode`: nur wenn online und Setting aktiv.

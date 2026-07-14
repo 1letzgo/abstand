@@ -250,7 +250,7 @@ struct MainRootView: View {
   }
 
   private func mediaBrowseStrip<Secondary: View>(
-    @ViewBuilder secondary: () -> Secondary
+    @ViewBuilder secondary: @escaping () -> Secondary
   ) -> some View {
     AbstandPinnedBrowseStrip(
       pinnedItems: mediaKindStripItems,
