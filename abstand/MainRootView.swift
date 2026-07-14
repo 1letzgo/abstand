@@ -27,14 +27,7 @@ struct MainRootView: View {
     .onAppear {
       activatedTabs.insert(model.mainTab)
       if model.shouldPrewarmSecondaryTabs {
-        var tabs: Set<AppModel.MainTab> = [.library, .settings]
-        if model.showPodcastsTab {
-          tabs.insert(.podcasts)
-        }
-        if model.ebooksSeparateTabEnabled {
-          tabs.insert(.ebooks)
-        }
-        activatedTabs.formUnion(tabs)
+        activatedTabs.formUnion([.library, .settings])
       }
     }
     .fullScreenCover(item: $model.ebookReaderSession) { session in
@@ -57,11 +50,7 @@ struct MainRootView: View {
       activatedTabs.insert(tab)
       switch tab {
       case .library:
-        libraryRelayoutEpoch += 1
-      case .podcasts:
-        podcastsRelayoutEpoch += 1
-      case .ebooks:
-        ebooksRelayoutEpoch += 1
+        bumpActiveMediaRelayoutEpoch()
       default:
         break
       }
@@ -71,14 +60,7 @@ struct MainRootView: View {
     }
     .onChange(of: model.shouldPrewarmSecondaryTabs) { _, prewarm in
       guard prewarm else { return }
-      var tabs: Set<AppModel.MainTab> = [.library, .settings]
-      if model.showPodcastsTab {
-        tabs.insert(.podcasts)
-      }
-      if model.ebooksSeparateTabEnabled {
-        tabs.insert(.ebooks)
-      }
-      activatedTabs.formUnion(tabs)
+      activatedTabs.formUnion([.library, .settings])
     }
     .onChange(of: model.ebookReaderSession?.libraryItemId) { _, newId in
       if newId == nil {
@@ -87,15 +69,22 @@ struct MainRootView: View {
       }
     }
     .onChange(of: model.selectedBooksLibrary?.id) { _, _ in
-      if model.selectedBooksLibrary == nil, model.mainTab == .library {
+      model.clampMediaCatalogKindIfNeeded()
+      if model.visibleMediaCatalogKinds.isEmpty, model.mainTab == .library {
         model.mainTab = .start
       }
     }
     .onChange(of: model.selectedPodcastLibrary?.id) { _, _ in
-      model.clampMainTabForPodcastsTabIfNeeded()
+      model.clampMediaCatalogKindIfNeeded()
     }
     .onChange(of: model.showPodcastsTab) { _, _ in
-      model.clampMainTabForPodcastsTabIfNeeded()
+      model.clampMediaCatalogKindIfNeeded()
+    }
+    .onChange(of: model.ebooksSeparateTabEnabled) { _, _ in
+      model.clampMediaCatalogKindIfNeeded()
+    }
+    .onChange(of: model.mediaCatalogKind) { _, _ in
+      bumpActiveMediaRelayoutEpoch()
     }
     .onChange(of: model.accountSessionEpoch) { _, _ in
       activatedTabs = [.start]
@@ -103,18 +92,6 @@ struct MainRootView: View {
       podcastsRelayoutEpoch += 1
       booksLibraryToolbarState.resetForAccountSwitch()
       podcastCatalogToolbarState.resetForAccountSwitch()
-    }
-    .onChange(of: model.nowPlayingSheetDismissCounter) { _, _ in
-      // Nach dem Schließen des Now-Playing-Overlays (UIKit `.overFullScreen` via
-      // FullScreenOverlayPresenter) die Catalog-ScrollViews zum Re-Layout zwingen.
-      // Bekannter SwiftUI-Bug: LazyVStack/ScrollView-Inhalte verschwinden (weißer View),
-      // wenn ein UIKit-Overlay die View-Hierarchie beim Dismiss stört.
-      // Alle Tabs bumpen (nicht nur den aktiven) — der User kann während der asynchronen
-      // Server-Antwort (markFinished → authorize) schon auf einen anderen Tab gewechselt
-      // haben, und der betroffene Tab ist nicht mehr `mainTab`.
-      libraryRelayoutEpoch += 1
-      podcastsRelayoutEpoch += 1
-      ebooksRelayoutEpoch += 1
     }
     .alert(
       "Error",
@@ -146,6 +123,14 @@ struct MainRootView: View {
     onlineTabView
   }
 
+  private func bumpActiveMediaRelayoutEpoch() {
+    switch model.mediaCatalogKind {
+    case .audiobooks: libraryRelayoutEpoch += 1
+    case .ebooks: ebooksRelayoutEpoch += 1
+    case .podcasts: podcastsRelayoutEpoch += 1
+    }
+  }
+
   private var onlineTabView: some View {
     TabView(selection: $model.mainTab) {
       Tab(AppModel.MainTab.start.rawValue, systemImage: "house.fill", value: AppModel.MainTab.start) {
@@ -154,37 +139,15 @@ struct MainRootView: View {
       }
 
       // Tabs immer registrieren — sonst baut TabView beim Bootstrap neu (Ampel flackert).
-      Tab(booksTabTitle, systemImage: "books.vertical", value: AppModel.MainTab.library) {
+      Tab(AppModel.MainTab.library.rawValue, systemImage: "square.grid.2x2.fill", value: AppModel.MainTab.library) {
         lazyTabContent(.library) {
-          if model.selectedBooksLibrary != nil {
-            libraryTabRoot
-          } else {
-            tabLibraryBootstrapPlaceholder
-          }
+          mediaTabRoot
         }
       }
 
-      if model.ebooksSeparateTabEnabled {
-        Tab(AppModel.MainTab.ebooks.rawValue, systemImage: "book.closed.fill", value: AppModel.MainTab.ebooks) {
-          lazyTabContent(.ebooks) {
-            if model.selectedBooksLibrary != nil {
-              ebooksTabRoot
-            } else {
-              tabLibraryBootstrapPlaceholder
-            }
-          }
-        }
-      }
-
-      if model.showPodcastsTab {
-        Tab(AppModel.MainTab.podcasts.rawValue, systemImage: "mic.fill", value: AppModel.MainTab.podcasts) {
-          lazyTabContent(.podcasts) {
-            if model.selectedPodcastLibrary != nil {
-              podcastsTabRoot
-            } else {
-              tabLibraryBootstrapPlaceholder
-            }
-          }
+      Tab(AppModel.MainTab.player.rawValue, systemImage: "play.circle.fill", value: AppModel.MainTab.player) {
+        lazyTabContent(.player) {
+          NowPlayingDetailView()
         }
       }
 
@@ -195,16 +158,35 @@ struct MainRootView: View {
     .tabBarMinimizeBehavior(.onScrollDown)
   }
 
-  /// „Books“ wird zu „Audiobooks“, sobald eBooks einen eigenen Tab haben.
-  private var booksTabTitle: String {
-    model.ebooksSeparateTabEnabled ? "Audiobooks" : AppModel.MainTab.library.rawValue
-  }
-
   /// Platzhalter bis Bibliotheken aus Bootstrap da sind — Tab-Struktur bleibt stabil.
   private var tabLibraryBootstrapPlaceholder: some View {
     Color.clear
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .abstandTabScreenChrome()
+  }
+
+  @ViewBuilder
+  private var mediaTabRoot: some View {
+    switch model.mediaCatalogKind {
+    case .audiobooks:
+      if model.selectedBooksLibrary != nil {
+        libraryTabRoot
+      } else {
+        tabLibraryBootstrapPlaceholder
+      }
+    case .ebooks:
+      if model.ebooksSeparateTabEnabled, model.selectedBooksLibrary != nil {
+        ebooksTabRoot
+      } else {
+        tabLibraryBootstrapPlaceholder
+      }
+    case .podcasts:
+      if model.showPodcastsTab, model.selectedPodcastLibrary != nil {
+        podcastsTabRoot
+      } else {
+        tabLibraryBootstrapPlaceholder
+      }
+    }
   }
 
   @ViewBuilder
@@ -248,7 +230,7 @@ struct MainRootView: View {
       relayoutTrigger: libraryRelayoutEpoch,
       bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
       selection: model.booksBrowseSection,
-      sectionIDs: BooksBrowseSection.stripOrder(ebooksSeparateTabEnabled: model.ebooksSeparateTabEnabled),
+      sectionIDs: BooksBrowseSection.audiobookStripOrder,
       scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
         + model.nowPlayingAccessoryScrollBottomInset,
       onRefresh: { await model.refreshBooksCatalog() }
@@ -261,18 +243,40 @@ struct MainRootView: View {
 
   private var browseStripAccent: Color { model.appearanceAccentColor }
 
-  private var booksBrowseSectionStrip: some View {
-    AbstandBrowseStripIconMenu(
-      items: BooksBrowseSection.stripOrder(ebooksSeparateTabEnabled: model.ebooksSeparateTabEnabled).map {
-        AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
+  private var mediaKindStripItems: [AbstandBrowseStripItem] {
+    model.visibleMediaCatalogKinds.map {
+      AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
+    }
+  }
+
+  private func mediaBrowseStrip<Secondary: View>(
+    @ViewBuilder secondary: @escaping () -> Secondary
+  ) -> some View {
+    AbstandPinnedBrowseStrip(
+      pinnedItems: mediaKindStripItems,
+      pinnedSelectionID: model.mediaCatalogKind.rawValue,
+      onSelectPinned: { id in
+        guard let kind = AppModel.MediaCatalogKind(rawValue: id) else { return }
+        model.mediaCatalogKind = kind
       },
-      selectionID: model.booksBrowseSection.rawValue,
-      onSelect: { id in
-        if let section = BooksBrowseSection(rawValue: id) {
-          model.selectBooksBrowseSection(section)
-        }
-      }
+      secondary: secondary
     )
+  }
+
+  private var booksBrowseSectionStrip: some View {
+    mediaBrowseStrip {
+      AbstandBrowseStripIconMenu(
+        items: BooksBrowseSection.audiobookStripOrder.map {
+          AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
+        },
+        selectionID: model.booksBrowseSection.rawValue,
+        onSelect: { id in
+          if let section = BooksBrowseSection(rawValue: id) {
+            model.selectBooksBrowseSection(section)
+          }
+        }
+      )
+    }
   }
 
   // MARK: - eBook tab (separater Tab, wenn `ebooksSeparateTabEnabled` aktiv ist)
@@ -281,7 +285,7 @@ struct MainRootView: View {
     NavigationStack {
       ebooksCatalogScrollView
         .abstandTabScreenChrome()
-        .navigationTitle(AppModel.MainTab.ebooks.rawValue)
+        .navigationTitle(AppModel.MainTab.library.rawValue)
         .toolbarTitleDisplayMode(.inlineLarge)
     }
     .tint(model.appearanceAccentColor)
@@ -306,17 +310,19 @@ struct MainRootView: View {
   }
 
   private var ebooksBrowseSectionStrip: some View {
-    AbstandBrowseStripIconMenu(
-      items: BooksBrowseSection.ebookTabStripOrder.map {
-        AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
-      },
-      selectionID: model.ebooksBrowseSection.rawValue,
-      onSelect: { id in
-        if let section = BooksBrowseSection(rawValue: id) {
-          model.selectEbooksBrowseSection(section)
+    mediaBrowseStrip {
+      AbstandBrowseStripIconMenu(
+        items: BooksBrowseSection.ebookTabStripOrder.map {
+          AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
+        },
+        selectionID: model.ebooksBrowseSection.rawValue,
+        onSelect: { id in
+          if let section = BooksBrowseSection(rawValue: id) {
+            model.selectEbooksBrowseSection(section)
+          }
         }
-      }
-    )
+      )
+    }
   }
 
   private var booksSearchField: some View {
@@ -894,24 +900,26 @@ struct MainRootView: View {
 
   private var podcastShowsDockStrip: some View {
     let _ = model.appearanceThemeRevision
-    return AbstandBrowseStripIconMenu(
-      items: podcastDockStripItems,
-      selectionID: podcastCatalogScrollSelection,
-      onSelect: { id in
-        if id == Self.podcastCatalogSearchSectionId {
-          model.podcastCatalogStripSectionId = id
-          model.podcastSelectedShowId = nil
-          model.schedulePodcastLibrarySearch()
-        } else if id == Self.podcastCatalogNewSectionId {
-          model.podcastCatalogStripSectionId = id
-          Task { await model.selectPodcastShowFilter(nil) }
-        } else {
-          model.podcastCatalogStripSectionId = id
-          model.applyPodcastShowFilterSelection(id)
-          Task { await model.loadPodcastEpisodesForShowLibraryItem(id) }
+    return mediaBrowseStrip {
+      AbstandBrowseStripIconMenu(
+        items: podcastDockStripItems,
+        selectionID: podcastCatalogScrollSelection,
+        onSelect: { id in
+          if id == Self.podcastCatalogSearchSectionId {
+            model.podcastCatalogStripSectionId = id
+            model.podcastSelectedShowId = nil
+            model.schedulePodcastLibrarySearch()
+          } else if id == Self.podcastCatalogNewSectionId {
+            model.podcastCatalogStripSectionId = id
+            Task { await model.selectPodcastShowFilter(nil) }
+          } else {
+            model.podcastCatalogStripSectionId = id
+            model.applyPodcastShowFilterSelection(id)
+            Task { await model.loadPodcastEpisodesForShowLibraryItem(id) }
+          }
         }
-      }
-    )
+      )
+    }
   }
 
   @ViewBuilder
@@ -4113,7 +4121,7 @@ struct BookRowCard: View {
   }
 
   private func applyAuthorFilterForActiveCatalog(authorId: String, displayName: String? = nil) {
-    if model.mainTab == .podcasts {
+    if model.mainTab == .library, model.mediaCatalogKind == .podcasts {
       let q = (displayName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
       if !q.isEmpty { model.openPodcastSearchFromText(q) }
     } else {
@@ -4122,7 +4130,7 @@ struct BookRowCard: View {
   }
 
   private func applyNarratorFilterForActiveCatalog(narratorName: String) {
-    if model.mainTab == .podcasts {
+    if model.mainTab == .library, model.mediaCatalogKind == .podcasts {
       model.openPodcastSearchFromText(narratorName)
     } else {
       model.applyNarratorFilter(narratorName: narratorName)
@@ -4130,7 +4138,7 @@ struct BookRowCard: View {
   }
 
   private func applySeriesFilterForActiveCatalog(seriesId: String, displayName: String? = nil) {
-    if model.mainTab == .podcasts {
+    if model.mainTab == .library, model.mediaCatalogKind == .podcasts {
       let q = (displayName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
       if !q.isEmpty { model.openPodcastSearchFromText(q) }
     } else {
@@ -4190,7 +4198,7 @@ struct BookRowCard: View {
       } else {
         libraryMetaLabeledRow(title: "Author") {
           Button {
-            if model.mainTab == .podcasts {
+            if model.mainTab == .library, model.mediaCatalogKind == .podcasts {
               model.openPodcastSearchFromText(line)
             } else {
               model.openBooksSearchFromText(line)
@@ -4303,12 +4311,7 @@ struct BooksEntityDetailNavigationModifier: ViewModifier {
         get: { model.homeEntityDetailNav },
         set: { model.homeEntityDetailNav = $0 }
       )
-    case .search:
-      Binding(
-        get: { model.searchEntityDetailNav },
-        set: { model.searchEntityDetailNav = $0 }
-      )
-    case .podcasts, .settings, .ebooks:
+    case .player, .settings:
       Binding.constant(nil)
     }
   }

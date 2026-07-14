@@ -1208,7 +1208,7 @@ struct SettingsAppearanceView: View {
           ServerAdminCard {
             SettingsCardToggleRow(
               icon: "book.closed.fill",
-              title: "Separate eBook tab",
+              title: "Show eBooks in Media",
               isOn: $model.ebooksSeparateTabEnabled
             )
           }

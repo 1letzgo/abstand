@@ -35,7 +35,45 @@ struct AbstandExpandingDockBrowseStrip: View {
   }
 }
 
-private struct AbstandExpandingDockChip: View {
+/// Feste Primär-Auswahl links; nur der vom Aufrufer gelieferte Sekundär-Strip scrollt.
+struct AbstandPinnedBrowseStrip<Secondary: View>: View {
+  let pinnedItems: [AbstandBrowseStripItem]
+  let pinnedSelectionID: String
+  let onSelectPinned: (String) -> Void
+  @ViewBuilder var secondary: () -> Secondary
+
+  var body: some View {
+    HStack(spacing: AppTheme.ExpandingDock.itemSpacing) {
+      HStack(spacing: AppTheme.ExpandingDock.itemSpacing) {
+        ForEach(pinnedItems) { item in
+          AbstandExpandingDockChip(
+            item: item,
+            isSelected: item.id == pinnedSelectionID,
+            onSelect: {
+              guard item.id != pinnedSelectionID else { return }
+              UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+              withAnimation(AppTheme.ExpandingDock.selectionAnimation) {
+                onSelectPinned(item.id)
+              }
+            }
+          )
+        }
+      }
+      .padding(.leading, AppTheme.ExpandingDock.horizontalPadding)
+      .padding(.vertical, AppTheme.ExpandingDock.verticalPadding)
+
+      Divider()
+        .frame(height: AppTheme.ExpandingDock.circleSize)
+
+      secondary()
+        .frame(maxWidth: .infinity)
+        .layoutPriority(1)
+    }
+    .abstandThemeRefresh()
+  }
+}
+
+struct AbstandExpandingDockChip: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
