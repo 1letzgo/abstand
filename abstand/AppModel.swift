@@ -8107,6 +8107,7 @@ final class AppModel: ObservableObject {
     let trimmedEp = (progress.episodeId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     let epId: String? = trimmedEp.isEmpty ? nil : trimmedEp
     if player.activeBook?.id == libraryItemId, player.activePlaybackEpisodeId == epId {
+      selectPlayerTab()
       return
     }
 
@@ -8129,6 +8130,7 @@ final class AppModel: ObservableObject {
           autoPlay: false,
           attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable
         )
+        selectPlayerTab()
       } catch {
         UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
         publishErrorUnlessBenignCancellation(error)
@@ -8156,6 +8158,7 @@ final class AppModel: ObservableObject {
         autoPlay: false,
         attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable
       )
+      selectPlayerTab()
     } catch {
       UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
     }
