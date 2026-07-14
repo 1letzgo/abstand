@@ -5627,6 +5627,14 @@ final class AppModel: ObservableObject {
     else {
       return
     }
+    // Läuft bereits ein Katalog-Fetch (Reset ODER Pagination), nicht erneut anstoßen: Beim
+    // schnellen Scrollen feuert `.task(id: book.id)` für mehrere Zeilen nahe dem Ende quasi
+    // gleichzeitig — ohne diesen Guard fragen mehrere Aufrufe dieselbe `libraryPage` an, bevor
+    // der erste Fetch sie fortschreibt (Server-Seite wird dann mehrfach nachgeladen, spätere
+    // Seiten werden dabei übersprungen — „scrollt nicht bis zum Ende, wiederholt eine Seite").
+    // Der Check hier läuft synchron vor dem `await` unten, also ohne Suspension-Punkt dazwischen
+    // — keine zwei Tasks können sich die Prüfung teilen.
+    guard !isLoadingLibrary else { return }
     guard shouldPrefetchNextCatalogPage(currentItemId: currentItemId, in: books, id: \.id),
       books.count < libraryTotal
     else { return }
@@ -5680,6 +5688,9 @@ final class AppModel: ObservableObject {
     guard mainTab == .podcasts, !offlineHomeUIActive else { return }
     guard podcastSelectedShowId == nil else { return }
     guard podcastEpisodesPagingFromRecentAPI else { return }
+    // Gleicher Race wie bei `loadMoreIfNeeded` (Bücher): synchroner Guard, bevor mehrere
+    // gleichzeitig feuernde `.task(id:)` dieselbe `podcastLibraryPage` mehrfach anfragen.
+    guard !isLoadingPodcasts else { return }
     guard
       shouldPrefetchNextCatalogPage(currentItemId: currentItemId, in: podcastEpisodes, id: \.id),
       podcastEpisodes.count < podcastLibraryTotal
