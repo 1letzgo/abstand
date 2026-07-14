@@ -45,13 +45,8 @@ struct MainRootView: View {
       guard !playing else { return }
       Task { await model.handlePlaybackPaused() }
     }
-    .onChange(of: model.mainTab) { oldTab, tab in
+    .onChange(of: model.mainTab) { _, tab in
       activatedTabs.insert(tab)
-      // Beim Wechsel vom Library-Tab zum Search-Tab: Suchkontext merken
-      // (audiobooks vs podcasts), damit der Search-Tab die richtige Suche zeigt.
-      if tab == .search, oldTab == .library {
-        model.searchTabMediaKind = model.mediaCatalogKind
-      }
       switch tab {
       case .library:
         bumpActiveMediaRelayoutEpoch()
@@ -150,18 +145,28 @@ struct MainRootView: View {
         }
       }
 
-      Tab(AppModel.MainTab.search.rawValue, systemImage: "magnifyingglass", value: AppModel.MainTab.search) {
+      Tab(AppModel.MainTab.settings.rawValue, systemImage: "gearshape.fill", value: AppModel.MainTab.settings) {
+        lazyTabContent(.settings) { settingsTabRoot }
+      }
+
+      // iOS-26-natives Such-Icon (`role: .search`): eigene Position im TabView-Code spielt keine
+      // Rolle — das System pinnt Such-Tabs immer an den Rand der Tabbar und morpht das Icon beim
+      // Aktivieren in ein Suchfeld (Liquid Glass).
+      Tab(
+        AppModel.MainTab.search.rawValue, systemImage: "magnifyingglass",
+        value: AppModel.MainTab.search, role: .search
+      ) {
         lazyTabContent(.search) {
           SearchTabRootView()
         }
         .id("abstand-search-tab-root-\(model.accountSessionEpoch)")
       }
-
-      Tab(AppModel.MainTab.settings.rawValue, systemImage: "gearshape.fill", value: AppModel.MainTab.settings) {
-        lazyTabContent(.settings) { settingsTabRoot }
-      }
     }
     .tabBarMinimizeBehavior(.onScrollDown)
+    .searchable(text: $model.searchText, prompt: Text("Title, author, show, episode…"))
+    .tabViewSearchActivation(.searchTabSelection)
+    .onSubmit(of: .search) { model.scheduleUnifiedSearch() }
+    .onChange(of: model.searchText) { _, _ in model.scheduleUnifiedSearch() }
   }
 
   /// Platzhalter bis Bibliotheken aus Bootstrap da sind — Tab-Struktur bleibt stabil.
@@ -886,85 +891,74 @@ struct MainRootView: View {
 
 // MARK: - Unified Search Tab
 
-/// Zentraler Such-Tab: Buch-Suche (default) oder Podcast-Suche,
-/// je nachdem von wo der User gekommen ist (`searchTabMediaKind`).
+/// Zentraler Such-Tab (nativ als iOS-26-Such-Icon in der Tabbar, `role: .search` — siehe
+/// `MainRootView.onlineTabView`). Ein Suchtext durchsucht Bücher UND Podcasts gleichzeitig —
+/// dieselbe Suche für alle Szenarien, unabhängig davon, von wo man in den Tab gewechselt ist.
 struct SearchTabRootView: View {
   @EnvironmentObject private var model: AppModel
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-        unifiedSearchField
-        searchResultsContent
+    NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+          searchStatusMessage
+          BooksSearchBrowseView()
+          if model.showPodcastsTab {
+            PodcastLibrarySearchResultsView()
+          }
+        }
+        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
+        .padding(.top, AppTheme.Layout.withinSectionSpacing)
+        .padding(
+          .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
       }
-      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.top, AppTheme.Layout.withinSectionSpacing)
-      .padding(
-        .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
+      .abstandTabScreenChrome()
+      .abstandScrollScreenBackground()
+      .navigationTitle(AppModel.MainTab.search.rawValue)
+      .toolbarTitleDisplayMode(.inlineLarge)
+      .booksEntityDetailNavigation(for: .search)
     }
-    .scrollContentBackground(.hidden)
-    .abstandScrollScreenBackground()
-    .navigationTitle("Search")
-    .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
   }
 
-  /// Ein einziges Suchfeld — bindet je nach Modus an searchText oder podcastLibrarySearchText.
-  private var unifiedSearchField: some View {
-    let palette = model.appearancePalette
-    let isPodcasts = model.searchTabMediaKind == .podcasts
-    return HStack(spacing: 8) {
-      Image(systemName: "magnifyingglass")
-        .foregroundStyle(palette.textSecondary)
-      if isPodcasts {
-        TextField("Show or episode…", text: $model.podcastLibrarySearchText)
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
-          .textFieldStyle(.plain)
-          .foregroundStyle(palette.textPrimary)
-          .onSubmit { model.schedulePodcastLibrarySearch() }
-      } else {
-        TextField("Title, author, series…", text: $model.searchText)
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
-          .textFieldStyle(.plain)
-          .foregroundStyle(palette.textPrimary)
-          .onSubmit { model.scheduleSearch() }
-      }
-      clearButton
-    }
-    .padding(12)
-    .background(palette.card)
-    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+  private var trimmedQuery: String {
+    model.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private var hasAnyResults: Bool {
+    !model.searchBooks.isEmpty || !model.searchAuthors.isEmpty || !model.searchNarrators.isEmpty
+      || !model.searchSeries.isEmpty || !model.searchTags.isEmpty || !model.searchGenres.isEmpty
+      || !model.podcastLibrarySearchShows.isEmpty || !model.podcastLibrarySearchEpisodes.isEmpty
   }
 
   @ViewBuilder
-  private var clearButton: some View {
-    let isPodcasts = model.searchTabMediaKind == .podcasts
-    let hasText = isPodcasts ? !model.podcastLibrarySearchText.isEmpty : !model.searchText.isEmpty
-    if hasText {
-      Button {
-        if isPodcasts {
-          model.podcastLibrarySearchText = ""
-          model.clearPodcastLibrarySearchResults()
-        } else {
-          model.searchText = ""
-          model.clearSearchResults()
-        }
-      } label: {
-        Image(systemName: "xmark.circle.fill")
-          .foregroundStyle(AppTheme.textSecondary)
-      }
-      .buttonStyle(.plain)
-    }
-  }
-
-  @ViewBuilder
-  private var searchResultsContent: some View {
-    if model.searchTabMediaKind == .podcasts {
-      PodcastLibrarySearchResultsView()
-    } else {
-      BooksSearchBrowseView()
+  private var searchStatusMessage: some View {
+    let q = trimmedQuery
+    if q.isEmpty {
+      ContentUnavailableView(
+        "Search",
+        systemImage: "magnifyingglass",
+        description: Text("Search your audiobooks and podcasts at once.")
+      )
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 48)
+    } else if q.count < 2 {
+      Text("Enter at least two characters.")
+        .font(.subheadline)
+        .foregroundStyle(AppTheme.textSecondary)
+        .frame(maxWidth: .infinity)
+        .multilineTextAlignment(.center)
+        .padding(24)
+    } else if model.isLoadingLibrary || model.isLoadingPodcasts, !hasAnyResults {
+      ProgressView()
+        .frame(maxWidth: .infinity)
+        .padding()
+    } else if !hasAnyResults {
+      Text("No results.")
+        .font(.subheadline)
+        .foregroundStyle(AppTheme.textSecondary)
+        .frame(maxWidth: .infinity)
+        .padding(24)
     }
   }
 }
@@ -976,42 +970,7 @@ private struct BooksSearchBrowseView: View {
   @EnvironmentObject private var model: AppModel
 
   var body: some View {
-    let q = model.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-        if q.isEmpty {
-          ContentUnavailableView(
-            "Search",
-            systemImage: "magnifyingglass",
-            description: Text("Enter at least two characters to search your libraries.")
-          )
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 48)
-        }
-        if model.isLoadingLibrary, q.count >= 2 {
-          ProgressView()
-            .frame(maxWidth: .infinity)
-            .padding()
-        }
-        if q.count > 0, q.count < 2 {
-          Text("Enter at least two characters.")
-            .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
-            .frame(maxWidth: .infinity)
-            .multilineTextAlignment(.center)
-            .padding(24)
-        }
-        if q.count >= 2, !model.isLoadingLibrary, model.searchBooks.isEmpty,
-          model.searchAuthors.isEmpty, model.searchNarrators.isEmpty, model.searchSeries.isEmpty,
-          model.searchTags.isEmpty, model.searchGenres.isEmpty,
-          model.searchCrossMediaPodcastShows.isEmpty, model.searchCrossMediaPodcastEpisodes.isEmpty
-        {
-          Text("No results.")
-            .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
-            .frame(maxWidth: .infinity)
-            .padding(24)
-        }
-
         searchSection(title: "Books", isEmpty: model.searchBooks.isEmpty) {
           LibraryBookCardsFlow {
             ForEach(model.searchBooks) { book in
@@ -1083,30 +1042,6 @@ private struct BooksSearchBrowseView: View {
             }
           }
         }
-        searchSection(
-          title: "Podcasts",
-          isEmpty: model.searchCrossMediaPodcastShows.isEmpty && model.searchCrossMediaPodcastEpisodes.isEmpty
-        ) {
-          if !model.searchCrossMediaPodcastShows.isEmpty {
-            LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-              ForEach(model.searchCrossMediaPodcastShows) { show in
-                Button {
-                  Task { await model.openPodcastShowCatalog(showId: show.id) }
-                } label: {
-                  PodcastShowRowCard(show: show)
-                }
-                .buttonStyle(.plain)
-              }
-            }
-          }
-          if !model.searchCrossMediaPodcastEpisodes.isEmpty {
-            LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-              ForEach(model.searchCrossMediaPodcastEpisodes) { episode in
-                LibraryPodcastListCard(episode: episode, model: model)
-              }
-            }
-          }
-        }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -1161,40 +1096,7 @@ private struct PodcastLibrarySearchResultsView: View {
   @EnvironmentObject private var model: AppModel
 
   var body: some View {
-    let q = model.podcastLibrarySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
     VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-      if q.isEmpty {
-        ContentUnavailableView(
-          "Search",
-          systemImage: "magnifyingglass",
-          description: Text("Enter at least two characters to search your podcasts.")
-        )
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 48)
-      }
-      if model.isLoadingPodcasts, q.count >= 2 {
-        ProgressView()
-          .frame(maxWidth: .infinity)
-          .padding()
-      }
-      if q.count > 0, q.count < 2 {
-        Text("Enter at least two characters.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .frame(maxWidth: .infinity)
-          .multilineTextAlignment(.center)
-          .padding(24)
-      }
-      if q.count >= 2, !model.isLoadingPodcasts, model.podcastLibrarySearchShows.isEmpty,
-        model.podcastLibrarySearchEpisodes.isEmpty, model.podcastLibrarySearchCrossMediaBooks.isEmpty
-      {
-        Text("No results.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .frame(maxWidth: .infinity)
-          .padding(24)
-      }
-
       if !model.podcastLibrarySearchShows.isEmpty {
         LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
           TabContentSectionTitle(title:"Shows")
@@ -1218,17 +1120,6 @@ private struct PodcastLibrarySearchResultsView: View {
               episode: episode,
               model: model
             )
-          }
-        }
-      }
-
-      if !model.podcastLibrarySearchCrossMediaBooks.isEmpty {
-        LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          TabContentSectionTitle(title: "Books")
-          LibraryBookCardsFlow {
-            ForEach(model.podcastLibrarySearchCrossMediaBooks) { book in
-              LibraryBookListCard(book: book, model: model)
-            }
           }
         }
       }
@@ -4307,7 +4198,10 @@ struct BooksEntityDetailNavigationModifier: ViewModifier {
     case .settings:
       Binding.constant(nil)
     case .search:
-      Binding.constant(nil)
+      Binding(
+        get: { model.searchEntityDetailNav },
+        set: { model.searchEntityDetailNav = $0 }
+      )
     }
   }
 
