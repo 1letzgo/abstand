@@ -5,7 +5,7 @@ import SwiftUI
 struct MainTabShellView<Content: View>: View {
   @ObservedObject var gate: FloatingAccessoryGate
   let chrome: FloatingPlayerChromeController
-  @Binding var nowPlayingSheetPresented: Bool
+  let selectedTab: AppModel.MainTab
   @ViewBuilder var content: () -> Content
 
   @State private var keyboardVisible = false
@@ -17,7 +17,7 @@ struct MainTabShellView<Content: View>: View {
         FloatingTabBottomAccessoryModifier(
           gate: gate,
           chrome: chrome,
-          sheetPresented: nowPlayingSheetPresented,
+          selectedTab: selectedTab,
           keyboardVisible: keyboardVisible
         )
       )
@@ -34,7 +34,7 @@ struct MainTabShellView<Content: View>: View {
 private struct FloatingTabBottomAccessoryModifier: ViewModifier {
   @ObservedObject var gate: FloatingAccessoryGate
   let chrome: FloatingPlayerChromeController
-  let sheetPresented: Bool
+  let selectedTab: AppModel.MainTab
   let keyboardVisible: Bool
 
   func body(content: Content) -> some View {
@@ -45,11 +45,11 @@ private struct FloatingTabBottomAccessoryModifier: ViewModifier {
     // `MainRootView.activatedTabs` fiel auf `[.start]` zurück, `lazyTabContent` renderte für den
     // gerade sichtbaren Tab nur noch `Color.clear` → weißer Screen auf allen Tabs, zeitversetzt
     // mit der Server-Antwort des Finish-Flows (dort kippt `chromeVisible` erst nach `authorize`).
-    content.tabViewBottomAccessory(isEnabled: gate.chromeVisible) {
+    content.tabViewBottomAccessory(isEnabled: gate.chromeVisible && selectedTab != .player) {
       FloatingAccessoryLayer(
         gate: gate,
         chrome: chrome,
-        sheetPresented: sheetPresented,
+        isPlayerTabSelected: selectedTab == .player,
         keyboardVisible: keyboardVisible
       )
     }

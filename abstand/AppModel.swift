@@ -239,20 +239,13 @@ enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
 
   var id: String { rawValue }
 
-  /// Horizontale Leiste im Library-Tab (Startansicht bleibt `.books`) — eBooks-Einträge am Ende.
-  static let stripOrder: [BooksBrowseSection] = [
+  /// Audiobook-Unterbereiche im gemeinsamen Medien-Tab.
+  static let audiobookStripOrder: [BooksBrowseSection] = [
     .search, .books, .series, .author, .collections, .genres, .narrators, .tags,
-    .ebooks, .ebooksSupplementary,
   ]
 
-  /// Strip im separaten eBook-Tab (nur die beiden eBook-Sektionen).
+  /// eBook-Unterbereiche im gemeinsamen Medien-Tab.
   static let ebookTabStripOrder: [BooksBrowseSection] = [.ebooks, .ebooksSupplementary]
-
-  /// Books-Tab-Strip ohne die eBook-Einträge, wenn diese als eigener Tab laufen.
-  static func stripOrder(ebooksSeparateTabEnabled: Bool) -> [BooksBrowseSection] {
-    guard ebooksSeparateTabEnabled else { return stripOrder }
-    return stripOrder.filter { $0 != .ebooks && $0 != .ebooksSupplementary }
-  }
 
   var systemImage: String {
     switch self {
@@ -678,12 +671,10 @@ final class AppModel: ObservableObject {
   @Published var showPodcastsTab: Bool = AppModel.loadShowPodcastsTabCached() {
     didSet {
       UserDefaults.standard.set(showPodcastsTab, forKey: Keys.showPodcastsTab)
-      if !showPodcastsTab, mainTab == .podcasts {
-        mainTab = .start
-      }
+      clampMediaCatalogKindIfNeeded()
     }
   }
-  /// Settings/Appearance/Views: eBooks & Supplementary als eigener Tab statt im Books-Strip.
+  /// Settings/Appearance/Views: eBooks & Supplementary im gemeinsamen Medien-Tab anzeigen.
   @Published var ebooksSeparateTabEnabled: Bool = UserDefaults.standard.bool(
     forKey: Keys.ebooksSeparateTabEnabled
   ) {
@@ -694,12 +685,11 @@ final class AppModel: ObservableObject {
         if booksBrowseSection == .ebooks || booksBrowseSection == .ebooksSupplementary {
           booksBrowseSection = .books
         }
-      } else if mainTab == .ebooks {
-        mainTab = .library
       }
+      clampMediaCatalogKindIfNeeded()
     }
   }
-  /// Eigene Strip-Auswahl für den separaten eBook-Tab (unabhängig vom Books-Tab-Strip).
+  /// Eigene Strip-Auswahl für eBooks (unabhängig vom Audiobook-Strip).
   @Published var ebooksBrowseSection: BooksBrowseSection = .ebooks
   @Published private(set) var browseCollectionBooksById: [String: [ABSBook]] = [:]
   @Published private(set) var browseAuthorsLoading = false
@@ -769,10 +759,20 @@ final class AppModel: ObservableObject {
     didSet { UserDefaults.standard.set(browseTagsSortDescending, forKey: Keys.browseTagsSortDescending) }
   }
 
-  @Published var mainTab: MainTab = .start
-  /// Wird von `MainRootView` beobachtet: bei jedem Inkrement öffnet sich das Now-Playing-Sheet, ohne den Tab zu wechseln.
-  @Published private(set) var nowPlayingSheetPresentationCounter: UInt = 0
-  @Published private(set) var nowPlayingSheetDismissCounter: UInt = 0
+  @Published var mainTab: MainTab = .start {
+    didSet {
+      guard mainTab != oldValue else { return }
+      if mainTab == .player {
+        if oldValue != .player {
+          lastNonPlayerMainTab = oldValue
+        }
+      } else {
+        lastNonPlayerMainTab = mainTab
+      }
+    }
+  }
+  @Published var mediaCatalogKind: MediaCatalogKind = .audiobooks
+  private var lastNonPlayerMainTab: MainTab = .start
   @Published var isLoadingLibrary = false
   @Published var isLoadingPodcasts = false
   @Published var errorMessage: String? {
@@ -1080,10 +1080,33 @@ final class AppModel: ObservableObject {
     requestEnterOfflineHomeMode()
   }
 
-  func clampMainTabForPodcastsTabIfNeeded() {
-    if !showPodcastsTab, mainTab == .podcasts {
-      mainTab = .start
+  var visibleMediaCatalogKinds: [MediaCatalogKind] {
+    var kinds: [MediaCatalogKind] = []
+    if selectedBooksLibrary != nil {
+      kinds.append(.audiobooks)
+      if ebooksSeparateTabEnabled {
+        kinds.append(.ebooks)
+      }
     }
+    if showPodcastsTab, selectedPodcastLibrary != nil {
+      kinds.append(.podcasts)
+    }
+    return kinds
+  }
+
+  func clampMediaCatalogKindIfNeeded() {
+    guard !visibleMediaCatalogKinds.contains(mediaCatalogKind) else { return }
+    mediaCatalogKind = visibleMediaCatalogKinds.first ?? .audiobooks
+  }
+
+  func navigateToMedia(_ kind: MediaCatalogKind) {
+    guard visibleMediaCatalogKinds.contains(kind) else {
+      clampMediaCatalogKindIfNeeded()
+      mainTab = .library
+      return
+    }
+    mediaCatalogKind = kind
+    mainTab = .library
   }
 
   func probeServerConnectionIfNeeded() async {
@@ -1272,12 +1295,25 @@ final class AppModel: ObservableObject {
 
   enum MainTab: String, CaseIterable, Hashable {
     case start = "Home"
-    case library = "Books"
-    case podcasts = "Podcasts"
-    case search = "Search"
+    case library = "Media"
+    case player = "Player"
     case settings = "Settings"
-    /// Nur sichtbar, wenn `ebooksSeparateTabEnabled` aktiv ist — sonst Einträge im `.library`-Strip.
+  }
+
+  enum MediaCatalogKind: String, CaseIterable, Identifiable, Hashable {
+    case audiobooks = "Audiobooks"
     case ebooks = "eBooks"
+    case podcasts = "Podcasts"
+
+    var id: Self { self }
+
+    var systemImage: String {
+      switch self {
+      case .audiobooks: return "books.vertical"
+      case .ebooks: return "book.closed.fill"
+      case .podcasts: return "mic.fill"
+      }
+    }
   }
 
   /// Einziges Home-Regal für „Continue listening“ (kein separates Fallback-Regal).
@@ -1591,8 +1627,8 @@ final class AppModel: ObservableObject {
   }
 
   func booksForDisplay() -> [ABSBook] {
-    switch mainTab {
-    case .library:
+    switch (mainTab, mediaCatalogKind) {
+    case (.library, .audiobooks):
       if offlineHomeUIActive || libraryCatalogQuickFilter == .downloaded {
         // Offline bzw. Downloads-Filter: volle Katalog-Metadaten statt schlanker Manifest-Stubs.
         let libId = selectedBooksLibrary?.id
@@ -1604,9 +1640,7 @@ final class AppModel: ObservableObject {
       if !isNetworkReachable, !books.isEmpty { return books }
       if !isNetworkReachable { return downloadedShelfBooks }
       return books
-    case .podcasts:
-      return []
-    case .start, .settings, .search, .ebooks:
+    default:
       return []
     }
   }
@@ -1628,7 +1662,7 @@ final class AppModel: ObservableObject {
     }
     libraryCatalogQuickFilter = filter
     booksBrowseSection = .books
-    mainTab = .library
+    navigateToMedia(.audiobooks)
     if filter.isLocalDownloadedOnly {
       activeLibraryFilter = nil
       setBooksLibraryFilterSummary(prefix: filter.summaryPrefix, detail: filter.summaryDetail)
@@ -1658,7 +1692,7 @@ final class AppModel: ObservableObject {
     activeLibraryFilter = trimmed
     setBooksLibraryFilterSummary(prefix: summaryPrefix, detail: summaryDetail)
     booksBrowseSection = .books
-    mainTab = .library
+    navigateToMedia(.audiobooks)
     Task { await reloadLibrary(reset: true) }
   }
 
@@ -4434,7 +4468,7 @@ final class AppModel: ObservableObject {
         restoreBooksCatalogAndHomeFromLocalStore(libraryIdOverride: lib.id)
         restoreAllBrowseListsFromLocalStore()
       }
-      if navigateToCatalog { mainTab = .library }
+      if navigateToCatalog { navigateToMedia(.audiobooks) }
       return
     }
     activeLibraryFilter = nil
@@ -4445,7 +4479,7 @@ final class AppModel: ObservableObject {
     selectedBooksLibrary = lib
     UserDefaults.standard.set(lib.id, forKey: Keys.booksLibrary)
     syncStoredAccountFromSession()
-    if navigateToCatalog { mainTab = .library }
+    if navigateToCatalog { navigateToMedia(.audiobooks) }
     restoreBooksCatalogAndHomeFromLocalStore(libraryIdOverride: lib.id)
     restoreAllBrowseListsFromLocalStore()
   }
@@ -4459,7 +4493,7 @@ final class AppModel: ObservableObject {
         restorePodcastCatalogFromLocalStore(libraryIdOverride: lib.id)
       }
       setShowPodcastsTab(true)
-      if navigateToCatalog, showPodcastsTab { mainTab = .podcasts }
+      if navigateToCatalog, showPodcastsTab { navigateToMedia(.podcasts) }
       return
     }
     podcastSelectedShowId = nil
@@ -4469,7 +4503,7 @@ final class AppModel: ObservableObject {
     UserDefaults.standard.set(lib.id, forKey: Keys.podcastsLibrary)
     syncStoredAccountFromSession()
     setShowPodcastsTab(true)
-    if navigateToCatalog, showPodcastsTab { mainTab = .podcasts }
+    if navigateToCatalog, showPodcastsTab { navigateToMedia(.podcasts) }
     restorePodcastCatalogFromLocalStore(libraryIdOverride: lib.id)
   }
 
@@ -4484,7 +4518,10 @@ final class AppModel: ObservableObject {
     libraryTotal = 0
     UserDefaults.standard.set(Keys.librarySelectionNone, forKey: Keys.booksLibrary)
     syncStoredAccountFromSession()
-    if mainTab == .library { mainTab = .start }
+    if mainTab == .library, mediaCatalogKind == .audiobooks {
+      clampMediaCatalogKindIfNeeded()
+      if visibleMediaCatalogKinds.isEmpty { mainTab = .start }
+    }
     Task { await loadStartDashboard() }
   }
 
@@ -5622,7 +5659,8 @@ final class AppModel: ObservableObject {
   }
 
   func loadMoreIfNeeded(currentItemId: String?) async {
-    guard mainTab == .library, booksBrowseSection == .books, libraryCatalogQuickFilter != .downloaded,
+    guard mainTab == .library, mediaCatalogKind == .audiobooks,
+      booksBrowseSection == .books, libraryCatalogQuickFilter != .downloaded,
       !offlineHomeUIActive
     else {
       return
@@ -5685,7 +5723,7 @@ final class AppModel: ObservableObject {
   }
 
   func loadMorePodcastsIfNeeded(currentItemId: String?) async {
-    guard mainTab == .podcasts, !offlineHomeUIActive else { return }
+    guard mainTab == .library, mediaCatalogKind == .podcasts, !offlineHomeUIActive else { return }
     guard podcastSelectedShowId == nil else { return }
     guard podcastEpisodesPagingFromRecentAPI else { return }
     // Gleicher Race wie bei `loadMoreIfNeeded` (Bücher): synchroner Guard, bevor mehrere
@@ -7144,7 +7182,9 @@ final class AppModel: ObservableObject {
   }
 
   func scheduleSearch() {
-    guard mainTab == .library, booksBrowseSection == .search else { return }
+    guard mainTab == .library, mediaCatalogKind == .audiobooks, booksBrowseSection == .search else {
+      return
+    }
     searchTask?.cancel()
     let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     searchTask = Task {
@@ -7177,7 +7217,7 @@ final class AppModel: ObservableObject {
   }
 
   func schedulePodcastLibrarySearch() {
-    guard mainTab == .podcasts else { return }
+    guard mainTab == .library, mediaCatalogKind == .podcasts else { return }
     podcastLibrarySearchTask?.cancel()
     let q = podcastLibrarySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
     podcastLibrarySearchTask = Task {
@@ -7691,12 +7731,9 @@ final class AppModel: ObservableObject {
     case .start:
       homeEntityDetailNav = nav
     case .library:
+      mediaCatalogKind = .audiobooks
       libraryEntityDetailNav = nav
-    case .search:
-      mainTab = .library
-      booksBrowseSection = .search
-      libraryEntityDetailNav = nav
-    case .podcasts, .settings, .ebooks:
+    case .player, .settings:
       break
     }
   }
@@ -7981,26 +8018,26 @@ final class AppModel: ObservableObject {
     activeLibraryFilter = nil
     activeLibraryFilterSummary = nil
     searchText = q
-    mainTab = .library
     booksBrowseSection = .search
+    navigateToMedia(.audiobooks)
     Task { await performSearch(query: q) }
   }
 
   /// Katalog durchsuchender Sprung: Podcast-Tab, passende Sendung wählen oder Suche nach Show.
   func openPodcastSearchFromText(_ raw: String) {
     let q = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !q.isEmpty, q != "—", showPodcastsTab else { return }
+    guard !q.isEmpty, q != "—", showPodcastsTab, selectedPodcastLibrary != nil else { return }
     podcastSearchTask?.cancel()
     podcastSearchText = ""
-    mainTab = .podcasts
+    navigateToMedia(.podcasts)
     Task { await navigatePodcastsToShowMatchingQuery(q) }
   }
 
   /// Folgen-Detail → Podcasts-Tab mit Episodenliste dieser Sendung (wie Strip-Auswahl).
   func openPodcastShowCatalog(showId: String) async {
     let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !sid.isEmpty, showPodcastsTab else { return }
-    mainTab = .podcasts
+    guard !sid.isEmpty, showPodcastsTab, selectedPodcastLibrary != nil else { return }
+    navigateToMedia(.podcasts)
     podcastCatalogStripSectionId = sid
     await selectPodcastShowFilter(sid)
   }
@@ -8559,21 +8596,19 @@ final class AppModel: ObservableObject {
     )
   }
 
-  /// Öffnet in `MainRootView` das große Now-Playing-Sheet (Tab bleibt unverändert).
-  func requestPresentNowPlayingSheet() {
-    nowPlayingSheetPresentationCounter &+= 1
+  func selectPlayerTab() {
+    mainTab = .player
   }
 
-  /// Schließt das Now-Playing-Sheet (z. B. nach „Fertig“, sonst leerer weißer Screen).
-  func requestDismissNowPlayingSheet() {
-    Self.debugLog.log("requestDismissNowPlayingSheet CALLED")
-    nowPlayingSheetDismissCounter &+= 1
+  func returnFromPlayerTabIfNeeded() {
+    guard mainTab == .player else { return }
+    mainTab = lastNonPlayerMainTab == .player ? .start : lastNonPlayerMainTab
   }
 
-  /// Nach `play` / `playPodcastEpisode`: nur wenn online und Setting aktiv (Offline → Inline-Mini-Player).
-  private func presentNowPlayingSheetOnAutoPlayIfNeeded() {
+  /// Nach `play` / `playPodcastEpisode`: nur wenn online und Setting aktiv.
+  private func selectPlayerTabOnAutoPlayIfNeeded() {
     guard !offlineHomeUIActive, openPlayerWhenStartPlaying else { return }
-    requestPresentNowPlayingSheet()
+    selectPlayerTab()
   }
 
   /// Sofort „Continue listening“ mit lokalem Fortschritt füllen; `loadStartDashboard()` gleicht später mit dem Server ab.
@@ -8793,7 +8828,7 @@ final class AppModel: ObservableObject {
         } else {
           bumpOptimisticContinueListeningForAudiobook(resolved, resumeAt: resume)
         }
-        presentNowPlayingSheetOnAutoPlayIfNeeded()
+        selectPlayerTabOnAutoPlayIfNeeded()
         if mayUseServerNetwork {
           Task { await loadStartDashboard() }
         }
@@ -8846,7 +8881,7 @@ final class AppModel: ObservableObject {
       UserDefaults.standard.set(stub.id, forKey: Keys.lastPlayedItemId)
       if autoPlay {
         bumpOptimisticContinueListeningForPodcastEpisode(episode, resumeAt: resume)
-        presentNowPlayingSheetOnAutoPlayIfNeeded()
+        selectPlayerTabOnAutoPlayIfNeeded()
         if mayUseServerNetwork {
           Task { await loadStartDashboard() }
         }
@@ -8970,6 +9005,7 @@ final class AppModel: ObservableObject {
 
   /// Wiedergabe beenden. `idlePlaceholder: false` entfernt die Mini-Player-Leiste vollständig (z. B. nach „Fertig“).
   func dismissPlayer(idlePlaceholder: Bool = true) async {
+    let shouldReturnFromPlayerTab = mainTab == .player
     Self.debugLog.log("dismissPlayer START idlePlaceholder=\(idlePlaceholder) activeBook=\(player.activeBook?.id ?? "nil") episodes=\(podcastEpisodes.count) chromeVisible=\(floatingChrome.gate.chromeVisible)")
     await player.closeSessionIfNeeded()
     await pushPendingEbookProgressSyncIfSafe()
@@ -8980,14 +9016,12 @@ final class AppModel: ObservableObject {
     // White-View beim Podcast „Fertig"-Flow.
     floatingChrome.syncChrome()
     player.setMiniPlayerPlaceholder(idlePlaceholder)
-    // Floating-Bar-Visibility SYNCHRON aktualisieren — die Combine-Pipeline
-    // (Publishers.MergeMany + .receive(on: .main)) feuert sonst erst asynchron,
-    // nachdem requestDismissNowPlayingSheet bereits gelaufen ist. Mit noch
-    // `chromeVisible=true` behält FloatingTabBottomAccessoryModifier das
-    // tabViewBottomAccessory im View-Tree, was SwiftUI beim gleichzeitigen
-    // Overlay-Dismiss lahmlegt → weißer View.
+    // Floating-Bar-Visibility synchron nach dem Placeholder-Update aktualisieren.
     floatingChrome.syncChrome()
     Self.debugLog.log("dismissPlayer END activeBook=\(player.activeBook?.id ?? "nil") episodes=\(podcastEpisodes.count) chromeVisible=\(floatingChrome.gate.chromeVisible) inset=\(nowPlayingAccessoryScrollBottomInset)")
+    if shouldReturnFromPlayerTab, mainTab == .player {
+      returnFromPlayerTabIfNeeded()
+    }
   }
 
   /// Hörbuch bis zum Ende gehört: lokal fertig (Offline) bzw. inkl. Server-Sync.
@@ -9036,7 +9070,6 @@ final class AppModel: ObservableObject {
     if wasPlaying {
       await dismissPlayer(idlePlaceholder: false)
     }
-    requestDismissNowPlayingSheet()
     let dbgEpCount2 = podcastEpisodes.count
     let dbgFiltCount2 = podcastFilteredEpisodes.count
     let dbgChrome2 = floatingChrome.gate.chromeVisible
@@ -9132,7 +9165,7 @@ final class AppModel: ObservableObject {
       patchCatalog: { },
       reloadLibraryIfNeeded: { [weak self] in
         guard let self else { return }
-        if self.mainTab == .podcasts {
+        if self.mainTab == .library, self.mediaCatalogKind == .podcasts {
           await self.reloadPodcastLibrary(reset: true)
         }
       }
@@ -9207,7 +9240,6 @@ final class AppModel: ObservableObject {
         // Wiedergabe VOR dem Löschen beenden: schließt die offene Play-Session — sonst
         // erzeugt deren nächster `syncPlaySession(currentTime:)` den Media-Progress direkt neu.
         await dismissPlayer(idlePlaceholder: false)
-        requestDismissNowPlayingSheet()
       }
       clearPendingOfflineListeningSeconds(progressKey: bookId)
       await deleteAllListeningSessions(client: c, libraryItemId: bookId, episodeId: nil)
@@ -9328,7 +9360,6 @@ final class AppModel: ObservableObject {
         // Wiedergabe VOR dem Löschen beenden: schließt die offene Play-Session — sonst
         // erzeugt deren nächster `syncPlaySession(currentTime:)` den Media-Progress direkt neu.
         await dismissPlayer(idlePlaceholder: false)
-        requestDismissNowPlayingSheet()
       }
       clearPendingOfflineListeningSeconds(progressKey: key)
       await deleteAllListeningSessions(
