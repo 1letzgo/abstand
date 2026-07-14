@@ -49,6 +49,7 @@ struct AbstandPinnedBrowseStrip<Secondary: View>: View {
           AbstandExpandingDockChip(
             item: item,
             isSelected: item.id == pinnedSelectionID,
+            showsLabelWhenSelected: false,
             onSelect: {
               guard item.id != pinnedSelectionID else { return }
               UIImpactFeedbackGenerator(style: .soft).impactOccurred()
@@ -80,9 +81,11 @@ struct AbstandExpandingDockChip: View {
 
   let item: AbstandBrowseStripItem
   let isSelected: Bool
+  var showsLabelWhenSelected = true
   let onSelect: () -> Void
 
   private var usesCover: Bool { item.coverItemId != nil }
+  private var showsExpandedLabel: Bool { isSelected && showsLabelWhenSelected }
 
   private var dockColors: AppTheme.ExpandingDock.Colors {
     let _ = themeRevision
@@ -115,7 +118,7 @@ struct AbstandExpandingDockChip: View {
   }
 
   private var symbolOrCoverPill: some View {
-    HStack(spacing: isSelected ? AppTheme.ExpandingDock.iconLabelSpacing : 0) {
+    HStack(spacing: showsExpandedLabel ? AppTheme.ExpandingDock.iconLabelSpacing : 0) {
       Group {
         if usesCover, let coverItemId = item.coverItemId {
           coverThumbnail(size: AppTheme.ExpandingDock.activeCoverSize, itemId: coverItemId)
@@ -137,20 +140,22 @@ struct AbstandExpandingDockChip: View {
         .foregroundStyle(dockColors.activeForeground)
         .lineLimit(1)
         .fixedSize(horizontal: true, vertical: false)
-        .opacity(isSelected ? 1 : 0)
-        .frame(width: isSelected ? nil : 0, alignment: .leading)
+        .opacity(showsExpandedLabel ? 1 : 0)
+        .frame(width: showsExpandedLabel ? nil : 0, alignment: .leading)
         .clipped()
     }
     .padding(
       .leading,
-      isSelected ? AppTheme.ExpandingDock.activeLeadingPadding : AppTheme.ExpandingDock.inactiveIconSideInset
+      showsExpandedLabel
+        ? AppTheme.ExpandingDock.activeLeadingPadding : AppTheme.ExpandingDock.inactiveIconSideInset
     )
     .padding(
       .trailing,
-      isSelected ? AppTheme.ExpandingDock.activeTrailingPadding : AppTheme.ExpandingDock.inactiveIconSideInset
+      showsExpandedLabel
+        ? AppTheme.ExpandingDock.activeTrailingPadding : AppTheme.ExpandingDock.inactiveIconSideInset
     )
     .frame(height: AppTheme.ExpandingDock.activeHeight)
-    .frame(width: isSelected ? nil : AppTheme.ExpandingDock.circleSize)
+    .frame(width: showsExpandedLabel ? nil : AppTheme.ExpandingDock.circleSize)
     .frame(minWidth: AppTheme.ExpandingDock.circleSize, minHeight: AppTheme.ExpandingDock.circleSize)
     .background { chipBackground }
     .clipShape(Capsule(style: .continuous))
