@@ -41,6 +41,7 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
   final class Coordinator: NSObject, UIAdaptivePresentationControllerDelegate {
     private let isPresented: Binding<Bool>
     private var hostingController: UIHostingController<OverlayContent>?
+    private var presentingController: UIHostingController<OverlayContent>?
     private weak var presentationAnchor: UIViewController?
     private var pendingContent: OverlayContent?
     private var isDismissing = false
@@ -53,6 +54,11 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
     func present(_ content: OverlayContent, from anchor: UIViewController) {
       presentationAnchor = anchor
       if isDismissing {
+        pendingContent = content
+        return
+      }
+      if let presentingController {
+        presentingController.rootView = content
         pendingContent = content
         return
       }
@@ -74,9 +80,26 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
       // ohne dieses Flag könnte VoiceOver dorthin navigieren, obwohl sie visuell verdeckt ist.
       host.view.accessibilityViewIsModal = true
       host.presentationController?.delegate = self
-      hostingController = host
-      pendingContent = nil
-      presenter.present(host, animated: true)
+      presentingController = host
+      pendingContent = content
+      presenter.present(host, animated: true) { [weak self, weak host] in
+        guard let self, let host else { return }
+        self.presentingController = nil
+        guard self.isPresented.wrappedValue, host.presentingViewController != nil else {
+          host.dismiss(animated: false)
+          if self.isPresented.wrappedValue {
+            self.schedulePendingPresentationRetry()
+          } else {
+            self.pendingContent = nil
+          }
+          return
+        }
+        if let pendingContent = self.pendingContent {
+          host.rootView = pendingContent
+        }
+        self.hostingController = host
+        self.pendingContent = nil
+      }
     }
 
     private func topmostPresenter(from anchor: UIViewController) -> UIViewController? {
@@ -124,6 +147,7 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
     /// Binding nachziehen, damit kein Zustand verwaist.
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
       hostingController = nil
+      presentingController = nil
       isDismissing = false
       pendingContent = nil
       isPresented.wrappedValue = false
