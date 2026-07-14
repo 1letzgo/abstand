@@ -1268,7 +1268,7 @@ final class AppModel: ObservableObject {
 
   enum MainTab: String, CaseIterable, Hashable {
     case start = "Home"
-    case library = "Media"
+    case library = "Library"
     case settings = "Settings"
   }
 
