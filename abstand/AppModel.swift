@@ -4749,14 +4749,15 @@ final class AppModel: ObservableObject {
     }
   }
 
-  /// Baut den Katalog aus der lokalen SwiftData-DB auf — cache-first, aber in der RICHTIGEN
-  /// Reihenfolge. Rückgabe `true`, wenn `books` lokal gefüllt wurde:
+  /// Baut den Katalog aus der lokalen SwiftData-DB auf — nur für die SOFORT-Anzeige, bevor der
+  /// Server antwortet (`reloadLibrary` ersetzt die Liste bei jedem Reset unten verbindlich durch
+  /// die frische Server-Seite 0). Rückgabe `true`, wenn `books` lokal gefüllt wurde:
   /// 1. Gecachte Katalogseiten in **Server-Reihenfolge**, wenn Sort/Filter exakt passen.
   /// 2. Sonst `LocalBook`-Superset, client-seitig sortiert — nur ohne Server-Filter und wenn
   ///    das Sortierfeld lokal abbildbar ist (`supportsLocalBookSort`). Der frühere stille
   ///    Titel-Fallback zeigte bei allen anderen Sortierungen eine falsche, pro Fetch
   ///    wechselnde Reihenfolge an.
-  /// Liefert die Funktion `false`, ersetzt der Server-Reset die Liste (korrekte Sortierung).
+  @discardableResult
   private func loadLibraryFromLocalStore() -> Bool {
     guard let context = currentLocalLibraryMainContext(),
       let libId = selectedBooksLibrary?.id else { return false }
@@ -4794,41 +4795,32 @@ final class AppModel: ObservableObject {
     return true
   }
 
-  /// Merged eine Server-Seite in den bereits lokal geladenen Katalog — ersetzt nicht, sondern
-  /// ergänzt neue Bücher und aktualisiert geänderte Metadaten (updatedAt-Vergleich).
-  /// Verhindert den Pagination-Loop, der entsteht, wenn der Server-Reset die lokalen Bücher
-  /// durch eine einzelne 80er-Seite ersetzt.
-  private func mergeServerPageIntoLocalBooks(_ pageBooks: [ABSBook], total: Int) {
-    guard !pageBooks.isEmpty else { return }
-    let serverIds = Set(pageBooks.map(\.id))
-    var merged = books
-    var changed = false
-    // Geänderte Bücher aktualisieren (updatedAt-Vergleich).
-    for i in merged.indices {
-      if let serverBook = pageBooks.first(where: { $0.id == merged[i].id }),
-        serverBook.updatedAt != merged[i].updatedAt
-      {
-        merged[i] = serverBook
-        changed = true
-      }
+  /// Ersetzt bei einem stillen, unbeauftragten Hintergrund-Refresh (`preserveOtherCachedPages`)
+  /// nur die ersten `pageBooks.count` Positionen von `books` durch die frische Server-Seite 0 —
+  /// exakt in Server-Reihenfolge — und lässt bereits gescrollte Folgeseiten unangetastet.
+  /// Dubletten (ein Buch, das die Seite jetzt enthält, aber vorher weiter hinten stand, oder
+  /// umgekehrt) werden aus dem hinteren Teil entfernt, dessen Reihenfolge bleibt sonst unverändert.
+  private func mergeServerFirstPageIntoLocalBooksPreservingRest(_ pageBooks: [ABSBook], total: Int) {
+    guard !pageBooks.isEmpty else {
+      libraryTotal = max(books.count, total)
+      return
     }
-    // Neue Bücher (auf dem Server, aber noch nicht lokal) hinten anfügen.
-    let localIds = Set(merged.map(\.id))
-    for book in pageBooks where !localIds.contains(book.id) {
-      merged.append(book)
-      changed = true
-    }
-    // Bücher die der Server nicht mehr hat, nicht entfernen — könnten lokal noch relevant sein
-    // (z. B. Offline-Downloads). Der nächste vollständige lokale Reload bereinigt.
-    _ = serverIds
-    if changed {
+    let pageIds = Set(pageBooks.map(\.id))
+    let rest = books.count > pageBooks.count
+      ? Array(books[pageBooks.count...]).filter { !pageIds.contains($0.id) }
+      : []
+    let merged = pageBooks + rest
+    let unchanged =
+      merged.count == books.count
+      && zip(merged, books).allSatisfy { $0.id == $1.id && $0.updatedAt == $1.updatedAt }
+    if !unchanged {
       var transaction = Transaction()
       transaction.disablesAnimations = true
       withTransaction(transaction) {
         books = merged
-        libraryTotal = max(merged.count, total)
       }
     }
+    libraryTotal = max(merged.count, total)
   }
 
   private func browseEbooksSortKey() -> (sort: String, descending: Bool) {
@@ -4969,13 +4961,14 @@ final class AppModel: ObservableObject {
       await loadStartDashboard()
       return
     }
-    // Lokale DB als Primärquelle — füllt `books` sofort in der zum aktuellen Sort/Filter
-    // passenden Reihenfolge. Schlägt der lokale Aufbau fehl (Sortierfeld nicht lokal abbildbar,
-    // Server-Filter aktiv, Cache leer), ersetzt der Server-Reset unten die Liste komplett —
-    // sonst würde ein Sortierwechsel nie greifen (Server-Seite würde nur gemergt).
-    var didLoadFromLocalStore = false
+    // Lokale DB nur für die SOFORT-Anzeige, bevor der Server antwortet — deterministische
+    // Reihenfolge (siehe `loadLibraryFromLocalStore`), aber nie verbindlich: Ein echter Reset
+    // holt unten IMMER Seite 0 frisch vom Server und diese Antwort entscheidet die Reihenfolge.
+    // (Vorherige Version hielt `libraryPage` aus dem Cache-Stand und fragte je nach Sitzung eine
+    // beliebige Seite ab, gemergt statt ersetzt — daher wechselnde/falsche Sortierung bei jedem
+    // Pull-to-Refresh.)
     if reset {
-      didLoadFromLocalStore = loadLibraryFromLocalStore()
+      loadLibraryFromLocalStore()
     }
     guard let c = client else {
       if startShelves.isEmpty { await loadStartDashboard() }
@@ -4991,59 +4984,51 @@ final class AppModel: ObservableObject {
     let ascending = catalogSortField == .random ? true : !catalogSortDescending
     let sortKey = catalogSortField.apiSortParameter
     do {
-      // Wenn die lokale DB den Katalog bereits komplett geliefert hat, nur Seite 0 als
-      // Hintergrund-Refresh holen — nicht die lokalen Bücher durch eine einzelne Server-Seite
-      // ersetzen (sonst Pagination-Loop: 80 Server-Bücher < libraryTotal → immer wieder nachladen).
-      let serverReset = reset && !didLoadFromLocalStore
-      if serverReset {
+      if reset {
         libraryPage = 0
       }
       let pageIndex = libraryPage
       let (page, _) = try await c.libraryItems(
         libraryId: lib.id,
-        page: libraryPage,
+        page: pageIndex,
         limit: Self.libraryCatalogPageLimit,
         sort: sortKey,
         ascending: ascending,
         minified: true,
         filter: activeLibraryFilter
       )
-      let rawPageBooks = page.results.filter(\.isUsableLibraryCatalogRow)
+      let pageBooks = page.results.filter(\.isUsableLibraryCatalogRow)
       if let store = currentLocalLibraryStore() {
-        if serverReset, pageIndex == 0, preserveOtherCachedPages {
+        if reset, preserveOtherCachedPages {
           try? await store.refreshCatalogFirstPagePreservingRest(
             libraryId: lib.id, sortField: sortKey, ascending: ascending, filterKey: activeLibraryFilter,
-            total: page.total, items: rawPageBooks)
-        } else if serverReset, pageIndex == 0 {
+            total: page.total, items: pageBooks)
+        } else if reset {
           try? await store.replaceCatalogFirstPage(
             libraryId: lib.id, sortField: sortKey, ascending: ascending, filterKey: activeLibraryFilter,
-            total: page.total, items: rawPageBooks)
-        } else if !serverReset {
-          try? await store.appendCatalogPage(libraryId: lib.id, total: page.total, items: rawPageBooks)
+            total: page.total, items: pageBooks)
+        } else {
+          try? await store.appendCatalogPage(libraryId: lib.id, total: page.total, items: pageBooks)
         }
       }
-      let pageBooks = rawPageBooks
-      if serverReset {
-        // Vollständiger Server-Reset (lokale DB war leer) — Server-Seite 0 ersetzt books.
+      if reset, preserveOtherCachedPages {
+        // Stiller Hintergrund-Refresh (z. B. nach Bootstrap): nur die ersten `pageBooks.count`
+        // Positionen mit der frischen Server-Reihenfolge ersetzen, bereits gescrollte Folgeseiten
+        // bleiben unangetastet — sonst würde die Liste während eines unbeauftragten Refreshs
+        // sichtbar auf Seite 0 zurückschrumpfen.
+        mergeServerFirstPageIntoLocalBooksPreservingRest(pageBooks, total: page.total)
+      } else if reset {
+        // Echter Reset (Pull-to-Refresh, Sort-/Filterwechsel): Server-Seite 0 ist verbindlich.
         let unchanged =
           pageBooks.count == books.count
           && zip(pageBooks, books).allSatisfy { $0.id == $1.id && $0.updatedAt == $1.updatedAt }
         if !unchanged { books = pageBooks }
-      } else if didLoadFromLocalStore {
-        // Lokaler Katalog bereits geladen — Server-Seite nur mergen (neue/geänderte Bücher),
-        // nicht ersetzen. Verhindert den Pagination-Loop (80 Server-Bücher < libraryTotal).
-        mergeServerPageIntoLocalBooks(pageBooks, total: page.total)
+        libraryTotal = page.total
       } else {
         books.append(contentsOf: pageBooks)
-      }
-      if !didLoadFromLocalStore {
         libraryTotal = page.total
-        libraryPage = page.page + 1
-      } else if !pageBooks.isEmpty {
-        // Lokal (aus gecachten Seiten) aufgebaute Liste kann partiell sein — Cursor nach der
-        // geholten Server-Seite fortschreiben, sonst fordert `loadMoreIfNeeded` dieselbe Seite erneut an.
-        libraryPage = max(libraryPage, page.page + 1)
       }
+      libraryPage = page.page + 1
       if reset {
         lastBooksCatalogServerSyncAt = Date()
       }
