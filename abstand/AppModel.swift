@@ -7519,7 +7519,8 @@ final class AppModel: ObservableObject {
       let rows = entityDetailSortBooksBySeriesOrder(
         offlineFilteredIfNeeded(
           booksInLocalSeries(
-            seriesId: nav.entityId, displayName: nav.title, libraryId: nav.libraryId)))
+            seriesId: nav.entityId, displayName: nav.title, libraryId: nav.libraryId)),
+        seriesId: nav.entityId)
       entityDetailBooks = rows
       entityDetailTotal = rows.count
     case .narrator:
@@ -7812,7 +7813,7 @@ final class AppModel: ObservableObject {
             .filter(isUsableEntityDetailCatalogRow)
             .filter { bookMatchesEntityDetailLibrary($0, libraryId: nav.libraryId) }
           if !rows.isEmpty {
-            entityDetailBooks = rows
+            entityDetailBooks = entityDetailSortBooksBySeriesOrder(rows, seriesId: nav.entityId)
             entityDetailTotal = rows.count
             entityDetailUsesLibraryItemFilter = false
           } else {
@@ -7871,7 +7872,8 @@ final class AppModel: ObservableObject {
     var sections: [EntityDetailAuthorSeriesSection] = []
     for series in detail.series ?? [] {
       let books = entityDetailSortBooksBySeriesOrder(
-        (series.items ?? []).filter(\.isUsableAuthorDetailRow))
+        (series.items ?? []).filter(\.isUsableAuthorDetailRow),
+        seriesId: series.id)
       guard !books.isEmpty else { continue }
       inSeriesIds.formUnion(books.map(\.id))
       sections.append(
@@ -7885,18 +7887,31 @@ final class AppModel: ObservableObject {
     entityDetailTotal = allItems.count
   }
 
-  private func entityDetailSortBooksBySeriesOrder(_ books: [ABSBook]) -> [ABSBook] {
+  private func entityDetailSortBooksBySeriesOrder(
+    _ books: [ABSBook], seriesId: String? = nil
+  ) -> [ABSBook] {
     books.sorted { lhs, rhs in
-      let lk = entityDetailSeriesSortKey(for: lhs)
-      let rk = entityDetailSeriesSortKey(for: rhs)
+      let lk = entityDetailSeriesSortKey(for: lhs, seriesId: seriesId)
+      let rk = entityDetailSeriesSortKey(for: rhs, seriesId: seriesId)
       if lk.number != rk.number { return lk.number < rk.number }
       if lk.text != rk.text { return lk.text.localizedStandardCompare(rk.text) == .orderedAscending }
       return lhs.displayTitle.localizedStandardCompare(rhs.displayTitle) == .orderedAscending
     }
   }
 
-  private func entityDetailSeriesSortKey(for book: ABSBook) -> (number: Double, text: String) {
-    guard let series = book.media.metadata.series?.first else {
+  private func entityDetailSeriesSortKey(
+    for book: ABSBook, seriesId: String? = nil
+  ) -> (number: Double, text: String) {
+    let allSeries = book.media.metadata.series ?? []
+    // Wenn eine seriesId übergeben wurde, die passende Series auswählen (Bücher können
+    // in mehreren Serien sein — sonst nimmt .first die falsche Sequence-Nummer).
+    let series: ABSSeries?
+    if let sid = seriesId {
+      series = allSeries.first(where: { $0.id == sid }) ?? allSeries.first
+    } else {
+      series = allSeries.first
+    }
+    guard let series else {
       return (.infinity, book.displayTitle)
     }
     let seq = series.sequence?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -7931,7 +7946,12 @@ final class AppModel: ObservableObject {
       filter: nav.libraryFilter
     )
     guard entityDetailNavKey == key else { return }
-    let rows = page.results.filter(isUsableEntityDetailCatalogRow)
+    let rawRows = page.results.filter(isUsableEntityDetailCatalogRow)
+    // Bei Series-Detail nach Series-Reihenfolge sortieren (Sequence-Nummer), nicht nach
+    // dem allgemeinen Katalog-Sortierfeld — sonst stimmt die Reihenfolge nicht.
+    let rows = nav.kind == .series
+      ? entityDetailSortBooksBySeriesOrder(rawRows, seriesId: nav.entityId)
+      : rawRows
     if reset || pageIndex == 0 {
       entityDetailBooks = rows
     } else {
