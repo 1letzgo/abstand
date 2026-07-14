@@ -913,12 +913,19 @@ struct SearchTabRootView: View {
           .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
       }
       .abstandTabScreenChrome()
-      .abstandScrollScreenBackground()
+      .abstandScrollScreenBackground(ignoreSafeArea: true)
       .navigationTitle(AppModel.MainTab.search.rawValue)
-      .toolbarTitleDisplayMode(.inlineLarge)
+      .toolbarTitleDisplayMode(.inline)
       .booksEntityDetailNavigation(for: .search)
     }
     .tint(model.appearanceAccentColor)
+    .onDisappear {
+      // Suche zurücksetzen, wenn der Search-Tab verlassen wird.
+      model.searchText = ""
+      model.podcastLibrarySearchText = ""
+      model.clearSearchResults()
+      model.clearPodcastLibrarySearchResults()
+    }
   }
 
   private var trimmedQuery: String {
@@ -942,8 +949,8 @@ struct SearchTabRootView: View {
       )
       .frame(maxWidth: .infinity)
       .padding(.vertical, 48)
-    } else if q.count < 2 {
-      Text("Enter at least two characters.")
+    } else if q.count < 3 {
+      Text("Enter at least three characters.")
         .font(.subheadline)
         .foregroundStyle(AppTheme.textSecondary)
         .frame(maxWidth: .infinity)

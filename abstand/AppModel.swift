@@ -7187,7 +7187,7 @@ final class AppModel: ObservableObject {
 
   private func performPodcastLibrarySearch(query: String) async {
     let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-    if q.count < 2 {
+    if q.count < 3 {
       clearPodcastLibrarySearchResults()
       return
     }
@@ -7241,7 +7241,7 @@ final class AppModel: ObservableObject {
   /// Sofort-Suche in der lokalen DB (Podcast-Bibliothek) — läuft IMMER zuerst, siehe `applyLocalSearchResults`.
   private func applyLocalPodcastLibrarySearchResults(query: String) {
     let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-    if q.count < 2 {
+    if q.count < 3 {
       clearPodcastLibrarySearchResults()
       return
     }
@@ -7459,7 +7459,7 @@ final class AppModel: ObservableObject {
   /// Netzwerk-Wartezeit erscheinen; der Server-Abruf in `performSearch` verfeinert danach nur noch.
   private func applyLocalSearchResults(query: String) {
     let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-    if q.count < 2 {
+    if q.count < 3 {
       clearSearchResults()
       return
     }
@@ -7564,7 +7564,7 @@ final class AppModel: ObservableObject {
 
   private func performSearch(query: String) async {
     let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-    if q.count < 2 {
+    if q.count < 3 {
       clearSearchResults()
       return
     }
