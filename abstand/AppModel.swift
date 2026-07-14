@@ -636,6 +636,12 @@ final class AppModel: ObservableObject {
   @Published var searchSeries: [ABSSearchSeriesRow] = []
   @Published var searchTags: [ABSSearchNamedCount] = []
   @Published var searchGenres: [ABSSearchNamedCount] = []
+  /// Cross-Media: Podcast-Treffer, die gleichzeitig zur Bücher-Suche in der lokalen DB gefunden wurden
+  /// (unabhängig vom Netzwerk) — angezeigt als kompakter „Podcasts"-Abschnitt in der Bücher-Suche.
+  @Published var searchCrossMediaPodcastShows: [ABSBook] = []
+  @Published var searchCrossMediaPodcastEpisodes: [ABSPodcastEpisodeListItem] = []
+  /// Cross-Media: Buch-Treffer, die gleichzeitig zur Podcast-Suche in der lokalen DB gefunden wurden.
+  @Published var podcastLibrarySearchCrossMediaBooks: [ABSBook] = []
   @Published var podcastSearchAuthors: [ABSSearchAuthorRow] = []
   @Published var podcastSearchNarrators: [ABSSearchNarratorRow] = []
   @Published var podcastSearchSeries: [ABSSearchSeriesRow] = []
@@ -7156,6 +7162,8 @@ final class AppModel: ObservableObject {
     searchSeries = []
     searchTags = []
     searchGenres = []
+    searchCrossMediaPodcastShows = []
+    searchCrossMediaPodcastEpisodes = []
   }
 
   func clearPodcastSearchResults() {
@@ -7170,6 +7178,7 @@ final class AppModel: ObservableObject {
   func clearPodcastLibrarySearchResults() {
     podcastLibrarySearchShows = []
     podcastLibrarySearchEpisodes = []
+    podcastLibrarySearchCrossMediaBooks = []
   }
 
   func schedulePodcastLibrarySearch() {
@@ -7189,14 +7198,12 @@ final class AppModel: ObservableObject {
       return
     }
     guard selectedPodcastLibrary != nil else { return }
+    // Lokale DB ist mit dem Server synchronisiert — sofort lokal anzeigen, siehe `performSearch`.
+    applyLocalPodcastLibrarySearchResults(query: q)
     if !mayUseServerNetwork || !isNetworkReachable || client == nil {
-      applyLocalPodcastLibrarySearchResults(query: q)
       return
     }
-    guard let c = client, let lib = selectedPodcastLibrary else {
-      applyLocalPodcastLibrarySearchResults(query: q)
-      return
-    }
+    guard let c = client, let lib = selectedPodcastLibrary else { return }
     isLoadingPodcasts = true
     defer { isLoadingPodcasts = false }
     do {
@@ -7205,7 +7212,6 @@ final class AppModel: ObservableObject {
       podcastLibrarySearchEpisodes = mergedPodcastLibrarySearchEpisodes(
         server: res.podcastEpisodeMatches, query: q)
     } catch {
-      applyLocalPodcastLibrarySearchResults(query: q)
       if podcastLibrarySearchShows.isEmpty, podcastLibrarySearchEpisodes.isEmpty {
         publishErrorUnlessBenignCancellation(error)
       }
@@ -7238,15 +7244,37 @@ final class AppModel: ObservableObject {
     return Array(byKey.values)
   }
 
+  /// Sofort-Suche in der lokalen DB (Podcast-Bibliothek) — läuft IMMER zuerst, siehe `applyLocalSearchResults`.
+  /// Sucht zusätzlich gleichzeitig in der Bücher-Bibliothek (Cross-Media), rein lokal, ohne Netz.
   private func applyLocalPodcastLibrarySearchResults(query: String) {
     let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
     if q.count < 2 {
       clearPodcastLibrarySearchResults()
       return
     }
-    podcastLibrarySearchShows = podcastShows.filter { bookMatchesSearchQuery($0, query: q) }
+    var byId: [String: ABSBook] = [:]
+    if let libId = selectedPodcastLibrary?.id {
+      for show in searchLocalPodcastShows(libraryId: libId, query: q) {
+        byId[show.id] = show
+      }
+    }
+    for show in podcastShows where bookMatchesSearchQuery(show, query: q) {
+      if let existing = byId[show.id] {
+        byId[show.id] = show.preferringRicherListMetadata(than: existing)
+      } else {
+        byId[show.id] = show
+      }
+    }
+    podcastLibrarySearchShows = Array(byId.values)
       .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
     podcastLibrarySearchEpisodes = mergedPodcastLibrarySearchEpisodes(server: [], query: q)
+    // Cross-Media: gleichzeitig in der Bücher-Bibliothek suchen — rein lokal, unabhängig vom Netz.
+    if let bookLibId = selectedBooksLibrary?.id {
+      podcastLibrarySearchCrossMediaBooks = searchLocalBooks(libraryId: bookLibId, query: q)
+        .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+    } else {
+      podcastLibrarySearchCrossMediaBooks = []
+    }
   }
 
   func refreshPodcastLibrarySearchResults() async {
@@ -7352,6 +7380,21 @@ final class AppModel: ObservableObject {
     ensureLocalProgressLoaded()
   }
 
+  /// Sucht Bücher direkt in der lokalen SwiftData-DB einer Bibliothek (Titel/Autor/Serie) — vollständiger
+  /// als die aktuell im Speicher gehaltenen Katalog-Arrays (`mergedLocalCatalogBooks()`), da unabhängig
+  /// davon, welche Screens der Nutzer bereits besucht hat. Gleiche Quelle wie der Cache-first-Katalog.
+  private func searchLocalBooks(libraryId: String, query: String, limit: Int = 60) -> [ABSBook] {
+    guard let context = currentLocalLibraryMainContext() else { return [] }
+    let all = LocalLibraryQueries.allBooks(
+      context: context, libraryId: libraryId, sortField: .title, descending: false)
+    return Array(all.filter { bookMatchesSearchQuery($0, query: query) }.prefix(limit))
+  }
+
+  /// Podcast-Sendungen leben in derselben `LocalBook`-Tabelle wie Bücher (nur mit der Podcast-`libraryId`).
+  private func searchLocalPodcastShows(libraryId: String, query: String, limit: Int = 40) -> [ABSBook] {
+    searchLocalBooks(libraryId: libraryId, query: query, limit: limit)
+  }
+
   private func bookMatchesSearchQuery(_ book: ABSBook, query: String) -> Bool {
     let q = query.lowercased()
     if book.displayTitle.lowercased().contains(q) { return true }
@@ -7426,7 +7469,9 @@ final class AppModel: ObservableObject {
     }
   }
 
-  /// Offline / ohne Server: Suche in gecachten Katalog- und Browse-Daten (analog Library-Liste).
+  /// Sofort-Suche in der lokalen DB — läuft IMMER zuerst (auch online), damit die Ergebnisse ohne
+  /// Netzwerk-Wartezeit erscheinen; der Server-Abruf in `performSearch` verfeinert danach nur noch.
+  /// Sucht zusätzlich gleichzeitig in der Podcast-Bibliothek (Cross-Media), rein lokal, ohne Netz.
   private func applyLocalSearchResults(query: String) {
     let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
     if q.count < 2 {
@@ -7434,11 +7479,21 @@ final class AppModel: ObservableObject {
       return
     }
     ensureLocalCatalogCachesInMemory()
-    searchBooks = mergedLocalCatalogBooks()
-      .filter { bookMatchesSearchQuery($0, query: q) }
-      .sorted {
-        $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending
+    var byId: [String: ABSBook] = [:]
+    if let libId = selectedBooksLibrary?.id {
+      for book in searchLocalBooks(libraryId: libId, query: q) {
+        byId[book.id] = book
       }
+    }
+    for book in mergedLocalCatalogBooks() where bookMatchesSearchQuery(book, query: q) {
+      if let existing = byId[book.id] {
+        byId[book.id] = book.preferringRicherListMetadata(than: existing)
+      } else {
+        byId[book.id] = book
+      }
+    }
+    searchBooks = Array(byId.values)
+      .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
     searchAuthors = browseAuthors
       .filter { $0.name.localizedCaseInsensitiveContains(q) }
       .prefix(40)
@@ -7453,6 +7508,14 @@ final class AppModel: ObservableObject {
       .map { ABSSearchSeriesRow(id: $0.id, name: $0.name, books: $0.books) }
     searchTags = []
     searchGenres = []
+    // Cross-Media: gleichzeitig in der Podcast-Bibliothek suchen — rein lokal, unabhängig vom Netz.
+    if let podLibId = selectedPodcastLibrary?.id {
+      searchCrossMediaPodcastShows = searchLocalPodcastShows(libraryId: podLibId, query: q)
+        .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+    } else {
+      searchCrossMediaPodcastShows = []
+    }
+    searchCrossMediaPodcastEpisodes = Array(localPodcastEpisodesMatchingSearch(q).prefix(40))
   }
 
   /// Offline: nur heruntergeladene Titel innerhalb einer Entity-Detailansicht anzeigen.
@@ -7529,14 +7592,14 @@ final class AppModel: ObservableObject {
       return
     }
     guard selectedBooksLibrary != nil else { return }
+    // Lokale DB ist mit dem Server synchronisiert — sofort lokal anzeigen, kein Warten auf den
+    // Netzwerk-Roundtrip. Der Server-Abruf unten (wenn online) verfeinert/ergänzt danach nur noch
+    // (vollständige Bibliotheksabdeckung + Autoren/Serien/Tags/Genres-Abschnitte).
+    applyLocalSearchResults(query: q)
     if !mayUseServerNetwork || !isNetworkReachable || client == nil {
-      applyLocalSearchResults(query: q)
       return
     }
-    guard let c = client, let lib = selectedBooksLibrary else {
-      applyLocalSearchResults(query: q)
-      return
-    }
+    guard let c = client, let lib = selectedBooksLibrary else { return }
     isLoadingLibrary = true
     defer { isLoadingLibrary = false }
     do {
@@ -7547,8 +7610,10 @@ final class AppModel: ObservableObject {
       searchSeries = res.series
       searchTags = res.tags
       searchGenres = res.genres
+      // Cross-Media-Treffer bleiben die lokalen (Server-Suche ist pro Bibliothek/Medientyp getrennt).
     } catch {
-      applyLocalSearchResults(query: q)
+      // Lokale Treffer aus `applyLocalSearchResults` oben bleiben stehen — nur bei komplett leeren
+      // lokalen Treffern zusätzlich eine Fehlermeldung zeigen.
       if searchBooks.isEmpty, searchAuthors.isEmpty, searchNarrators.isEmpty, searchSeries.isEmpty {
         publishErrorUnlessBenignCancellation(error)
       }
