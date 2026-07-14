@@ -10,7 +10,6 @@ struct MainRootView: View {
   @State private var activatedTabs: Set<AppModel.MainTab> = [.start]
   @State private var libraryRelayoutEpoch = 0
   @State private var podcastsRelayoutEpoch = 0
-  @State private var ebooksRelayoutEpoch = 0
 
   var body: some View {
     let _ = model.appearanceThemeRevision
@@ -80,9 +79,6 @@ struct MainRootView: View {
     .onChange(of: model.showPodcastsTab) { _, _ in
       model.clampMediaCatalogKindIfNeeded()
     }
-    .onChange(of: model.ebooksSeparateTabEnabled) { _, _ in
-      model.clampMediaCatalogKindIfNeeded()
-    }
     .onChange(of: model.mediaCatalogKind) { _, _ in
       bumpActiveMediaRelayoutEpoch()
     }
@@ -92,6 +88,11 @@ struct MainRootView: View {
       podcastsRelayoutEpoch += 1
       booksLibraryToolbarState.resetForAccountSwitch()
       podcastCatalogToolbarState.resetForAccountSwitch()
+    }
+    .onChange(of: model.nowPlayingSheetDismissCounter) { _, _ in
+      // UIKit-Overlay-Dismiss kann die Katalog-ScrollViews aus dem Layout bringen.
+      libraryRelayoutEpoch += 1
+      podcastsRelayoutEpoch += 1
     }
     .alert(
       "Error",
@@ -126,7 +127,6 @@ struct MainRootView: View {
   private func bumpActiveMediaRelayoutEpoch() {
     switch model.mediaCatalogKind {
     case .audiobooks: libraryRelayoutEpoch += 1
-    case .ebooks: ebooksRelayoutEpoch += 1
     case .podcasts: podcastsRelayoutEpoch += 1
     }
   }
@@ -142,12 +142,6 @@ struct MainRootView: View {
       Tab(AppModel.MainTab.library.rawValue, systemImage: "square.grid.2x2.fill", value: AppModel.MainTab.library) {
         lazyTabContent(.library) {
           mediaTabRoot
-        }
-      }
-
-      Tab(AppModel.MainTab.player.rawValue, systemImage: "play.circle.fill", value: AppModel.MainTab.player) {
-        lazyTabContent(.player) {
-          NowPlayingDetailView()
         }
       }
 
@@ -171,12 +165,6 @@ struct MainRootView: View {
     case .audiobooks:
       if model.selectedBooksLibrary != nil {
         libraryTabRoot
-      } else {
-        tabLibraryBootstrapPlaceholder
-      }
-    case .ebooks:
-      if model.ebooksSeparateTabEnabled, model.selectedBooksLibrary != nil {
-        ebooksTabRoot
       } else {
         tabLibraryBootstrapPlaceholder
       }
@@ -273,52 +261,6 @@ struct MainRootView: View {
         onSelect: { id in
           if let section = BooksBrowseSection(rawValue: id) {
             model.selectBooksBrowseSection(section)
-          }
-        }
-      )
-    }
-  }
-
-  // MARK: - eBook tab (separater Tab, wenn `ebooksSeparateTabEnabled` aktiv ist)
-
-  private var ebooksTabRoot: some View {
-    NavigationStack {
-      ebooksCatalogScrollView
-        .abstandTabScreenChrome()
-        .navigationTitle(AppModel.MainTab.library.rawValue)
-        .toolbarTitleDisplayMode(.inlineLarge)
-    }
-    .tint(model.appearanceAccentColor)
-    .id("ebooks-tab-\(model.accountSessionEpoch)")
-    .task { await model.loadEbooksTabContentIfNeeded() }
-  }
-
-  private var ebooksCatalogScrollView: some View {
-    AbstandFixedBrowseStripSectionsLayout(
-      relayoutTrigger: ebooksRelayoutEpoch,
-      bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
-      selection: model.ebooksBrowseSection,
-      sectionIDs: BooksBrowseSection.ebookTabStripOrder,
-      scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
-        + model.nowPlayingAccessoryScrollBottomInset,
-      onRefresh: { await model.refreshEbooksCatalog() }
-    ) {
-      ebooksBrowseSectionStrip
-    } sectionBody: { section in
-      booksBrowseSectionScrollContent(for: section)
-    }
-  }
-
-  private var ebooksBrowseSectionStrip: some View {
-    mediaBrowseStrip {
-      AbstandBrowseStripIconMenu(
-        items: BooksBrowseSection.ebookTabStripOrder.map {
-          AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
-        },
-        selectionID: model.ebooksBrowseSection.rawValue,
-        onSelect: { id in
-          if let section = BooksBrowseSection(rawValue: id) {
-            model.selectEbooksBrowseSection(section)
           }
         }
       )
@@ -4311,7 +4253,7 @@ struct BooksEntityDetailNavigationModifier: ViewModifier {
         get: { model.homeEntityDetailNav },
         set: { model.homeEntityDetailNav = $0 }
       )
-    case .player, .settings:
+    case .settings:
       Binding.constant(nil)
     }
   }

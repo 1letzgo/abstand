@@ -119,24 +119,16 @@ final class BooksLibraryToolbarState: ObservableObject {
     }
   }
 
-  private func isEbooksBrowseSection(_ section: BooksBrowseSection) -> Bool {
-    section == .ebooks || section == .ebooksSupplementary
-  }
-
   func applyCatalogSortField(_ field: CatalogSortField) {
     guard let model, model.catalogSortField != field else { return }
     model.catalogSortField = field
-    let kind: AppModel.BooksToolbarSortReloadKind =
-      isEbooksBrowseSection(model.booksBrowseSection) ? .browseEbooks : .mainCatalog
-    model.scheduleBooksToolbarSortReload(kind)
+    model.scheduleBooksToolbarSortReload(.allCatalogs)
   }
 
   func applyCatalogSortDescending(_ descending: Bool) {
     guard let model, model.catalogSortDescending != descending else { return }
     model.catalogSortDescending = descending
-    let kind: AppModel.BooksToolbarSortReloadKind =
-      isEbooksBrowseSection(model.booksBrowseSection) ? .browseEbooks : .mainCatalog
-    model.scheduleBooksToolbarSortReload(kind)
+    model.scheduleBooksToolbarSortReload(.allCatalogs)
   }
 
   func clearCatalogFilter() {
