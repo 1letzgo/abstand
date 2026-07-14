@@ -1221,6 +1221,10 @@ struct NowPlayingDetailView: View {
   @State private var coverImageForTint: UIImage?
   @State private var cachedCoverAverageRGB: (r: Double, g: Double, b: Double)?
   @State private var didSeedCoverTintFromCache = false
+  /// Ersatz für den nativen Sheet-Drag-Indicator/Swipe-to-dismiss, seit `.fullScreenCover`
+  /// (für echtes Vollbild auf iPad) statt `.sheet` verwendet wird.
+  @State private var dismissDragOffset: CGFloat = 0
+
   private var player: PlaybackController { model.player }
 
   /// Cover durch Teleprompter, Recap oder Kapitel-/Sessions-/Bookmarks-Panel ersetzt.
@@ -1386,6 +1390,13 @@ struct NowPlayingDetailView: View {
   }
 
   private var fullPlayerStack: some View {
+    // `.ignoresSafeArea()` am `GeometryReader` selbst (statt nur am Hintergrund) ist entscheidend
+    // dafür, dass `geo.size` die ECHTE Bildschirmgröße meldet statt der kleineren „sicheren"
+    // Content-Fläche. `.safeAreaPadding(...)` auf `Group` weiter unten sorgt trotzdem weiterhin
+    // für korrekten Abstand des Inhalts zu Notch/Home-Indicator — das ist genau das dafür
+    // vorgesehene Zusammenspiel. Ohne dieses `.ignoresSafeArea()` hier würde `.clipShape`
+    // (Ecken-Rundung) exakt an der kleineren `geo.size`-Grenze kappen: oben/unten bliebe ein
+    // durchsichtiger Rand statt echtem Vollbild.
     GeometryReader { geo in
       ZStack(alignment: .top) {
         fullPlayerBackground
@@ -1401,9 +1412,46 @@ struct NowPlayingDetailView: View {
         }
         .safeAreaPadding(.horizontal, MiniPlayerMetrics.fullPlayerCoverInset)
         .safeAreaPadding(.vertical, MiniPlayerMetrics.fullPlayerCoverInset)
+
+        fullPlayerDismissGrabber
       }
       .frame(width: geo.size.width, height: geo.size.height)
+      // Obere Ecken im echten Display-Radius abgerundet: Im Ruhezustand (Offset 0) deckt sich
+      // das exakt mit der physischen Display-Rundung (unsichtbar, da vom Gehäuse ohnehin
+      // verdeckt) — sobald beim Drag-to-dismiss der Inhalt vom oberen Bildschirmrand wegrutscht,
+      // wird die Rundung sichtbar und die Karte wirkt wie in Apple Music wie eine echte Karte.
+      .clipShape(
+        UnevenRoundedRectangle(
+          topLeadingRadius: AbstandDisplayCorners.radius,
+          bottomLeadingRadius: 0,
+          bottomTrailingRadius: 0,
+          topTrailingRadius: AbstandDisplayCorners.radius,
+          style: .continuous
+        )
+      )
+      // Der ganze Stack (inkl. Hintergrund) wird beim Drag verschoben: Der hostende
+      // `UIHostingController` ist per `FullScreenOverlayPresenter` transparent, dahinter bleibt
+      // die App (per `.overFullScreen`) aktiv im Hintergrund — die Lücke oben zeigt also die
+      // echte App statt einer leeren Fläche, genau wie beim Herunterziehen in Apple Music.
+      .offset(y: dismissDragOffset)
+      .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: dismissDragOffset)
+      .gesture(fullPlayerDismissDragGesture)
     }
+    .ignoresSafeArea()
+  }
+
+  /// Kleiner Griff wie beim nativen Sheet-Drag-Indicator — rein visuell, die Geste liegt auf
+  /// dem ganzen Stack (Kind-Views wie `ScrollView` gewinnen die Geste trotzdem zuerst).
+  private var fullPlayerDismissGrabber: some View {
+    Capsule()
+      .fill(AppTheme.textSecondary.opacity(0.35))
+      .frame(width: 36, height: 5)
+      // Fester Abstand zum echten Fenster-Safe-Area-Top statt `.safeAreaPadding` (verhielt sich
+      // auf einer kleinen Fixed-Frame-View unvorhersehbar — der Griff verschwand komplett) oder
+      // reinem `.padding` (seit `fullPlayerStack` per `.ignoresSafeArea()` bis unter Notch/
+      // Dynamic Island blutet, säße er sonst IN der Notch statt sichtbar darunter).
+      .padding(.top, keyWindowTopSafeAreaInset + 8)
+      .accessibilityHidden(true)
   }
 
   /// Safe-Area-Inset des echten Fensters — `fullPlayerStack` blutet per `.ignoresSafeArea()`
@@ -1414,6 +1462,32 @@ struct NowPlayingDetailView: View {
       .flatMap { $0.windows }
       .first { $0.isKeyWindow }?
       .safeAreaInsets.top ?? 0
+  }
+
+  /// Ersatz für `.presentationDragIndicator` + Swipe-to-dismiss von `.sheet`, seit
+  /// `NowPlayingDetailView` per `.fullScreenCover` präsentiert wird (siehe `abstandApp.swift`).
+  /// Nur eindeutig vertikale Nach-unten-Gesten zählen, damit horizontales Scrollen (Kapitel,
+  /// Teleprompter) sowie vertikales Scrollen in Panels unangetastet bleibt.
+  private var fullPlayerDismissDragGesture: some Gesture {
+    DragGesture(minimumDistance: 24)
+      .onChanged { value in
+        guard value.translation.height > 0,
+          abs(value.translation.height) > abs(value.translation.width) * 1.5
+        else { return }
+        // Rubber-Banding: Karte folgt dem Finger, wird zum Rand hin zunehmend zäher.
+        dismissDragOffset = 60 * log(1 + value.translation.height / 60)
+      }
+      .onEnded { value in
+        let shouldDismiss = value.translation.height > 110 || value.predictedEndTranslation.height > 500
+        if shouldDismiss {
+          // Offset bewusst NICHT zurücksetzen: Die Karte bleibt an der aktuellen Fingerposition
+          // stehen, der System-Dismiss (`FullScreenOverlayPresenter`) übernimmt nahtlos von dort
+          // weiter nach unten — ein Reset auf 0 würde vorher sichtbar zurückspringen.
+          model.requestDismissNowPlayingSheet()
+        } else {
+          dismissDragOffset = 0
+        }
+      }
   }
 
   /// iPhone-Querformat meldet `verticalSizeClass == .compact`; iPad bleibt in beiden
@@ -2441,7 +2515,7 @@ final class FloatingPlayerChromeController: ObservableObject {
     let now = ProcessInfo.processInfo.systemUptime
     guard now - lastOpenNowPlayingUptime > 0.35 else { return }
     lastOpenNowPlayingUptime = now
-    model?.selectPlayerTab()
+    model?.requestPresentNowPlayingSheet()
   }
 
   func skipBackward() {
@@ -2525,11 +2599,11 @@ extension FloatingPlayerChromeController {
 struct FloatingAccessoryLayer: View {
   @ObservedObject var gate: FloatingAccessoryGate
   let chrome: FloatingPlayerChromeController
-  let isPlayerTabSelected: Bool
+  let sheetPresented: Bool
   let keyboardVisible: Bool
 
   private var showsFloatingPlayer: Bool {
-    gate.chromeVisible && !isPlayerTabSelected && !keyboardVisible && chrome.playbackController != nil
+    gate.chromeVisible && !sheetPresented && !keyboardVisible && chrome.playbackController != nil
   }
 
   var body: some View {

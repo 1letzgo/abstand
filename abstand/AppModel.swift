@@ -57,7 +57,6 @@ private enum Keys {
   /// Podcast-Tab in der Tab-Leiste (gecacht; unabhängig vom Bootstrap-Fetch).
   static let showPodcastsTab = "abstand_show_podcasts_tab"
   /// eBooks/Supplementary als eigener Tab statt Einträge im Books-Tab.
-  static let ebooksSeparateTabEnabled = "abstand_ebooks_separate_tab_enabled"
   /// Akzentfarbe als „r,g,b“ (0…1) in sRGB.
   static let appearanceAccentRGB = "abstand_appearance_accent_rgb"
   static let appearanceAccentRGBDark = "abstand_appearance_accent_rgb_dark"
@@ -239,13 +238,11 @@ enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
 
   var id: String { rawValue }
 
-  /// Audiobook-Unterbereiche im gemeinsamen Medien-Tab.
+  /// Unterbereiche im Audiobook-Bereich des gemeinsamen Medien-Tabs.
   static let audiobookStripOrder: [BooksBrowseSection] = [
     .search, .books, .series, .author, .collections, .genres, .narrators, .tags,
+    .ebooks, .ebooksSupplementary,
   ]
-
-  /// eBook-Unterbereiche im gemeinsamen Medien-Tab.
-  static let ebookTabStripOrder: [BooksBrowseSection] = [.ebooks, .ebooksSupplementary]
 
   var systemImage: String {
     switch self {
@@ -674,23 +671,6 @@ final class AppModel: ObservableObject {
       clampMediaCatalogKindIfNeeded()
     }
   }
-  /// Settings/Appearance/Views: eBooks & Supplementary im gemeinsamen Medien-Tab anzeigen.
-  @Published var ebooksSeparateTabEnabled: Bool = UserDefaults.standard.bool(
-    forKey: Keys.ebooksSeparateTabEnabled
-  ) {
-    didSet {
-      guard ebooksSeparateTabEnabled != oldValue else { return }
-      UserDefaults.standard.set(ebooksSeparateTabEnabled, forKey: Keys.ebooksSeparateTabEnabled)
-      if ebooksSeparateTabEnabled {
-        if booksBrowseSection == .ebooks || booksBrowseSection == .ebooksSupplementary {
-          booksBrowseSection = .books
-        }
-      }
-      clampMediaCatalogKindIfNeeded()
-    }
-  }
-  /// Eigene Strip-Auswahl für eBooks (unabhängig vom Audiobook-Strip).
-  @Published var ebooksBrowseSection: BooksBrowseSection = .ebooks
   @Published private(set) var browseCollectionBooksById: [String: [ABSBook]] = [:]
   @Published private(set) var browseAuthorsLoading = false
   @Published private(set) var browseNarratorsLoading = false
@@ -759,20 +739,10 @@ final class AppModel: ObservableObject {
     didSet { UserDefaults.standard.set(browseTagsSortDescending, forKey: Keys.browseTagsSortDescending) }
   }
 
-  @Published var mainTab: MainTab = .start {
-    didSet {
-      guard mainTab != oldValue else { return }
-      if mainTab == .player {
-        if oldValue != .player {
-          lastNonPlayerMainTab = oldValue
-        }
-      } else {
-        lastNonPlayerMainTab = mainTab
-      }
-    }
-  }
+  @Published var mainTab: MainTab = .start
   @Published var mediaCatalogKind: MediaCatalogKind = .audiobooks
-  private var lastNonPlayerMainTab: MainTab = .start
+  @Published private(set) var nowPlayingSheetPresentationCounter: UInt = 0
+  @Published private(set) var nowPlayingSheetDismissCounter: UInt = 0
   @Published var isLoadingLibrary = false
   @Published var isLoadingPodcasts = false
   @Published var errorMessage: String? {
@@ -1084,9 +1054,6 @@ final class AppModel: ObservableObject {
     var kinds: [MediaCatalogKind] = []
     if selectedBooksLibrary != nil {
       kinds.append(.audiobooks)
-      if ebooksSeparateTabEnabled {
-        kinds.append(.ebooks)
-      }
     }
     if showPodcastsTab, selectedPodcastLibrary != nil {
       kinds.append(.podcasts)
@@ -1302,13 +1269,11 @@ final class AppModel: ObservableObject {
   enum MainTab: String, CaseIterable, Hashable {
     case start = "Home"
     case library = "Media"
-    case player = "Player"
     case settings = "Settings"
   }
 
   enum MediaCatalogKind: String, CaseIterable, Identifiable, Hashable {
     case audiobooks = "Audiobooks"
-    case ebooks = "eBooks"
     case podcasts = "Podcasts"
 
     var id: Self { self }
@@ -1316,7 +1281,6 @@ final class AppModel: ObservableObject {
     var systemImage: String {
       switch self {
       case .audiobooks: return "books.vertical"
-      case .ebooks: return "book.closed.fill"
       case .podcasts: return "mic.fill"
       }
     }
@@ -5918,25 +5882,6 @@ final class AppModel: ObservableObject {
     Task { await loadBooksBrowseSectionContentIfNeeded() }
   }
 
-  /// Strip-Auswahl im separaten eBook-Tab (`.ebooks`/`.ebooksSupplementary`) — beide teilen eine Liste.
-  func selectEbooksBrowseSection(_ section: BooksBrowseSection) {
-    ebooksBrowseSection = section
-    Task { await loadBrowseEbooks(force: false) }
-  }
-
-  /// Erstbefüllung beim Öffnen des separaten eBook-Tabs.
-  func loadEbooksTabContentIfNeeded() async {
-    await loadBrowseEbooks(force: false)
-  }
-
-  /// Pull-to-Refresh im separaten eBook-Tab.
-  func refreshEbooksCatalog() async {
-    await performPullToRefresh { [self] in
-      await refreshProgressFromServer()
-      await loadBrowseEbooks(force: true)
-    }
-  }
-
   func reloadBrowseAuthorsAfterSortChange() async {
     await loadBrowseAuthors(force: true)
   }
@@ -7739,7 +7684,7 @@ final class AppModel: ObservableObject {
     case .library:
       mediaCatalogKind = .audiobooks
       libraryEntityDetailNav = nav
-    case .player, .settings:
+    case .settings:
       break
     }
   }
@@ -8107,7 +8052,6 @@ final class AppModel: ObservableObject {
     let trimmedEp = (progress.episodeId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     let epId: String? = trimmedEp.isEmpty ? nil : trimmedEp
     if player.activeBook?.id == libraryItemId, player.activePlaybackEpisodeId == epId {
-      selectPlayerTab()
       return
     }
 
@@ -8130,7 +8074,6 @@ final class AppModel: ObservableObject {
           autoPlay: false,
           attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable
         )
-        selectPlayerTab()
       } catch {
         UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
         publishErrorUnlessBenignCancellation(error)
@@ -8158,7 +8101,6 @@ final class AppModel: ObservableObject {
         autoPlay: false,
         attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable
       )
-      selectPlayerTab()
     } catch {
       UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
     }
@@ -8605,23 +8547,19 @@ final class AppModel: ObservableObject {
     )
   }
 
-  func selectPlayerTab() {
-    mainTab = .player
+  func requestPresentNowPlayingSheet() {
+    nowPlayingSheetPresentationCounter &+= 1
   }
 
-  func returnFromPlayerTabIfNeeded() {
-    guard mainTab == .player else { return }
-    if lastNonPlayerMainTab == .library, visibleMediaCatalogKinds.isEmpty {
-      mainTab = .start
-    } else {
-      mainTab = lastNonPlayerMainTab == .player ? .start : lastNonPlayerMainTab
-    }
+  func requestDismissNowPlayingSheet() {
+    Self.debugLog.log("requestDismissNowPlayingSheet CALLED")
+    nowPlayingSheetDismissCounter &+= 1
   }
 
   /// Nach `play` / `playPodcastEpisode`: nur wenn online und Setting aktiv.
-  private func selectPlayerTabOnAutoPlayIfNeeded() {
+  private func presentNowPlayingSheetOnAutoPlayIfNeeded() {
     guard !offlineHomeUIActive, openPlayerWhenStartPlaying else { return }
-    selectPlayerTab()
+    requestPresentNowPlayingSheet()
   }
 
   /// Sofort „Continue listening“ mit lokalem Fortschritt füllen; `loadStartDashboard()` gleicht später mit dem Server ab.
@@ -8841,7 +8779,7 @@ final class AppModel: ObservableObject {
         } else {
           bumpOptimisticContinueListeningForAudiobook(resolved, resumeAt: resume)
         }
-        selectPlayerTabOnAutoPlayIfNeeded()
+        presentNowPlayingSheetOnAutoPlayIfNeeded()
         if mayUseServerNetwork {
           Task { await loadStartDashboard() }
         }
@@ -8894,7 +8832,7 @@ final class AppModel: ObservableObject {
       UserDefaults.standard.set(stub.id, forKey: Keys.lastPlayedItemId)
       if autoPlay {
         bumpOptimisticContinueListeningForPodcastEpisode(episode, resumeAt: resume)
-        selectPlayerTabOnAutoPlayIfNeeded()
+        presentNowPlayingSheetOnAutoPlayIfNeeded()
         if mayUseServerNetwork {
           Task { await loadStartDashboard() }
         }
@@ -9018,7 +8956,6 @@ final class AppModel: ObservableObject {
 
   /// Wiedergabe beenden. `idlePlaceholder: false` entfernt die Mini-Player-Leiste vollständig (z. B. nach „Fertig“).
   func dismissPlayer(idlePlaceholder: Bool = true) async {
-    let shouldReturnFromPlayerTab = mainTab == .player
     Self.debugLog.log("dismissPlayer START idlePlaceholder=\(idlePlaceholder) activeBook=\(player.activeBook?.id ?? "nil") episodes=\(podcastEpisodes.count) chromeVisible=\(floatingChrome.gate.chromeVisible)")
     await player.closeSessionIfNeeded()
     await pushPendingEbookProgressSyncIfSafe()
@@ -9032,9 +8969,6 @@ final class AppModel: ObservableObject {
     // Floating-Bar-Visibility synchron nach dem Placeholder-Update aktualisieren.
     floatingChrome.syncChrome()
     Self.debugLog.log("dismissPlayer END activeBook=\(player.activeBook?.id ?? "nil") episodes=\(podcastEpisodes.count) chromeVisible=\(floatingChrome.gate.chromeVisible) inset=\(nowPlayingAccessoryScrollBottomInset)")
-    if shouldReturnFromPlayerTab, mainTab == .player {
-      returnFromPlayerTabIfNeeded()
-    }
   }
 
   /// Hörbuch bis zum Ende gehört: lokal fertig (Offline) bzw. inkl. Server-Sync.
@@ -9083,6 +9017,7 @@ final class AppModel: ObservableObject {
     if wasPlaying {
       await dismissPlayer(idlePlaceholder: false)
     }
+    requestDismissNowPlayingSheet()
     let dbgEpCount2 = podcastEpisodes.count
     let dbgFiltCount2 = podcastFilteredEpisodes.count
     let dbgChrome2 = floatingChrome.gate.chromeVisible
@@ -9253,6 +9188,7 @@ final class AppModel: ObservableObject {
         // Wiedergabe VOR dem Löschen beenden: schließt die offene Play-Session — sonst
         // erzeugt deren nächster `syncPlaySession(currentTime:)` den Media-Progress direkt neu.
         await dismissPlayer(idlePlaceholder: false)
+        requestDismissNowPlayingSheet()
       }
       clearPendingOfflineListeningSeconds(progressKey: bookId)
       await deleteAllListeningSessions(client: c, libraryItemId: bookId, episodeId: nil)
@@ -9373,6 +9309,7 @@ final class AppModel: ObservableObject {
         // Wiedergabe VOR dem Löschen beenden: schließt die offene Play-Session — sonst
         // erzeugt deren nächster `syncPlaySession(currentTime:)` den Media-Progress direkt neu.
         await dismissPlayer(idlePlaceholder: false)
+        requestDismissNowPlayingSheet()
       }
       clearPendingOfflineListeningSeconds(progressKey: key)
       await deleteAllListeningSessions(

@@ -25,6 +25,7 @@ private struct AppRootContainer: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.colorScheme) private var systemColorScheme
   @Environment(\.scenePhase) private var scenePhase
+  @State private var nowPlayingSheetPresented = false
 
   var body: some View {
     let _ = model.appearanceThemeRevision
@@ -33,9 +34,38 @@ private struct AppRootContainer: View {
         MainTabShellView(
           gate: model.floatingChrome.gate,
           chrome: model.floatingChrome,
-          selectedTab: model.mainTab
+          nowPlayingSheetPresented: $nowPlayingSheetPresented
         ) {
           MainRootView()
+        }
+        // `.sheet` zeigt sich auf iPadOS im Querformat immer als eingerückte, schwebende Karte
+        // (auch mit `.presentationSizing(.page)`) — nicht randlos wie in Apple Music.
+        // `.fullScreenCover` wäre randlos, entfernt aber die App dahinter komplett aus der
+        // Hierarchie — beim eigenen Drag-to-dismiss (`fullPlayerStack`) bliebe dahinter nur eine
+        // leere Fläche statt der App wie in Apple Music. `FullScreenOverlayPresenter` präsentiert
+        // stattdessen per UIKit mit `.overFullScreen`: randlos UND die App bleibt dahinter aktiv.
+        // Der native Drag-Indicator/Swipe-to-dismiss von `.sheet` entfällt dadurch — Ersatz via
+        // eigener Grabber + Drag-Geste in `NowPlayingDetailView` (`fullPlayerStack`).
+        .background {
+          // `FullScreenOverlayPresenter` präsentiert per UIKit `.present(_:animated:)` — anders
+          // als `.sheet`/`.fullScreenCover` KEIN Teil des umgebenden SwiftUI-View-Baums, darum
+          // muss jedes hier benötigte `@EnvironmentObject` explizit erneut injiziert werden.
+          // `model.player` fehlte hier zunächst: Absturz ("No ObservableObject of type
+          // PlaybackController found"), sobald eine Unteransicht (z. B. Read-Along-Button,
+          // Sleep-Timer-Popover) per `@EnvironmentObject private var player` darauf zugreift.
+          FullScreenOverlayPresenter(isPresented: $nowPlayingSheetPresented) {
+            NowPlayingDetailView()
+              .environmentObject(model)
+              .environmentObject(model.player)
+              .tint(model.appearanceAccentColor)
+              .themeAccentFromAppModel(model)
+          }
+        }
+        .onChange(of: model.nowPlayingSheetPresentationCounter) { _, _ in
+          nowPlayingSheetPresented = true
+        }
+        .onChange(of: model.nowPlayingSheetDismissCounter) { _, _ in
+          nowPlayingSheetPresented = false
         }
       } else {
         LoginView()
