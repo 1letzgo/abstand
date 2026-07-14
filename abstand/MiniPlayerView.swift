@@ -1210,6 +1210,7 @@ struct NowPlayingDetailView: View {
 
   @State private var readAlongDownloadWarningPresented = false
   @State private var isRecapActive = false
+  @State private var isGeneratingRecap = false
   @State private var chromeSnapshot = FullPlayerChromeSnapshot.empty
   @State private var activeBook: ABSBook?
   @State private var isTeleprompterActive = false
@@ -1386,6 +1387,7 @@ struct NowPlayingDetailView: View {
       .onReceive(model.$downloadedItemIds) { _ in refreshChromeSnapshot() }
       .onReceive(player.liveTranscription.objectWillChange.receive(on: DispatchQueue.main)) { _ in
         isTeleprompterActive = player.liveTranscription.isTeleprompterModeActive
+        isGeneratingRecap = player.liveTranscription.isGeneratingRecap
       }
   }
 
@@ -2116,7 +2118,7 @@ struct NowPlayingDetailView: View {
       FullPlayerCoverOverlayButton(
         systemName: "sparkles",
         isActive: isRecapActive,
-        isBusy: transcription.isGeneratingRecap,
+        isBusy: isGeneratingRecap,
         isEnabled: transcription.canGenerateRecap,
         accessibilityLabel: String(
           localized: "Recap of the last 5 minutes", comment: "Accessibility")
