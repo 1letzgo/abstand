@@ -149,10 +149,12 @@ struct MainRootView: View {
         lazyTabContent(.settings) { settingsTabRoot }
       }
 
-      // Search-Tab — Suchfeld NUR hier, nicht auf anderen Tabs.
+      // iOS-26-nativer Such-Tab (`role: .search`): System pinnt den Tab an den Rand der
+      // Tabbar und morpht das Icon beim Aktivieren in ein Suchfeld (Liquid Glass).
+      // `.searchable` liegt lokal auf SearchTabRootView, damit das Feld NUR hier erscheint.
       Tab(
         AppModel.MainTab.search.rawValue, systemImage: "magnifyingglass",
-        value: AppModel.MainTab.search
+        value: AppModel.MainTab.search, role: .search
       ) {
         lazyTabContent(.search) {
           SearchTabRootView()
