@@ -61,7 +61,7 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
         hostingController.rootView = content
         return
       }
-      guard anchor.presentedViewController == nil else { return }
+      let presenter = topmostPresenter(from: anchor)
       let host = UIHostingController(rootView: content)
       host.modalPresentationStyle = .overFullScreen
       host.view.backgroundColor = .clear
@@ -71,7 +71,15 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
       host.presentationController?.delegate = self
       hostingController = host
       pendingContent = nil
-      anchor.present(host, animated: true)
+      presenter.present(host, animated: true)
+    }
+
+    private func topmostPresenter(from anchor: UIViewController) -> UIViewController {
+      var presenter = anchor.view.window?.rootViewController ?? anchor
+      while let presented = presenter.presentedViewController, !presented.isBeingDismissed {
+        presenter = presented
+      }
+      return presenter
     }
 
     func dismiss() {
