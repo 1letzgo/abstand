@@ -5891,10 +5891,9 @@ final class AppModel: ObservableObject {
   }
 
   enum BooksToolbarSortReloadKind: Hashable {
-    case mainCatalog
+    case allCatalogs
     case browseAuthors
     case browseSeries
-    case browseEbooks
   }
 
   /// Nach Sortierwechsel im Books-Tab: kurz entkoppeln, damit das Sort-`Menu` nicht bei jedem `@Published`-Takt zuklappt.
@@ -5904,14 +5903,13 @@ final class AppModel: ObservableObject {
       try? await Task.sleep(nanoseconds: 350_000_000)
       guard !Task.isCancelled else { return }
       switch kind {
-      case .mainCatalog:
+      case .allCatalogs:
         await reloadLibrary(reset: true)
+        await loadBrowseEbooks(force: true)
       case .browseAuthors:
         await reloadBrowseAuthorsAfterSortChange()
       case .browseSeries:
         await reloadBrowseSeriesAfterSortChange()
-      case .browseEbooks:
-        await loadBrowseEbooks(force: true)
       }
     }
   }
@@ -9069,6 +9067,7 @@ final class AppModel: ObservableObject {
         // Media-Progress wieder mit currentTime < duration überschreiben und `isFinished`
         // zurücksetzen (Folge/Buch taucht nach Reload wieder als „neu"/angefangen auf).
         await dismissPlayer(idlePlaceholder: false)
+        requestDismissNowPlayingSheet()
       }
       try await c.markFinished(libraryItemId: bookId)
       let auth = try await c.authorize()
@@ -9268,6 +9267,7 @@ final class AppModel: ObservableObject {
         // `finishMarkFinishedLocally`) den frisch gesetzten `isFinished`-Status auf dem Server
         // wieder mit currentTime < duration, und die Folge bleibt in „New".
         await dismissPlayer(idlePlaceholder: false)
+        requestDismissNowPlayingSheet()
       }
       try await c.markFinished(libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
       let auth = try await c.authorize()

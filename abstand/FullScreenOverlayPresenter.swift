@@ -41,12 +41,20 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
   final class Coordinator: NSObject, UIAdaptivePresentationControllerDelegate {
     private let isPresented: Binding<Bool>
     private var hostingController: UIHostingController<OverlayContent>?
+    private weak var presentationAnchor: UIViewController?
+    private var pendingContent: OverlayContent?
+    private var isDismissing = false
 
     init(isPresented: Binding<Bool>) {
       self.isPresented = isPresented
     }
 
     func present(_ content: OverlayContent, from anchor: UIViewController) {
+      presentationAnchor = anchor
+      if isDismissing {
+        pendingContent = content
+        return
+      }
       if let hostingController {
         // Bereits präsentiert — nur den Inhalt aktualisieren (z. B. Theme-/Appearance-Änderungen),
         // `@State` in `OverlayContent` bleibt dabei erhalten (analog zu `.sheet`-Content-Closures).
@@ -62,19 +70,34 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
       host.view.accessibilityViewIsModal = true
       host.presentationController?.delegate = self
       hostingController = host
+      pendingContent = nil
       anchor.present(host, animated: true)
     }
 
     func dismiss() {
-      guard let hostingController else { return }
-      self.hostingController = nil
-      hostingController.dismiss(animated: true)
+      guard let hostingController, !isDismissing else { return }
+      isDismissing = true
+      hostingController.dismiss(animated: true) { [weak self, weak hostingController] in
+        guard let self else { return }
+        self.hostingController = nil
+        self.isDismissing = false
+        guard self.isPresented.wrappedValue,
+          let content = self.pendingContent ?? hostingController?.rootView,
+          let anchor = self.presentationAnchor
+        else {
+          self.pendingContent = nil
+          return
+        }
+        self.present(content, from: anchor)
+      }
     }
 
     /// Falls der Controller je außerhalb unseres eigenen Bindings verschwindet (z. B. System),
     /// Binding nachziehen, damit kein Zustand verwaist.
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
       hostingController = nil
+      isDismissing = false
+      pendingContent = nil
       isPresented.wrappedValue = false
     }
   }

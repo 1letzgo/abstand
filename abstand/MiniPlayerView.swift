@@ -1478,6 +1478,12 @@ struct NowPlayingDetailView: View {
         dismissDragOffset = 60 * log(1 + value.translation.height / 60)
       }
       .onEnded { value in
+        guard value.translation.height > 0,
+          abs(value.translation.height) > abs(value.translation.width) * 1.5
+        else {
+          dismissDragOffset = 0
+          return
+        }
         let shouldDismiss = value.translation.height > 110 || value.predictedEndTranslation.height > 500
         if shouldDismiss {
           // Offset bewusst NICHT zurücksetzen: Die Karte bleibt an der aktuellen Fingerposition
