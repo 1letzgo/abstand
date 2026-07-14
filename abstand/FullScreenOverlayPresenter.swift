@@ -44,6 +44,7 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
     private weak var presentationAnchor: UIViewController?
     private var pendingContent: OverlayContent?
     private var isDismissing = false
+    private var presentationRetryScheduled = false
 
     init(isPresented: Binding<Bool>) {
       self.isPresented = isPresented
@@ -61,7 +62,11 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
         hostingController.rootView = content
         return
       }
-      let presenter = topmostPresenter(from: anchor)
+      guard let presenter = topmostPresenter(from: anchor) else {
+        pendingContent = content
+        schedulePendingPresentationRetry()
+        return
+      }
       let host = UIHostingController(rootView: content)
       host.modalPresentationStyle = .overFullScreen
       host.view.backgroundColor = .clear
@@ -74,12 +79,27 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
       presenter.present(host, animated: true)
     }
 
-    private func topmostPresenter(from anchor: UIViewController) -> UIViewController {
+    private func topmostPresenter(from anchor: UIViewController) -> UIViewController? {
       var presenter = anchor.view.window?.rootViewController ?? anchor
-      while let presented = presenter.presentedViewController, !presented.isBeingDismissed {
+      while let presented = presenter.presentedViewController {
+        guard !presented.isBeingDismissed else { return nil }
         presenter = presented
       }
       return presenter
+    }
+
+    private func schedulePendingPresentationRetry() {
+      guard !presentationRetryScheduled else { return }
+      presentationRetryScheduled = true
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+        guard let self else { return }
+        self.presentationRetryScheduled = false
+        guard self.isPresented.wrappedValue,
+          let content = self.pendingContent,
+          let anchor = self.presentationAnchor
+        else { return }
+        self.present(content, from: anchor)
+      }
     }
 
     func dismiss() {
