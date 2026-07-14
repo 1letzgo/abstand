@@ -1002,7 +1002,8 @@ private struct BooksSearchBrowseView: View {
         }
         if q.count >= 2, !model.isLoadingLibrary, model.searchBooks.isEmpty,
           model.searchAuthors.isEmpty, model.searchNarrators.isEmpty, model.searchSeries.isEmpty,
-          model.searchTags.isEmpty, model.searchGenres.isEmpty
+          model.searchTags.isEmpty, model.searchGenres.isEmpty,
+          model.searchCrossMediaPodcastShows.isEmpty, model.searchCrossMediaPodcastEpisodes.isEmpty
         {
           Text("No results.")
             .font(.subheadline)
@@ -1079,6 +1080,30 @@ private struct BooksSearchBrowseView: View {
               title: g.name, detailLabel: "Books", detailValue: g.numItems.map { "\($0)" }
             ) {
               model.openGenreDetail(genreName: g.name, numBooks: g.numItems)
+            }
+          }
+        }
+        searchSection(
+          title: "Podcasts",
+          isEmpty: model.searchCrossMediaPodcastShows.isEmpty && model.searchCrossMediaPodcastEpisodes.isEmpty
+        ) {
+          if !model.searchCrossMediaPodcastShows.isEmpty {
+            LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+              ForEach(model.searchCrossMediaPodcastShows) { show in
+                Button {
+                  Task { await model.openPodcastShowCatalog(showId: show.id) }
+                } label: {
+                  PodcastShowRowCard(show: show)
+                }
+                .buttonStyle(.plain)
+              }
+            }
+          }
+          if !model.searchCrossMediaPodcastEpisodes.isEmpty {
+            LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+              ForEach(model.searchCrossMediaPodcastEpisodes) { episode in
+                LibraryPodcastListCard(episode: episode, model: model)
+              }
             }
           }
         }
@@ -1161,7 +1186,7 @@ private struct PodcastLibrarySearchResultsView: View {
           .padding(24)
       }
       if q.count >= 2, !model.isLoadingPodcasts, model.podcastLibrarySearchShows.isEmpty,
-        model.podcastLibrarySearchEpisodes.isEmpty
+        model.podcastLibrarySearchEpisodes.isEmpty, model.podcastLibrarySearchCrossMediaBooks.isEmpty
       {
         Text("No results.")
           .font(.subheadline)
@@ -1193,6 +1218,17 @@ private struct PodcastLibrarySearchResultsView: View {
               episode: episode,
               model: model
             )
+          }
+        }
+      }
+
+      if !model.podcastLibrarySearchCrossMediaBooks.isEmpty {
+        LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+          TabContentSectionTitle(title: "Books")
+          LibraryBookCardsFlow {
+            ForEach(model.podcastLibrarySearchCrossMediaBooks) { book in
+              LibraryBookListCard(book: book, model: model)
+            }
           }
         }
       }
