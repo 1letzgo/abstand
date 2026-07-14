@@ -625,9 +625,6 @@ final class AppModel: ObservableObject {
   private var pendingEbookProgressSync: (libraryItemId: String, fraction: Double)?
   private var lastSyncedEbookFractionByItemId: [String: Double] = [:]
   @Published var searchText: String = ""
-  /// Suchkontext für den Search-Tab: audiobooks (default) oder podcasts.
-  /// Wird gesetzt, wenn der User von der Library/Podcast-Ansicht auf den Search-Tab wechselt.
-  @Published var searchTabMediaKind: MediaCatalogKind = .audiobooks
   @Published var searchBooks: [ABSBook] = []
   @Published var podcastSearchText: String = ""
   @Published var podcastSearchBooks: [ABSBook] = []
@@ -636,12 +633,6 @@ final class AppModel: ObservableObject {
   @Published var searchSeries: [ABSSearchSeriesRow] = []
   @Published var searchTags: [ABSSearchNamedCount] = []
   @Published var searchGenres: [ABSSearchNamedCount] = []
-  /// Cross-Media: Podcast-Treffer, die gleichzeitig zur Bücher-Suche in der lokalen DB gefunden wurden
-  /// (unabhängig vom Netzwerk) — angezeigt als kompakter „Podcasts"-Abschnitt in der Bücher-Suche.
-  @Published var searchCrossMediaPodcastShows: [ABSBook] = []
-  @Published var searchCrossMediaPodcastEpisodes: [ABSPodcastEpisodeListItem] = []
-  /// Cross-Media: Buch-Treffer, die gleichzeitig zur Podcast-Suche in der lokalen DB gefunden wurden.
-  @Published var podcastLibrarySearchCrossMediaBooks: [ABSBook] = []
   @Published var podcastSearchAuthors: [ABSSearchAuthorRow] = []
   @Published var podcastSearchNarrators: [ABSSearchNarratorRow] = []
   @Published var podcastSearchSeries: [ABSSearchSeriesRow] = []
@@ -5887,7 +5878,6 @@ final class AppModel: ObservableObject {
   func selectBooksBrowseSection(_ section: BooksBrowseSection) {
     if section == .search {
       // Suche ist jetzt ein eigener Tab — dorthin navigieren statt Strip-Sektion.
-      searchTabMediaKind = .audiobooks
       mainTab = .search
       return
     }
@@ -7143,10 +7133,17 @@ final class AppModel: ObservableObject {
     }
   }
 
+  /// Einheitliche Suche für den Search-Tab: durchsucht Bücher UND Podcasts gleichzeitig mit demselben
+  /// Suchtext (dieselbe Suche für alle Szenarien, unabhängig davon, von wo man in den Tab gewechselt ist).
+  func scheduleUnifiedSearch() {
+    guard mainTab == .search else { return }
+    podcastLibrarySearchText = searchText
+    scheduleSearch()
+    schedulePodcastLibrarySearch()
+  }
+
   func scheduleSearch() {
-    guard mainTab == .search, searchTabMediaKind == .audiobooks else {
-      return
-    }
+    guard mainTab == .search else { return }
     searchTask?.cancel()
     let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     searchTask = Task {
@@ -7162,8 +7159,6 @@ final class AppModel: ObservableObject {
     searchSeries = []
     searchTags = []
     searchGenres = []
-    searchCrossMediaPodcastShows = []
-    searchCrossMediaPodcastEpisodes = []
   }
 
   func clearPodcastSearchResults() {
@@ -7178,11 +7173,10 @@ final class AppModel: ObservableObject {
   func clearPodcastLibrarySearchResults() {
     podcastLibrarySearchShows = []
     podcastLibrarySearchEpisodes = []
-    podcastLibrarySearchCrossMediaBooks = []
   }
 
   func schedulePodcastLibrarySearch() {
-    guard mainTab == .search, searchTabMediaKind == .podcasts else { return }
+    guard mainTab == .search, showPodcastsTab, selectedPodcastLibrary != nil else { return }
     podcastLibrarySearchTask?.cancel()
     let q = podcastLibrarySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
     podcastLibrarySearchTask = Task {
@@ -7245,7 +7239,6 @@ final class AppModel: ObservableObject {
   }
 
   /// Sofort-Suche in der lokalen DB (Podcast-Bibliothek) — läuft IMMER zuerst, siehe `applyLocalSearchResults`.
-  /// Sucht zusätzlich gleichzeitig in der Bücher-Bibliothek (Cross-Media), rein lokal, ohne Netz.
   private func applyLocalPodcastLibrarySearchResults(query: String) {
     let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
     if q.count < 2 {
@@ -7268,13 +7261,6 @@ final class AppModel: ObservableObject {
     podcastLibrarySearchShows = Array(byId.values)
       .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
     podcastLibrarySearchEpisodes = mergedPodcastLibrarySearchEpisodes(server: [], query: q)
-    // Cross-Media: gleichzeitig in der Bücher-Bibliothek suchen — rein lokal, unabhängig vom Netz.
-    if let bookLibId = selectedBooksLibrary?.id {
-      podcastLibrarySearchCrossMediaBooks = searchLocalBooks(libraryId: bookLibId, query: q)
-        .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
-    } else {
-      podcastLibrarySearchCrossMediaBooks = []
-    }
   }
 
   func refreshPodcastLibrarySearchResults() async {
@@ -7471,7 +7457,6 @@ final class AppModel: ObservableObject {
 
   /// Sofort-Suche in der lokalen DB — läuft IMMER zuerst (auch online), damit die Ergebnisse ohne
   /// Netzwerk-Wartezeit erscheinen; der Server-Abruf in `performSearch` verfeinert danach nur noch.
-  /// Sucht zusätzlich gleichzeitig in der Podcast-Bibliothek (Cross-Media), rein lokal, ohne Netz.
   private func applyLocalSearchResults(query: String) {
     let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
     if q.count < 2 {
@@ -7508,14 +7493,6 @@ final class AppModel: ObservableObject {
       .map { ABSSearchSeriesRow(id: $0.id, name: $0.name, books: $0.books) }
     searchTags = []
     searchGenres = []
-    // Cross-Media: gleichzeitig in der Podcast-Bibliothek suchen — rein lokal, unabhängig vom Netz.
-    if let podLibId = selectedPodcastLibrary?.id {
-      searchCrossMediaPodcastShows = searchLocalPodcastShows(libraryId: podLibId, query: q)
-        .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
-    } else {
-      searchCrossMediaPodcastShows = []
-    }
-    searchCrossMediaPodcastEpisodes = Array(localPodcastEpisodesMatchingSearch(q).prefix(40))
   }
 
   /// Offline: nur heruntergeladene Titel innerhalb einer Entity-Detailansicht anzeigen.
@@ -7757,7 +7734,8 @@ final class AppModel: ObservableObject {
     case .settings:
       break
     case .search:
-      break
+      mediaCatalogKind = .audiobooks
+      searchEntityDetailNav = nav
     }
   }
 
@@ -8038,12 +8016,14 @@ final class AppModel: ObservableObject {
     let q = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !q.isEmpty, q != "—" else { return }
     searchTask?.cancel()
+    podcastLibrarySearchTask?.cancel()
     activeLibraryFilter = nil
     activeLibraryFilterSummary = nil
     searchText = q
-    searchTabMediaKind = .audiobooks
+    podcastLibrarySearchText = q
     mainTab = .search
     Task { await performSearch(query: q) }
+    Task { await performPodcastLibrarySearch(query: q) }
   }
 
   /// Katalog durchsuchender Sprung: Podcast-Tab, passende Sendung wählen oder Suche nach Show.
