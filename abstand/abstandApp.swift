@@ -93,6 +93,9 @@ private struct AppRootContainer: View {
         // Self-Heal: Podcast-Liste nachladen, falls während Sperre eine Folge beendet wurde
         // (oder die Liste leer gefallen ist), sonst bleibt der "New"-Bereich leer.
         model.applyPendingPodcastRefreshIfNeeded()
+        // Cache-first: Listen stehen bereits aus der lokalen DB — hier nur die DB still
+        // fortschreiben, wenn der letzte Server-Abgleich zu lange her ist.
+        model.refreshCatalogsIfStaleOnForeground()
       } else if phase == .background {
         model.player.disableTeleprompterIfNeeded()
       }
