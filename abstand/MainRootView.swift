@@ -149,12 +149,10 @@ struct MainRootView: View {
         lazyTabContent(.settings) { settingsTabRoot }
       }
 
-      // iOS-26-natives Such-Icon (`role: .search`): eigene Position im TabView-Code spielt keine
-      // Rolle — das System pinnt Such-Tabs immer an den Rand der Tabbar und morpht das Icon beim
-      // Aktivieren in ein Suchfeld (Liquid Glass).
+      // Search-Tab — Suchfeld NUR hier, nicht auf anderen Tabs.
       Tab(
         AppModel.MainTab.search.rawValue, systemImage: "magnifyingglass",
-        value: AppModel.MainTab.search, role: .search
+        value: AppModel.MainTab.search
       ) {
         lazyTabContent(.search) {
           SearchTabRootView()
@@ -163,10 +161,6 @@ struct MainRootView: View {
       }
     }
     .tabBarMinimizeBehavior(.onScrollDown)
-    .searchable(text: $model.searchText, prompt: Text("Title, author, show, episode…"))
-    .tabViewSearchActivation(.searchTabSelection)
-    .onSubmit(of: .search) { model.scheduleUnifiedSearch() }
-    .onChange(of: model.searchText) { _, _ in model.scheduleUnifiedSearch() }
   }
 
   /// Platzhalter bis Bibliotheken aus Bootstrap da sind — Tab-Struktur bleibt stabil.
@@ -917,6 +911,9 @@ struct SearchTabRootView: View {
       .navigationTitle(AppModel.MainTab.search.rawValue)
       .toolbarTitleDisplayMode(.inline)
       .booksEntityDetailNavigation(for: .search)
+      .searchable(text: $model.searchText, prompt: Text("Title, author, show, episode…"))
+      .onSubmit(of: .search) { model.scheduleUnifiedSearch() }
+      .onChange(of: model.searchText) { _, _ in model.scheduleUnifiedSearch() }
     }
     .tint(model.appearanceAccentColor)
     .onDisappear {
