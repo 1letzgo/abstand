@@ -45,8 +45,13 @@ struct MainRootView: View {
       guard !playing else { return }
       Task { await model.handlePlaybackPaused() }
     }
-    .onChange(of: model.mainTab) { _, tab in
+    .onChange(of: model.mainTab) { oldTab, tab in
       activatedTabs.insert(tab)
+      // Beim Wechsel vom Library-Tab zum Search-Tab: Suchkontext merken
+      // (audiobooks vs podcasts), damit der Search-Tab die richtige Suche zeigt.
+      if tab == .search, oldTab == .library {
+        model.searchTabMediaKind = model.mediaCatalogKind
+      }
       switch tab {
       case .library:
         bumpActiveMediaRelayoutEpoch()
@@ -143,6 +148,13 @@ struct MainRootView: View {
         lazyTabContent(.library) {
           mediaTabRoot
         }
+      }
+
+      Tab(AppModel.MainTab.search.rawValue, systemImage: "magnifyingglass", value: AppModel.MainTab.search) {
+        lazyTabContent(.search) {
+          SearchTabRootView()
+        }
+        .id("abstand-search-tab-root-\(model.accountSessionEpoch)")
       }
 
       Tab(AppModel.MainTab.settings.rawValue, systemImage: "gearshape.fill", value: AppModel.MainTab.settings) {
@@ -267,40 +279,9 @@ struct MainRootView: View {
     }
   }
 
-  private var booksSearchField: some View {
-    let palette = model.appearancePalette
-    return HStack(spacing: 8) {
-      Image(systemName: "magnifyingglass")
-        .foregroundStyle(palette.textSecondary)
-      TextField("Title, author, series…", text: $model.searchText)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .textFieldStyle(.plain)
-        .foregroundStyle(palette.textPrimary)
-        .onSubmit { model.scheduleSearch() }
-      if !model.searchText.isEmpty {
-        Button {
-          model.searchText = ""
-          model.clearSearchResults()
-        } label: {
-          Image(systemName: "xmark.circle.fill")
-            .foregroundStyle(AppTheme.textSecondary)
-        }
-        .buttonStyle(.plain)
-      }
-    }
-    .padding(12)
-    .background(model.appearancePalette.card)
-    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    .onChange(of: model.searchText) { _, _ in model.scheduleSearch() }
-  }
-
   @ViewBuilder
   private func booksBrowseSectionScrollContent(for section: BooksBrowseSection) -> some View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-      if section == .search {
-        booksSearchField
-      }
       booksBrowseSectionContent(for: section)
     }
   }
@@ -315,7 +296,7 @@ struct MainRootView: View {
     case .ebooksSupplementary:
       ebooksSupplementaryListBody
     case .search:
-      BooksSearchBrowseView()
+      EmptyView()
     case .author:
       booksBrowseAuthorListBody
     case .narrators:
@@ -737,7 +718,7 @@ struct MainRootView: View {
   private static let podcastCatalogSearchSectionId = PodcastCatalogStripSection.search
 
   private var podcastCatalogScrollSectionIDs: [String] {
-    [Self.podcastCatalogSearchSectionId, Self.podcastCatalogNewSectionId] + model.podcastShows.map(\.id)
+    [Self.podcastCatalogNewSectionId] + model.podcastShows.map(\.id)
   }
 
   private var podcastCatalogScrollSelection: String {
@@ -745,7 +726,7 @@ struct MainRootView: View {
   }
 
   private func podcastCatalogShowId(forSectionId sectionId: String) -> String? {
-    sectionId == Self.podcastCatalogNewSectionId || sectionId == Self.podcastCatalogSearchSectionId
+    sectionId == Self.podcastCatalogNewSectionId
       ? nil : sectionId
   }
 
@@ -761,51 +742,8 @@ struct MainRootView: View {
     ) {
       podcastShowsDockStrip
     } sectionBody: { sectionId in
-      if sectionId == Self.podcastCatalogSearchSectionId {
-        podcastLibrarySearchContent
-      } else {
-        podcastCatalogSectionScrollContent(showId: podcastCatalogShowId(forSectionId: sectionId))
-      }
+      podcastCatalogSectionScrollContent(showId: podcastCatalogShowId(forSectionId: sectionId))
     }
-  }
-
-  private var podcastLibrarySearchContent: some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-      podcastSearchField
-      PodcastLibrarySearchResultsView()
-    }
-    .onAppear {
-      model.podcastCatalogStripSectionId = Self.podcastCatalogSearchSectionId
-      model.schedulePodcastLibrarySearch()
-    }
-  }
-
-  private var podcastSearchField: some View {
-    let palette = model.appearancePalette
-    return HStack(spacing: 8) {
-      Image(systemName: "magnifyingglass")
-        .foregroundStyle(palette.textSecondary)
-      TextField("Show or episode…", text: $model.podcastLibrarySearchText)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .textFieldStyle(.plain)
-        .foregroundStyle(palette.textPrimary)
-        .onSubmit { model.schedulePodcastLibrarySearch() }
-      if !model.podcastLibrarySearchText.isEmpty {
-        Button {
-          model.podcastLibrarySearchText = ""
-          model.clearPodcastLibrarySearchResults()
-        } label: {
-          Image(systemName: "xmark.circle.fill")
-            .foregroundStyle(AppTheme.textSecondary)
-        }
-        .buttonStyle(.plain)
-      }
-    }
-    .padding(12)
-    .background(model.appearancePalette.card)
-    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    .onChange(of: model.podcastLibrarySearchText) { _, _ in model.schedulePodcastLibrarySearch() }
   }
 
   @ViewBuilder
@@ -820,11 +758,6 @@ struct MainRootView: View {
 
   private var podcastDockStripItems: [AbstandBrowseStripItem] {
     [
-      AbstandBrowseStripItem(
-        id: Self.podcastCatalogSearchSectionId,
-        label: "Search",
-        systemImage: "magnifyingglass"
-      ),
       AbstandBrowseStripItem(
         id: Self.podcastCatalogNewSectionId,
         label: "New",
@@ -847,11 +780,7 @@ struct MainRootView: View {
         items: podcastDockStripItems,
         selectionID: podcastCatalogScrollSelection,
         onSelect: { id in
-          if id == Self.podcastCatalogSearchSectionId {
-            model.podcastCatalogStripSectionId = id
-            model.podcastSelectedShowId = nil
-            model.schedulePodcastLibrarySearch()
-          } else if id == Self.podcastCatalogNewSectionId {
+          if id == Self.podcastCatalogNewSectionId {
             model.podcastCatalogStripSectionId = id
             Task { await model.selectPodcastShowFilter(nil) }
           } else {
@@ -950,6 +879,92 @@ struct MainRootView: View {
           .frame(maxWidth: .infinity)
           .padding(.vertical, 8)
       }
+    }
+  }
+}
+
+
+// MARK: - Unified Search Tab
+
+/// Zentraler Such-Tab: Buch-Suche (default) oder Podcast-Suche,
+/// je nachdem von wo der User gekommen ist (`searchTabMediaKind`).
+struct SearchTabRootView: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+        unifiedSearchField
+        searchResultsContent
+      }
+      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
+      .padding(.top, AppTheme.Layout.withinSectionSpacing)
+      .padding(
+        .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
+    }
+    .scrollContentBackground(.hidden)
+    .abstandScrollScreenBackground()
+    .navigationTitle("Search")
+    .toolbarTitleDisplayMode(.inline)
+    .tint(model.appearanceAccentColor)
+  }
+
+  /// Ein einziges Suchfeld — bindet je nach Modus an searchText oder podcastLibrarySearchText.
+  private var unifiedSearchField: some View {
+    let palette = model.appearancePalette
+    let isPodcasts = model.searchTabMediaKind == .podcasts
+    return HStack(spacing: 8) {
+      Image(systemName: "magnifyingglass")
+        .foregroundStyle(palette.textSecondary)
+      if isPodcasts {
+        TextField("Show or episode…", text: $model.podcastLibrarySearchText)
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+          .textFieldStyle(.plain)
+          .foregroundStyle(palette.textPrimary)
+          .onSubmit { model.schedulePodcastLibrarySearch() }
+      } else {
+        TextField("Title, author, series…", text: $model.searchText)
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+          .textFieldStyle(.plain)
+          .foregroundStyle(palette.textPrimary)
+          .onSubmit { model.scheduleSearch() }
+      }
+      clearButton
+    }
+    .padding(12)
+    .background(palette.card)
+    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+  }
+
+  @ViewBuilder
+  private var clearButton: some View {
+    let isPodcasts = model.searchTabMediaKind == .podcasts
+    let hasText = isPodcasts ? !model.podcastLibrarySearchText.isEmpty : !model.searchText.isEmpty
+    if hasText {
+      Button {
+        if isPodcasts {
+          model.podcastLibrarySearchText = ""
+          model.clearPodcastLibrarySearchResults()
+        } else {
+          model.searchText = ""
+          model.clearSearchResults()
+        }
+      } label: {
+        Image(systemName: "xmark.circle.fill")
+          .foregroundStyle(AppTheme.textSecondary)
+      }
+      .buttonStyle(.plain)
+    }
+  }
+
+  @ViewBuilder
+  private var searchResultsContent: some View {
+    if model.searchTabMediaKind == .podcasts {
+      PodcastLibrarySearchResultsView()
+    } else {
+      BooksSearchBrowseView()
     }
   }
 }
@@ -4254,6 +4269,8 @@ struct BooksEntityDetailNavigationModifier: ViewModifier {
         set: { model.homeEntityDetailNav = $0 }
       )
     case .settings:
+      Binding.constant(nil)
+    case .search:
       Binding.constant(nil)
     }
   }

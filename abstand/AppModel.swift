@@ -240,7 +240,7 @@ enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
 
   /// Unterbereiche im Audiobook-Bereich des gemeinsamen Medien-Tabs.
   static let audiobookStripOrder: [BooksBrowseSection] = [
-    .search, .books, .series, .author, .collections, .genres, .narrators, .tags,
+    .books, .series, .author, .collections, .genres, .narrators, .tags,
     .ebooks, .ebooksSupplementary,
   ]
 
@@ -625,6 +625,9 @@ final class AppModel: ObservableObject {
   private var pendingEbookProgressSync: (libraryItemId: String, fraction: Double)?
   private var lastSyncedEbookFractionByItemId: [String: Double] = [:]
   @Published var searchText: String = ""
+  /// Suchkontext für den Search-Tab: audiobooks (default) oder podcasts.
+  /// Wird gesetzt, wenn der User von der Library/Podcast-Ansicht auf den Search-Tab wechselt.
+  @Published var searchTabMediaKind: MediaCatalogKind = .audiobooks
   @Published var searchBooks: [ABSBook] = []
   @Published var podcastSearchText: String = ""
   @Published var podcastSearchBooks: [ABSBook] = []
@@ -1268,6 +1271,7 @@ final class AppModel: ObservableObject {
 
   enum MainTab: String, CaseIterable, Hashable {
     case start = "Home"
+    case search = "Search"
     case library = "Library"
     case settings = "Settings"
   }
@@ -5875,10 +5879,13 @@ final class AppModel: ObservableObject {
   }
 
   func selectBooksBrowseSection(_ section: BooksBrowseSection) {
-    booksBrowseSection = section
     if section == .search {
-      scheduleSearch()
+      // Suche ist jetzt ein eigener Tab — dorthin navigieren statt Strip-Sektion.
+      searchTabMediaKind = .audiobooks
+      mainTab = .search
+      return
     }
+    booksBrowseSection = section
     Task { await loadBooksBrowseSectionContentIfNeeded() }
   }
 
@@ -7131,7 +7138,7 @@ final class AppModel: ObservableObject {
   }
 
   func scheduleSearch() {
-    guard mainTab == .library, mediaCatalogKind == .audiobooks, booksBrowseSection == .search else {
+    guard mainTab == .search, searchTabMediaKind == .audiobooks else {
       return
     }
     searchTask?.cancel()
@@ -7166,7 +7173,7 @@ final class AppModel: ObservableObject {
   }
 
   func schedulePodcastLibrarySearch() {
-    guard mainTab == .library, mediaCatalogKind == .podcasts else { return }
+    guard mainTab == .search, searchTabMediaKind == .podcasts else { return }
     podcastLibrarySearchTask?.cancel()
     let q = podcastLibrarySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
     podcastLibrarySearchTask = Task {
@@ -7684,6 +7691,8 @@ final class AppModel: ObservableObject {
       libraryEntityDetailNav = nav
     case .settings:
       break
+    case .search:
+      break
     }
   }
 
@@ -7967,8 +7976,8 @@ final class AppModel: ObservableObject {
     activeLibraryFilter = nil
     activeLibraryFilterSummary = nil
     searchText = q
-    booksBrowseSection = .search
-    navigateToMedia(.audiobooks)
+    searchTabMediaKind = .audiobooks
+    mainTab = .search
     Task { await performSearch(query: q) }
   }
 
