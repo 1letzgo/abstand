@@ -765,30 +765,51 @@ enum LocalLibraryQueries {
     let lid = libraryId
     var descriptor = FetchDescriptor<LocalBook>(
       predicate: #Predicate { $0.libraryId == lid },
-      sortBy: [localBookSortDescriptor(sortField, descending)]
+      sortBy: localBookSortDescriptors(sortField, descending)
     )
     descriptor.fetchLimit = 0
     let rows = (try? context.fetch(descriptor)) ?? []
     return decodeLocalBookRows(rows)
   }
 
-  /// Mappt `CatalogSortField` auf einen `SortDescriptor<LocalBook>`.
-  /// Felder die nicht direkt auf `LocalBook` gespeichert sind, fallen auf `\.title` zurück.
-  private static func localBookSortDescriptor(
+  /// `true`, wenn das Sortierfeld direkt auf `LocalBook` liegt und die Superset-Abfrage
+  /// (`allBooks`) die gewählte Reihenfolge wirklich abbilden kann. Für alle anderen Felder
+  /// (Jahr, Größe, Fortschritt, Zufall, …) muss die Server-Reihenfolge verwendet werden —
+  /// der frühere stille Titel-Fallback zeigte sonst eine falsche Sortierung an.
+  static func supportsLocalBookSort(_ sortField: CatalogSortField) -> Bool {
+    switch sortField {
+    case .title, .authorName, .authorNameLF, .addedAt, .duration:
+      return true
+    default:
+      return false
+    }
+  }
+
+  /// Mappt `CatalogSortField` auf `SortDescriptor`s für `LocalBook` — immer mit Titel + ID als
+  /// Tiebreaker, sonst ist die Reihenfolge bei gleichen Sortierwerten (z. B. gleicher Autor)
+  /// pro Fetch zufällig und die Liste „springt" bei jedem App-Start.
+  private static func localBookSortDescriptors(
     _ sortField: CatalogSortField, _ descending: Bool
-  ) -> SortDescriptor<LocalBook> {
+  ) -> [SortDescriptor<LocalBook>] {
+    let order: SortOrder = descending ? .reverse : .forward
+    let primary: SortDescriptor<LocalBook>
     switch sortField {
     case .title:
-      return SortDescriptor(\.title, order: descending ? .reverse : .forward)
+      primary = SortDescriptor(\.title, order: order)
     case .authorName, .authorNameLF:
-      return SortDescriptor(\.authorName, order: descending ? .reverse : .forward)
+      primary = SortDescriptor(\.authorName, order: order)
     case .addedAt:
-      return SortDescriptor(\.addedAt, order: descending ? .reverse : .forward)
+      primary = SortDescriptor(\.addedAt, order: order)
     case .duration:
-      return SortDescriptor(\.duration, order: descending ? .reverse : .forward)
+      primary = SortDescriptor(\.duration, order: order)
     default:
-      return SortDescriptor(\.title, order: descending ? .reverse : .forward)
+      primary = SortDescriptor(\.title, order: order)
     }
+    return [
+      primary,
+      SortDescriptor(\.title, order: .forward),
+      SortDescriptor(\.id, order: .forward),
+    ]
   }
 
   /// Bücher zu einer Menge von IDs aus der geteilten `LocalBook`-Tabelle nachladen (für `LocalSeries`/

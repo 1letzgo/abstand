@@ -4749,17 +4749,37 @@ final class AppModel: ObservableObject {
     }
   }
 
-  /// Lädt den VOLLSTÄNDIGEN Katalog aus der lokalen SwiftData-DB (`LocalBook`-Superset),
-  /// client-seitig sortiert. Keine Pagination, kein Server-Roundtrip.
-  /// Wird vor dem Server-Reload aufgerufen, damit die Liste sofort vollständig steht.
-  private func loadLibraryFromLocalStore() {
+  /// Baut den Katalog aus der lokalen SwiftData-DB auf — cache-first, aber in der RICHTIGEN
+  /// Reihenfolge. Rückgabe `true`, wenn `books` lokal gefüllt wurde:
+  /// 1. Gecachte Katalogseiten in **Server-Reihenfolge**, wenn Sort/Filter exakt passen.
+  /// 2. Sonst `LocalBook`-Superset, client-seitig sortiert — nur ohne Server-Filter und wenn
+  ///    das Sortierfeld lokal abbildbar ist (`supportsLocalBookSort`). Der frühere stille
+  ///    Titel-Fallback zeigte bei allen anderen Sortierungen eine falsche, pro Fetch
+  ///    wechselnde Reihenfolge an.
+  /// Liefert die Funktion `false`, ersetzt der Server-Reset die Liste (korrekte Sortierung).
+  private func loadLibraryFromLocalStore() -> Bool {
     guard let context = currentLocalLibraryMainContext(),
-      let libId = selectedBooksLibrary?.id else { return }
+      let libId = selectedBooksLibrary?.id else { return false }
+    let ascending = catalogSortField == .random ? true : !catalogSortDescending
+    let sortKey = catalogSortField.apiSortParameter
+    if let merged = LocalLibraryQueries.catalog(
+      context: context, libraryId: libId, sortField: sortKey, ascending: ascending,
+      filterKey: activeLibraryFilter, pageLimit: Self.libraryCatalogPageLimit
+    ), !merged.items.isEmpty {
+      applyBooksCatalogLocalMerge(books: merged.items, total: merged.total, nextPage: merged.nextPage)
+      return true
+    }
+    // Superset nur, wenn die gewählte Sortierung lokal korrekt abbildbar ist — offline
+    // ausnahmsweise auch sonst (lieber Titel-Reihenfolge als gar keine Liste, Server-Reset
+    // als Korrektur ist ohne Netz ohnehin nicht möglich).
+    guard activeLibraryFilter == nil,
+      LocalLibraryQueries.supportsLocalBookSort(catalogSortField) || !isNetworkReachable
+    else { return false }
     let localBooks = LocalLibraryQueries.allBooks(
       context: context, libraryId: libId,
       sortField: catalogSortField, descending: catalogSortDescending
     )
-    guard !localBooks.isEmpty else { return }
+    guard !localBooks.isEmpty else { return false }
     var transaction = Transaction()
     transaction.disablesAnimations = true
     withTransaction(transaction) {
@@ -4771,6 +4791,7 @@ final class AppModel: ObservableObject {
       libraryPage = max(1, (localBooks.count + Self.libraryCatalogPageLimit - 1)
         / Self.libraryCatalogPageLimit)
     }
+    return true
   }
 
   /// Merged eine Server-Seite in den bereits lokal geladenen Katalog — ersetzt nicht, sondern
@@ -4948,15 +4969,13 @@ final class AppModel: ObservableObject {
       await loadStartDashboard()
       return
     }
-    // Lokale DB als Primärquelle — füllt `books` sofort komplett (alle Bücher, client-seitig
-    // sortiert). Der Server-Refresh unten aktualisiert/ergänzt nur noch; offline bleibt die Liste
-    // trotzdem vollständig sichtbar.
+    // Lokale DB als Primärquelle — füllt `books` sofort in der zum aktuellen Sort/Filter
+    // passenden Reihenfolge. Schlägt der lokale Aufbau fehl (Sortierfeld nicht lokal abbildbar,
+    // Server-Filter aktiv, Cache leer), ersetzt der Server-Reset unten die Liste komplett —
+    // sonst würde ein Sortierwechsel nie greifen (Server-Seite würde nur gemergt).
     var didLoadFromLocalStore = false
     if reset {
-      let booksWereEmpty = books.isEmpty
-      loadLibraryFromLocalStore()
-      // `loadLibraryFromLocalStore` hat `books` gefüllt — merken für den Server-Pfad unten.
-      didLoadFromLocalStore = booksWereEmpty ? !books.isEmpty : true
+      didLoadFromLocalStore = loadLibraryFromLocalStore()
     }
     guard let c = client else {
       if startShelves.isEmpty { await loadStartDashboard() }
@@ -5020,6 +5039,10 @@ final class AppModel: ObservableObject {
       if !didLoadFromLocalStore {
         libraryTotal = page.total
         libraryPage = page.page + 1
+      } else if !pageBooks.isEmpty {
+        // Lokal (aus gecachten Seiten) aufgebaute Liste kann partiell sein — Cursor nach der
+        // geholten Server-Seite fortschreiben, sonst fordert `loadMoreIfNeeded` dieselbe Seite erneut an.
+        libraryPage = max(libraryPage, page.page + 1)
       }
       if reset {
         lastBooksCatalogServerSyncAt = Date()
