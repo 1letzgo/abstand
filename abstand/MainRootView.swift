@@ -1109,6 +1109,7 @@ private struct PodcastLibrarySearchResultsView: View {
           ForEach(model.podcastLibrarySearchShows) { show in
             Button {
               model.applyPodcastShowFilterSelection(show.id)
+              model.navigateToMedia(.podcasts)
               Task { await model.loadPodcastEpisodesForShowLibraryItem(show.id) }
             } label: {
               PodcastShowRowCard(show: show)
