@@ -1414,6 +1414,10 @@ final class AppModel: ObservableObject {
       homeBrowseCategory = ABSStartShelfLocalization.homeBrowseContinueSectionID
       UserDefaults.standard.set(homeBrowseCategory, forKey: Keys.homeBrowseCategory)
       scheduleBootstrapFromStoredCredentials()
+      // Kataloge (Bücher/Podcasts/Browse) sofort aus der lokalen DB aufbauen — nicht erst nach
+      // dem Server-Connect. Der Guard-Flag verhindert die Doppel-Ausführung nach Bootstrap;
+      // der Server-Reload (`scheduleDeferredCatalogReloadAfterBootstrap`) aktualisiert später nur noch.
+      scheduleDeferredCatalogLocalRestoreAfterBootstrap()
     }
   }
 
@@ -5017,11 +5021,46 @@ final class AppModel: ObservableObject {
         libraryTotal = page.total
         libraryPage = page.page + 1
       }
+      if reset {
+        lastBooksCatalogServerSyncAt = Date()
+      }
     } catch {
       publishErrorUnlessBenignCancellation(error)
     }
     if startShelves.isEmpty {
       await loadStartDashboard()
+    }
+  }
+
+  /// Kataloge gelten nach dieser Spanne als veraltet — Vordergrund-Wechsel stößt dann einen
+  /// stillen Server-Refresh an, der auch die lokale DB fortschreibt (Listen bleiben cache-first).
+  private static let catalogStaleRefreshInterval: TimeInterval = 15 * 60
+  private var lastBooksCatalogServerSyncAt: Date?
+  private var lastPodcastCatalogServerSyncAt: Date?
+
+  /// Vordergrund: Listen kommen sofort aus der lokalen DB — hier nur prüfen, ob der letzte
+  /// Server-Abgleich zu lange her ist, und dann still im Hintergrund aktualisieren
+  /// (`preserveOtherCachedPages`: gecachte Folgeseiten bleiben erhalten).
+  func refreshCatalogsIfStaleOnForeground() {
+    guard isLoggedIn, !offlineHomeUIActive, !isAppBootstrapInProgress,
+      isNetworkReachable, client != nil
+    else { return }
+    let now = Date()
+    let booksStale =
+      selectedBooksLibrary != nil
+      && (lastBooksCatalogServerSyncAt.map { now.timeIntervalSince($0) > Self.catalogStaleRefreshInterval } ?? true)
+    let podcastsStale =
+      selectedPodcastLibrary != nil
+      && (lastPodcastCatalogServerSyncAt.map { now.timeIntervalSince($0) > Self.catalogStaleRefreshInterval } ?? true)
+    guard booksStale || podcastsStale else { return }
+    Task(priority: .utility) { @MainActor [weak self] in
+      guard let self else { return }
+      if booksStale {
+        await self.reloadLibrary(reset: true, preserveOtherCachedPages: true)
+      }
+      if podcastsStale {
+        await self.reloadPodcastLibrary(reset: true)
+      }
     }
   }
 
@@ -5092,6 +5131,7 @@ final class AppModel: ObservableObject {
               try? await store.replacePodcastEpisodes(
                 libraryId: lib.id, total: fallback.count, pagingFromRecentAPI: false, items: fallback)
             }
+            lastPodcastCatalogServerSyncAt = Date()
             if reset { await reloadPodcastShowsCatalog() }
             return
           }
@@ -5113,6 +5153,9 @@ final class AppModel: ObservableObject {
           let total = podcastLibraryTotal
           try? await store.replacePodcastEpisodes(
             libraryId: lib.id, total: total, pagingFromRecentAPI: true, items: snapshot)
+        }
+        if reset {
+          lastPodcastCatalogServerSyncAt = Date()
         }
       }
     } catch {
@@ -5423,6 +5466,17 @@ final class AppModel: ObservableObject {
       podcastFilteredEpisodes = []
       return
     }
+    // Cache-first: Folgenliste sofort aus dem lokal persistierten Show-Detail aufbauen
+    // (LocalBook.detailBlob) — der Server-Abruf unten ersetzt sie dann nur noch still.
+    if podcastFilteredEpisodesByShowId[sid]?.isEmpty != false,
+      let seeded = podcastShowEpisodesFromLocalStore(showId: sid, libraryId: lib.id),
+      !seeded.isEmpty
+    {
+      podcastFilteredEpisodesByShowId[sid] = seeded
+      if podcastSelectedShowId == sid {
+        podcastFilteredEpisodes = seeded
+      }
+    }
     podcastShowEpisodesLoadSerial &+= 1
     let serial = podcastShowEpisodesLoadSerial
     isLoadingPodcastShowEpisodes = true
@@ -5454,10 +5508,29 @@ final class AppModel: ObservableObject {
       let sorted = Self.sortPodcastEpisodesNewestFirst(ABSPodcastEpisodeListItem.dedupeRows(rows))
       podcastFilteredEpisodesByShowId[sid] = sorted
       podcastFilteredEpisodes = sorted
+      // Expandiertes Show-Detail in die lokale DB — nächster Aufruf (auch nach App-Neustart)
+      // baut die Folgenliste sofort daraus auf, bevor der Server antwortet.
+      persistBookDetail(full)
     } catch {
       guard serial == podcastShowEpisodesLoadSerial, podcastSelectedShowId == showId else { return }
       publishErrorUnlessBenignCancellation(error)
     }
+  }
+
+  /// Folgenliste einer Sendung aus dem persistierten Show-Detail (`LocalBook.detailBlob`) —
+  /// gleiche Aufbereitung wie der Online-Pfad (`fromDTO` + dedupe + newest-first).
+  private func podcastShowEpisodesFromLocalStore(
+    showId: String, libraryId: String
+  ) -> [ABSPodcastEpisodeListItem]? {
+    guard let show = cachedBookDetail(id: showId),
+      let eps = show.media.podcastEpisodes, !eps.isEmpty
+    else { return nil }
+    let rows: [ABSPodcastEpisodeListItem] = eps.compactMap {
+      ABSPodcastEpisodeListItem.fromDTO(
+        $0, fallbackShow: show, libraryId: libraryId, forceLibraryItemId: show.id)
+    }
+    guard !rows.isEmpty else { return nil }
+    return Self.sortPodcastEpisodesNewestFirst(ABSPodcastEpisodeListItem.dedupeRows(rows))
   }
 
   /// Normalisiert `nil`/leere Bibliotheks-IDs auf `nil` — Manifest-Stubs liefern `String?`, das
