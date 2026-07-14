@@ -103,7 +103,7 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
     }
 
     private func topmostPresenter(from anchor: UIViewController) -> UIViewController? {
-      var presenter = anchor.view.window?.rootViewController ?? anchor
+      guard var presenter = anchor.view.window?.rootViewController else { return nil }
       while let presented = presenter.presentedViewController {
         guard !presented.isBeingDismissed else { return nil }
         presenter = presented
