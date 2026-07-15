@@ -139,7 +139,7 @@ struct MainRootView: View {
       }
 
       // Tabs immer registrieren — sonst baut TabView beim Bootstrap neu (Ampel flackert).
-      Tab(AppModel.MainTab.library.rawValue, systemImage: "book.fill", value: AppModel.MainTab.library) {
+      Tab(AppModel.MainTab.library.rawValue, systemImage: "books.vertical", value: AppModel.MainTab.library) {
         lazyTabContent(.library) {
           mediaTabRoot
         }
