@@ -2115,6 +2115,7 @@ struct NowPlayingDetailView: View {
     case .recap:
       let transcription = player.liveTranscription
       let isDownloadReady = player.isReadAlongDownloadReady
+      let isRecapCapable = transcription.canGenerateRecap && isDownloadReady
       FullPlayerCoverOverlayButton(
         systemName: "sparkles",
         isActive: isRecapActive,
@@ -2144,13 +2145,17 @@ struct NowPlayingDetailView: View {
       }
       // Gleicher nicht-verfügbar-Zustand wie der Teleprompter: der Button bleibt
       // antippbar für den Hinweis, wird aber optisch gedimmt.
-      .opacity(isDownloadReady ? 1 : 0.45)
+      .opacity(isRecapCapable ? 1 : 0.45)
       .accessibilityHint(
-        isDownloadReady
+        isRecapCapable
           ? ""
-          : String(
-            localized: "Requires a full download of this audiobook or podcast.",
-            comment: "Recap accessibility hint")
+          : isDownloadReady
+            ? String(
+              localized: "Requires Apple Intelligence, which is not available on this device.",
+              comment: "Recap accessibility hint")
+            : String(
+              localized: "Requires a full download of this audiobook or podcast.",
+              comment: "Recap accessibility hint")
       )
     case .readAlong:
       ReadAlongPanelButton(readAlongDownloadWarningPresented: $readAlongDownloadWarningPresented) {

@@ -126,6 +126,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   static let transcriptionCatchUpLagSeconds: Double = 6
   /// Ein Recap bleibt für mindestens eine weitere Hörminute gültig.
   static let recapCachePlaybackSeconds: Double = 60
+  /// On-device Recap hart abbrechen nach dieser Dauer (gegen endlosen Spinner).
+  static let recapGenerationTimeoutSeconds: Double = 90
 
   /// Nutzer hat Read-Along/Teleprompter eingeschaltet — steuert UI und Lebenszyklus.
   @Published private(set) var isTeleprompterModeActive = false
@@ -154,14 +156,19 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   @Published private(set) var recapText: String?
   @Published private(set) var recapErrorMessage: String?
   @Published private(set) var isGeneratingRecap = false
+  /// Hinweis, wenn der Recap mit einer anderen Sprache als dem Buch erzeugt wurde.
+  @Published private(set) var recapFallbackNotice: String?
 
   /// Sprache der laufenden Transkription (für Wort-Übersetzung).
   var transcriptionLocale: Locale? { activeContext?.locale }
-  var canGenerateRecap: Bool { !isGeneratingRecap }
+  /// Nur aktivierbar, wenn Apple Intelligence verfügbar ist und nicht bereits läuft.
+  var canGenerateRecap: Bool { !isGeneratingRecap && SystemLanguageModel.default.availability == .available }
 
   private var finalizedWords: [PlayerTranscriptWord] = []
   private var recapBookId: String?
   private var recapPlaybackTime: Double?
+  /// Inkrementelle ID pro Recap-Versuch — erlaubt Timeout-Erkennung bei mehreren Aufrufen.
+  private var currentRecapGeneration = UUID()
   /// Volatile Speech-Ergebnisse während der Pufferphase (ersetzt, nicht angehängt).
   private var volatileTailWords: [PlayerTranscriptWord] = []
   private let lineAccumulator = PlayerTranscriptLineAccumulator()
@@ -436,27 +443,62 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     isGeneratingRecap = true
     recapText = nil
     recapErrorMessage = nil
+    recapFallbackNotice = nil
     defer { isGeneratingRecap = false }
 
+    let generation = UUID()
+    let timeoutTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(nanoseconds: UInt64(Self.recapGenerationTimeoutSeconds * 1_000_000_000))
+      guard !Task.isCancelled, let self else { return }
+      // Nur abbrechen, wenn noch dieselbe Generation läuft.
+      guard self.currentRecapGeneration == generation, self.isGeneratingRecap else { return }
+      self.recapErrorMessage = String(
+        localized: "Recap took too long. Please try again later.",
+        comment: "Read along recap error"
+      )
+      self.isGeneratingRecap = false
+    }
+
     do {
+      currentRecapGeneration = generation
       try await ensureSpeechRecognitionAuthorized()
       let languageTag = player.preferredTranscriptionLanguageTag
-      let locale = try await SpeechTranscriptionLocaleResolver.resolve(
+      let resolution = try await SpeechTranscriptionLocaleResolver.resolve(
         preferredLanguageTag: languageTag
-      ).locale
+      )
+      let locale = resolution.locale
+      // Fallback-Hinweis wie beim Teleprompter: Buchsprache nicht installiert.
+      if resolution.usedFallback, ABSBook.locale(fromABSMetadataLanguage: languageTag) != nil {
+        let code = locale.language.languageCode?.identifier ?? locale.identifier(.bcp47)
+        let name = Locale.current.localizedString(forLanguageCode: code) ?? code
+        recapFallbackNotice = String(
+          format: String(
+            localized: "Recap transcribed in %@ (book language not installed).",
+            comment: "Read along recap locale fallback"),
+          name
+        )
+      }
       try await ensureSpeechModel(locale: locale)
+      guard currentRecapGeneration == generation, isGeneratingRecap else { return }
+
       let transcript = try await transcribeRecapAudio(
         contexts: contexts,
         globalRange: max(0, end - 300)...end,
         locale: locale
       )
+      guard currentRecapGeneration == generation, isGeneratingRecap else { return }
       guard !transcript.isEmpty else {
-        throw PlayerLiveTranscriptionError.transcriptionProgressStalled
+        recapErrorMessage = String(
+          localized: "No speech was recognized in the last five minutes. Try again later.",
+          comment: "Read along recap error"
+        )
+        return
       }
 
-      // Dieselbe Buchsprach-Auflösung wie der Teleprompter verwenden; die englische
-      // Aufgabenformulierung darf die Ausgabe nicht in Englisch umleiten.
-      let recapLanguage = locale.identifier(.bcp47)
+      // Ausgabesprache = Buchsprache (nicht die für die Transkription aufgelöste Locale).
+      // Nur falls keine Buchsprache vorliegt, fällt die Ausgabe auf die Transkriptions-Locale.
+      let outputLocale = ABSBook.locale(fromABSMetadataLanguage: languageTag) ?? locale
+      let recapLanguage = outputLocale.identifier(.bcp47)
       let session = LanguageModelSession(model: model)
       let response = try await session.respond(
         to: """
@@ -471,24 +513,34 @@ final class PlayerLiveTranscriptionController: ObservableObject {
         """
       )
       let recap = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard currentRecapGeneration == generation, isGeneratingRecap else { return }
       guard !recap.isEmpty else {
-        throw PlayerLiveTranscriptionError.transcriptionProgressStalled
+        recapErrorMessage = String(
+          localized: "The summary could not be generated. Please try again.",
+          comment: "Read along recap error"
+        )
+        return
       }
       recapText = recap
       recapBookId = bookId
       recapPlaybackTime = end
+    } catch is CancellationError {
+      // Timeout oder neuer Recap-Versuch — Fehler bereits von timeoutTask gesetzt.
     } catch {
       recapText = nil
-      recapErrorMessage = String(
-        localized: "The on-device recap could not be created. Please try again.",
-        comment: "Read along recap error"
-      )
+      recapErrorMessage = (error as? LocalizedError)?.errorDescription
+        ?? String(
+          localized: "The on-device recap could not be created. Please try again.",
+          comment: "Read along recap error"
+        )
     }
+    timeoutTask.cancel()
   }
 
   func clearRecap() {
     recapText = nil
     recapErrorMessage = nil
+    recapFallbackNotice = nil
     recapBookId = nil
     recapPlaybackTime = nil
   }

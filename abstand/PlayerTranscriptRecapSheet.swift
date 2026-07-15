@@ -24,12 +24,30 @@ struct PlayerTranscriptRecapCard: View {
               .frame(maxWidth: .infinity, alignment: .leading)
               .textSelection(.enabled)
           }
+          if let notice = transcription.recapFallbackNotice {
+            Text(notice)
+              .font(.caption)
+              .foregroundStyle(AppTheme.textSecondary)
+              .lineLimit(2)
+              .padding(10)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .background(AppTheme.card.opacity(0.9))
+          }
         } else if let error = transcription.recapErrorMessage {
           ContentUnavailableView(
             String(localized: "Recap unavailable", comment: "Read along recap empty title"),
             systemImage: "sparkles",
             description: Text(error)
           )
+          if let notice = transcription.recapFallbackNotice {
+            Text(notice)
+              .font(.caption)
+              .foregroundStyle(AppTheme.textSecondary)
+              .lineLimit(2)
+              .padding(10)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .background(AppTheme.card.opacity(0.9))
+          }
         } else {
           ContentUnavailableView(
             String(localized: "No recap yet", comment: "Read along recap empty title"),
