@@ -6,9 +6,19 @@ struct PlayerTranscriptRecapCard: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text(String(localized: "Last 5 minutes", comment: "Read along recap title"))
-        .font(.headline)
-        .foregroundStyle(AppTheme.textPrimary)
+      HStack(alignment: .firstTextBaseline, spacing: 6) {
+        Text(String(localized: "Last 5 minutes", comment: "Read along recap title"))
+          .font(.headline)
+          .foregroundStyle(AppTheme.textPrimary)
+        if transcription.recapShowsTranscript {
+          Text(String(localized: "transcript", comment: "Read along recap transcript badge"))
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(AppTheme.textSecondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(AppTheme.card.opacity(0.9), in: Capsule())
+        }
+      }
 
       Group {
         if transcription.isGeneratingRecap {

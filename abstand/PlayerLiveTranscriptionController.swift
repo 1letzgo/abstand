@@ -158,6 +158,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   @Published private(set) var isGeneratingRecap = false
   /// Hinweis, wenn der Recap mit einer anderen Sprache als dem Buch erzeugt wurde.
   @Published private(set) var recapFallbackNotice: String?
+  /// True, wenn statt einer Zusammenfassung das rohe Transkript gezeigt wird (Filter-/LLM-Fehler).
+  @Published private(set) var recapShowsTranscript = false
 
   /// Sprache der laufenden Transkription (für Wort-Übersetzung).
   var transcriptionLocale: Locale? { activeContext?.locale }
@@ -444,6 +446,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     recapText = nil
     recapErrorMessage = nil
     recapFallbackNotice = nil
+    recapShowsTranscript = false
     defer { isGeneratingRecap = false }
 
     let generation = UUID()
@@ -499,29 +502,28 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       // Nur falls keine Buchsprache vorliegt, fällt die Ausgabe auf die Transkriptions-Locale.
       let outputLocale = ABSBook.locale(fromABSMetadataLanguage: languageTag) ?? locale
       let recapLanguage = outputLocale.identifier(.bcp47)
-      let session = LanguageModelSession(model: model)
-      let response = try await session.respond(
-        to: """
-        Summarize the following audiobook transcript from the last five minutes.
-        Output language: \(recapLanguage).
-        Write the recap exclusively in that language. Do not translate it to English unless the
-        output language is English. Be concise, factual, and use 3–5 bullet points.
-        Do not invent details or mention that this is a transcript.
-
-        Transcript:
-        \(transcript)
-        """
+      // LLM-Zusammenfassung versuchen — schlägt sie fehl (leer, Filter-Blockade, Timeout),
+      //Fallback aufs rohe Transkript, damit der Nutzer nie mit nichts dasteht.
+      let summary = try? await generateRecapSummary(
+        model: model,
+        transcript: transcript,
+        recapLanguage: recapLanguage
       )
-      let recap = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
       guard currentRecapGeneration == generation, isGeneratingRecap else { return }
-      guard !recap.isEmpty else {
-        recapErrorMessage = String(
-          localized: "The summary could not be generated. Please try again.",
-          comment: "Read along recap error"
+
+      let trimmed = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
+      if let trimmed, !trimmed.isEmpty {
+        recapText = trimmed
+        recapShowsTranscript = false
+      } else {
+        // Keine Zusammenfassung möglich (Filter-Blockade / leere Antwort) → Transkript zeigen.
+        recapText = transcript
+        recapShowsTranscript = true
+        recapFallbackNotice = String(
+          localized: "Summary unavailable for this content — showing the transcript instead.",
+          comment: "Read along recap transcript fallback"
         )
-        return
       }
-      recapText = recap
       recapBookId = bookId
       recapPlaybackTime = end
     } catch is CancellationError {
@@ -537,10 +539,34 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     timeoutTask.cancel()
   }
 
+  /// LLM-Zusammenfassung aus einem Transkript. Wirft bei beliebigem Fehler (Filter-Blockade,
+  /// Timeout, leere Antwort) — Aufrufer fällt dann aufs rohe Transkript zurück.
+  private func generateRecapSummary(
+    model: SystemLanguageModel,
+    transcript: String,
+    recapLanguage: String
+  ) async throws -> String {
+    let session = LanguageModelSession(model: model)
+    let response = try await session.respond(
+      to: """
+      Summarize the following audiobook transcript from the last five minutes.
+      Output language: \(recapLanguage).
+      Write the recap exclusively in that language. Do not translate it to English unless the
+      output language is English. Be concise, factual, and use 3–5 bullet points.
+      Do not invent details or mention that this is a transcript.
+
+      Transcript:
+      \(transcript)
+      """
+    )
+    return response.content
+  }
+
   func clearRecap() {
     recapText = nil
     recapErrorMessage = nil
     recapFallbackNotice = nil
+    recapShowsTranscript = false
     recapBookId = nil
     recapPlaybackTime = nil
   }
