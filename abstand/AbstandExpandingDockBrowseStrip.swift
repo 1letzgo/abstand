@@ -5,6 +5,9 @@ import UIKit
 struct AbstandExpandingDockBrowseStrip: View {
   let items: [AbstandBrowseStripItem]
   let selectionID: String
+  /// `false`: kein Leading-Padding (z. B. als Sekundär-Strip in `AbstandPinnedBrowseStrip`,
+  /// wo der Divider bereits den Leading-Abstand definiert — sonst doppeltes Padding).
+  var appliesLeadingPadding: Bool = true
   let onSelect: (String) -> Void
 
   var body: some View {
@@ -24,7 +27,11 @@ struct AbstandExpandingDockBrowseStrip: View {
           )
         }
       }
-      .padding(.horizontal, AppTheme.ExpandingDock.horizontalPadding)
+      .padding(
+        .leading,
+        appliesLeadingPadding ? AppTheme.ExpandingDock.horizontalPadding : 0
+      )
+      .padding(.trailing, AppTheme.ExpandingDock.horizontalPadding)
       .padding(.vertical, AppTheme.ExpandingDock.verticalPadding)
       .frame(maxWidth: items.count < AppTheme.ExpandingDock.centerWhenFewThreshold ? .infinity : nil)
       .animation(AppTheme.ExpandingDock.selectionAnimation, value: selectionID)
@@ -43,34 +50,45 @@ struct AbstandPinnedBrowseStrip<Secondary: View>: View {
   @ViewBuilder var secondary: () -> Secondary
 
   var body: some View {
-    HStack(spacing: AppTheme.ExpandingDock.itemSpacing) {
-      HStack(spacing: AppTheme.ExpandingDock.itemSpacing) {
-        ForEach(pinnedItems) { item in
-          AbstandExpandingDockChip(
-            item: item,
-            isSelected: item.id == pinnedSelectionID,
-            showsLabelWhenSelected: false,
-            onSelect: {
-              guard item.id != pinnedSelectionID else { return }
-              UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-              withAnimation(AppTheme.ExpandingDock.selectionAnimation) {
-                onSelectPinned(item.id)
-              }
-            }
-          )
-        }
+    // Nur ein pinned item (z. B. nur Audiobooks, keine Podcast-Bibliothek) →
+    // Switch-Chip + Divider ausblenden, nur den sekundären Strip zeigen.
+    if pinnedItems.count <= 1 {
+      HStack(spacing: 0) {
+        secondary()
+          .frame(maxWidth: .infinity)
+          .layoutPriority(1)
       }
-      .padding(.leading, AppTheme.ExpandingDock.horizontalPadding)
-      .padding(.vertical, AppTheme.ExpandingDock.verticalPadding)
+      .abstandThemeRefresh()
+    } else {
+      HStack(spacing: AppTheme.ExpandingDock.itemSpacing) {
+        HStack(spacing: AppTheme.ExpandingDock.itemSpacing) {
+          ForEach(pinnedItems) { item in
+            AbstandExpandingDockChip(
+              item: item,
+              isSelected: item.id == pinnedSelectionID,
+              showsLabelWhenSelected: false,
+              onSelect: {
+                guard item.id != pinnedSelectionID else { return }
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                withAnimation(AppTheme.ExpandingDock.selectionAnimation) {
+                  onSelectPinned(item.id)
+                }
+              }
+            )
+          }
+        }
+        .padding(.leading, AppTheme.ExpandingDock.horizontalPadding)
+        .padding(.vertical, AppTheme.ExpandingDock.verticalPadding)
 
-      Divider()
-        .frame(height: AppTheme.ExpandingDock.circleSize)
+        Divider()
+          .frame(height: AppTheme.ExpandingDock.circleSize)
 
-      secondary()
-        .frame(maxWidth: .infinity)
-        .layoutPriority(1)
+        secondary()
+          .frame(maxWidth: .infinity)
+          .layoutPriority(1)
+      }
+      .abstandThemeRefresh()
     }
-    .abstandThemeRefresh()
   }
 }
 

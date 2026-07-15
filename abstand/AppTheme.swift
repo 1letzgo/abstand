@@ -611,12 +611,15 @@ struct AbstandBrowseStripItem: Identifiable, Hashable {
 struct AbstandBrowseStripIconMenu: View {
   let items: [AbstandBrowseStripItem]
   let selectionID: String
+  /// `false`: kein Leading-Padding (z. B. als Sekundär-Strip nach einem Pinned-Bereich).
+  var appliesLeadingPadding: Bool = true
   let onSelect: (String) -> Void
 
   var body: some View {
     AbstandExpandingDockBrowseStrip(
       items: items,
       selectionID: selectionID,
+      appliesLeadingPadding: appliesLeadingPadding,
       onSelect: onSelect
     )
   }

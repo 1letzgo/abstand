@@ -271,6 +271,7 @@ struct MainRootView: View {
           AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
         },
         selectionID: model.booksBrowseSection.rawValue,
+        appliesLeadingPadding: false,
         onSelect: { id in
           if let section = BooksBrowseSection(rawValue: id) {
             model.selectBooksBrowseSection(section)
@@ -780,6 +781,7 @@ struct MainRootView: View {
       AbstandBrowseStripIconMenu(
         items: podcastDockStripItems,
         selectionID: podcastCatalogScrollSelection,
+        appliesLeadingPadding: false,
         onSelect: { id in
           if id == Self.podcastCatalogNewSectionId {
             model.podcastCatalogStripSectionId = id
