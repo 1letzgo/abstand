@@ -217,6 +217,9 @@ final class PlaybackController: NSObject, ObservableObject {
   private var lastExpiredSleepMode: SleepTimerMode?
   private var lastExpiredSleepSeconds: TimeInterval?
   private var lastExpiredSleepDate: Date?
+  /// Ziel-Kapitelindex (0-basiert) für den Kapitel-Sleep-Timer; `nil` = nicht aktiv.
+  /// Wanduhr-unabhängig: in `tick()` geprüft, sobald das Ziel-Kapitel erreicht wird.
+  private var sleepTimerChapterTarget: Int?
 
   override init() {
     let sp = AppLog.launchSignposter.beginInterval("playbackControllerInit")
@@ -281,6 +284,7 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   /// Countdown für UI — bei Pause konstant, bei Wiedergabe läuft die Uhr weiter.
+  /// Kapitel-Timer hat keine Laufzeit → `nil` (UI zeigt stattdessen den Modus-Label).
   var sleepTimerDisplaySeconds: TimeInterval? {
     guard sleepTimerMode != .off else { return nil }
     if sleepTimerPaused {
@@ -297,6 +301,7 @@ final class PlaybackController: NSObject, ObservableObject {
 
   var isSleepTimerActive: Bool {
     guard sleepTimerMode != .off else { return false }
+    if sleepTimerChapterTarget != nil { return true }
     return (sleepTimerDisplaySeconds ?? 0) > 0
   }
 
@@ -317,6 +322,7 @@ final class PlaybackController: NSObject, ObservableObject {
     sleepTimerRemaining = nil
     sleepTimerPaused = false
     sleepEndDate = nil
+    sleepTimerChapterTarget = nil
     // Manuelles „Aus” oder Track-Ende → kein intelligenter Restart mehr.
     lastExpiredSleepMode = nil
     lastExpiredSleepSeconds = nil
@@ -325,6 +331,8 @@ final class PlaybackController: NSObject, ObservableObject {
 
   func applySleepTimerRemaining(_ seconds: TimeInterval) {
     sleepTimerRemaining = max(0, seconds)
+    // Minuten-Modus aktiv: Kapitel-Target verwerfen (beide Modi schließen sich gegenseitig aus).
+    sleepTimerChapterTarget = nil
     // Konfiguration für intelligenten Restart merken (nur `.minutes` — Kapitel-Dauer wäre nach
     // Restart semantisch falsch). Bei aktivem Timer altes Grace-Fenster verwerfen.
     if seconds > 0, case .minutes(let m) = sleepTimerMode, m > 0 {
@@ -340,6 +348,18 @@ final class PlaybackController: NSObject, ObservableObject {
       sleepWakeTask = nil
       sleepEndDate = nil
     }
+  }
+
+  /// Kapitel-Sleep-Timer setzen: feuert, sobald die Wiedergabe das Ende des Ziel-Kapitels
+  /// erreicht. Wanduhr-unabhängig — wird in `tick()` geprüft, nicht über `sleepEndDate`.
+  func applySleepTimerChapterTarget(_ targetIndex: Int) {
+    sleepTimerChapterTarget = targetIndex
+    sleepTimerRemaining = nil
+    sleepTimerPaused = false
+    sleepEndDate = nil
+    sleepWakeTask?.cancel()
+    sleepWakeTask = nil
+    lastExpiredSleepDate = nil
   }
 
   private func scheduleSleepTimerWakeIfNeeded() {
@@ -407,6 +427,7 @@ final class PlaybackController: NSObject, ObservableObject {
     sleepTimerRemaining = nil
     sleepTimerPaused = false
     sleepEndDate = nil
+    sleepTimerChapterTarget = nil
     sleepTimerMode = .off
     // Nur `.minutes`-Modus für intelligenten Restart; Konfiguration wurde beim Setzen gemerkt.
     if case .minutes = mode, seconds ?? 0 > 0 {
@@ -531,6 +552,11 @@ final class PlaybackController: NSObject, ObservableObject {
     if enginePlaying {
       isPlaying = true
       lastListenTick = Date()
+      // Engine-Recovery (z. B. nach Bluetooth-Wechsel / Interruption): der `timeControlStatus`-
+      // Observer setzt isPlaying=true, ohne dass `play()` durchläuft. Sleep-Timer hier
+      // symmetrisch zum `pauseSleepTimer()` im else-Zweig wiederherstellen, sonst bleibt der
+      // Countdown eingefroren und der Timer feuert nie.
+      resumeSleepTimerIfNeeded()
     } else {
       accumulateListenTime()
       isPlaying = false
@@ -1124,7 +1150,17 @@ final class PlaybackController: NSObject, ObservableObject {
     refreshGlobalFromPlayer()
     updateChapterUI(global: globalPosition)
     updateNowPlaying()
+    // Zeit-Timer: Wanduhr-abhängig.
     if isPlaying, let end = sleepEndDate, Date() >= end {
+      clearSleepTimer()
+      pause()
+    }
+    // Kapitel-Timer: feuert, sobald die Wiedergabe das Ende des Ziel-Kapitels erreicht
+    // (positionsbasiert, nicht wanduhr-abhängig — immun gegen Pause/Resume-Zyklen).
+    if isPlaying, let target = sleepTimerChapterTarget,
+      target < sortedChapters.count,
+      playbackGlobalPosition() >= chapterEndTime(at: target)
+    {
       clearSleepTimer()
       pause()
     }
@@ -1532,15 +1568,12 @@ final class PlaybackController: NSObject, ObservableObject {
     return (position, duration, start)
   }
 
-  /// Verbleibende Sekunden bis Kapitelende; `count == 1` = laufendes Kapitel, `2` = +1 weiteres usw.
-  func secondsUntilEndOfChapters(count: Int) -> Double? {
+  /// Ziel-Kapitelindex (0-basiert) für den Kapitel-Sleep-Timer; `count == 1` = aktuelles Kapitel.
+  func chapterTargetIndex(forCount count: Int) -> Int? {
     guard count >= 1, let idx = currentChapterIndex() else { return nil }
-    let pos = playbackGlobalPosition()
     let targetIndex = idx + count - 1
     guard targetIndex < sortedChapters.count else { return nil }
-    let end = chapterEndTime(at: targetIndex)
-    let remaining = end - pos
-    return remaining > 0.25 ? remaining : nil
+    return targetIndex
   }
 
   /// Relative Kapitelgrenzen (0…1) für Markierungen im Fortschrittsbalken; ohne Start bei 0.

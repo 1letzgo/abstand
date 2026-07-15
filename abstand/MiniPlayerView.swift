@@ -512,6 +512,13 @@ private struct SleepTimerUtilityMenuLabel: View {
           } else {
             sleepCountdownText(seconds)
           }
+        } else if case .chapters(let n) = player.sleepTimerMode, n > 0 {
+          Text(String(
+            localized: "\(n) ch\(n == 1 ? "" : "s")",
+            comment: "Sleep timer chapter countdown label"
+          ))
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(themeAccent)
         } else {
           Text("Off")
             .font(.subheadline.weight(.medium))

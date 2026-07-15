@@ -9717,11 +9717,12 @@ final class AppModel: ObservableObject {
 
   @discardableResult
   func applySleepTimer(chapters: Int) -> Bool {
-    guard chapters >= 1, let seconds = player.secondsUntilEndOfChapters(count: chapters), seconds > 0 else {
+    guard chapters >= 1, let targetIndex = player.chapterTargetIndex(forCount: chapters) else {
       return false
     }
     player.sleepTimerMode = .chapters(chapters)
-    applySleepTimer(seconds: seconds)
+    player.applySleepTimerChapterTarget(targetIndex)
+    OneTimeAchievementPersistentFlags.markSleepTimerUsed()
     return player.isSleepTimerActive
   }
 
