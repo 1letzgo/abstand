@@ -1583,28 +1583,29 @@ struct NowPlayingDetailView: View {
   }
 
   private func loadFullPlayerCoverTint(for book: ABSBook) async {
-    guard let url = model.coverURL(for: book.id, tier: .hero) else { return }
-    var req = URLRequest(url: url)
-    req.setValue("Bearer \(model.token)", forHTTPHeaderField: "Authorization")
-    do {
-      let (data, resp) = try await URLSession.shared.data(for: req)
-      guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
-        let image = UIImage(data: data)
-      else { return }
-      guard activeBook?.id == book.id else { return }
-      coverImageForTint = image
-      coverTintColor = coverDominantBackgroundTint(from: image)
-      if let (r, g, b) = coverAverageRGB(from: image) {
-        cachedCoverAverageRGB = (Double(r), Double(g), Double(b))
-        DetailCoverAverageRGBCache.save(
-          account: model.coverImageCacheAccountDirectory(),
-          itemId: book.id,
-          red: Double(r),
-          green: Double(g),
-          blue: Double(b)
-        )
-      }
-    } catch {}
+    let cacheKey = CoverImageCache.cacheKey(
+      scopeId: model.coverImageCacheScopeId(for: book.id, tier: .hero),
+      revision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+    )
+    guard let image = await CoverImageCache.loadHeroImage(
+      itemId: cacheKey,
+      account: model.coverImageCacheAccountDirectory(),
+      coverURL: model.coverURL(for: book.id, tier: .hero),
+      token: model.token
+    ) else { return }
+    guard activeBook?.id == book.id else { return }
+    coverImageForTint = image
+    coverTintColor = coverDominantBackgroundTint(from: image)
+    if let (r, g, b) = coverAverageRGB(from: image) {
+      cachedCoverAverageRGB = (Double(r), Double(g), Double(b))
+      DetailCoverAverageRGBCache.save(
+        account: model.coverImageCacheAccountDirectory(),
+        itemId: book.id,
+        red: Double(r),
+        green: Double(g),
+        blue: Double(b)
+      )
+    }
   }
 
   private var portraitLayout: some View {

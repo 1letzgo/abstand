@@ -244,27 +244,28 @@ struct BookDetailView: View {
   }
 
   private func loadCoverTint() async {
-    guard let url = model.coverURL(for: bookId, tier: .hero) else { return }
-    var req = URLRequest(url: url)
-    req.setValue("Bearer \(model.token)", forHTTPHeaderField: "Authorization")
-    do {
-      let (data, resp) = try await URLSession.shared.data(for: req)
-      guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
-        let image = UIImage(data: data)
-      else { return }
-      await MainActor.run {
-        coverImageForTint = image
-        coverTintColor = coverDominantBackgroundTint(from: image)
-        if let (r, g, b) = coverAverageRGB(from: image) {
-          cachedCoverAverageRGB = (Double(r), Double(g), Double(b))
-          DetailCoverAverageRGBCache.save(
-            account: model.coverImageCacheAccountDirectory(),
-            itemId: bookId,
-            red: Double(r), green: Double(g), blue: Double(b)
-          )
-        }
+    let cacheKey = CoverImageCache.cacheKey(
+      scopeId: model.coverImageCacheScopeId(for: bookId, tier: .hero),
+      revision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+    )
+    guard let image = await CoverImageCache.loadHeroImage(
+      itemId: cacheKey,
+      account: model.coverImageCacheAccountDirectory(),
+      coverURL: model.coverURL(for: bookId, tier: .hero),
+      token: model.token
+    ) else { return }
+    await MainActor.run {
+      coverImageForTint = image
+      coverTintColor = coverDominantBackgroundTint(from: image)
+      if let (r, g, b) = coverAverageRGB(from: image) {
+        cachedCoverAverageRGB = (Double(r), Double(g), Double(b))
+        DetailCoverAverageRGBCache.save(
+          account: model.coverImageCacheAccountDirectory(),
+          itemId: bookId,
+          red: Double(r), green: Double(g), blue: Double(b)
+        )
       }
-    } catch {}
+    }
   }
 
   @ViewBuilder

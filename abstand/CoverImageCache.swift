@@ -67,6 +67,37 @@ enum CoverImageCache {
     try data.write(to: u, options: .atomic)
   }
 
+  /// Hero-Coverbild holen: erst Memory/Disk-Cache, dann Netzwerk.
+  /// Wird in beide Cache-Tiers geschrieben, sodass `CoverImageView` und die Tint-Extraktion
+  /// denselben Bestand teilen — keine doppelten 1200px-Requests beim Öffnen einer Detail-Seite.
+  /// `itemId` ist der vollständige Cache-Key (Scope-ID ggf. mit Revision, z. B. `id#cover-hero#r42`).
+  static func loadHeroImage(
+    itemId: String,
+    account: URL?,
+    coverURL: URL?,
+    token: String
+  ) async -> UIImage? {
+    if let cached = syncUIImage(itemId: itemId, account: account) {
+      return cached
+    }
+    guard let coverURL, !token.isEmpty else { return nil }
+    var req = URLRequest(url: coverURL)
+    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    do {
+      let (data, resp) = try await URLSession.shared.data(for: req)
+      guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
+        let image = UIImage(data: data)
+      else { return nil }
+      if let account {
+        try? saveToDisk(account: account, itemId: itemId, data: data)
+      }
+      storeMemory(itemId: itemId, image: image)
+      return image
+    } catch {
+      return nil
+    }
+  }
+
   /// In-Memory leeren (Account-Wechsel); Disk-Cache pro Server bleibt erhalten.
   static func evictMemory() {
     memory.removeAllObjects()
