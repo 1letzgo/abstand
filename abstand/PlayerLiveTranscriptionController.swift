@@ -250,14 +250,15 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   /// Auth + Speech-Modell für das aktive Medium vorbereiten (Teleprompter-Start wird schneller).
   func prepareSpeechAssets(player: PlaybackController) async {
     speechPrepErrorMessage = nil
-    guard isReadAlongAvailable || await SpeechTranscriberAvailability.isSupported() else {
+    if !isReadAlongAvailable {
+      isReadAlongAvailable = await SpeechTranscriberAvailability.isSupported()
+    }
+    guard isReadAlongAvailable else {
       speechPrepErrorMessage = String(
         localized: "Speech recognition is not available on this device.",
         comment: "Read along prepare error")
-      isReadAlongAvailable = false
       return
     }
-    isReadAlongAvailable = true
     guard player.isReadAlongDownloadReady else {
       speechPrepErrorMessage = String(
         localized: "Download the audiobook to prepare read along.",
