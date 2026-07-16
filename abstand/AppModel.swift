@@ -11161,7 +11161,11 @@ final class AppModel: ObservableObject {
     configureEbookSyncSession()
     await player.ebookSync.refreshAvailability()
     player.ebookSync.refreshPreparedState(
-      player: player, libraryItemId: book.id, ebookFileURL: epubURL)
+      player: player,
+      libraryItemId: book.id,
+      ebookFileURL: epubURL,
+      anchorGlobalTime: readAlongAnchorTime(for: book)
+    )
 
     // Reader zuerst öffnen (Sync-Overlay zeigt Prep-Fortschritt, falls noch nötig).
     prepareEbookOpenFromServer(libraryItemId: book.id, format: .epub)
