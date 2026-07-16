@@ -2249,7 +2249,11 @@ final class AppModel: ObservableObject {
     var result = ContinueRefreshAttemptResult()
     var didApplyOnlineStartDashboard = false
     defer {
-      scheduleStartDashboardPostProcessing(skipContinueSync: didApplyOnlineStartDashboard)
+      // Online-Apply aktualisiert Continue reading bereits synchron — kein zweites Re-Inject nach Yields.
+      scheduleStartDashboardPostProcessing(
+        includeEbookShelfRefresh: !didApplyOnlineStartDashboard,
+        skipContinueSync: didApplyOnlineStartDashboard
+      )
     }
     if offlineHomeUIActive {
       ensureLocalProgressLoaded()
@@ -2288,10 +2292,12 @@ final class AppModel: ObservableObject {
           ABSAPIClient.parsePersonalizedStartShelves(data: data)
         }.value
         updateStartSettingsCategoryList(parsed: parsed)
+        // `force` nur: Early-Exit umgehen. Continue-Replace nur bei Pull-to-Refresh —
+        // Hintergrund-Refresh bleibt local-first (Merge + lokale Continue-Reading-Regale erhalten).
         applyOnlineStartDashboard(
           parsed: parsed,
           itemsInProgress: inProgressPacked.payload,
-          replaceContinueShelves: force
+          replaceContinueShelves: forPullToRefresh
         )
         didApplyOnlineStartDashboard = true
         result.appliedOnline = true
@@ -2826,6 +2832,36 @@ final class AppModel: ObservableObject {
     shelves.filter { !isLocalOnlyHomeShelfCategory($0.category) }
   }
 
+  /// Server-Layout übernehmen, lokal-only Regale (Continue reading) an der Continue-Position behalten.
+  private func mergingPreservedLocalOnlyHomeShelves(
+    into next: [ABSStartShelfSection],
+    prior: [ABSStartShelfSection]
+  ) -> [ABSStartShelfSection] {
+    let preserved = prior.filter {
+      isLocalOnlyHomeShelfCategory($0.category) && isStartCategoryEnabled($0.category)
+    }
+    var result = stripContinueEbooks(from: next)
+    guard !preserved.isEmpty else { return result }
+    for section in preserved {
+      if let idx = result.firstIndex(where: { isHomeContinueCategory($0.category) }) {
+        result.insert(section, at: idx + 1)
+      } else {
+        result.insert(section, at: 0)
+      }
+    }
+    return result
+  }
+
+  /// `startShelves` setzen und lokal-only Regale aus `prior` mitnehmen (kein Continue-Reading-Flash).
+  private func assignStartShelvesPreservingLocalOnly(
+    _ next: [ABSStartShelfSection],
+    prior: [ABSStartShelfSection]
+  ) {
+    let merged = mergingPreservedLocalOnlyHomeShelves(into: next, prior: prior)
+    startShelves = merged
+    recomputeStartBooksUnion(from: merged)
+  }
+
   private func continueListeningDisplayTitle(serverLabel: String = "") -> String {
     ABSStartShelfLocalization.displayTitle(
       category: Self.homeContinueCategory,
@@ -2875,20 +2911,23 @@ final class AppModel: ObservableObject {
   }
 
   /// Online: personalisierte Regale; fehlendes „Continue listening“ aus `items-in-progress` ergänzen.
+  /// Local-first: vorhandene Continue-Reading-Regale bleiben beim Server-Apply sichtbar und werden
+  /// am Ende aus lokalem Lesefortschritt aktualisiert (kein Verschwinden → späteres Re-Inject).
   private func applyOnlineStartDashboard(
     parsed: [ABSStartShelfSection],
     itemsInProgress: ABSItemsInProgressPayload,
     replaceContinueShelves: Bool = false
   ) {
+    let priorShelves = startShelves
     guard isStartCategoryEnabled(Self.homeContinueCategory) else {
       if parsed.isEmpty {
-        startShelves = []
-        startBooks = []
+        assignStartShelvesPreservingLocalOnly([], prior: priorShelves)
       } else {
         let visible = parsed.filter { isStartCategoryEnabled($0.category) }
-        startShelves = visible
-        recomputeStartBooksUnion(from: visible)
+        assignStartShelvesPreservingLocalOnly(visible, prior: priorShelves)
       }
+      refreshEbookContinueReadingShelf()
+      persistHomeShelvesToLocalStore()
       return
     }
     if parsed.isEmpty {
@@ -2897,15 +2936,13 @@ final class AppModel: ObservableObject {
     }
     let visible = parsed.filter { isStartCategoryEnabled($0.category) }
     if replaceContinueShelves {
-      startShelves = visible
-      recomputeStartBooksUnion(from: visible)
+      assignStartShelvesPreservingLocalOnly(visible, prior: priorShelves)
     } else {
-      let priorContinueBooks = startShelves.filter { isHomeContinueCategory($0.category) }.flatMap(\.books)
-      let priorContinueEpisodes = startShelves.filter { isHomeContinueCategory($0.category) }.flatMap(
+      let priorContinueBooks = priorShelves.filter { isHomeContinueCategory($0.category) }.flatMap(\.books)
+      let priorContinueEpisodes = priorShelves.filter { isHomeContinueCategory($0.category) }.flatMap(
         \.podcastEpisodes)
-      if !startShelvesHaveSameLayout(serverLayoutHomeShelves(from: startShelves), visible) {
-        startShelves = visible
-        recomputeStartBooksUnion(from: visible)
+      if !startShelvesHaveSameLayout(serverLayoutHomeShelves(from: priorShelves), visible) {
+        assignStartShelvesPreservingLocalOnly(visible, prior: priorShelves)
       }
       preserveValidContinueListeningItems(books: priorContinueBooks, episodes: priorContinueEpisodes)
     }
@@ -2913,21 +2950,26 @@ final class AppModel: ObservableObject {
     mergeServerAudiobooksIntoContinueShelves(itemsInProgress)
     mergeServerPodcastEpisodesIntoContinueShelves(itemsInProgress)
     syncContinueListeningShelvesWithProgress()
+    // Continue reading parallel zu Listening: lokal aktualisieren, nicht erst in Post-Processing.
+    refreshEbookContinueReadingShelf()
     persistHomeShelvesToLocalStore()
   }
 
   /// Nur `items-in-progress` (leeres `/personalized` oder keine Bibliothek gewählt).
   private func applyStartDashboardFromItemsInProgressOnly(_ payload: ABSItemsInProgressPayload) {
+    let priorShelves = startShelves
     guard isStartCategoryEnabled(Self.homeContinueCategory) else {
-      startShelves = []
-      startBooks = []
+      assignStartShelvesPreservingLocalOnly([], prior: priorShelves)
+      refreshEbookContinueReadingShelf()
+      persistHomeShelvesToLocalStore()
       return
     }
     let books = inProgressAudiobookCandidates(from: payload)
     let podcastEps = inProgressPodcastEpisodeCandidates(from: payload)
     guard !books.isEmpty || !podcastEps.isEmpty else {
-      startShelves = []
-      startBooks = []
+      assignStartShelvesPreservingLocalOnly([], prior: priorShelves)
+      refreshEbookContinueReadingShelf()
+      persistHomeShelvesToLocalStore()
       return
     }
     let section = makeContinueListeningShelf(
@@ -2935,9 +2977,9 @@ final class AppModel: ObservableObject {
       books: books,
       podcastEpisodes: podcastEps
     )
-    startShelves = [section]
-    recomputeStartBooksUnion(from: [section])
+    assignStartShelvesPreservingLocalOnly([section], prior: priorShelves)
     syncContinueListeningShelvesWithProgress()
+    refreshEbookContinueReadingShelf()
     persistHomeShelvesToLocalStore()
   }
 
@@ -3584,7 +3626,7 @@ final class AppModel: ObservableObject {
     await waitForLaunchFloatingPlayerReady()
     floatingChrome.syncChrome()
     if hadCachedHome {
-      // Frische Regale im Hintergrund — UI nutzt bereits Cache aus init.
+      // Server-Abgleich im Hintergrund — local-first: kein Continue-Replace, Continue reading bleibt.
       Task(priority: .utility) { @MainActor in
         try? await Task.sleep(nanoseconds: 400_000_000)
         guard !self.offlineHomeUIActive, !self.bootstrapSupersededByOffline else { return }
