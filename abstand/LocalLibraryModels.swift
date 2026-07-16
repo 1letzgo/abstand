@@ -149,6 +149,7 @@ final class LocalAuthorListState {
 
 /// Autor einer Browse-Liste — 1:1-Ersatz für `browseAuthors/<libraryId>/<slug>/page_*.json`.
 /// `sortRank` hält die vom Server gelieferte Reihenfolge der zuletzt gecachten Sortierung (siehe `LocalAuthorListState`).
+/// Beschreibung bewusst nicht hier: Browse-`replaceAuthorsFirstPage` wipet diese Zeilen — siehe `LocalAuthorDetail`.
 @Model
 final class LocalAuthor {
   @Attribute(.unique) var id: String
@@ -169,6 +170,21 @@ final class LocalAuthor {
 
   func toItem() -> ABSLibraryAuthorListItem {
     ABSLibraryAuthorListItem(id: id, name: name, numBooks: numBooks, imagePath: imagePath)
+  }
+}
+
+/// Autor-Detail (Beschreibung) — getrennt von `LocalAuthor`, damit Browse-Listen-Reloads die Bio nicht verwerfen.
+@Model
+final class LocalAuthorDetail {
+  @Attribute(.unique) var id: String
+  var libraryId: String
+  /// `description` kollidiert mit `CustomStringConvertible` — analog `LocalCollection.collectionDescription`.
+  var authorDescription: String?
+
+  init(id: String, libraryId: String, authorDescription: String?) {
+    self.id = id
+    self.libraryId = libraryId
+    self.authorDescription = authorDescription
   }
 }
 
@@ -624,9 +640,131 @@ final class LocalOneTimeAchievementState {
   }
 }
 
+/// Account-weite Bibliotheksliste (`GET /api/libraries`) — ein Blob pro Store, analog `LocalListeningStatsSnapshot`.
+@Model
+final class LocalLibrariesSnapshot {
+  @Attribute(.unique) var id: String
+  var fetchedAt: Date
+  @Attribute(.externalStorage) var blob: Data
+
+  init(libraries: [ABSLibrary], fetchedAt: Date = Date()) {
+    id = "libraries"
+    self.fetchedAt = fetchedAt
+    blob = (try? ABSJSON.encoder().encode(libraries)) ?? Data()
+  }
+
+  func apply(_ libraries: [ABSLibrary]) {
+    blob = (try? ABSJSON.encoder().encode(libraries)) ?? blob
+    fetchedAt = Date()
+  }
+
+  func toLibraries() -> [ABSLibrary]? {
+    try? ABSJSON.decoder().decode([ABSLibrary].self, from: blob)
+  }
+}
+
+/// Hör-Sitzungen je Medium — Key `libraryItemId|episodeId` (episodeId leer bei Büchern).
+@Model
+final class LocalListeningSessionsSnapshot {
+  @Attribute(.unique) var compositeKey: String
+  var libraryItemId: String
+  var episodeId: String
+  var fetchedAt: Date
+  @Attribute(.externalStorage) var blob: Data
+
+  init(libraryItemId: String, episodeId: String?, sessions: [ABSListeningSession], fetchedAt: Date = Date()) {
+    let ep = (episodeId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    self.libraryItemId = libraryItemId
+    self.episodeId = ep
+    compositeKey = Self.makeKey(libraryItemId: libraryItemId, episodeId: ep)
+    self.fetchedAt = fetchedAt
+    blob = (try? ABSJSON.encoder().encode(sessions.map(LocalListeningSessionDTO.init))) ?? Data()
+  }
+
+  func apply(_ sessions: [ABSListeningSession]) {
+    blob = (try? ABSJSON.encoder().encode(sessions.map(LocalListeningSessionDTO.init))) ?? blob
+    fetchedAt = Date()
+  }
+
+  func toSessions() -> [ABSListeningSession]? {
+    guard let dtos = try? ABSJSON.decoder().decode([LocalListeningSessionDTO].self, from: blob) else {
+      return nil
+    }
+    return dtos.map { $0.toSession() }
+  }
+
+  static func makeKey(libraryItemId: String, episodeId: String?) -> String {
+    let lid = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    let ep = (episodeId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    return "\(lid)|\(ep)"
+  }
+}
+
+/// Codable-Spiegel von `ABSListeningSession` (API-Typ ist nur `Decodable` mit Custom-Init).
+struct LocalListeningSessionDTO: Codable {
+  let id: String
+  let libraryItemId: String
+  let bookId: String?
+  let episodeId: String?
+  let duration: Double
+  let startTime: Double
+  let currentTime: Double
+  let timeListening: Int
+  let startedAt: Int64
+  let updatedAt: Int64
+
+  init(_ session: ABSListeningSession) {
+    id = session.id
+    libraryItemId = session.libraryItemId
+    bookId = session.bookId
+    episodeId = session.episodeId
+    duration = session.duration
+    startTime = session.startTime
+    currentTime = session.currentTime
+    timeListening = session.timeListening
+    startedAt = session.startedAt
+    updatedAt = session.updatedAt
+  }
+
+  func toSession() -> ABSListeningSession {
+    ABSListeningSession(
+      id: id,
+      libraryItemId: libraryItemId,
+      bookId: bookId,
+      episodeId: episodeId,
+      duration: duration,
+      startTime: startTime,
+      currentTime: currentTime,
+      timeListening: timeListening,
+      startedAt: startedAt,
+      updatedAt: updatedAt
+    )
+  }
+}
+
+/// Rohantwort von `POST /api/podcasts/feed` je Sendung — 1:1-Ersatz für den bisherigen In-Memory-RSS-Cache.
+@Model
+final class LocalPodcastRssFeedSnapshot {
+  @Attribute(.unique) var showId: String
+  var fetchedAt: Date
+  @Attribute(.externalStorage) var blob: Data
+
+  init(showId: String, rawFeedData: Data, fetchedAt: Date = Date()) {
+    self.showId = showId
+    self.fetchedAt = fetchedAt
+    blob = rawFeedData
+  }
+
+  func apply(rawFeedData: Data) {
+    blob = rawFeedData
+    fetchedAt = Date()
+  }
+}
+
 // MARK: - Schema-Versionen (SwiftData)
 
 private enum LocalLibrarySchemaModels {
+  /// Modelle bis Schema V2 (ohne V3-Erweiterungen).
   static let core: [any PersistentModel.Type] = [
     LocalStoreMeta.self, LocalProgress.self, LocalBookmark.self,
     LocalGenreStat.self, LocalTagStat.self,
@@ -643,6 +781,14 @@ private enum LocalLibrarySchemaModels {
   static let v1BrowseEbooks: [any PersistentModel.Type] = [
     LocalEbookListState.self, LocalEbookEntry.self,
   ]
+
+  /// Additive Local-DB-First-Lücken: Libraries, Sessions, Author-Bio, Podcast-RSS.
+  static let v3LocalFirstGaps: [any PersistentModel.Type] = [
+    LocalAuthorDetail.self,
+    LocalLibrariesSnapshot.self,
+    LocalListeningSessionsSnapshot.self,
+    LocalPodcastRssFeedSnapshot.self,
+  ]
 }
 
 /// Produktionsschema vor Entfernung des eBooks-Browse-Caches (identisch zur bisher unversionierten DB).
@@ -654,7 +800,7 @@ enum LocalLibrarySchemaV1: VersionedSchema {
   }
 }
 
-/// Aktuelles Schema — eBooks-Browse-Tabellen entfernt; Lesefortschritt über `LocalEbookContinueEntry`.
+/// Schema nach Entfernung der eBooks-Browse-Tabellen; Lesefortschritt über `LocalEbookContinueEntry`.
 enum LocalLibrarySchemaV2: VersionedSchema {
   static var versionIdentifier = Schema.Version(2, 0, 0)
 
@@ -663,13 +809,22 @@ enum LocalLibrarySchemaV2: VersionedSchema {
   }
 }
 
+/// Aktuelles Schema — Libraries-/Sessions-/Author-Detail-/RSS-Snapshots für Local-DB-First.
+enum LocalLibrarySchemaV3: VersionedSchema {
+  static var versionIdentifier = Schema.Version(3, 0, 0)
+
+  static var models: [any PersistentModel.Type] {
+    LocalLibrarySchemaModels.core + LocalLibrarySchemaModels.v3LocalFirstGaps
+  }
+}
+
 enum LocalLibraryMigrationPlan: SchemaMigrationPlan {
   static var schemas: [any VersionedSchema.Type] {
-    [LocalLibrarySchemaV1.self, LocalLibrarySchemaV2.self]
+    [LocalLibrarySchemaV1.self, LocalLibrarySchemaV2.self, LocalLibrarySchemaV3.self]
   }
 
   static var stages: [MigrationStage] {
-    [migrateV1toV2]
+    [migrateV1toV2, migrateV2toV3]
   }
 
   static let migrateV1toV2 = MigrationStage.custom(
@@ -696,11 +851,17 @@ enum LocalLibraryMigrationPlan: SchemaMigrationPlan {
       try context.save()
     }
   )
+
+  /// Rein additiv (neue Tabellen) — lightweight, kein Datenverlust.
+  static let migrateV2toV3 = MigrationStage.lightweight(
+    fromVersion: LocalLibrarySchemaV2.self,
+    toVersion: LocalLibrarySchemaV3.self
+  )
 }
 
 enum LocalLibrarySchema {
   static var current: Schema {
-    Schema(versionedSchema: LocalLibrarySchemaV2.self)
+    Schema(versionedSchema: LocalLibrarySchemaV3.self)
   }
 
   /// Logische Meta-Version in `LocalStoreMeta` — Backfill der eBook-Katalog-Flags (`catalogHasEbook`, …).

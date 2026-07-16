@@ -2170,7 +2170,7 @@ final class AppModel: ObservableObject {
   func reloadSettingsTab(reloadCatalogs: Bool = false) async -> Bool {
     guard let c = client else { return false }
     do {
-      libraries = try await c.libraries()
+      applyLibrariesFromServer(try await c.libraries())
 
       if podcastsLibraryPreferenceIsNone {
         clearPodcastLibraryStateWithoutPersistingNone()
@@ -3876,7 +3876,7 @@ final class AppModel: ObservableObject {
     restoreServerClientIfNeeded()
     guard let c = client else { return }
     do {
-      libraries = try await c.libraries()
+      applyLibrariesFromServer(try await c.libraries())
       if bootstrapSupersededByOffline || offlineHomeUIActive { return }
       let defaultLibId = UserDefaults.standard.string(forKey: Keys.userDefaultLibraryId)?
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4084,7 +4084,7 @@ final class AppModel: ObservableObject {
       syncStoredAccountFromSession()
       loadDownloadedItemIdsForActiveAccount()
       isServerReachable = true
-      libraries = try await c.libraries()
+      applyLibrariesFromServer(try await c.libraries())
       if bootstrapSupersededByOffline || offlineHomeMode { return }
       await resolveLibrariesAfterServerFetch(userDefaultLibraryId: res.userDefaultLibraryId)
       if bootstrapSupersededByOffline || offlineHomeMode { return }
@@ -4580,7 +4580,8 @@ final class AppModel: ObservableObject {
     homeContinueRestoreGeneration &+= 1
     let restoreGeneration = homeContinueRestoreGeneration
     isHomeContinueRestoreInProgress = true
-    // Podcast-Bibliothek vor Continue-Cache — sonst fehlen Podcast-Zeilen beim Kaltstart. (billig, synchron)
+    // Bibliotheksliste + Podcast-Auswahl vor Continue-Cache (Local-DB-First).
+    restoreLibrariesFromLocalStore()
     restorePodcastLibrarySelectionFromLocalStore()
     let libId =
       UserDefaults.standard.string(forKey: Keys.booksLibrary)?
@@ -4599,7 +4600,9 @@ final class AppModel: ObservableObject {
       return
     }
     if selectedBooksLibrary == nil || selectedBooksLibrary?.id != libId {
-      selectedBooksLibrary = ABSLibrary(id: libId, name: "Books", mediaType: "book", displayOrder: nil)
+      selectedBooksLibrary =
+        libraries.first(where: { $0.id == libId && $0.isBookLibrary })
+        ?? ABSLibrary(id: libId, name: "Books", mediaType: "book", displayOrder: nil)
     }
     homeLaunchLocalRestoreTask?.cancel()
     let localStore = currentLocalLibraryStore()
@@ -4670,7 +4673,8 @@ final class AppModel: ObservableObject {
         applyUserBookmarks(bookmarkRows.map { $0.toABSAudioBookmark() }, persistToDisk: false)
       }
     }
-    // Podcast-Bibliothek vor Continue-Cache — sonst fehlen Podcast-Zeilen beim Kaltstart.
+    // Bibliotheksliste + Podcast-Auswahl vor Continue-Cache (Local-DB-First).
+    restoreLibrariesFromLocalStore()
     restorePodcastLibrarySelectionFromLocalStore()
     let libId =
       (libraryIdOverride ?? UserDefaults.standard.string(forKey: Keys.booksLibrary))?
@@ -4685,7 +4689,9 @@ final class AppModel: ObservableObject {
       return
     }
     if selectedBooksLibrary == nil || selectedBooksLibrary?.id != libId {
-      selectedBooksLibrary = ABSLibrary(id: libId, name: "Books", mediaType: "book", displayOrder: nil)
+      selectedBooksLibrary =
+        libraries.first(where: { $0.id == libId && $0.isBookLibrary })
+        ?? ABSLibrary(id: libId, name: "Books", mediaType: "book", displayOrder: nil)
     }
     var parsed: [ABSStartShelfSection] = []
     if let context, let cached = LocalLibraryQueries.homeShelves(context: context, libraryId: libId) {
@@ -5176,7 +5182,8 @@ final class AppModel: ObservableObject {
     guard let c = client else { return }
     isLoadingPodcasts = true
     defer { isLoadingPodcasts = false }
-    if reset, podcastEpisodes.isEmpty {
+    // Local-DB-First: bei Reset immer zuerst lokal anzeigen (nicht nur wenn leer).
+    if reset {
       applyPodcastListFromLocalStore(libraryId: lib.id)
     }
     do {
@@ -6732,6 +6739,9 @@ final class AppModel: ObservableObject {
       if podcastRssFeedPreviewForShowId == showId {
         clearActivePodcastRssFeedPreview()
       }
+      if let store = currentLocalLibraryStore() {
+        Task { try? await store.deletePodcastRssFeed(showId: showId) }
+      }
     } else {
       podcastRssFeedCacheByShowId = [:]
       podcastRssDraftCompletedIdsByShowId = [:]
@@ -6839,7 +6849,7 @@ final class AppModel: ObservableObject {
     }
   }
 
-  /// RSS-Feed parsen (`POST /api/podcasts/feed`) und pro Sendung cachen.
+  /// RSS-Feed parsen (`POST /api/podcasts/feed`) und pro Sendung cachen (Memory + SwiftData).
   func loadPodcastRssFeedIntoEpisodeList(
     podcastLibraryItemId: String,
     forceReload: Bool = false,
@@ -6847,7 +6857,7 @@ final class AppModel: ObservableObject {
   ) async {
     guard podcastCanManageShowsOnServer else { return }
     let sid = podcastLibraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !sid.isEmpty, let c = client else { return }
+    guard !sid.isEmpty else { return }
 
     if !forceReload, podcastRssFeedUnavailableByShowId[sid] != nil {
       if applyToTabPreview { applyActivePodcastRssFeedPreview(showId: sid) }
@@ -6859,9 +6869,18 @@ final class AppModel: ObservableObject {
       return
     }
 
+    // Local-DB-First: gespeicherten Feed vor Netzwerk anzeigen.
+    if !forceReload, hydratePodcastRssFeedCacheFromLocalStore(showId: sid) {
+      if applyToTabPreview { applyActivePodcastRssFeedPreview(showId: sid) }
+      if !mayUseServerNetwork || !isNetworkReachable || client == nil { return }
+    }
+
+    guard let c = client else { return }
     guard isNetworkReachable else {
-      errorMessage = "No network connection."
-      revertPodcastRssFeedPreviewIfEmpty(showId: sid)
+      if podcastRssFeedCacheByShowId[sid]?.isEmpty != false {
+        errorMessage = "No network connection."
+        revertPodcastRssFeedPreviewIfEmpty(showId: sid)
+      }
       return
     }
     guard !podcastRssFeedLoadInProgressShowIds.contains(sid) else { return }
@@ -6879,6 +6898,7 @@ final class AppModel: ObservableObject {
       let data = try await c.fetchPodcastRssFeed(rssFeedUrl: feedUrl)
       let drafts = try ABSPodcastRssFeedEpisodeDraft.episodesFromFeedApiResponse(data)
       podcastRssFeedCacheByShowId[sid] = drafts
+      persistPodcastRssFeed(showId: sid, rawFeedData: data)
       if forceReload {
         podcastRssDraftCompletedIdsByShowId[sid] = []
       }
@@ -6889,8 +6909,10 @@ final class AppModel: ObservableObject {
         errorMessage = nil
       }
     } catch {
-      publishErrorUnlessBenignCancellation(error)
-      revertPodcastRssFeedPreviewIfEmpty(showId: sid)
+      if podcastRssFeedCacheByShowId[sid]?.isEmpty != false {
+        publishErrorUnlessBenignCancellation(error)
+        revertPodcastRssFeedPreviewIfEmpty(showId: sid)
+      }
     }
   }
 
@@ -7563,6 +7585,10 @@ final class AppModel: ObservableObject {
     entityDetailUsesLibraryItemFilter = false
     switch nav.kind {
     case .author:
+      if let context = currentLocalLibraryMainContext() {
+        entityDetailDescription = LocalLibraryQueries.authorDescription(
+          context: context, authorId: nav.entityId)
+      }
       let rows = offlineFilteredIfNeeded(
         mergedLocalAuthorDetailBooks().filter {
           bookMatchesAuthor($0, authorId: nav.entityId, displayName: nav.title)
@@ -7823,20 +7849,39 @@ final class AppModel: ObservableObject {
   }
 
   /// Detailseite: Entity-API wo vorhanden (`/api/authors/:id`, `/api/series/:id`), sonst gefilterte Library-Items.
+  /// Local-DB-First: lokale Server-Kopie sofort anzeigen, Netzwerk verfeinert danach still.
   func reloadEntityDetail(for nav: BooksEntityDetailNav, reset: Bool) async {
     guard libraryForEntityDetail(for: nav) != nil else { return }
     let key = nav.id
     if reset {
       prepareEntityDetail(for: nav)
+      // Sofort aus Server-Kopie — nicht erst nach Netzwerk (Paging-Folgeseiten: kein erneutes Seed).
+      applyEntityDetailFromLocalCache(for: nav)
+      let hasLocalContent =
+        !entityDetailBooks.isEmpty
+        || !entityDetailAuthorStandaloneBooks.isEmpty
+        || !entityDetailAuthorSeriesSections.isEmpty
+        || entityDetailDescription != nil
+      if hasLocalContent {
+        entityDetailMetaReady = true
+      }
     }
     guard entityDetailNavKey == key else { return }
     if !mayUseServerNetwork || !isNetworkReachable || client == nil {
-      applyEntityDetailFromLocalCache(for: nav)
+      if !reset {
+        applyEntityDetailFromLocalCache(for: nav)
+      }
       entityDetailMetaReady = true
       entityDetailLoading = false
       return
     }
-    entityDetailLoading = true
+    let hasLocalContent =
+      !entityDetailBooks.isEmpty
+      || !entityDetailAuthorStandaloneBooks.isEmpty
+      || !entityDetailAuthorSeriesSections.isEmpty
+      || entityDetailDescription != nil
+    // Loading nur sichtbar, solange lokal noch nichts da ist (siehe Entity-Detail-Views).
+    entityDetailLoading = !hasLocalContent
     defer {
       if entityDetailNavKey == key {
         entityDetailLoading = false
@@ -7844,7 +7889,9 @@ final class AppModel: ObservableObject {
       }
     }
     guard let c = client, let lib = libraryForEntityDetail(for: nav) else {
-      applyEntityDetailFromLocalCache(for: nav)
+      if entityDetailBooks.isEmpty {
+        applyEntityDetailFromLocalCache(for: nav)
+      }
       return
     }
     do {
@@ -7860,6 +7907,7 @@ final class AppModel: ObservableObject {
         entityDetailDescription = detail.description
         applyAuthorDetailBooksLayout(detail: detail)
         entityDetailUsesLibraryItemFilter = false
+        persistAuthorDetail(detail, libraryId: lib.id)
       case .series:
         entityDetailDescription = nil
         if let cached = browseSeries.first(where: { $0.id == nav.entityId })?.books {
@@ -8456,9 +8504,12 @@ final class AppModel: ObservableObject {
     bookMediaId: String? = nil,
     maxPages: Int = 20
   ) async -> [ABSListeningSession] {
-    guard let c = client, isNetworkReachable else { return [] }
     let bid = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !bid.isEmpty else { return [] }
+    let cached = cachedListeningSessions(libraryItemId: bid, episodeId: nil)
+    guard let c = client, isNetworkReachable, mayUseServerNetwork else {
+      return cached ?? []
+    }
     let mediaKey = bookMediaId
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .flatMap { $0.isEmpty ? nil : $0 }
@@ -8488,12 +8539,21 @@ final class AppModel: ObservableObject {
         try await c.listeningSessionsForLibraryItem(
           libraryItemId: bid, episodeId: nil, itemsPerPage: 100, page: p)
       }
+      let sorted: [ABSListeningSession]
       if !rows.isEmpty {
-        return rows.sorted { $0.startedAt > $1.startedAt }
+        sorted = rows.sorted { $0.startedAt > $1.startedAt }
+      } else {
+        sorted = await legacy()
       }
-      return await legacy()
+      persistListeningSessions(libraryItemId: bid, episodeId: nil, sessions: sorted)
+      return sorted
     } catch {
-      return await legacy()
+      let legacyRows = await legacy()
+      if !legacyRows.isEmpty {
+        persistListeningSessions(libraryItemId: bid, episodeId: nil, sessions: legacyRows)
+        return legacyRows
+      }
+      return cached ?? []
     }
   }
 
@@ -8538,10 +8598,13 @@ final class AppModel: ObservableObject {
     showMediaId: String? = nil,
     maxPages: Int = 20
   ) async -> [ABSListeningSession] {
-    guard let c = client, isNetworkReachable else { return [] }
     let bid = episode.libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
     let eid = episode.episodeId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !bid.isEmpty, !eid.isEmpty else { return [] }
+    let cached = cachedListeningSessions(libraryItemId: bid, episodeId: eid)
+    guard let c = client, isNetworkReachable, mayUseServerNetwork else {
+      return cached ?? []
+    }
     let mediaKey = showMediaId
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .flatMap { $0.isEmpty ? nil : $0 }
@@ -8575,12 +8638,21 @@ final class AppModel: ObservableObject {
         try await c.listeningSessionsForLibraryItem(
           libraryItemId: bid, episodeId: eid, itemsPerPage: 100, page: p)
       }
+      let sorted: [ABSListeningSession]
       if !rows.isEmpty {
-        return rows.sorted { $0.startedAt > $1.startedAt }
+        sorted = rows.sorted { $0.startedAt > $1.startedAt }
+      } else {
+        sorted = await legacy()
       }
-      return await legacy()
+      persistListeningSessions(libraryItemId: bid, episodeId: eid, sessions: sorted)
+      return sorted
     } catch {
-      return await legacy()
+      let legacyRows = await legacy()
+      if !legacyRows.isEmpty {
+        persistListeningSessions(libraryItemId: bid, episodeId: eid, sessions: legacyRows)
+        return legacyRows
+      }
+      return cached ?? []
     }
   }
 
@@ -9494,6 +9566,7 @@ final class AppModel: ObservableObject {
     for session in sessions {
       try? await c.deleteListeningSession(sessionId: session.id)
     }
+    persistListeningSessions(libraryItemId: libraryItemId, episodeId: episodeId, sessions: [])
   }
 
   /// Reset Progress: aufgelaufene Offline-Hörsekunden für diesen Key verwerfen — sonst legt
@@ -10261,6 +10334,90 @@ final class AppModel: ObservableObject {
     return LocalLibraryStoreManager.mainContext(serverURL: serverURL, userId: resolvedLocalStoreUserId())
   }
 
+  /// Bibliotheksliste in Memory + SwiftData übernehmen (Local-DB-First für den Library-Picker).
+  private func applyLibrariesFromServer(_ list: [ABSLibrary]) {
+    libraries = list
+    persistLibrariesToLocalStore(list)
+    enrichSelectedLibrariesFromCachedList()
+  }
+
+  private func persistLibrariesToLocalStore(_ list: [ABSLibrary]) {
+    guard let store = currentLocalLibraryStore() else { return }
+    Task {
+      try? await store.replaceLibraries(list)
+    }
+  }
+
+  /// Kaltstart: Bibliotheksliste aus der lokalen Server-Kopie, bevor der Netzwerk-Fetch läuft.
+  @discardableResult
+  private func restoreLibrariesFromLocalStore() -> Bool {
+    guard let context = currentLocalLibraryMainContext(),
+      let cached = LocalLibraryQueries.libraries(context: context), !cached.isEmpty
+    else { return false }
+    libraries = cached
+    enrichSelectedLibrariesFromCachedList()
+    return true
+  }
+
+  private func enrichSelectedLibrariesFromCachedList() {
+    if let sel = selectedBooksLibrary,
+      let full = libraries.first(where: { $0.id == sel.id && $0.isBookLibrary })
+    {
+      selectedBooksLibrary = full
+    }
+    if let sel = selectedPodcastLibrary,
+      let full = libraries.first(where: { $0.id == sel.id && $0.isPodcastLibrary })
+    {
+      selectedPodcastLibrary = full
+    }
+  }
+
+  private func persistAuthorDetail(_ detail: ABSAuthorDetail, libraryId: String) {
+    guard let store = currentLocalLibraryStore() else { return }
+    Task {
+      try? await store.upsertAuthorDetail(
+        authorId: detail.id, libraryId: libraryId, description: detail.description)
+    }
+  }
+
+  private func cachedListeningSessions(libraryItemId: String, episodeId: String?) -> [ABSListeningSession]? {
+    guard let context = currentLocalLibraryMainContext() else { return nil }
+    return LocalLibraryQueries.listeningSessions(
+      context: context, libraryItemId: libraryItemId, episodeId: episodeId)
+  }
+
+  private func persistListeningSessions(
+    libraryItemId: String, episodeId: String?, sessions: [ABSListeningSession]
+  ) {
+    guard let store = currentLocalLibraryStore() else { return }
+    Task {
+      try? await store.replaceListeningSessions(
+        libraryItemId: libraryItemId, episodeId: episodeId, sessions: sessions)
+    }
+  }
+
+  /// Lädt gespeicherten RSS-Feed in den Memory-Cache. `true`, wenn Drafts verfügbar sind.
+  @discardableResult
+  private func hydratePodcastRssFeedCacheFromLocalStore(showId: String) -> Bool {
+    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !sid.isEmpty else { return false }
+    if let existing = podcastRssFeedCacheByShowId[sid], !existing.isEmpty { return true }
+    guard let context = currentLocalLibraryMainContext(),
+      let raw = LocalLibraryQueries.podcastRssFeedRaw(context: context, showId: sid),
+      let drafts = try? ABSPodcastRssFeedEpisodeDraft.episodesFromFeedApiResponse(raw),
+      !drafts.isEmpty
+    else { return false }
+    podcastRssFeedCacheByShowId[sid] = drafts
+    return true
+  }
+
+  private func persistPodcastRssFeed(showId: String, rawFeedData: Data) {
+    guard let store = currentLocalLibraryStore() else { return }
+    Task {
+      try? await store.replacePodcastRssFeed(showId: showId, rawFeedData: rawFeedData)
+    }
+  }
+
   /// UserId für LocalStore — auch zwischen Authorize und gespeichertem Account-Wechsel.
   private func resolvedLocalStoreUserId() -> String? {
     let fromSession = sessionUserId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -10317,7 +10474,11 @@ final class AppModel: ObservableObject {
     }
     guard !libId.isEmpty else { return }
     if selectedPodcastLibrary == nil || selectedPodcastLibrary?.id != libId {
-      selectedPodcastLibrary = ABSLibrary(id: libId, name: "Podcasts", mediaType: "podcast", displayOrder: nil)
+      selectedPodcastLibrary =
+        libraries.first(where: { $0.id == libId && $0.isPodcastLibrary })
+        ?? ABSLibrary(id: libId, name: "Podcasts", mediaType: "podcast", displayOrder: nil)
+    } else {
+      enrichSelectedLibrariesFromCachedList()
     }
   }
 

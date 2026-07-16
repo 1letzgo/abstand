@@ -220,7 +220,7 @@ struct ABSLibrariesResponse: Decodable {
   let libraries: [ABSLibrary]
 }
 
-struct ABSLibrary: Decodable, Identifiable, Equatable {
+struct ABSLibrary: Codable, Identifiable, Equatable {
   let id: String
   let name: String
   let mediaType: String?
