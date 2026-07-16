@@ -87,11 +87,12 @@ final class ReadiumReaderService {
     }
   }
 
-  private func makeEPUBPreferences() -> EPUBPreferences {
-    EPUBPreferences(
+  private func makeEPUBPreferences(forceContinuousScroll: Bool? = nil) -> EPUBPreferences {
+    let scroll = forceContinuousScroll ?? EpubReaderSettings.loadContinuousScroll()
+    return EPUBPreferences(
       fontSize: EpubReaderSettings.loadFontSize(),
       publisherStyles: false,
-      scroll: EpubReaderSettings.loadContinuousScroll(),
+      scroll: scroll,
       theme: readiumTheme(from: EpubReaderSettings.loadTheme())
     )
   }
@@ -169,6 +170,14 @@ final class ReadiumReaderService {
     ReadiumReaderDelegate.shared.invalidateChapterPageCache()
     navigator.submitPreferences(makeEPUBPreferences())
     updateDirectionalNavigation(for: navigator, scrollEnabled: EpubReaderSettings.loadContinuousScroll())
+    Task { await refreshEpubProgressDisplay(epub: navigator) }
+  }
+
+  /// Read & Listen: kontinuierliches Scrollen, damit Highlight + Auto-Blättern zuverlässig greifen.
+  func applyEPUBPreferencesForEbookSync(to navigator: EPUBNavigatorViewController) {
+    ReadiumReaderDelegate.shared.invalidateChapterPageCache()
+    navigator.submitPreferences(makeEPUBPreferences(forceContinuousScroll: true))
+    updateDirectionalNavigation(for: navigator, scrollEnabled: true)
     Task { await refreshEpubProgressDisplay(epub: navigator) }
   }
 

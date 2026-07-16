@@ -104,11 +104,39 @@ struct EbookAudioAlignmentMap: Codable, Equatable, Sendable {
     if let exact = sentences.first(where: { time >= $0.globalStart && time < $0.globalEnd }) {
       return exact
     }
+    // Außerhalb des abgedeckten Fensters: kein „letzter Satz“-Pin (sonst bleibt Highlight hängen).
+    if let start = coveredGlobalStart, let end = coveredGlobalEnd, end > start,
+      time < start - 45 || time > end + 45
+    {
+      return nil
+    }
     // Nach Seek / Lücken: nächster Satz ab der aktuellen Zeit, sonst letzter davor.
     if let next = sentences.first(where: { $0.globalStart >= time }) {
       return next
     }
     return sentences.last
+  }
+
+  /// Vereinigt zwei Fenster-Maps (für Nachladen während Sync).
+  func merging(with other: EbookAudioAlignmentMap) -> EbookAudioAlignmentMap {
+    var byId: [String: AlignedSentence] = Dictionary(
+      uniqueKeysWithValues: sentences.map { ($0.id, $0) })
+    for sentence in other.sentences {
+      byId[sentence.id] = sentence
+    }
+    let merged = byId.values.sorted { $0.globalStart < $1.globalStart }
+    let starts = [coveredGlobalStart, other.coveredGlobalStart].compactMap { $0 }
+    let ends = [coveredGlobalEnd, other.coveredGlobalEnd].compactMap { $0 }
+    return EbookAudioAlignmentMap(
+      libraryItemId: libraryItemId,
+      ebookFileHash: other.ebookFileHash.isEmpty ? ebookFileHash : other.ebookFileHash,
+      audioFingerprint: other.audioFingerprint.isEmpty ? audioFingerprint : other.audioFingerprint,
+      createdAt: max(createdAt, other.createdAt),
+      localeIdentifier: other.localeIdentifier.isEmpty ? localeIdentifier : other.localeIdentifier,
+      sentences: merged,
+      coveredGlobalStart: starts.min(),
+      coveredGlobalEnd: ends.max()
+    )
   }
 
   func word(atGlobalTime time: Double, in sentence: AlignedSentence) -> AlignedWord? {
@@ -136,17 +164,6 @@ enum EbookSyncPrepWindow {
       end = min(total, start + min(total, 120))
     }
     return start...max(start + 1, end)
-  }
-}
-
-enum ReadAlongPrepareError: LocalizedError {
-  case message(String)
-
-  var errorDescription: String? {
-    switch self {
-    case .message(let text):
-      return text
-    }
   }
 }
 
