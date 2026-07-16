@@ -46,36 +46,6 @@ private struct ServerAdminSection<Content: View>: View {
   }
 }
 
-private struct ServerAdminCard<Content: View>: View {
-  @EnvironmentObject private var model: AppModel
-  @ViewBuilder let content: () -> Content
-
-  var body: some View {
-    content()
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.horizontal, AppTheme.Layout.settingsCardInsetHPadding)
-      .padding(.vertical, AppTheme.Layout.settingsCardInsetVPadding)
-      .background(model.appearancePalette.card)
-      .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-      .abstandCardElevation(.standard)
-  }
-}
-
-/// Einzelne Info-/Nav-Zeile ohne zusätzliche Kartenhöhe (z. B. Account).
-private struct ServerAdminCompactCard<Content: View>: View {
-  @EnvironmentObject private var model: AppModel
-  @ViewBuilder let content: () -> Content
-
-  var body: some View {
-    content()
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.horizontal, AppTheme.Layout.settingsCardInsetHPadding)
-      .background(model.appearancePalette.card)
-      .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-      .abstandCardElevation(.standard)
-  }
-}
-
 private extension View {
   /// Interaktive Zeile (Toggle, Picker, Secure Field).
   func settingsCardRowFrame(alignment: Alignment = .leading) -> some View {
@@ -625,14 +595,14 @@ struct SettingsHubRootView: View {
       case .downloads:
         ServerAdminSection(title: "Downloads") {
           LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-            ServerAdminCard {
+            AbstandGroupedCard {
               SettingsCardToggleRow(
                 icon: "arrow.down.circle",
                 title: "Auto download on Wi‑Fi",
                 isOn: $model.smartDownloadOnWiFi
               )
             }
-            ServerAdminCard {
+            AbstandGroupedCard {
               SettingsCardToggleRow(
                 icon: "checkmark.circle",
                 title: "Remove download when finished",
@@ -644,7 +614,7 @@ struct SettingsHubRootView: View {
                 .navigationTitle("Downloads")
                 .toolbarTitleDisplayMode(.inline)
             } label: {
-              ServerAdminCard {
+              AbstandGroupedCard {
                 ServerAdminNavRow(
                   icon: "list.bullet.below.rectangle",
                   title: "Manage downloads",
@@ -656,7 +626,7 @@ struct SettingsHubRootView: View {
           }
         }
         ServerAdminSection(title: "Cache") {
-          ServerAdminCard {
+          AbstandGroupedCard {
             Button {
               model.clearCoverImageCache()
               refreshCoverCacheByteCount()
@@ -692,7 +662,7 @@ struct SettingsHubRootView: View {
             .navigationTitle("Add podcast")
             .toolbarTitleDisplayMode(.inline)
         } label: {
-          ServerAdminCard {
+          AbstandGroupedCard {
             ServerAdminNavRow(
               icon: "plus.circle.fill",
               title: "Add podcast",
@@ -706,7 +676,7 @@ struct SettingsHubRootView: View {
         NavigationLink {
           ServerAdminPodcastShowsListView()
         } label: {
-          ServerAdminCard {
+          AbstandGroupedCard {
             ServerAdminNavRow(
               icon: "list.bullet",
               title: "Manage shows",
@@ -722,7 +692,7 @@ struct SettingsHubRootView: View {
       NavigationLink {
         ServerUsersListView()
       } label: {
-        ServerAdminCard {
+        AbstandGroupedCard {
           ServerAdminNavRow(icon: "person.2.fill", title: "Users", subtitle: nil)
         }
       }
@@ -751,7 +721,7 @@ struct HomeListeningStatsSectionView: View {
               .navigationTitle(category.rawValue)
               .toolbarTitleDisplayMode(.inline)
           } label: {
-            ServerAdminCard {
+            AbstandGroupedCard {
               ServerAdminNavRow(
                 icon: category.icon,
                 title: category.rawValue,
@@ -808,7 +778,7 @@ struct SettingsAccountView: View {
   var body: some View {
     ServerAdminSection(title: "Accounts") {
       LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-        ServerAdminCard {
+        AbstandGroupedCard {
           VStack(spacing: 0) {
             ForEach(Array(model.storedAccounts.enumerated()), id: \.element.id) { index, account in
               if index > 0 { SettingsCardDivider() }
@@ -894,7 +864,7 @@ struct SettingsAccountView: View {
           )
         }
 
-        ServerAdminCard {
+        AbstandGroupedCard {
           if model.sortedBookLibraries.isEmpty {
             Text("No book libraries on this server.")
               .font(.subheadline)
@@ -911,7 +881,7 @@ struct SettingsAccountView: View {
           }
         }
 
-        ServerAdminCard {
+        AbstandGroupedCard {
           if model.sortedPodcastLibraries.isEmpty {
             Text("No podcast libraries on this server.")
               .font(.subheadline)
@@ -932,7 +902,7 @@ struct SettingsAccountView: View {
           NavigationLink {
             SettingsChangePasswordView()
           } label: {
-            ServerAdminCompactCard {
+            AbstandGroupedCard(verticalPadding: 0) {
               ServerAdminNavRow(
                 icon: "lock.rotation",
                 title: "Change Password",
@@ -947,7 +917,7 @@ struct SettingsAccountView: View {
           .opacity(model.mayUseServerNetwork ? 1 : 0.45)
         }
 
-        ServerAdminCompactCard {
+        AbstandGroupedCard(verticalPadding: 0) {
           Button {
             model.logout()
           } label: {
@@ -998,7 +968,7 @@ struct SettingsChangePasswordView: View {
   var body: some View {
     ServerAdminScrollScreen {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-        ServerAdminCard {
+        AbstandGroupedCard {
           VStack(alignment: .leading, spacing: 0) {
             SettingsCardSecureFieldRow(
               icon: "lock.fill",
@@ -1092,21 +1062,21 @@ private struct SettingsPlaybackContent: View {
   var body: some View {
     ServerAdminSection(title: "Playback") {
       LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-        ServerAdminCard {
+        AbstandGroupedCard {
           SettingsSkipSecondsPickerRow(
             title: "Skip back",
             backward: true,
             seconds: $player.skipBackwardSeconds
           )
         }
-        ServerAdminCard {
+        AbstandGroupedCard {
           SettingsSkipSecondsPickerRow(
             title: "Skip forward",
             backward: false,
             seconds: $player.skipForwardSeconds
           )
         }
-        ServerAdminCard {
+        AbstandGroupedCard {
           SettingsCardToggleRow(
             icon: "play.circle",
             title: "Open player when start playing",
@@ -1116,7 +1086,7 @@ private struct SettingsPlaybackContent: View {
       }
     }
     ServerAdminSection(title: "Teleprompter") {
-      ServerAdminCard {
+      AbstandGroupedCard {
         SettingsCardPickerRow(
           icon: "translate",
           title: "Translation language",
@@ -1138,16 +1108,16 @@ struct SettingsAppearanceView: View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
       ServerAdminSection(title: "Theme") {
         LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-          ServerAdminCard {
+          AbstandGroupedCard {
             SettingsCardAppearanceModeRow(selection: $model.appearanceMode)
           }
-          ServerAdminCard {
+          AbstandGroupedCard {
             SettingsCardColorPickerRow(
               icon: "paintpalette.fill",
               title: "Accent color"
             )
           }
-          ServerAdminCard {
+          AbstandGroupedCard {
             Button {
               model.resetAppearanceAccentToDefault()
             } label: {
@@ -1168,7 +1138,7 @@ struct SettingsAppearanceView: View {
       }
       ServerAdminSection(title: "Views") {
         LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-          ServerAdminCard {
+          AbstandGroupedCard {
             SettingsCardPickerRow(
               icon: "books.vertical.fill",
               title: "Book",
@@ -1183,7 +1153,7 @@ struct SettingsAppearanceView: View {
               options: LibraryBookCardStyle.allCases.map { (id: $0.rawValue, label: $0.label) }
             )
           }
-          ServerAdminCard {
+          AbstandGroupedCard {
             SettingsCardPickerRow(
               icon: "mic.fill",
               title: "Podcast episode cards",
@@ -1201,7 +1171,7 @@ struct SettingsAppearanceView: View {
           NavigationLink {
             SettingsAppearanceHomeView()
           } label: {
-            ServerAdminCard {
+            AbstandGroupedCard {
               ServerAdminNavRow(
                 icon: "house.fill",
                 title: "Home",
@@ -1226,7 +1196,7 @@ struct SettingsAppearanceHomeView: View {
     ServerAdminScrollScreen {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         ServerAdminSection(title: "Home") {
-          ServerAdminCard {
+          AbstandGroupedCard {
             VStack(alignment: .leading, spacing: 12) {
               ForEach(Array(model.startSettingsCategoryList.enumerated()), id: \.element.category) {
                 index, row in
@@ -1285,7 +1255,7 @@ struct ServerUsersListView: View {
                   NavigationLink {
                     ServerUserDetailView(userId: user.id, username: user.username)
                   } label: {
-                    ServerAdminCard {
+                    AbstandGroupedCard {
                       ServerUserListRow(user: user, isOnline: onlineIds.contains(user.id))
                     }
                   }
@@ -1456,7 +1426,7 @@ struct ServerUserDetailView: View {
     Button {
       showSessions = true
     } label: {
-      ServerAdminCard {
+      AbstandGroupedCard {
         HStack {
           Image(systemName: "clock.arrow.circlepath")
             .foregroundStyle(model.appearanceAccentColor)
@@ -1529,7 +1499,7 @@ struct ServerUserListeningSessionsView: View {
         ServerAdminScrollScreen {
           LazyVStack(spacing: 8) {
             ForEach(sessions) { session in
-              ServerAdminCard {
+              AbstandGroupedCard {
                 VStack(alignment: .leading, spacing: 4) {
                   Text(session.libraryItemId.isEmpty ? session.id : session.libraryItemId)
                     .font(.subheadline.weight(.medium))
@@ -1597,7 +1567,7 @@ private struct ServerAdminLibrariesSection: View {
             NavigationLink {
               ServerLibraryDetailView(library: lib)
             } label: {
-              ServerAdminCard {
+              AbstandGroupedCard {
                 HStack(spacing: 12) {
                   Image(systemName: "books.vertical.fill")
                     .font(.body.weight(.semibold))
@@ -2080,7 +2050,7 @@ struct PodcastShowAutoDownloadSettingsContent: View {
   }
 
   var body: some View {
-    ServerAdminCard {
+    AbstandGroupedCard {
       Group {
         if model.podcastAutoDownloadSettingsShowId != showId {
           ProgressView()
@@ -2186,7 +2156,7 @@ private struct PodcastShowTranscriptionLanguageSettingsContent: View {
   }
 
   var body: some View {
-    ServerAdminCard {
+    AbstandGroupedCard {
       Group {
         if model.podcastShowTranscriptionLanguageShowId != showId {
           ProgressView()
@@ -2242,7 +2212,7 @@ private struct ServerAdminPodcastSettingsSection: View {
         }
 
         if model.isServerAdmin {
-          ServerAdminCard {
+          AbstandGroupedCard {
             Button {
               Task { await model.checkAndDownloadNewPodcastEpisodes(showId: showId) }
             } label: {
@@ -2267,7 +2237,7 @@ private struct ServerAdminPodcastSettingsSection: View {
           }
         }
 
-        ServerAdminCompactCard {
+        AbstandGroupedCard(verticalPadding: 0) {
           Button {
             onRemove()
           } label: {
@@ -2343,7 +2313,7 @@ private struct SettingsDownloadsManageView: View {
         LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
           if let activeId {
             let entry = model.downloadCatalogEntry(forStorageId: activeId)
-            ServerAdminCard {
+            AbstandGroupedCard {
               DownloadManageActiveRow(
                 storageId: activeId,
                 entry: entry,
@@ -2359,7 +2329,7 @@ private struct SettingsDownloadsManageView: View {
           }
           ForEach(Array(queued.enumerated()), id: \.element) { _, qid in
             let entry = model.downloadCatalogEntry(forStorageId: qid)
-            ServerAdminCard {
+            AbstandGroupedCard {
               DownloadManageActiveRow(
                 storageId: qid,
                 entry: entry,
@@ -2384,7 +2354,7 @@ private struct SettingsDownloadsManageView: View {
   private var savedSection: some View {
     ServerAdminSection(title: "Saved offline") {
       if rows.isEmpty {
-        ServerAdminCard {
+        AbstandGroupedCard {
           VStack(alignment: .leading, spacing: 4) {
             Text("No downloads yet.")
               .font(.body)
@@ -2399,7 +2369,7 @@ private struct SettingsDownloadsManageView: View {
       } else {
         LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
           if totalBytes > 0 {
-            ServerAdminCard {
+            AbstandGroupedCard {
               HStack(spacing: 12) {
                 SettingsCardIcon(systemName: "internaldrive")
                 VStack(alignment: .leading, spacing: 2) {
@@ -2415,7 +2385,7 @@ private struct SettingsDownloadsManageView: View {
             }
           }
           ForEach(rows) { row in
-            ServerAdminCard {
+            AbstandGroupedCard {
               DownloadManageSavedRow(
                 row: row,
                 token: model.token,
@@ -2705,7 +2675,7 @@ private struct DebugLogExportView: View {
 
   var body: some View {
     ServerAdminSection(title: "Debug Log") {
-      ServerAdminCard {
+      AbstandGroupedCard {
         VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
           Text("\(collector.entries.count) entries")
             .font(.subheadline)
@@ -2737,7 +2707,7 @@ private struct DebugLogExportView: View {
           .foregroundStyle(AppTheme.textSecondary)
           .padding(.vertical, 8)
       } else {
-        ServerAdminCard {
+        AbstandGroupedCard {
           VStack(alignment: .leading, spacing: 4) {
             ForEach(collector.entries.suffix(50)) { entry in
               Text(entry.message)

@@ -491,7 +491,7 @@ extension View {
       .toolbarBackground(.hidden, for: .tabBar)
   }
 
-  /// Mindesthöhe für eine Zeile in `ServerAdminCard` / `StatsGroupedListCard`.
+  /// Mindesthöhe für eine Zeile in `AbstandGroupedCard` / `StatsGroupedListCard`.
   func abstandCardListRowFrame(alignment: Alignment = .leading) -> some View {
     frame(
       maxWidth: .infinity,
