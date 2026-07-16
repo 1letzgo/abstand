@@ -346,6 +346,7 @@ struct BookDetailView: View {
     ReadAlongPrepareActionsBar(
       sync: model.player.ebookSync,
       transcription: model.player.liveTranscription,
+      prepareQueue: model.readAlongPrepare,
       book: book,
       showsEbookSync: canStartEbookSync(for: book)
     )
@@ -817,22 +818,51 @@ private struct ReadAlongPrepareActionsBar: View {
   @EnvironmentObject private var model: AppModel
   @ObservedObject var sync: EbookSyncController
   @ObservedObject var transcription: PlayerLiveTranscriptionController
+  @ObservedObject private var prepareQueue: ReadAlongPrepareQueue
   let book: ABSBook
   let showsEbookSync: Bool
 
+  init(
+    sync: EbookSyncController,
+    transcription: PlayerLiveTranscriptionController,
+    prepareQueue: ReadAlongPrepareQueue,
+    book: ABSBook,
+    showsEbookSync: Bool
+  ) {
+    self.sync = sync
+    self.transcription = transcription
+    self.prepareQueue = prepareQueue
+    self.book = book
+    self.showsEbookSync = showsEbookSync
+  }
+
+  private var isQueued: Bool { prepareQueue.isQueued(book.id) }
+  private var isActive: Bool { prepareQueue.isActive(book.id) }
   private var isPreparingThis: Bool {
-    transcription.isPreparingSpeech(for: book.id) || sync.isPreparingItem(book.id)
+    isActive || isQueued
+      || transcription.isPreparingSpeech(for: book.id)
+      || sync.isPreparingItem(book.id)
   }
 
   private var isPrepared: Bool {
-    model.isReadAlongPrepared(for: book)
+    prepareQueue.isReady(book.id) || model.isReadAlongPrepared(for: book)
   }
 
   private var busy: Bool {
-    model.isPreparingEbook || sync.isPreparing || transcription.isPreparingSpeechAssets
+    model.isPreparingEbook
+      || sync.isPreparing
+      || transcription.isPreparingSpeechAssets
+      || prepareQueue.pendingCount > 0
   }
 
   private var statusMessage: String? {
+    if isQueued {
+      return String(localized: "Queued", comment: "Read along prepare queued")
+    }
+    if isActive {
+      return prepareQueue.statusMessage
+        ?? String(localized: "Preparing…", comment: "Read along prepare")
+    }
     if sync.isPreparingItem(book.id) {
       return sync.prepStatusMessage
         ?? String(localized: "Preparing ebook sync…", comment: "Ebook sync prep")
@@ -850,6 +880,7 @@ private struct ReadAlongPrepareActionsBar: View {
   }
 
   private var progressValue: Double? {
+    if isActive { return prepareQueue.progress }
     if sync.isPreparingItem(book.id) { return sync.prepProgress }
     if transcription.isPreparingSpeech(for: book.id) { return transcription.speechPrepProgress }
     return nil
@@ -857,6 +888,9 @@ private struct ReadAlongPrepareActionsBar: View {
 
   private var errorText: String? {
     if isPreparingThis { return nil }
+    if prepareQueue.lastErrorMessage != nil, !prepareQueue.isReady(book.id) {
+      return prepareQueue.lastErrorMessage
+    }
     return sync.errorMessage ?? transcription.speechPrepErrorMessage
   }
 
@@ -865,10 +899,9 @@ private struct ReadAlongPrepareActionsBar: View {
       HStack(spacing: 10) {
         Button {
           if isPreparingThis {
-            transcription.cancelSpeechPreparation()
-            sync.cancelPreparation()
+            model.cancelReadAlongPrepare(itemId: book.id)
           } else {
-            Task { await model.prepareReadAlong(for: book) }
+            model.prepareReadAlong(for: book)
           }
         } label: {
           Label(
@@ -907,7 +940,7 @@ private struct ReadAlongPrepareActionsBar: View {
             .padding(.vertical, 12)
           }
           .buttonStyle(.borderedProminent)
-          .disabled(busy)
+          .disabled(busy && !isPrepared)
           .accessibilityHint(
             String(
               localized: "Open the EPUB with synchronized audiobook highlighting.",
@@ -916,7 +949,7 @@ private struct ReadAlongPrepareActionsBar: View {
         }
       }
 
-      if let progressValue, isPreparingThis {
+      if let progressValue, isActive {
         VStack(alignment: .leading, spacing: 6) {
           ProgressView(value: progressValue)
           if let statusMessage {
@@ -925,7 +958,7 @@ private struct ReadAlongPrepareActionsBar: View {
               .foregroundStyle(.secondary)
           }
         }
-      } else if let statusMessage, isPrepared {
+      } else if let statusMessage, isPreparingThis || isPrepared {
         Text(statusMessage)
           .font(.caption)
           .foregroundStyle(.secondary)

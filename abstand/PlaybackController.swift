@@ -179,6 +179,9 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Read-along nur bei vollständig heruntergeladenem Titel mit lokalen Audio-Dateien.
   var isReadAlongDownloadReady: Bool { isUsingLocalTrackFiles }
 
+  /// Download-Stamm des aktiven lokalen Players — für Prepare ohne erneutes `play()`.
+  var localRootForReadAlongPrepare: URL? { localRoot }
+
   var canBuildTranscriptionStreamContext: Bool {
     apiClient != nil && playSessionId != nil
   }
@@ -2079,6 +2082,32 @@ final class PlaybackController: NSObject, ObservableObject {
       guard let url = Self.resolvedLocalTrackURL(root: root, trackIndex: track.index, manifest: manifest) else {
         return nil
       }
+      return PlayerTranscriptionAudioContext(
+        assetURL: url,
+        streamAuthToken: nil,
+        trackGlobalOffset: start,
+        locale: locale,
+        trackIndex: index
+      )
+    }
+  }
+
+  /// Kontextliste aus einem Download-Ordner — ohne aktiven Player (Prepare-Queue).
+  static func makeLocalTranscriptionAudioContexts(
+    root: URL,
+    overlapping globalRange: ClosedRange<Double>? = nil,
+    locale: Locale = .current
+  ) -> [PlayerTranscriptionAudioContext] {
+    guard let manifest = ABSDownloadManifest.load(from: root), !manifest.tracks.isEmpty else {
+      return []
+    }
+    let range = globalRange ?? 0...(max(manifest.totalDuration ?? 0, 1))
+    return manifest.tracks.enumerated().compactMap { index, track in
+      let start = track.startOffset
+      let end = start + track.duration
+      guard end >= range.lowerBound, start <= range.upperBound else { return nil }
+      guard let url = resolvedLocalTrackURL(root: root, trackIndex: track.index, manifest: manifest)
+      else { return nil }
       return PlayerTranscriptionAudioContext(
         assetURL: url,
         streamAuthToken: nil,

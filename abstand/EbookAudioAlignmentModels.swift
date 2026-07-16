@@ -74,6 +74,17 @@ struct EbookAudioAlignmentMap: Codable, Equatable, Sendable {
   }
 }
 
+enum ReadAlongPrepareError: LocalizedError {
+  case message(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .message(let text):
+      return text
+    }
+  }
+}
+
 enum EbookSyncError: LocalizedError {
   case speechUnavailable
   case speechRecognitionDenied
