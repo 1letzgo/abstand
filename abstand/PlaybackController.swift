@@ -272,7 +272,8 @@ final class PlaybackController: NSObject, ObservableObject {
       .sink { [weak self] end in
         guard let self else { return }
         if end == nil {
-          if !self.sleepTimerPaused {
+          // Kapitel-Timer nutzt bewusst kein `sleepEndDate` — nicht als „aus" werten.
+          if !self.sleepTimerPaused, self.sleepTimerChapterTarget == nil {
             self.sleepTimerMode = .off
             self.sleepTimerRemaining = nil
           }
