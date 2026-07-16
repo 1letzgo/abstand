@@ -20,6 +20,10 @@ final class EbookSyncController: ObservableObject {
   @Published private(set) var isSyncAvailable = SpeechTranscriber.isAvailable
   /// Erhöht bei Seek-/Start-Sync — Reader setzt Highlight hart zurück.
   @Published private(set) var syncGeneration: UInt = 0
+  /// Library-Item, für das gerade Alignment vorbereitet wird (ohne Sync-Mode).
+  @Published private(set) var preparingLibraryItemId: String?
+  /// Letztes erfolgreich vorbereitetes (oder als Cache gültig erkanntes) Item.
+  @Published private(set) var preparedLibraryItemId: String?
 
   private let aligner = EbookAudioAligner()
   private weak var boundPlayer: PlaybackController?
@@ -43,6 +47,76 @@ final class EbookSyncController: ObservableObject {
     isSyncAvailable && !isPreparing
   }
 
+  func isPrepared(libraryItemId: String) -> Bool {
+    preparedLibraryItemId == libraryItemId
+  }
+
+  func isPreparingItem(_ libraryItemId: String) -> Bool {
+    isPreparing && preparingLibraryItemId == libraryItemId
+  }
+
+  /// Nur Alignment vorbereiten (kein Reader, kein Sync-Mode).
+  func prepareAlignment(
+    player: PlaybackController,
+    libraryItemId: String,
+    ebookFileURL: URL,
+    ebookFormat: ABSEbookFormat
+  ) async {
+    errorMessage = nil
+    guard ebookFormat == .epub else {
+      errorMessage = EbookSyncError.epubRequired.localizedDescription
+      return
+    }
+    guard isSyncAvailable else {
+      errorMessage = EbookSyncError.speechUnavailable.localizedDescription
+      return
+    }
+    guard player.isReadAlongDownloadReady else {
+      errorMessage = EbookSyncError.downloadRequired.localizedDescription
+      return
+    }
+
+    // Bereits gültiger Cache → sofort als vorbereitet markieren.
+    if hasValidCachedAlignment(
+      player: player, libraryItemId: libraryItemId, ebookFileURL: ebookFileURL)
+    {
+      preparedLibraryItemId = libraryItemId
+      prepStatusMessage = String(localized: "Ready for Read & Listen", comment: "Ebook sync prep")
+      return
+    }
+
+    if isPreparing, preparingLibraryItemId == libraryItemId, let prepTask {
+      await prepTask.value
+      return
+    }
+
+    prepTask?.cancel()
+    let task = Task { @MainActor [weak self] in
+      guard let self else { return }
+      do {
+        let map = try await self.ensureAlignmentMap(
+          player: player,
+          libraryItemId: libraryItemId,
+          ebookFileURL: ebookFileURL
+        )
+        self.alignmentMap = map
+        self.preparedLibraryItemId = libraryItemId
+        self.prepStatusMessage = String(
+          localized: "Ready for Read & Listen", comment: "Ebook sync prep")
+      } catch is CancellationError {
+        // cancelled
+      } catch {
+        self.errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        if self.preparedLibraryItemId == libraryItemId {
+          self.preparedLibraryItemId = nil
+        }
+      }
+    }
+    prepTask = task
+    await task.value
+    if prepTask == task { prepTask = nil }
+  }
+
   /// Startet Prep bei Bedarf und aktiviert den Sync-Mode.
   func startSyncMode(
     player: PlaybackController,
@@ -64,6 +138,11 @@ final class EbookSyncController: ObservableObject {
       return
     }
 
+    // Läuft bereits Prep für dieses Buch → darauf warten statt parallel.
+    if isPreparing, preparingLibraryItemId == libraryItemId, let prepTask {
+      await prepTask.value
+    }
+
     boundPlayer = player
     activeLibraryItemId = libraryItemId
     isSyncModeActive = true
@@ -76,6 +155,7 @@ final class EbookSyncController: ObservableObject {
         ebookFileURL: ebookFileURL
       )
       alignmentMap = map
+      preparedLibraryItemId = libraryItemId
       syncGeneration &+= 1
       handlePlaybackTick(player: player)
     } catch is CancellationError {
@@ -87,11 +167,7 @@ final class EbookSyncController: ObservableObject {
   }
 
   func stopSyncMode() async {
-    prepTask?.cancel()
-    prepTask = nil
-    isPreparing = false
-    prepProgress = nil
-    prepStatusMessage = nil
+    cancelPreparation()
     isSyncModeActive = false
     activeSentenceId = nil
     activeWordIndex = nil
@@ -101,6 +177,16 @@ final class EbookSyncController: ObservableObject {
       boundPlayer?.liveTranscription.isTeleprompterModeActive == true
     )
     boundPlayer = nil
+  }
+
+  /// Bricht eine laufende Vorbereitung ab.
+  func cancelPreparation() {
+    prepTask?.cancel()
+    prepTask = nil
+    isPreparing = false
+    preparingLibraryItemId = nil
+    prepProgress = nil
+    prepStatusMessage = nil
   }
 
   func handlePlaybackTick(player: PlaybackController) {
@@ -133,6 +219,58 @@ final class EbookSyncController: ObservableObject {
 
   // MARK: - Prep
 
+  func hasValidCachedAlignment(
+    player: PlaybackController,
+    libraryItemId: String,
+    ebookFileURL: URL
+  ) -> Bool {
+    guard
+      let fingerprints = alignmentFingerprints(
+        player: player, libraryItemId: libraryItemId, ebookFileURL: ebookFileURL)
+    else { return false }
+    guard
+      let cached = EbookAudioAlignmentStore.load(
+        account: accountURL, userId: userId, libraryItemId: libraryItemId),
+      cached.ebookFileHash == fingerprints.ebookHash,
+      cached.audioFingerprint == fingerprints.audioHash,
+      !cached.sentences.isEmpty
+    else { return false }
+    return true
+  }
+
+  /// Aktualisiert `preparedLibraryItemId`, wenn Cache für das Item gültig ist.
+  func refreshPreparedState(
+    player: PlaybackController,
+    libraryItemId: String,
+    ebookFileURL: URL
+  ) {
+    if hasValidCachedAlignment(
+      player: player, libraryItemId: libraryItemId, ebookFileURL: ebookFileURL)
+    {
+      preparedLibraryItemId = libraryItemId
+    } else if preparedLibraryItemId == libraryItemId {
+      preparedLibraryItemId = nil
+    }
+  }
+
+  private func alignmentFingerprints(
+    player: PlaybackController,
+    libraryItemId: String,
+    ebookFileURL: URL
+  ) -> (ebookHash: String, audioHash: String)? {
+    _ = libraryItemId
+    let ebookHash = EbookAudioAlignmentStore.fileFingerprint(url: ebookFileURL)
+    let contexts = player.makeLocalTranscriptionAudioContexts(
+      overlapping: 0...(max(player.totalDuration, 1))
+    )
+    guard !contexts.isEmpty else { return nil }
+    let audioHash = EbookAudioAlignmentStore.audioFingerprint(
+      trackURLs: contexts.map(\.assetURL),
+      trackOffsets: contexts.map(\.trackGlobalOffset)
+    )
+    return (ebookHash, audioHash)
+  }
+
   private func ensureAlignmentMap(
     player: PlaybackController,
     libraryItemId: String,
@@ -157,16 +295,24 @@ final class EbookSyncController: ObservableObject {
       cached.audioFingerprint == audioHash,
       !cached.sentences.isEmpty
     {
+      preparedLibraryItemId = libraryItemId
       return cached
     }
 
     isPreparing = true
+    preparingLibraryItemId = libraryItemId
     prepProgress = 0
     prepStatusMessage = String(localized: "Preparing ebook sync…", comment: "Ebook sync prep")
     defer {
       isPreparing = false
-      prepProgress = nil
-      prepStatusMessage = nil
+      preparingLibraryItemId = nil
+      // Status-/Progress nach erfolgreicher Prep kurz stehen lassen (UI), sonst leeren.
+      if Task.isCancelled {
+        prepProgress = nil
+        prepStatusMessage = nil
+      } else {
+        prepProgress = nil
+      }
     }
 
     let map = try await aligner.align(
@@ -182,6 +328,7 @@ final class EbookSyncController: ObservableObject {
     }
 
     try EbookAudioAlignmentStore.save(map, account: accountURL, userId: userId)
+    preparedLibraryItemId = libraryItemId
     return map
   }
 }

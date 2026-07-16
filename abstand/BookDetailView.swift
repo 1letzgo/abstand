@@ -342,6 +342,10 @@ struct BookDetailView: View {
     return model.cachedEbookFormat(libraryItemId: book.id) == .epub
   }
 
+  private func ebookSyncActions(for book: ABSBook) -> some View {
+    EbookSyncDetailActionsBar(book: book, sync: model.player.ebookSync)
+  }
+
   private func markAttachedEbookAsRead(book: ABSBook) async {
     guard let format = resolvedEbookFormat(for: book) else { return }
     await model.markEbookAsFinished(libraryItemId: book.id, format: format)
@@ -523,25 +527,8 @@ struct BookDetailView: View {
       .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
 
       if canStartEbookSync(for: d) {
-        Button {
-          Task { await model.startEbookSyncMode(for: d) }
-        } label: {
-          Label(
-            String(localized: "Read & Listen", comment: "Ebook sync entry"),
-            systemImage: "text.book.closed.fill"
-          )
-          .font(.subheadline.weight(.semibold))
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 12)
-        }
-        .buttonStyle(.borderedProminent)
-        .disabled(model.isPreparingEbook || model.player.ebookSync.isPreparing)
-        .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
-        .accessibilityHint(
-          String(
-            localized: "Open the EPUB with synchronized audiobook highlighting.",
-            comment: "Ebook sync accessibility hint")
-        )
+        ebookSyncActions(for: d)
+          .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
       }
 
       VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
@@ -817,5 +804,95 @@ struct BookDetailView: View {
       return "\(s.name) (\(q))"
     }
     return s.name
+  }
+}
+
+/// Prepare + Read & Listen — beobachtet `EbookSyncController` direkt für Prep-Fortschritt.
+private struct EbookSyncDetailActionsBar: View {
+  @EnvironmentObject private var model: AppModel
+  @ObservedObject var sync: EbookSyncController
+  let book: ABSBook
+
+  private var isPreparingThis: Bool { sync.isPreparingItem(book.id) }
+  private var isPrepared: Bool { sync.isPrepared(libraryItemId: book.id) }
+  private var busy: Bool { model.isPreparingEbook || sync.isPreparing }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 10) {
+        Button {
+          if isPreparingThis {
+            sync.cancelPreparation()
+          } else {
+            Task { await model.prepareEbookSync(for: book) }
+          }
+        } label: {
+          Label(
+            isPreparingThis
+              ? String(localized: "Cancel", comment: "Ebook sync prepare cancel")
+              : (isPrepared
+                ? String(localized: "Prepared", comment: "Ebook sync prepare done")
+                : String(localized: "Prepare", comment: "Ebook sync prepare")),
+            systemImage: isPreparingThis
+              ? "xmark.circle"
+              : (isPrepared ? "checkmark.circle.fill" : "arrow.down.circle")
+          )
+          .font(.subheadline.weight(.semibold))
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
+        }
+        .buttonStyle(.bordered)
+        .disabled(busy && !isPreparingThis)
+        .accessibilityHint(
+          String(
+            localized: "Transcribe and align this audiobook with the EPUB on device.",
+            comment: "Ebook sync prepare accessibility hint")
+        )
+
+        Button {
+          Task { await model.startEbookSyncMode(for: book) }
+        } label: {
+          Label(
+            String(localized: "Read & Listen", comment: "Ebook sync entry"),
+            systemImage: "text.book.closed.fill"
+          )
+          .font(.subheadline.weight(.semibold))
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(busy)
+        .accessibilityHint(
+          String(
+            localized: "Open the EPUB with synchronized audiobook highlighting.",
+            comment: "Ebook sync accessibility hint")
+        )
+      }
+
+      if isPreparingThis {
+        VStack(alignment: .leading, spacing: 6) {
+          ProgressView(value: sync.prepProgress)
+          Text(
+            sync.prepStatusMessage
+              ?? String(localized: "Preparing ebook sync…", comment: "Ebook sync prep")
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        }
+      } else if isPrepared {
+        Text(String(localized: "Ready for Read & Listen", comment: "Ebook sync prep"))
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      } else if let error = sync.errorMessage, !sync.isPreparing {
+        Text(error)
+          .font(.caption)
+          .foregroundStyle(.red)
+      }
+    }
+    .task(id: book.id) {
+      if model.isEbookSyncPrepared(for: book) {
+        // Cache-Hit → UI zeigt „Prepared“.
+      }
+    }
   }
 }

@@ -10825,8 +10825,76 @@ final class AppModel: ObservableObject {
     )?.format
   }
 
+  /// Alignment für Read & Listen vorbereiten (ohne Reader zu öffnen).
+  func prepareEbookSync(for book: ABSBook) async {
+    guard let context = await prepareEbookSyncContext(for: book, autoPlay: false) else { return }
+    await player.ebookSync.prepareAlignment(
+      player: player,
+      libraryItemId: book.id,
+      ebookFileURL: context.epubURL,
+      ebookFormat: .epub
+    )
+    if let syncError = player.ebookSync.errorMessage {
+      errorMessage = syncError
+    }
+  }
+
+  /// Ob für dieses Buch bereits ein gültiges Alignment-Cache vorliegt.
+  /// Aktualisiert bei Cache-Hit auch `preparedLibraryItemId` für die UI.
+  @discardableResult
+  func isEbookSyncPrepared(for book: ABSBook) -> Bool {
+    let sync = player.ebookSync
+    if sync.isPrepared(libraryItemId: book.id) { return true }
+    guard
+      let account = cacheAccountURL(),
+      let cached = EbookLocalStore.cachedEbookIfPresent(account: account, libraryItemId: book.id),
+      cached.format == .epub,
+      player.activeBook?.id == book.id,
+      player.isReadAlongDownloadReady
+    else { return false }
+    sync.configureSession(
+      account: account,
+      userId: sessionUserId.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        ?? UserDefaults.standard.string(forKey: Keys.sessionUserId)?
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+    )
+    sync.refreshPreparedState(
+      player: player, libraryItemId: book.id, ebookFileURL: cached.url)
+    return sync.isPrepared(libraryItemId: book.id)
+  }
+
   /// Hörbuch + EPUB Sync-Mode (on-device Alignment, Highlight im Reader).
   func startEbookSyncMode(for book: ABSBook) async {
+    guard let context = await prepareEbookSyncContext(for: book, autoPlay: true) else { return }
+
+    // Reader zuerst öffnen (Sync-Overlay zeigt Prep-Fortschritt, falls noch nötig).
+    prepareEbookOpenFromServer(libraryItemId: book.id, format: .epub)
+    ebookReaderSession = EbookReaderPresentation(
+      title: book.displayTitle,
+      author: book.displayAuthors,
+      libraryItemId: book.id,
+      localFileURL: context.epubURL,
+      format: .epub,
+      serverResumeProgression: ebookResumeProgressionForReader(libraryItemId: book.id),
+      ebookSyncMode: true
+    )
+
+    await player.ebookSync.startSyncMode(
+      player: player,
+      libraryItemId: book.id,
+      ebookFileURL: context.epubURL,
+      ebookFormat: .epub
+    )
+    if let syncError = player.ebookSync.errorMessage {
+      errorMessage = syncError
+    }
+  }
+
+  /// Gemeinsame Vorbereitung: EPUB lokal + Audio-Tracks geladen + Sync-Session konfiguriert.
+  private func prepareEbookSyncContext(
+    for book: ABSBook,
+    autoPlay: Bool
+  ) async -> (epubURL: URL)? {
     ensureEbookLocalSessionIfNeeded()
     errorMessage = nil
 
@@ -10834,13 +10902,13 @@ final class AppModel: ObservableObject {
       errorMessage = String(
         localized: "Ebook sync needs a playable audiobook.",
         comment: "Ebook sync error")
-      return
+      return nil
     }
     guard book.hasSupplementalEpub || book.readableAttachedEbook?.format == .epub
       || cachedEbookFormat(libraryItemId: book.id) == .epub
     else {
       errorMessage = EbookSyncError.epubRequired.localizedDescription
-      return
+      return nil
     }
     let hasLocalAudio =
       player.isReadAlongDownloadReady
@@ -10848,26 +10916,24 @@ final class AppModel: ObservableObject {
       || resolvedLocalDownloadForPlayback(book: book) != nil
     guard hasLocalAudio else {
       errorMessage = EbookSyncError.downloadRequired.localizedDescription
-      return
+      return nil
     }
 
-    // EPUB lokal sicherstellen (öffnet noch keinen Reader).
-    let epubURL: URL?
     isPreparingEbook = true
-    epubURL = await ensureLocalEpubURL(for: book)
+    let epubURL = await ensureLocalEpubURL(for: book)
     isPreparingEbook = false
-    guard let epubURL else { return }
+    guard let epubURL else { return nil }
 
-    // Playback dieses Titels aktivieren, falls nötig.
+    // Tracks laden (Prep braucht lokale Transcription-Contexts).
     if player.activeBook?.id != book.id {
-      await play(book: book, resumeAtOverride: nil, autoPlay: true)
-    } else if !player.isPlaying {
+      await play(book: book, resumeAtOverride: nil, autoPlay: autoPlay)
+    } else if autoPlay, !player.isPlaying {
       player.play()
     }
 
     guard player.isReadAlongDownloadReady else {
       errorMessage = EbookSyncError.downloadRequired.localizedDescription
-      return
+      return nil
     }
 
     let account = cacheAccountURL()
@@ -10877,28 +10943,9 @@ final class AppModel: ObservableObject {
         .trimmingCharacters(in: .whitespacesAndNewlines)
     player.ebookSync.configureSession(account: account, userId: uid)
     await player.ebookSync.refreshAvailability()
-
-    // Reader zuerst öffnen (Sync-Overlay zeigt Prep-Fortschritt).
-    prepareEbookOpenFromServer(libraryItemId: book.id, format: .epub)
-    ebookReaderSession = EbookReaderPresentation(
-      title: book.displayTitle,
-      author: book.displayAuthors,
-      libraryItemId: book.id,
-      localFileURL: epubURL,
-      format: .epub,
-      serverResumeProgression: ebookResumeProgressionForReader(libraryItemId: book.id),
-      ebookSyncMode: true
-    )
-
-    await player.ebookSync.startSyncMode(
-      player: player,
-      libraryItemId: book.id,
-      ebookFileURL: epubURL,
-      ebookFormat: .epub
-    )
-    if let syncError = player.ebookSync.errorMessage {
-      errorMessage = syncError
-    }
+    player.ebookSync.refreshPreparedState(
+      player: player, libraryItemId: book.id, ebookFileURL: epubURL)
+    return (epubURL)
   }
 
   /// Lokales EPUB sicherstellen ohne Reader-Session zu setzen.
