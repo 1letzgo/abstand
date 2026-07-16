@@ -340,6 +340,11 @@ struct PodcastEpisodeDetailView: View {
       .padding(.top, AppTheme.Layout.detailPlayButtonTopPadding)
       .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
 
+      if model.player.liveTranscription.isReadAlongAvailable {
+        PodcastReadAlongPrepareBar(episode: episode, transcription: model.player.liveTranscription)
+          .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
+      }
+
       VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
         if let episodeText {
           DetailDetailSectionCard {
@@ -432,5 +437,68 @@ struct PodcastEpisodeDetailView: View {
     (d.showGenres ?? [])
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
+  }
+}
+
+private struct PodcastReadAlongPrepareBar: View {
+  @EnvironmentObject private var model: AppModel
+  @ObservedObject var transcription: PlayerLiveTranscriptionController
+  let episode: ABSPodcastEpisodeListItem
+
+  private var itemId: String { episode.libraryItemId }
+  private var isPreparingThis: Bool { transcription.isPreparingSpeech(for: itemId) }
+  private var isPrepared: Bool { transcription.isSpeechPrepared(libraryItemId: itemId) }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Button {
+        if isPreparingThis {
+          transcription.cancelSpeechPreparation()
+        } else {
+          Task { await model.prepareReadAlong(for: episode) }
+        }
+      } label: {
+        Label(
+          isPreparingThis
+            ? String(localized: "Cancel", comment: "Ebook sync prepare cancel")
+            : (isPrepared
+              ? String(localized: "Prepared", comment: "Ebook sync prepare done")
+              : String(localized: "Prepare", comment: "Ebook sync prepare")),
+          systemImage: isPreparingThis
+            ? "xmark.circle"
+            : (isPrepared ? "checkmark.circle.fill" : "arrow.down.circle")
+        )
+        .font(.subheadline.weight(.semibold))
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+      }
+      .buttonStyle(.bordered)
+      .disabled(transcription.isPreparingSpeechAssets && !isPreparingThis)
+      .accessibilityHint(
+        String(
+          localized: "Download the on-device speech model for teleprompter read along.",
+          comment: "Read along prepare accessibility hint")
+      )
+
+      if isPreparingThis {
+        VStack(alignment: .leading, spacing: 6) {
+          ProgressView(value: transcription.speechPrepProgress)
+          Text(
+            transcription.speechPrepStatusMessage
+              ?? String(localized: "Preparing speech recognition…", comment: "Read along prepare")
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        }
+      } else if isPrepared {
+        Text(String(localized: "Ready for read along", comment: "Read along prepare"))
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      } else if let error = transcription.speechPrepErrorMessage {
+        Text(error)
+          .font(.caption)
+          .foregroundStyle(.red)
+      }
+    }
   }
 }
