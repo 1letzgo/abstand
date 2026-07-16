@@ -385,7 +385,7 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   private func resumeSleepTimerIfNeeded() {
-    guard sleepTimerMode != .off, (sleepTimerRemaining ?? 0) > 0 else { return }
+    guard sleepTimerMode != .off, let remaining = sleepTimerRemaining, remaining > 0 else { return }
     sleepTimerPaused = false
     scheduleSleepTimerWakeIfNeeded()
   }
@@ -512,6 +512,34 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Vordergrund nach langer Pause: UI-Zustand angleichen (kein Ton-Overtake, keine Session-Aktivierung).
   func handleReturnToForeground() {
     refreshPlaybackStateFromEngine()
+    reconcileSleepTimerAfterBackground()
+  }
+
+  /// Sleep-Timer nach Hintergrund-Phase angleichen: AVPlayer läuft im Hintergrund weiter,
+  /// aber `Task.sleep` / periodische Observer sind unzuverlässig. Der Timer kann im Hintergrund
+  /// pausiert worden sein (kurzzeitiger `timeControlStatus`-Wechsel) oder sogar abgelaufen sein,
+  /// ohne dass `pause()` feuern konnte.
+  private func reconcileSleepTimerAfterBackground() {
+    guard sleepTimerMode != .off else { return }
+    // Kapitel-Timer ist positionsbasiert und braucht keine Wanduhr-Reconcile.
+    guard sleepTimerChapterTarget == nil else { return }
+    // Timer pausiert im Hintergrund → Restlaufzeit prüfen.
+    if sleepTimerPaused, let remaining = sleepTimerRemaining {
+      if remaining <= 0 {
+        // Im Hintergrund abgelaufen — Wiedergabe stoppen.
+        markSleepTimerExpired()
+        pause()
+      } else {
+        // Noch Restlaufzeit — Timer fortsetzen, Countdown läuft wieder.
+        resumeSleepTimerIfNeeded()
+      }
+      return
+    }
+    // Timer nicht pausiert, aber evtl. im Hintergrund abgelaufen (Observer/Tick nicht gefeuert).
+    if let end = sleepEndDate, Date() >= end {
+      clearSleepTimer()
+      pause()
+    }
   }
 
   /// UI/`isPlaying` an echten `AVPlayer`-Zustand — auch wenn `currentItem` fehlt oder Engine pausiert wurde.
