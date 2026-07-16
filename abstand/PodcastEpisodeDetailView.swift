@@ -401,7 +401,7 @@ struct PodcastEpisodeDetailView: View {
           sessions: listeningSessions,
           isNetworkReachable: model.isNetworkReachable,
           emptyOnlineText: "No listening sessions recorded for this episode yet.",
-          emptyOfflineText: "Listening history is unavailable offline.",
+          emptyOfflineText: "No listening history cached yet.",
           onJumpToSessionStart: { session in
             Task {
               await model.playPodcastEpisode(episode, resumeAtOverride: session.startTime)

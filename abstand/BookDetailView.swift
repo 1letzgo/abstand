@@ -587,7 +587,7 @@ struct BookDetailView: View {
             sessions: listeningSessions,
             isNetworkReachable: model.isNetworkReachable,
             emptyOnlineText: "No listening sessions recorded for this book yet.",
-            emptyOfflineText: "Listening history is unavailable offline.",
+            emptyOfflineText: "No listening history cached yet.",
             onJumpToSessionStart: { session in
               Task { await model.play(book: d, resumeAtOverride: session.startTime, autoPlay: true) }
             }

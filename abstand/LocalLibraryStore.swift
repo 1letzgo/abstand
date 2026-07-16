@@ -636,6 +636,100 @@ actor LocalLibraryStore {
   func fetchOneTimeAchievementsSnapshot() -> ListeningOneTimeAchievementsSnapshot? {
     LocalLibraryQueries.oneTimeAchievementsSnapshot(context: modelContext)
   }
+
+  // MARK: - Libraries / Author-Detail / Listening-Sessions / Podcast-RSS
+
+  /// Voll-Ersatz der Account-Bibliotheksliste — Local-DB-First für den Library-Picker.
+  func replaceLibraries(_ libraries: [ABSLibrary]) throws {
+    var descriptor = FetchDescriptor<LocalLibrariesSnapshot>()
+    descriptor.fetchLimit = 1
+    if let existing = try modelContext.fetch(descriptor).first {
+      existing.apply(libraries)
+    } else {
+      modelContext.insert(LocalLibrariesSnapshot(libraries: libraries))
+    }
+    try modelContext.save()
+  }
+
+  func fetchLibraries() -> [ABSLibrary]? {
+    LocalLibraryQueries.libraries(context: modelContext)
+  }
+
+  /// Upsert der Autor-Bio — getrennt von Browse-`LocalAuthor`, damit Listen-Reloads die Beschreibung behalten.
+  func upsertAuthorDetail(authorId: String, libraryId: String, description: String?) throws {
+    let aid = authorId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !aid.isEmpty else { return }
+    let lid = libraryId.trimmingCharacters(in: .whitespacesAndNewlines)
+    let predicate = #Predicate<LocalAuthorDetail> { $0.id == aid }
+    var descriptor = FetchDescriptor(predicate: predicate)
+    descriptor.fetchLimit = 1
+    let trimmed = description?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let value = (trimmed?.isEmpty == false) ? trimmed : nil
+    if let existing = try modelContext.fetch(descriptor).first {
+      existing.libraryId = lid
+      existing.authorDescription = value
+    } else {
+      modelContext.insert(LocalAuthorDetail(id: aid, libraryId: lid, authorDescription: value))
+    }
+    try modelContext.save()
+  }
+
+  func fetchAuthorDescription(authorId: String) -> String? {
+    LocalLibraryQueries.authorDescription(context: modelContext, authorId: authorId)
+  }
+
+  /// Voll-Ersatz der Hör-Sitzungen für ein Medium (Buch oder Podcast-Folge).
+  func replaceListeningSessions(
+    libraryItemId: String, episodeId: String?, sessions: [ABSListeningSession]
+  ) throws {
+    let lid = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !lid.isEmpty else { return }
+    let key = LocalListeningSessionsSnapshot.makeKey(libraryItemId: lid, episodeId: episodeId)
+    let predicate = #Predicate<LocalListeningSessionsSnapshot> { $0.compositeKey == key }
+    var descriptor = FetchDescriptor(predicate: predicate)
+    descriptor.fetchLimit = 1
+    if let existing = try modelContext.fetch(descriptor).first {
+      existing.apply(sessions)
+    } else {
+      modelContext.insert(
+        LocalListeningSessionsSnapshot(libraryItemId: lid, episodeId: episodeId, sessions: sessions))
+    }
+    try modelContext.save()
+  }
+
+  func fetchListeningSessions(libraryItemId: String, episodeId: String?) -> [ABSListeningSession]? {
+    LocalLibraryQueries.listeningSessions(
+      context: modelContext, libraryItemId: libraryItemId, episodeId: episodeId)
+  }
+
+  /// Roh-RSS-Feed je Sendung speichern (wird beim Lesen erneut zu Drafts geparst).
+  func replacePodcastRssFeed(showId: String, rawFeedData: Data) throws {
+    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !sid.isEmpty else { return }
+    let predicate = #Predicate<LocalPodcastRssFeedSnapshot> { $0.showId == sid }
+    var descriptor = FetchDescriptor(predicate: predicate)
+    descriptor.fetchLimit = 1
+    if let existing = try modelContext.fetch(descriptor).first {
+      existing.apply(rawFeedData: rawFeedData)
+    } else {
+      modelContext.insert(LocalPodcastRssFeedSnapshot(showId: sid, rawFeedData: rawFeedData))
+    }
+    try modelContext.save()
+  }
+
+  func fetchPodcastRssFeedRaw(showId: String) -> Data? {
+    LocalLibraryQueries.podcastRssFeedRaw(context: modelContext, showId: showId)
+  }
+
+  func deletePodcastRssFeed(showId: String) throws {
+    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !sid.isEmpty else { return }
+    let predicate = #Predicate<LocalPodcastRssFeedSnapshot> { $0.showId == sid }
+    for row in try modelContext.fetch(FetchDescriptor(predicate: predicate)) {
+      modelContext.delete(row)
+    }
+    try modelContext.save()
+  }
 }
 
 /// Reine Lesefunktionen, die sowohl vom `LocalLibraryStore`-Actor (Hintergrund-Fetches) als auch direkt vom
@@ -973,6 +1067,44 @@ enum LocalLibraryQueries {
     }
     return ListeningOneTimeAchievementsSnapshot(achievements: list, savedAt: rows.compactMap(\.savedAt).max())
   }
+
+  static func libraries(context: ModelContext) -> [ABSLibrary]? {
+    var descriptor = FetchDescriptor<LocalLibrariesSnapshot>()
+    descriptor.fetchLimit = 1
+    guard let row = (try? context.fetch(descriptor))?.first else { return nil }
+    return row.toLibraries()
+  }
+
+  static func authorDescription(context: ModelContext, authorId: String) -> String? {
+    let aid = authorId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !aid.isEmpty else { return nil }
+    let predicate = #Predicate<LocalAuthorDetail> { $0.id == aid }
+    var descriptor = FetchDescriptor(predicate: predicate)
+    descriptor.fetchLimit = 1
+    guard let row = (try? context.fetch(descriptor))?.first else { return nil }
+    let text = row.authorDescription?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return text.isEmpty ? nil : text
+  }
+
+  static func listeningSessions(
+    context: ModelContext, libraryItemId: String, episodeId: String?
+  ) -> [ABSListeningSession]? {
+    let key = LocalListeningSessionsSnapshot.makeKey(libraryItemId: libraryItemId, episodeId: episodeId)
+    let predicate = #Predicate<LocalListeningSessionsSnapshot> { $0.compositeKey == key }
+    var descriptor = FetchDescriptor(predicate: predicate)
+    descriptor.fetchLimit = 1
+    guard let row = (try? context.fetch(descriptor))?.first else { return nil }
+    return row.toSessions()
+  }
+
+  static func podcastRssFeedRaw(context: ModelContext, showId: String) -> Data? {
+    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !sid.isEmpty else { return nil }
+    let predicate = #Predicate<LocalPodcastRssFeedSnapshot> { $0.showId == sid }
+    var descriptor = FetchDescriptor(predicate: predicate)
+    descriptor.fetchLimit = 1
+    return (try? context.fetch(descriptor))?.first?.blob
+  }
 }
 
 /// Öffnet/wechselt den `ModelContainer` je Account. Pfadschema analog `AccountCacheDirectory.accountDir`
@@ -1049,7 +1181,7 @@ enum LocalLibraryStoreManager {
     return container
   }
 
-  /// Nach fehlgeschlagener Schema-V3-Migration: neuer Dateiname, Legacy-Store einmalig löschen.
+  /// Store-Dateiname (historisch `.v2` nach früherem Migrations-Wipe). Schema selbst: `LocalLibrarySchemaV3`.
   private static let localLibraryStoreFileName = "LocalLibrary.v2.store"
 
   private static func removeLegacyLocalLibraryStoreIfPresent(in directory: URL) {

@@ -1882,7 +1882,7 @@ struct NowPlayingDetailView: View {
           emptyOnlineText: isEpisode
             ? "No listening sessions recorded for this episode yet."
             : "No listening sessions recorded for this book yet.",
-          emptyOfflineText: "Listening history is unavailable offline.",
+          emptyOfflineText: "No listening history cached yet.",
           onJumpToSessionStart: { session in
             Task {
               if let episode = model.podcastEpisodeForActivePlayback() {
