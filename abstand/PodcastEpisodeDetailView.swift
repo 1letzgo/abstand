@@ -341,7 +341,10 @@ struct PodcastEpisodeDetailView: View {
       .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
 
       if model.player.liveTranscription.isReadAlongAvailable {
-        PodcastReadAlongPrepareBar(episode: episode, transcription: model.player.liveTranscription)
+        PodcastReadAlongPrepareBar(
+          transcription: model.player.liveTranscription,
+          episode: episode
+        )
           .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
       }
 
