@@ -49,6 +49,55 @@ struct EbookAudioAlignmentMap: Codable, Equatable, Sendable {
   let createdAt: Date
   let localeIdentifier: String
   let sentences: [AlignedSentence]
+  /// Abgedecktes Audio-Fenster (global, s). `nil` = Legacy-Vollbuch-Map.
+  let coveredGlobalStart: Double?
+  let coveredGlobalEnd: Double?
+
+  enum CodingKeys: String, CodingKey {
+    case libraryItemId, ebookFileHash, audioFingerprint, createdAt, localeIdentifier, sentences
+    case coveredGlobalStart, coveredGlobalEnd
+  }
+
+  init(
+    libraryItemId: String,
+    ebookFileHash: String,
+    audioFingerprint: String,
+    createdAt: Date,
+    localeIdentifier: String,
+    sentences: [AlignedSentence],
+    coveredGlobalStart: Double? = nil,
+    coveredGlobalEnd: Double? = nil
+  ) {
+    self.libraryItemId = libraryItemId
+    self.ebookFileHash = ebookFileHash
+    self.audioFingerprint = audioFingerprint
+    self.createdAt = createdAt
+    self.localeIdentifier = localeIdentifier
+    self.sentences = sentences
+    self.coveredGlobalStart = coveredGlobalStart
+    self.coveredGlobalEnd = coveredGlobalEnd
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    libraryItemId = try c.decode(String.self, forKey: .libraryItemId)
+    ebookFileHash = try c.decode(String.self, forKey: .ebookFileHash)
+    audioFingerprint = try c.decode(String.self, forKey: .audioFingerprint)
+    createdAt = try c.decode(Date.self, forKey: .createdAt)
+    localeIdentifier = try c.decode(String.self, forKey: .localeIdentifier)
+    sentences = try c.decode([AlignedSentence].self, forKey: .sentences)
+    coveredGlobalStart = try c.decodeIfPresent(Double.self, forKey: .coveredGlobalStart)
+    coveredGlobalEnd = try c.decodeIfPresent(Double.self, forKey: .coveredGlobalEnd)
+  }
+
+  /// Ob die Map die Hörposition abdeckt (`slack` in Sekunden Toleranz am Rand).
+  func covers(globalTime time: Double, slack: Double = 45) -> Bool {
+    guard let start = coveredGlobalStart, let end = coveredGlobalEnd, end > start else {
+      // Legacy ohne Fenster = ganzes Buch.
+      return true
+    }
+    return time >= (start - slack) && time <= (end + slack)
+  }
 
   func sentence(atGlobalTime time: Double) -> AlignedSentence? {
     guard !sentences.isEmpty else { return nil }
@@ -71,6 +120,22 @@ struct EbookAudioAlignmentMap: Codable, Equatable, Sendable {
       return next
     }
     return sentence.words.last
+  }
+}
+
+/// Fenster um den Hörfortschritt für Prepare (statt Vollbuch-Transkription).
+enum EbookSyncPrepWindow {
+  /// ~5 % zurück, ~8 % voraus — mit Minuten-Mindestdauer und Cap.
+  static func range(around anchor: Double, totalDuration: Double) -> ClosedRange<Double> {
+    let total = max(1, totalDuration)
+    let lookback = min(max(total * 0.05, 120), 12 * 60)
+    let lookahead = min(max(total * 0.08, 180), 18 * 60)
+    let start = max(0, anchor - lookback)
+    var end = min(total, anchor + lookahead)
+    if end - start < min(120, total) {
+      end = min(total, start + min(total, 120))
+    }
+    return start...max(start + 1, end)
   }
 }
 

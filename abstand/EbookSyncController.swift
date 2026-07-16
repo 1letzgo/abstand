@@ -55,15 +55,30 @@ final class EbookSyncController: ObservableObject {
     isPreparing && preparingLibraryItemId == libraryItemId
   }
 
+  /// Ob die geladene/gecachte Map die Hörposition abdeckt (Fenster-Prep).
+  func alignmentMapCovers(libraryItemId: String, globalTime: Double) -> Bool {
+    if let map = alignmentMap, map.libraryItemId == libraryItemId {
+      return map.covers(globalTime: globalTime)
+    }
+    guard preparedLibraryItemId == libraryItemId,
+      let cached = EbookAudioAlignmentStore.load(
+        account: accountURL, userId: userId, libraryItemId: libraryItemId)
+    else { return false }
+    return cached.covers(globalTime: globalTime)
+  }
+
   /// Nur Alignment vorbereiten (kein Reader, kein Sync-Mode).
   /// `downloadRoot` erlaubt Prep ohne aktiven Player (Prepare-Queue).
+  /// Transkribiert nur ein Fenster um `anchorGlobalTime` (Hörfortschritt), nicht das ganze Buch.
   func prepareAlignment(
     player: PlaybackController?,
     libraryItemId: String,
     ebookFileURL: URL,
     ebookFormat: ABSEbookFormat,
     downloadRoot: URL? = nil,
-    preferredLanguageTag: String? = nil
+    preferredLanguageTag: String? = nil,
+    anchorGlobalTime: Double = 0,
+    totalDurationHint: Double? = nil
   ) async {
     errorMessage = nil
     guard ebookFormat == .epub else {
@@ -81,12 +96,13 @@ final class EbookSyncController: ObservableObject {
       return
     }
 
-    // Bereits gültiger Cache → sofort als vorbereitet markieren.
+    // Bereits gültiger Cache um den Anker → sofort als vorbereitet markieren.
     if hasValidCachedAlignment(
       player: player,
       libraryItemId: libraryItemId,
       ebookFileURL: ebookFileURL,
-      downloadRoot: downloadRoot
+      downloadRoot: downloadRoot,
+      anchorGlobalTime: anchorGlobalTime
     ) {
       preparedLibraryItemId = libraryItemId
       prepStatusMessage = String(localized: "Ready for Read & Listen", comment: "Ebook sync prep")
@@ -108,7 +124,9 @@ final class EbookSyncController: ObservableObject {
           libraryItemId: libraryItemId,
           ebookFileURL: ebookFileURL,
           downloadRoot: downloadRoot,
-          preferredLanguageTag: languageTag
+          preferredLanguageTag: languageTag,
+          anchorGlobalTime: anchorGlobalTime,
+          totalDurationHint: totalDurationHint
         )
         self.alignmentMap = map
         self.preparedLibraryItemId = libraryItemId
@@ -163,7 +181,9 @@ final class EbookSyncController: ObservableObject {
       let map = try await ensureAlignmentMap(
         player: player,
         libraryItemId: libraryItemId,
-        ebookFileURL: ebookFileURL
+        ebookFileURL: ebookFileURL,
+        anchorGlobalTime: player.liveGlobalPlaybackPosition,
+        totalDurationHint: player.totalDuration
       )
       alignmentMap = map
       preparedLibraryItemId = libraryItemId
@@ -234,7 +254,8 @@ final class EbookSyncController: ObservableObject {
     player: PlaybackController?,
     libraryItemId: String,
     ebookFileURL: URL,
-    downloadRoot: URL? = nil
+    downloadRoot: URL? = nil,
+    anchorGlobalTime: Double = 0
   ) -> Bool {
     guard
       let fingerprints = alignmentFingerprints(
@@ -249,7 +270,8 @@ final class EbookSyncController: ObservableObject {
         account: accountURL, userId: userId, libraryItemId: libraryItemId),
       cached.ebookFileHash == fingerprints.ebookHash,
       cached.audioFingerprint == fingerprints.audioHash,
-      !cached.sentences.isEmpty
+      !cached.sentences.isEmpty,
+      cached.covers(globalTime: anchorGlobalTime)
     else { return false }
     return true
   }
@@ -259,13 +281,15 @@ final class EbookSyncController: ObservableObject {
     player: PlaybackController?,
     libraryItemId: String,
     ebookFileURL: URL,
-    downloadRoot: URL? = nil
+    downloadRoot: URL? = nil,
+    anchorGlobalTime: Double = 0
   ) {
     if hasValidCachedAlignment(
       player: player,
       libraryItemId: libraryItemId,
       ebookFileURL: ebookFileURL,
-      downloadRoot: downloadRoot
+      downloadRoot: downloadRoot,
+      anchorGlobalTime: anchorGlobalTime
     ) {
       preparedLibraryItemId = libraryItemId
     } else if preparedLibraryItemId == libraryItemId {
@@ -273,19 +297,37 @@ final class EbookSyncController: ObservableObject {
     }
   }
 
-  private func resolveAudioContexts(
+  private func resolveTotalDuration(
     player: PlaybackController?,
-    downloadRoot: URL?
-  ) -> [PlayerTranscriptionAudioContext] {
-    if let downloadRoot {
-      return PlaybackController.makeLocalTranscriptionAudioContexts(root: downloadRoot)
+    downloadRoot: URL?,
+    hint: Double?
+  ) -> Double {
+    if let hint, hint > 1 { return hint }
+    if let downloadRoot, let manifest = ABSDownloadManifest.load(from: downloadRoot) {
+      if let total = manifest.totalDuration, total > 1 { return total }
+      let sum = manifest.tracks.reduce(0) { $0 + $1.duration }
+      if sum > 1 { return sum }
     }
-    guard let player else { return [] }
-    return player.makeLocalTranscriptionAudioContexts(
-      overlapping: 0...(max(player.totalDuration, 1))
-    )
+    if let player, player.totalDuration > 1 { return player.totalDuration }
+    return 1
   }
 
+  private func resolveAudioContexts(
+    player: PlaybackController?,
+    downloadRoot: URL?,
+    overlapping: ClosedRange<Double>
+  ) -> [PlayerTranscriptionAudioContext] {
+    if let downloadRoot {
+      return PlaybackController.makeLocalTranscriptionAudioContexts(
+        root: downloadRoot,
+        overlapping: overlapping
+      )
+    }
+    guard let player else { return [] }
+    return player.makeLocalTranscriptionAudioContexts(overlapping: overlapping)
+  }
+
+  /// Fingerprint über alle lokalen Tracks (unabhängig vom Prep-Fenster).
   private func alignmentFingerprints(
     player: PlaybackController?,
     libraryItemId: String,
@@ -294,7 +336,9 @@ final class EbookSyncController: ObservableObject {
   ) -> (ebookHash: String, audioHash: String)? {
     _ = libraryItemId
     let ebookHash = EbookAudioAlignmentStore.fileFingerprint(url: ebookFileURL)
-    let contexts = resolveAudioContexts(player: player, downloadRoot: downloadRoot)
+    let fullRange = 0...(max(resolveTotalDuration(player: player, downloadRoot: downloadRoot, hint: nil), 1))
+    let contexts = resolveAudioContexts(
+      player: player, downloadRoot: downloadRoot, overlapping: fullRange)
     guard !contexts.isEmpty else { return nil }
     let audioHash = EbookAudioAlignmentStore.audioFingerprint(
       trackURLs: contexts.map(\.assetURL),
@@ -308,14 +352,29 @@ final class EbookSyncController: ObservableObject {
     libraryItemId: String,
     ebookFileURL: URL,
     downloadRoot: URL? = nil,
-    preferredLanguageTag: String? = nil
+    preferredLanguageTag: String? = nil,
+    anchorGlobalTime: Double = 0,
+    totalDurationHint: Double? = nil
   ) async throws -> EbookAudioAlignmentMap {
     let ebookHash = EbookAudioAlignmentStore.fileFingerprint(url: ebookFileURL)
-    let contexts = resolveAudioContexts(player: player, downloadRoot: downloadRoot)
+    let totalDuration = resolveTotalDuration(
+      player: player, downloadRoot: downloadRoot, hint: totalDurationHint)
+    let audioWindow = EbookSyncPrepWindow.range(
+      around: max(0, anchorGlobalTime),
+      totalDuration: totalDuration
+    )
+    let contexts = resolveAudioContexts(
+      player: player, downloadRoot: downloadRoot, overlapping: audioWindow)
     guard !contexts.isEmpty else { throw EbookSyncError.audioUnavailable }
+
+    let fullContexts = resolveAudioContexts(
+      player: player,
+      downloadRoot: downloadRoot,
+      overlapping: 0...totalDuration
+    )
     let audioHash = EbookAudioAlignmentStore.audioFingerprint(
-      trackURLs: contexts.map(\.assetURL),
-      trackOffsets: contexts.map(\.trackGlobalOffset)
+      trackURLs: (fullContexts.isEmpty ? contexts : fullContexts).map(\.assetURL),
+      trackOffsets: (fullContexts.isEmpty ? contexts : fullContexts).map(\.trackGlobalOffset)
     )
     let languageTag = preferredLanguageTag ?? player?.preferredTranscriptionLanguageTag
 
@@ -326,7 +385,8 @@ final class EbookSyncController: ObservableObject {
     ),
       cached.ebookFileHash == ebookHash,
       cached.audioFingerprint == audioHash,
-      !cached.sentences.isEmpty
+      !cached.sentences.isEmpty,
+      cached.covers(globalTime: anchorGlobalTime)
     {
       preparedLibraryItemId = libraryItemId
       return cached
@@ -354,7 +414,8 @@ final class EbookSyncController: ObservableObject {
       contexts: contexts,
       preferredLanguageTag: languageTag,
       ebookFileHash: ebookHash,
-      audioFingerprint: audioHash
+      audioFingerprint: audioHash,
+      audioWindow: audioWindow
     ) { [weak self] progress in
       self?.prepProgress = progress.fraction
       self?.prepStatusMessage = progress.statusMessage

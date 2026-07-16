@@ -77,7 +77,7 @@ final class EbookAudioAligner {
     }
   }
 
-  /// Transkribiert lokale Tracks vollständig und aligned sie gegen EPUB-Sätze.
+  /// Transkribiert ein Audio-Fenster um den Fortschritt und aligned es gegen EPUB-Sätze.
   func align(
     libraryItemId: String,
     ebookFileURL: URL,
@@ -85,6 +85,7 @@ final class EbookAudioAligner {
     preferredLanguageTag: String?,
     ebookFileHash: String,
     audioFingerprint: String,
+    audioWindow: ClosedRange<Double>,
     onProgress: @escaping @MainActor (Progress) -> Void
   ) async throws -> EbookAudioAlignmentMap {
     guard await SpeechTranscriberAvailability.isSupported() else {
@@ -112,30 +113,36 @@ final class EbookAudioAligner {
     }
 
     onProgress(Progress(fraction: 0.18, statusMessage: String(
-      localized: "Transcribing audiobook…", comment: "Ebook sync prep")))
+      localized: "Transcribing nearby audio…", comment: "Ebook sync prep")))
     let transcriptWords = try await transcribeAllTracks(
       contexts: contexts,
-      locale: localeResolution.locale
+      locale: localeResolution.locale,
+      audioWindow: audioWindow
     ) { trackFrac in
       onProgress(Progress(
         fraction: 0.18 + trackFrac * 0.55,
-        statusMessage: String(localized: "Transcribing audiobook…", comment: "Ebook sync prep")
+        statusMessage: String(localized: "Transcribing nearby audio…", comment: "Ebook sync prep")
       ))
     }
     guard !transcriptWords.isEmpty else { throw EbookSyncError.alignmentFailed }
 
     onProgress(Progress(fraction: 0.78, statusMessage: String(
       localized: "Aligning text and audio…", comment: "Ebook sync prep")))
-    var aligned = fuzzyAlign(
+    let ebookStart = findEbookStartIndex(
       ebookSentences: ebookSentences,
       transcriptWords: transcriptWords
     )
+    let ebookSlice = Array(ebookSentences[ebookStart...])
+    var aligned = fuzzyAlign(
+      ebookSentences: ebookSlice,
+      transcriptWords: transcriptWords
+    )
 
-    if shouldTryLLMReanchor(aligned: aligned, ebookCount: ebookSentences.count) {
+    if shouldTryLLMReanchor(aligned: aligned, sliceCount: ebookSlice.count) {
       onProgress(Progress(fraction: 0.9, statusMessage: String(
         localized: "Refining alignment…", comment: "Ebook sync prep")))
       if let refined = await llmReanchorIfNeeded(
-        ebookSentences: ebookSentences,
+        ebookSentences: ebookSlice,
         transcriptWords: transcriptWords,
         current: aligned
       ) {
@@ -154,7 +161,9 @@ final class EbookAudioAligner {
       audioFingerprint: audioFingerprint,
       createdAt: Date(),
       localeIdentifier: localeResolution.locale.identifier(.bcp47),
-      sentences: aligned
+      sentences: aligned,
+      coveredGlobalStart: audioWindow.lowerBound,
+      coveredGlobalEnd: audioWindow.upperBound
     )
   }
 
@@ -163,12 +172,17 @@ final class EbookAudioAligner {
   private func transcribeAllTracks(
     contexts: [PlayerTranscriptionAudioContext],
     locale: Locale,
+    audioWindow: ClosedRange<Double>,
     onTrackProgress: @escaping @MainActor (Double) -> Void
   ) async throws -> [EbookAlignerTranscriptWord] {
     var all: [EbookAlignerTranscriptWord] = []
     let total = max(1, contexts.count)
     for (index, context) in contexts.enumerated() {
-      let words = try await transcribeTrack(context: context, locale: locale)
+      let words = try await transcribeTrack(
+        context: context,
+        locale: locale,
+        audioWindow: audioWindow
+      )
       all.append(contentsOf: words)
       onTrackProgress(Double(index + 1) / Double(total))
       if Task.isCancelled { throw CancellationError() }
@@ -178,7 +192,8 @@ final class EbookAudioAligner {
 
   private func transcribeTrack(
     context: PlayerTranscriptionAudioContext,
-    locale: Locale
+    locale: Locale,
+    audioWindow: ClosedRange<Double>
   ) async throws -> [EbookAlignerTranscriptWord] {
     let transcriber = SpeechTranscriber(
       locale: locale,
@@ -192,10 +207,17 @@ final class EbookAudioAligner {
       throw EbookSyncError.conversionFailed
     }
 
+    let asset = makeAsset(from: context)
+    let assetDuration = try await asset.load(.duration).seconds
+    guard assetDuration.isFinite, assetDuration > 0.25 else { return [] }
+    let localStart = max(0, audioWindow.lowerBound - context.trackGlobalOffset)
+    let localEnd = min(assetDuration, audioWindow.upperBound - context.trackGlobalOffset)
+    guard localEnd > localStart + 0.25 else { return [] }
+
     let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
     try await analyzer.start(inputSequence: stream)
 
-    let collector = TranscriptWordCollector(offset: context.trackGlobalOffset)
+    let collector = TranscriptWordCollector(offset: context.trackGlobalOffset + localStart)
     let resultTask = Task {
       for try await result in transcriber.results where result.isFinal {
         await collector.append(result.text)
@@ -203,7 +225,13 @@ final class EbookAudioAligner {
     }
 
     do {
-      try await feedEntireTrack(context: context, targetFormat: format, input: continuation)
+      try await feedTrackRange(
+        asset: asset,
+        localStart: localStart,
+        localEnd: localEnd,
+        targetFormat: format,
+        input: continuation
+      )
       continuation.finish()
       try await analyzer.finalizeAndFinishThroughEndOfInput()
       _ = try await resultTask.value
@@ -216,25 +244,32 @@ final class EbookAudioAligner {
     }
   }
 
-  private func feedEntireTrack(
-    context: PlayerTranscriptionAudioContext,
-    targetFormat: AVAudioFormat,
-    input: AsyncStream<AnalyzerInput>.Continuation
-  ) async throws {
-    let asset: AVURLAsset
+  private func makeAsset(from context: PlayerTranscriptionAudioContext) -> AVURLAsset {
     if let token = context.streamAuthToken, !token.isEmpty {
-      asset = AVURLAsset(
+      return AVURLAsset(
         url: context.assetURL,
         options: ["AVURLAssetHTTPHeaderFieldsKey": ["Authorization": "Bearer \(token)"]]
       )
-    } else {
-      asset = AVURLAsset(url: context.assetURL)
     }
+    return AVURLAsset(url: context.assetURL)
+  }
 
+  private func feedTrackRange(
+    asset: AVURLAsset,
+    localStart: Double,
+    localEnd: Double,
+    targetFormat: AVAudioFormat,
+    input: AsyncStream<AnalyzerInput>.Continuation
+  ) async throws {
     let tracks = try await asset.loadTracks(withMediaType: .audio)
     guard let audioTrack = tracks.first else { throw EbookSyncError.audioUnavailable }
 
     let reader = try AVAssetReader(asset: asset)
+    let timescale: CMTimeScale = 600
+    reader.timeRange = CMTimeRange(
+      start: CMTime(seconds: localStart, preferredTimescale: timescale),
+      duration: CMTime(seconds: max(0.25, localEnd - localStart), preferredTimescale: timescale)
+    )
     let output = AVAssetReaderTrackOutput(
       track: audioTrack,
       outputSettings: [
@@ -289,6 +324,46 @@ final class EbookAudioAligner {
   }
 
   // MARK: - Fuzzy alignment (Storyteller-style)
+
+  /// Findet den EPUB-Einstieg für ein Teil-Transkript (Fenster um den Fortschritt).
+  private func findEbookStartIndex(
+    ebookSentences: [EbookExtractedSentence],
+    transcriptWords: [EbookAlignerTranscriptWord]
+  ) -> Int {
+    let needle = Array(
+      transcriptWords.prefix(48).map(\.normalized).filter { !$0.isEmpty }
+    )
+    guard !needle.isEmpty, !ebookSentences.isEmpty else { return 0 }
+
+    var sentenceTokenStarts: [Int] = []
+    var allTokens: [String] = []
+    sentenceTokenStarts.reserveCapacity(ebookSentences.count)
+    for sentence in ebookSentences {
+      sentenceTokenStarts.append(allTokens.count)
+      allTokens.append(contentsOf: EbookTextExtractor.tokens(from: sentence.text))
+    }
+    guard allTokens.count >= needle.count else { return 0 }
+
+    let needleLen = needle.count
+    let step = max(1, allTokens.count / 500)
+    var bestScore = 0.0
+    var bestSentence = 0
+    var i = 0
+    while i + needleLen <= allTokens.count {
+      let window = Array(allTokens[i ..< (i + needleLen)])
+      let score = tokenOverlapScore(a: needle, b: window)
+      if score > bestScore {
+        bestScore = score
+        var sentenceIdx = 0
+        for (si, start) in sentenceTokenStarts.enumerated() {
+          if start <= i { sentenceIdx = si } else { break }
+        }
+        bestSentence = sentenceIdx
+      }
+      i += step
+    }
+    return bestScore >= 0.35 ? bestSentence : 0
+  }
 
   private func fuzzyAlign(
     ebookSentences: [EbookExtractedSentence],
@@ -504,10 +579,10 @@ final class EbookAudioAligner {
 
   // MARK: - FoundationModels re-anchor (coarse only)
 
-  private func shouldTryLLMReanchor(aligned: [AlignedSentence], ebookCount: Int) -> Bool {
-    guard ebookCount > 0 else { return false }
-    let coverage = Double(aligned.count) / Double(ebookCount)
-    guard coverage < 0.55 else { return false }
+  private func shouldTryLLMReanchor(aligned: [AlignedSentence], sliceCount: Int) -> Bool {
+    // Fenster-Prep matched nur einen Ausschnitt — LLM nur bei fast leerem Ergebnis.
+    guard sliceCount > 0 else { return false }
+    guard aligned.count < 8 else { return false }
     return SystemLanguageModel.default.availability == .available
   }
 
