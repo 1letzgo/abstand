@@ -10980,13 +10980,17 @@ final class AppModel: ObservableObject {
       throw EbookSyncError.ebookUnavailable
     }
 
+    let anchor = readAlongAnchorTime(for: book)
+    let durationHint = readAlongTotalDurationHint(for: book, downloadRoot: downloadRoot)
+
     configureEbookSyncSession()
     await player.ebookSync.refreshAvailability()
     player.ebookSync.refreshPreparedState(
       player: player,
       libraryItemId: book.id,
       ebookFileURL: epubURL,
-      downloadRoot: downloadRoot
+      downloadRoot: downloadRoot,
+      anchorGlobalTime: anchor
     )
 
     let progressMirror = Task { @MainActor [weak self] in
@@ -11009,7 +11013,9 @@ final class AppModel: ObservableObject {
       ebookFileURL: epubURL,
       ebookFormat: .epub,
       downloadRoot: downloadRoot,
-      preferredLanguageTag: languageTag
+      preferredLanguageTag: languageTag,
+      anchorGlobalTime: anchor,
+      totalDurationHint: durationHint
     )
     try Task.checkCancellation()
     if let syncError = player.ebookSync.errorMessage {
@@ -11091,7 +11097,12 @@ final class AppModel: ObservableObject {
   @discardableResult
   func isEbookSyncPrepared(for book: ABSBook) -> Bool {
     let sync = player.ebookSync
-    if sync.isPrepared(libraryItemId: book.id) { return true }
+    let anchor = readAlongAnchorTime(for: book)
+    if sync.isPrepared(libraryItemId: book.id),
+      sync.alignmentMapCovers(libraryItemId: book.id, globalTime: anchor)
+    {
+      return true
+    }
     guard
       let account = cacheAccountURL(),
       let cached = EbookLocalStore.cachedEbookIfPresent(account: account, libraryItemId: book.id),
@@ -11110,9 +11121,31 @@ final class AppModel: ObservableObject {
       player: player,
       libraryItemId: book.id,
       ebookFileURL: cached.url,
-      downloadRoot: downloadRoot
+      downloadRoot: downloadRoot,
+      anchorGlobalTime: anchor
     )
     return sync.isPrepared(libraryItemId: book.id)
+  }
+
+  /// Aktuelle Hörposition als Anker für Fenster-Prep.
+  private func readAlongAnchorTime(for book: ABSBook) -> Double {
+    if player.activeBook?.id == book.id {
+      return max(0, player.liveGlobalPlaybackPosition)
+    }
+    return max(0, progressByItemId[book.id]?.currentTime ?? 0)
+  }
+
+  private func readAlongTotalDurationHint(for book: ABSBook, downloadRoot: URL?) -> Double? {
+    if player.activeBook?.id == book.id, player.totalDuration > 1 {
+      return player.totalDuration
+    }
+    if let d = progressByItemId[book.id]?.duration, d > 1 { return d }
+    if let downloadRoot, let manifest = ABSDownloadManifest.load(from: downloadRoot) {
+      if let total = manifest.totalDuration, total > 1 { return total }
+      let sum = manifest.tracks.reduce(0) { $0 + $1.duration }
+      if sum > 1 { return sum }
+    }
+    return nil
   }
 
   /// Hörbuch + EPUB Sync-Mode (on-device Alignment, Highlight im Reader).
@@ -11128,7 +11161,11 @@ final class AppModel: ObservableObject {
     configureEbookSyncSession()
     await player.ebookSync.refreshAvailability()
     player.ebookSync.refreshPreparedState(
-      player: player, libraryItemId: book.id, ebookFileURL: epubURL)
+      player: player,
+      libraryItemId: book.id,
+      ebookFileURL: epubURL,
+      anchorGlobalTime: readAlongAnchorTime(for: book)
+    )
 
     // Reader zuerst öffnen (Sync-Overlay zeigt Prep-Fortschritt, falls noch nötig).
     prepareEbookOpenFromServer(libraryItemId: book.id, format: .epub)
