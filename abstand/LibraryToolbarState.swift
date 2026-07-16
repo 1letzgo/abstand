@@ -358,8 +358,6 @@ struct BooksLibraryToolbarContent: ToolbarContent {
       BrowseGenresSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
     case .tags:
       BrowseTagsSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
-    case .ebooks, .ebooksSupplementary:
-      BrowseEbooksSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
     default:
       BooksLibraryToolbarBodyStandard(snapshot: snapshot, toolbarState: toolbarState)
     }
@@ -416,23 +414,6 @@ private struct BrowseTagsSortToolbarContent: ToolbarContent {
         sortDescending: snapshot.browseTagsSortDescending,
         onSortFieldChange: { toolbarState.applyBrowseTagsSortField($0) },
         onSortDescendingChange: { toolbarState.applyBrowseTagsSortDescending($0) }
-      )
-      .equatable()
-    }
-  }
-}
-
-private struct BrowseEbooksSortToolbarContent: ToolbarContent {
-  let snapshot: BooksLibraryToolbarSnapshot
-  let toolbarState: BooksLibraryToolbarState
-
-  var body: some ToolbarContent {
-    ToolbarItemGroup(placement: .topBarTrailing) {
-      BooksCatalogSortToolbarMenu(
-        sortField: snapshot.catalogSortField,
-        sortDescending: snapshot.catalogSortDescending,
-        onSortFieldChange: { toolbarState.applyCatalogSortField($0) },
-        onSortDescendingChange: { toolbarState.applyCatalogSortDescending($0) }
       )
       .equatable()
     }

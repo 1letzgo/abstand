@@ -239,9 +239,9 @@ enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
   var id: String { rawValue }
 
   /// Unterbereiche im Audiobook-Bereich des gemeinsamen Medien-Tabs.
+  /// eBooks/Supplementary sind als Katalog-Filter verfügbar (nicht als eigener Strip-Abschnitt).
   static let audiobookStripOrder: [BooksBrowseSection] = [
     .books, .series, .author, .collections, .genres, .narrators, .tags,
-    .ebooks, .ebooksSupplementary,
   ]
 
   var systemImage: String {
@@ -272,6 +272,8 @@ enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
   case finished
   case notStarted
   case downloaded
+  case ebooks
+  case ebooksSupplementary
 
   var id: String { rawValue }
 
@@ -281,6 +283,8 @@ enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
     case .finished: return "Finished"
     case .notStarted: return "Not started"
     case .downloaded: return "Downloaded"
+    case .ebooks: return "eBooks"
+    case .ebooksSupplementary: return "Supplementary eBooks"
     }
   }
 
@@ -290,6 +294,8 @@ enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
     case .finished: return "checkmark.circle"
     case .notStarted: return "circle"
     case .downloaded: return "arrow.down.circle"
+    case .ebooks: return "book.closed"
+    case .ebooksSupplementary: return "books.vertical.fill"
     }
   }
 
@@ -305,6 +311,8 @@ enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
     case .inProgress: return key(group: "progress", value: "in-progress")
     case .finished: return key(group: "progress", value: "finished")
     case .notStarted: return key(group: "progress", value: "not-started")
+    case .ebooks: return key(group: "ebooks", value: "ebook")
+    case .ebooksSupplementary: return key(group: "ebooks", value: "supplementary")
     }
   }
 
@@ -312,6 +320,8 @@ enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
     switch self {
     case .inProgress, .finished, .notStarted: return "Progress"
     case .downloaded: return "Downloaded"
+    case .ebooks: return "eBooks"
+    case .ebooksSupplementary: return "Supplementary"
     }
   }
 
@@ -321,6 +331,8 @@ enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
     case .finished: return "Finished"
     case .notStarted: return "Not started"
     case .downloaded: return nil
+    case .ebooks: return nil
+    case .ebooksSupplementary: return nil
     }
   }
 }
@@ -11080,7 +11092,7 @@ final class AppModel: ObservableObject {
     switch libraryCatalogQuickFilter {
     case .inProgress, .finished, .notStarted:
       return true
-    case .downloaded, nil:
+    case .downloaded, .ebooks, .ebooksSupplementary, nil:
       break
     }
     let f = activeLibraryFilter?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -11182,7 +11194,7 @@ final class AppModel: ObservableObject {
       } else {
         removeBookFromCatalogList(bookId)
       }
-    case .downloaded, nil:
+    case .downloaded, .ebooks, .ebooksSupplementary, nil:
       let f = activeLibraryFilter?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       guard f.hasPrefix("progress.") else { return }
       if f.contains("in-progress") || f.contains("not-started") {
@@ -11228,7 +11240,7 @@ final class AppModel: ObservableObject {
       if !books.contains(where: { $0.id == bookId }), let stub = lookupBookStub(id: bookId) {
         books.insert(stub, at: 0)
       }
-    case .downloaded, nil:
+    case .downloaded, .ebooks, .ebooksSupplementary, nil:
       let f = activeLibraryFilter?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       guard f.hasPrefix("progress.") else { return }
       if f.contains("in-progress") || f.contains("finished") {

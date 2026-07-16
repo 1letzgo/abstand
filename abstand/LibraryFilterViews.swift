@@ -31,6 +31,11 @@ struct BooksCatalogFilterToolbarMenu: View, Equatable {
       Divider()
 
       filterButton(.downloaded)
+
+      Divider()
+
+      filterButton(.ebooks)
+      filterButton(.ebooksSupplementary)
     } label: {
       Image(
         systemName: isActive

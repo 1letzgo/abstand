@@ -294,10 +294,6 @@ struct MainRootView: View {
     switch section {
     case .books:
       booksCatalogBookListBody
-    case .ebooks:
-      ebooksPrimaryListBody
-    case .ebooksSupplementary:
-      ebooksSupplementaryListBody
     case .search:
       EmptyView()
     case .author:
@@ -312,80 +308,9 @@ struct MainRootView: View {
       booksBrowseGenresListBody
     case .tags:
       booksBrowseTagsListBody
-    }
-  }
-
-  private var ebooksPrimaryListBody: some View {
-    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      TabContentSectionTitle(title: "eBooks")
-      if !model.isNetworkReachable, model.browseEbooks.isEmpty {
-        booksBrowseOfflineHint
-      } else if model.browseEbooksLoading && model.browseEbooks.isEmpty {
-        booksBrowseCenteredProgress
-      } else if model.browseEbooks.isEmpty {
-        Text("No eBooks found in this library.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.vertical, 8)
-      } else if model.libraryBookCardStyle == .heroCover {
-        LibraryHeroMultiColumnRows(
-          items: model.browseEbooks,
-          columns: AppTheme.Layout.ebookHeroCoverColumnsPerRow,
-          spacing: AppTheme.Layout.withinSectionSpacing
-        ) { book in
-          EbookTabListCard(book: book, model: model)
-            .task(id: book.id) {
-              await model.loadMoreBrowseEbooksIfNeeded(currentItemId: book.id)
-            }
-        }
-        if model.browseEbooksLoading {
-          ProgressView()
-            .tint(model.appearanceAccentColor)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-        }
-      } else {
-        ForEach(model.browseEbooks) { book in
-          EbookTabListCard(book: book, model: model)
-            .task(id: book.id) {
-              await model.loadMoreBrowseEbooksIfNeeded(currentItemId: book.id)
-            }
-        }
-        if model.browseEbooksLoading {
-          ProgressView()
-            .tint(model.appearanceAccentColor)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-        }
-      }
-    }
-  }
-
-  private var ebooksSupplementaryListBody: some View {
-    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      TabContentSectionTitle(title: "Supplementary eBooks")
-      if !model.isNetworkReachable, model.browseEbooksSupplementary.isEmpty {
-        booksBrowseOfflineHint
-      } else if model.browseEbooksLoading && model.browseEbooksSupplementary.isEmpty {
-        booksBrowseCenteredProgress
-      } else if model.browseEbooksSupplementary.isEmpty {
-        Text("No supplementary eBooks found in this library.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.vertical, 8)
-      } else if model.libraryBookCardStyle == .heroCover {
-        LibraryHeroMultiColumnRows(
-          items: model.browseEbooksSupplementary,
-          columns: AppTheme.Layout.ebookHeroCoverColumnsPerRow,
-          spacing: AppTheme.Layout.withinSectionSpacing
-        ) { book in
-          EbookTabListCard(book: book, model: model)
-        }
-      } else {
-        ForEach(model.browseEbooksSupplementary) { book in
-          EbookTabListCard(book: book, model: model)
-        }
-      }
+    case .ebooks, .ebooksSupplementary:
+      // eBooks/Supplementary sind jetzt Katalog-Filter, keine eigenen Abschnitte mehr.
+      booksCatalogBookListBody
     }
   }
 
