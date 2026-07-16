@@ -193,8 +193,6 @@ enum DetailHeroLayoutMetrics {
   static let coverTopPadding: CGFloat = 4
   /// Quadratisches Cover (Hörbuch/Podcast/eBook) — nicht volle Bildschirmbreite.
   static let squareCoverMaxWidth: CGFloat = 280
-  /// Legacy-Alias — alle Detail-Cover nutzen `squareCoverMaxWidth` + 1:1-Letterboxing.
-  static let ebookCoverMaxWidth: CGFloat = squareCoverMaxWidth
   /// Leicht abgerundete Cover-Ecken (Album-Artwork, Detail + Vollplayer).
   static let coverCornerRadius: CGFloat = 8
   static let titleTopSpacing: CGFloat = 18

@@ -10,13 +10,7 @@ enum AppTheme {
   static var card: Color { palette.card }
   static var textPrimary: Color { palette.textPrimary }
   static var textSecondary: Color { palette.textSecondary }
-  static var achievementLevel1: Color { palette.achievementLevel1 }
-  static var achievementLevel2: Color { palette.achievementLevel2 }
-  static var achievementLevel3: Color { palette.achievementLevel3 }
-  static var achievementLevel4: Color { palette.achievementLevel4 }
   static var progressTrack: Color { palette.progressTrack }
-  static var heroPlayPillBackground: Color { palette.heroPlayPillBackground }
-  static var heroPlayPillForeground: Color { palette.heroPlayPillForeground }
   static func foregroundOnAccent(_ accent: Color) -> Color {
     palette.foregroundOnAccent(accent)
   }
@@ -59,8 +53,6 @@ enum AppTheme {
   private(set) static var accent: Color = defaultAccent
   static let danger = Color(red: 0.92, green: 0.32, blue: 0.32)
   static let success = Color(red: 0.35, green: 0.82, blue: 0.55)
-  /// Verbindungs-Ampel „prüft …“ (gelb).
-  static let warning = Color(red: 0.98, green: 0.78, blue: 0.22)
 
   /// Home-Browse „Expanding Dock“ — Layout; Farben über `Colors` aus Palette + Akzent.
   enum ExpandingDock {
@@ -69,14 +61,6 @@ enum AppTheme {
     static let itemSpacing: CGFloat = 10
     static let horizontalPadding: CGFloat = 18
     static let verticalPadding: CGFloat = 4
-    /// Kompakter Abstand in Karten-/Zeileninhalten (VStack/HStack in Metadata-Blöcken).
-    static let compactSpacing: CGFloat = 8
-    /// Kleiner Abstand für Badges, Pills, Icon-Text-Kombinationen.
-    static let badgeSpacing: CGFloat = 6
-    /// Sehr enger Abstand (Titel ↔ Detail in Zeilen, dichte Gruppierungen).
-    static let microSpacing: CGFloat = 2
-    /// Standard-Padding für Karteninhalte.
-    static let cardContentPadding: CGFloat = 12
     static let circleSize: CGFloat = 46
     static let iconSize: CGFloat = 21
     static let activeCoverSize: CGFloat = 28
@@ -84,7 +68,6 @@ enum AppTheme {
     static let activeLeadingPadding: CGFloat = 14
     static let activeTrailingPadding: CGFloat = 18
     static let iconLabelSpacing: CGFloat = 9
-    static let labelFontSize: CGFloat = 15.5
     static let centerWhenFewThreshold = 4
 
     static let selectionAnimation = Animation.spring(response: 0.32, dampingFraction: 0.72)
@@ -143,19 +126,10 @@ enum AppTheme {
     /// Kompakte Kachel in der Podcast-„Shows“-Leiste (nicht identisch mit Buch-Cover-Ecken).
     static let podcastShelfCoverCorner: CGFloat = 12
 
-    /// Horizontale Cover-Leiste: Podcast „Shows“ und Books „Browse“ (gleiche Maße).
-    static let horizontalBrowseStripTile: CGFloat = 68
-    /// Caption breiter als Kachel (`captionW = tile + labelWidthExtra`); Strip-Spalten mit
-    /// `.leading` — die Extra-Breite liegt rechts der Kachel (nicht zentriert), damit die Kachel
-    /// mit Library-Zeilen bündig ist; HStack-Abstand zieht `labelWidthExtra` ab.
-    static let horizontalBrowseStripLabelWidthExtra: CGFloat = 12
-    static let horizontalBrowseStripInterTileSpacing: CGFloat = max(
-      0, withinSectionSpacing - horizontalBrowseStripLabelWidthExtra)
     /// Abstand Strip ↔ Großtitel oben.
     static let horizontalBrowseStripToTitleSpacing: CGFloat = 8
     /// Abstand Strip ↔ Scroll-Inhalt / Sektionsüberschrift unten.
     static let horizontalBrowseStripToContentSpacing: CGFloat = 16
-    static let horizontalBrowseStripTileLabelSpacing: CGFloat = 6
     static let horizontalBrowseStripVerticalPadding: CGFloat = 4
 
     /// „Continue listening“-Karten (horizontal scrollbar, einheitliche Höhe).
@@ -187,16 +161,6 @@ enum AppTheme {
       + continueHeroMetadataExtraBottomPadding
     /// Gesamthöhe Continue-Hero-Karte (Cover + Metadaten).
     static let continueHeroCardTotalHeight: CGFloat = continueHeroCoverMaxHeight + continueHeroMetadataBlockHeight
-    static let continueHeroCardHeight: CGFloat = continueHeroCardTotalHeight
-    /// Library-Cover-Karten: zweispaltiges Raster.
-    static let libraryHeroCoverCardColumns: [GridItem] = [
-      GridItem(.flexible(), spacing: withinSectionSpacing),
-      GridItem(.flexible(), spacing: withinSectionSpacing),
-    ]
-    /// Hero-Raster (Library): drei große Cover-Karten pro Zeile.
-    static let heroCoverColumnsPerRow = 3
-    /// Hero-Raster (eBooks/Supplementary): größere Cover, nur zwei pro Zeile.
-    static let ebookHeroCoverColumnsPerRow = 2
     /// Metadaten unter dem Cover ohne Play-Pille (wie Continue-Hero-Textblock).
     static let libraryHeroMetadataBlockHeight: CGFloat =
       continueHeroMetadataVerticalPadding
@@ -215,10 +179,6 @@ enum AppTheme {
     static let heroCardShadowY: CGFloat = 6
     /// Mindesthöhe für Zeilen in gruppierten Karten (Settings, Stats, …).
     static let listRowMinHeight: CGFloat = 50
-    /// Mindesthöhe für interaktive Settings-Zeilen (Toggle, Picker, Eingabe).
-    static let settingsCardRowMinHeight: CGFloat = listRowMinHeight
-    /// Nur-Lese- oder Nav-Zeilen (Username, Account Type, …).
-    static let settingsCardCompactRowHeight: CGFloat = listRowMinHeight
     /// Horizontaler Innenabstand in Settings-Karten.
     static let settingsCardInsetHPadding: CGFloat = 16
     /// Vertikaler Innenabstand in Settings-Karten (symmetrisch, ~iOS Inset Grouped).
