@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import ReadiumNavigator
 import ReadiumShared
+import Speech
 import SwiftUI
 
 /// Orchestriert Prep (Alignment) und Runtime-Sync zwischen Hörbuch und EPUB-Reader.
@@ -15,6 +16,7 @@ final class EbookSyncController: ObservableObject {
   @Published private(set) var alignmentMap: EbookAudioAlignmentMap?
   @Published private(set) var activeSentenceId: String?
   @Published private(set) var activeWordIndex: Int?
+  /// Wie Teleprompter: sync-Initialwert aus Speech, async Refresh via `refreshAvailability()`.
   @Published private(set) var isSyncAvailable = SpeechTranscriber.isAvailable
   /// Erhöht bei Seek-/Start-Sync — Reader setzt Highlight hart zurück.
   @Published private(set) var syncGeneration: UInt = 0
