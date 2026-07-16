@@ -300,6 +300,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       return
     }
 
+    // Ebook-Sync und Teleprompter teilen sich denselben Speech-/Tick-Pfad — nicht parallel.
+    if player.ebookSync.isSyncModeActive || player.ebookSync.isPreparing {
+      await player.ebookSync.stopSyncMode()
+    }
+
     if let pendingStop = stopSessionTask {
       pendingStop.cancel()
       stopSessionTask = nil

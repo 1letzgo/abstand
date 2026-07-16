@@ -202,6 +202,77 @@ final class ReadiumReaderService {
     )
   }
 
+  /// Kapitelindex (readingOrder) für die aktuelle Locator-URL; für Ebook-Sync-Markup.
+  func chapterIndex(for locator: Locator?) -> Int? {
+    ReadiumReaderDelegate.shared.chapterIndex(for: locator)
+  }
+
+  /// Installiert Sync-Spans/CSS im sichtbaren EPUB-Dokument.
+  @MainActor
+  @discardableResult
+  func installEbookSyncMarkup(
+    on navigator: EPUBNavigatorViewController,
+    chapterIndex: Int
+  ) async -> Bool {
+    let script = EbookSyncHighlightBridge.installMarkupScript(chapterIndex: chapterIndex)
+    switch await navigator.evaluateJavaScript(script) {
+    case .success: return true
+    case .failure: return false
+    }
+  }
+
+  @MainActor
+  @discardableResult
+  func applyEbookSyncHighlight(
+    on navigator: EPUBNavigatorViewController,
+    sentenceId: String?,
+    wordIndex: Int?,
+    sentenceText: String? = nil
+  ) async -> Bool {
+    let script = EbookSyncHighlightBridge.highlightScript(
+      sentenceId: sentenceId, wordIndex: wordIndex, sentenceText: sentenceText)
+    switch await navigator.evaluateJavaScript(script) {
+    case let .success(value):
+      if let flag = value as? Bool { return flag }
+      if let num = value as? NSNumber { return num.boolValue }
+      return sentenceId != nil
+    case .failure:
+      return false
+    }
+  }
+
+  @MainActor
+  func bindEbookSyncTapHandler(on navigator: EPUBNavigatorViewController) async {
+    _ = await navigator.evaluateJavaScript(EbookSyncHighlightBridge.tappedSentenceIdScript())
+  }
+
+  @MainActor
+  func consumeEbookSyncTap(on navigator: EPUBNavigatorViewController) async -> String? {
+    switch await navigator.evaluateJavaScript(EbookSyncHighlightBridge.consumeTapScript()) {
+    case let .success(value):
+      if let s = value as? String, !s.isEmpty { return s }
+      return nil
+    case .failure:
+      return nil
+    }
+  }
+
+  /// Springt zum Kapitel der Alignment-Sentence (href) und lässt den Sync das Highlight setzen.
+  @MainActor
+  @discardableResult
+  func seekToEbookSyncHref(
+    navigator: EPUBNavigatorViewController,
+    href: String
+  ) async -> Bool {
+    let key = EbookTextExtractor.hrefKey(href)
+    guard let link = navigator.publication.readingOrder.first(where: {
+      EbookTextExtractor.hrefKey($0.url().string) == key
+    }) else {
+      return false
+    }
+    return await navigator.go(to: link)
+  }
+
   /// Paginierte EPUB-Ansicht: tatsächliche Spalten/Seiten im aktuellen Abschnitt (reagiert auf Schriftgröße).
   private func fetchRenderedPageInfo(from navigator: EPUBNavigatorViewController) async -> RenderedPageInfo? {
     let script = """
@@ -383,6 +454,12 @@ final class ReadiumReaderDelegate: NSObject, EPUBNavigatorDelegate, PDFNavigator
 
   var resolvedLibraryItemId: String? {
     libraryItemId
+  }
+
+  func chapterIndex(for locator: Locator?) -> Int? {
+    guard let locator else { return nil }
+    let key = hrefKey(locator.href)
+    return epubReadingOrderHrefs.firstIndex(of: key)
   }
 
   private func hrefKey(_ href: AnyURL) -> String {

@@ -334,6 +334,14 @@ struct BookDetailView: View {
       ?? model.cachedEbookFormat(libraryItemId: book.id)
   }
 
+  private func canStartEbookSync(for book: ABSBook) -> Bool {
+    guard book.isPlayableAudiobook else { return false }
+    let format = resolvedEbookFormat(for: book)
+    if format == .epub { return true }
+    if book.hasSupplementalEpub { return true }
+    return model.cachedEbookFormat(libraryItemId: book.id) == .epub
+  }
+
   private func markAttachedEbookAsRead(book: ABSBook) async {
     guard let format = resolvedEbookFormat(for: book) else { return }
     await model.markEbookAsFinished(libraryItemId: book.id, format: format)
@@ -513,6 +521,28 @@ struct BookDetailView: View {
       )
       .padding(.top, AppTheme.Layout.detailPlayButtonTopPadding)
       .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
+
+      if canStartEbookSync(for: d) {
+        Button {
+          Task { await model.startEbookSyncMode(for: d) }
+        } label: {
+          Label(
+            String(localized: "Read & Listen", comment: "Ebook sync entry"),
+            systemImage: "text.book.closed.fill"
+          )
+          .font(.subheadline.weight(.semibold))
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(model.isPreparingEbook || model.player.ebookSync.isPreparing)
+        .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
+        .accessibilityHint(
+          String(
+            localized: "Open the EPUB with synchronized audiobook highlighting.",
+            comment: "Ebook sync accessibility hint")
+        )
+      }
 
       VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
         if let aboutText {

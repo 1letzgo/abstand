@@ -2056,6 +2056,8 @@ struct NowPlayingDetailView: View {
     /// Lokale Zusammenfassung eines eigenständig transkribierten Fünf-Minuten-Fensters.
     case recap
     case readAlong
+    /// Hörbuch + EPUB Sync (on-device Alignment).
+    case ebookSync
 
     var id: String {
       switch self {
@@ -2065,8 +2067,16 @@ struct NowPlayingDetailView: View {
       case .sessions: "sessions"
       case .recap: "recap"
       case .readAlong: "readAlong"
+      case .ebookSync: "ebookSync"
       }
     }
+  }
+
+  private var showsEbookSyncButton: Bool {
+    guard let book = player.activeBook, book.isPlayableAudiobook else { return false }
+    if book.hasSupplementalEpub { return true }
+    if book.readableAttachedEbook?.format == .epub { return true }
+    return model.cachedEbookFormat(libraryItemId: book.id) == .epub
   }
 
   private func fullPlayerPanelControlKinds(showsReadAlong: Bool) -> [FullPlayerPanelControlKind] {
@@ -2082,6 +2092,9 @@ struct NowPlayingDetailView: View {
       // sonst nie erhalten.
       items.append(.recap)
       items.append(.readAlong)
+    }
+    if showsEbookSyncButton {
+      items.append(.ebookSync)
     }
     return items
   }
@@ -2171,6 +2184,50 @@ struct NowPlayingDetailView: View {
         isRecapActive = false
         coverPanel = .artwork
       }
+    case .ebookSync:
+      let sync = player.ebookSync
+      let isDownloadReady = player.isReadAlongDownloadReady
+      let isActive = sync.isSyncModeActive || sync.isPreparing
+      FullPlayerCoverOverlayButton(
+        systemName: "text.book.closed.fill",
+        isActive: isActive,
+        isBusy: sync.isPreparing,
+        isEnabled: sync.isSyncAvailable,
+        accessibilityLabel: String(
+          localized: "Read and listen with synced ebook", comment: "Accessibility")
+      ) {
+        guard isDownloadReady else {
+          readAlongDownloadWarningPresented = true
+          return
+        }
+        guard let book = player.activeBook else { return }
+        Task { @MainActor in
+          if sync.isSyncModeActive || sync.isPreparing {
+            await sync.stopSyncMode()
+            return
+          }
+          if player.liveTranscription.isTeleprompterModeActive {
+            await player.liveTranscription.disable()
+          }
+          isRecapActive = false
+          coverPanel = .artwork
+          await model.startEbookSyncMode(for: book)
+        }
+      }
+      .opacity(sync.isSyncAvailable && isDownloadReady ? 1 : 0.45)
+      .accessibilityHint(
+        sync.isSyncAvailable
+          ? (isDownloadReady
+            ? String(
+              localized: "Opens the EPUB with word highlighting synced to the audiobook.",
+              comment: "Ebook sync accessibility hint")
+            : String(
+              localized: "Requires a full download of this audiobook.",
+              comment: "Ebook sync accessibility hint"))
+          : String(
+            localized: "Requires on-device speech recognition, which is not available on this device.",
+            comment: "Ebook sync accessibility hint")
+      )
     }
   }
   private var teleprompterFontSizeControls: some View {

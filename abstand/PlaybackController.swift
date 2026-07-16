@@ -35,6 +35,8 @@ enum SleepTimerMode: Equatable {
 final class PlaybackController: NSObject, ObservableObject {
   /// Mitlesen (SpeechAnalyzer / on-device).
   let liveTranscription = PlayerLiveTranscriptionController()
+  /// Ebook-Sync (Hörbuch + EPUB, on-device Alignment).
+  let ebookSync = EbookSyncController()
 
   @Published private(set) var activeBook: ABSBook?
   /// Gesetzte Podcast-Folge (`play/.../episodeId`); bei Hörbüchern `nil`.
@@ -263,9 +265,16 @@ final class PlaybackController: NSObject, ObservableObject {
         self?.objectWillChange.send()
       }
       .store(in: &cancellables)
+    ebookSync.objectWillChange
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] _ in
+        self?.objectWillChange.send()
+      }
+      .store(in: &cancellables)
 
     Task { @MainActor in
       await liveTranscription.refreshReadAlongAvailability()
+      await ebookSync.refreshAvailability()
     }
 
     $sleepEndDate
@@ -698,11 +707,20 @@ final class PlaybackController: NSObject, ObservableObject {
     }
   }
 
+  /// Ebook-Sync stoppen (Reader geschlossen / Playback tear-down).
+  func disableEbookSyncIfNeeded() {
+    guard ebookSync.isSyncModeActive || ebookSync.isPreparing else { return }
+    Task { @MainActor in
+      await ebookSync.stopSyncMode()
+    }
+  }
+
   func tearDownPlayer() {
     DebugLogCollector.shared.log("tearDownPlayer START activeBook=\(activeBook?.id ?? "nil") episodeId=\(activePlaybackEpisodeId ?? "nil") isPlaying=\(isPlaying)")
     playResumeTask?.cancel()
     playResumeTask = nil
     liveTranscription.playbackDidStop()
+    disableEbookSyncIfNeeded()
     clearSleepTimer()
     showMiniPlayerPlaceholder = false
     miniPlayerBarFillColor = AppTheme.card
@@ -1176,6 +1194,7 @@ final class PlaybackController: NSObject, ObservableObject {
     accumulateListenTime()
     onPlaybackTick?()
     liveTranscription.handlePlaybackTick(player: self)
+    ebookSync.handlePlaybackTick(player: self)
     refreshGlobalFromPlayer()
     updateChapterUI(global: globalPosition)
     updateNowPlaying()
