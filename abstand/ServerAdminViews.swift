@@ -1028,7 +1028,7 @@ struct SettingsChangePasswordView: View {
             HStack {
               if busy {
                 ProgressView()
-                  .tint(Color.black.opacity(0.85))
+                  .tint(.white)
               }
               Text("Save password")
                 .font(.body.weight(.semibold))
@@ -1036,7 +1036,7 @@ struct SettingsChangePasswordView: View {
             .frame(maxWidth: .infinity)
             .settingsCardRowFrame(alignment: .center)
             .background(submitEnabled ? model.appearanceAccentColor : AppTheme.textSecondary.opacity(0.35))
-            .foregroundStyle(Color.black.opacity(0.85))
+            .foregroundStyle(.white)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
           }
           .buttonStyle(.plain)
