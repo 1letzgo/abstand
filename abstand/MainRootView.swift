@@ -1446,6 +1446,7 @@ struct ContinueListeningHeroTextBlock<Pill: View>: View {
 
 /// Gemeinsame Cover-Pill (Typ, Download, Länge) — gleiche Kapsel wie Continue Listening.
 struct ContinueListeningHeroCoverPill<Content: View>: View {
+  @EnvironmentObject private var model: AppModel
   var allowsHitTesting = false
   @ViewBuilder let content: () -> Content
 
@@ -1453,7 +1454,7 @@ struct ContinueListeningHeroCoverPill<Content: View>: View {
     content()
       .padding(.horizontal, 6)
       .padding(.vertical, 5)
-      .background(.black.opacity(0.48), in: Capsule(style: .continuous))
+      .background(model.appearancePalette.coverPlayBadgeBackground, in: Capsule(style: .continuous))
       .fixedSize()
       .padding(.vertical, ContinueListeningHeroCoverPillMetrics.verticalInset)
       .padding(.horizontal, ContinueListeningHeroCoverPillMetrics.horizontalInset)
@@ -1676,7 +1677,7 @@ struct PodcastEpisodeRowCard: View {
               .font(.caption2.weight(.semibold))
               .foregroundStyle(.white)
               .frame(width: 18, height: 18)
-              .background(AppTheme.coverPlayBadgeBackground)
+              .background(model.appearancePalette.coverPlayBadgeBackground)
               .clipShape(Circle())
               .padding(4)
               .accessibilityHidden(true)
@@ -3531,6 +3532,7 @@ private struct LibraryHeroBookRowCard: View {
 
 /// Kompaktes Cover-Badge (Play / eBook) — unten links oder rechts auf Listen-Covers.
 private struct LibraryCoverCornerBadge: View {
+  @EnvironmentObject private var model: AppModel
   let systemImage: String
   let accessibilityLabel: String
   var accessibilityHidden: Bool = false
@@ -3540,7 +3542,7 @@ private struct LibraryCoverCornerBadge: View {
       .font(.caption2.weight(.semibold))
       .foregroundStyle(.white)
       .frame(width: 18, height: 18)
-      .background(AppTheme.coverPlayBadgeBackground)
+      .background(model.appearancePalette.coverPlayBadgeBackground)
       .clipShape(Circle())
       .padding(4)
       .accessibilityLabel(accessibilityLabel)

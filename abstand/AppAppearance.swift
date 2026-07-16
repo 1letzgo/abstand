@@ -163,15 +163,8 @@ struct AppColorPalette: Equatable {
   let card: Color
   let textPrimary: Color
   let textSecondary: Color
-  let achievementLevel1: Color
-  let achievementLevel2: Color
-  let achievementLevel3: Color
-  let achievementLevel4: Color
   /// Dezenter Fortschritts-/Track-Hintergrund auf Karten.
   let progressTrack: Color
-  /// Continue-Hero: Play-Pille unter dem Cover.
-  let heroPlayPillBackground: Color
-  let heroPlayPillForeground: Color
   /// Schatten unter Hero-Karten (Continue Listening).
   let heroCardShadow: Color
   /// Schatten für Listen- und Gruppen-Karten.
@@ -217,13 +210,7 @@ struct AppColorPalette: Equatable {
       ),
       textPrimary: Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255),
       textSecondary: Color(red: 110 / 255, green: 110 / 255, blue: 115 / 255),
-      achievementLevel1: Color(red: 190 / 255, green: 190 / 255, blue: 194 / 255),
-      achievementLevel2: Color(red: 158 / 255, green: 158 / 255, blue: 163 / 255),
-      achievementLevel3: Color(red: 255 / 255, green: 176 / 255, blue: 72 / 255),
-      achievementLevel4: Color(red: 230 / 255, green: 140 / 255, blue: 48 / 255),
       progressTrack: Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255).opacity(0.1),
-      heroPlayPillBackground: Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255),
-      heroPlayPillForeground: .white,
       heroCardShadow: Color.black.opacity(0.1),
       cardShadow: Color.black.opacity(0.1),
       coverPlayBadgeBackground: Color(white: 0.38, opacity: 0.88)
@@ -237,13 +224,7 @@ struct AppColorPalette: Equatable {
       card: Color(red: 37 / 255, green: 37 / 255, blue: 37 / 255),
       textPrimary: .white,
       textSecondary: Color(red: 176 / 255, green: 176 / 255, blue: 176 / 255),
-      achievementLevel1: Color(red: 190 / 255, green: 190 / 255, blue: 190 / 255),
-      achievementLevel2: Color(red: 158 / 255, green: 152 / 255, blue: 146 / 255),
-      achievementLevel3: Color(red: 210 / 255, green: 152 / 255, blue: 88 / 255),
-      achievementLevel4: Color(red: 204 / 255, green: 108 / 255, blue: 36 / 255),
       progressTrack: Color.white.opacity(0.14),
-      heroPlayPillBackground: .white,
-      heroPlayPillForeground: .white,
       heroCardShadow: Color.black.opacity(0.32),
       cardShadow: Color.black.opacity(0.36),
       coverPlayBadgeBackground: Color(white: 0.38, opacity: 0.88)

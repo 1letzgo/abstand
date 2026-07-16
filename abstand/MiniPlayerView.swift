@@ -119,6 +119,7 @@ private enum FullPlayerScrubberLayout {
 }
 
 private struct FullPlayerProgressTrack: View {
+  @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
@@ -147,7 +148,7 @@ private struct FullPlayerProgressTrack: View {
       let fillTrailingRadius = fraction >= 0.999 ? trackCornerRadius : 0.0
       ZStack(alignment: .leading) {
         Capsule(style: .continuous)
-          .fill(AppTheme.progressTrack)
+          .fill(model.appearancePalette.progressTrack)
           .frame(height: trackHeight)
         themeAccent
           .frame(width: fillWidth, height: trackHeight)
@@ -162,7 +163,7 @@ private struct FullPlayerProgressTrack: View {
           )
         ForEach(Array(chapterMarkers.enumerated()), id: \.element) { _, marker in
           Rectangle()
-            .fill(AppTheme.textSecondary.opacity(0.65))
+            .fill(model.appearancePalette.textSecondary.opacity(0.65))
             .frame(width: 1, height: trackHeight)
             .offset(x: max(0, w * marker - 0.5))
         }
@@ -171,7 +172,7 @@ private struct FullPlayerProgressTrack: View {
             .fill(themeAccent)
             .overlay {
               Circle()
-                .strokeBorder(AppTheme.background, lineWidth: 2)
+                .strokeBorder(model.appearancePalette.background, lineWidth: 2)
             }
             .frame(
               width: FullPlayerProgressLayout.scrubThumbDiameter,
@@ -210,6 +211,7 @@ private struct FullPlayerProgressTrack: View {
 
 /// Vollplayer-Fortschritt: Long-Press auf dem Balken, dann ziehen zum Suchen.
 private struct FullPlayerScrubberSection: View {
+  @EnvironmentObject private var model: AppModel
   @Environment(\.appearanceThemeRevision) private var themeRevision
   let player: PlaybackController
   let globalPosition: Double
@@ -283,12 +285,12 @@ private struct FullPlayerScrubberSection: View {
       HStack {
         Text(formatPlaybackTime(pos))
           .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
         Spacer()
         if !centerCaption.isEmpty, !isScrubbing, !isChapterScrubbing {
           Text(centerCaption)
             .font(.caption)
-            .foregroundStyle(AppTheme.textPrimary)
+            .foregroundStyle(model.appearancePalette.textPrimary)
             .lineLimit(1)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
@@ -299,7 +301,7 @@ private struct FullPlayerScrubberSection: View {
         Spacer()
         Text(formatPlaybackTime(max(0, dur - pos)))
           .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
       }
       .monospacedDigit()
     }
@@ -333,18 +335,18 @@ private struct FullPlayerScrubberSection: View {
       HStack {
         Text(formatPlaybackTime(chPos))
           .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
         Spacer()
         Text(chapterCaption)
           .font(.caption)
-          .foregroundStyle(AppTheme.textPrimary)
+          .foregroundStyle(model.appearancePalette.textPrimary)
           .lineLimit(1)
           .accessibilityLabel("Chapter")
           .accessibilityValue(chapterCaption)
         Spacer()
         Text(formatPlaybackTime(max(0, chapter.duration - chPos)))
           .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
       }
       .monospacedDigit()
     }
@@ -497,6 +499,7 @@ private struct FullPlayerAirPlayButtonRepresentable: UIViewRepresentable {
 /// Sleep-Menü-Label: bei Pause eingefrorener Countdown, sonst `TimelineView` (kein Menu-Flackern).
 private struct SleepTimerUtilityMenuLabel: View {
   @ObservedObject var player: PlaybackController
+  @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
@@ -522,7 +525,7 @@ private struct SleepTimerUtilityMenuLabel: View {
         } else {
           Text("Off")
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
       }
       .frame(
@@ -533,7 +536,7 @@ private struct SleepTimerUtilityMenuLabel: View {
       )
       Text("Sleep", comment: "Player control label")
         .font(.caption2)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
     }
     .frame(maxWidth: .infinity)
     .contentShape(Rectangle())
@@ -589,6 +592,7 @@ private func sleepTimerChaptersAccessibilityLabel(_ count: Int) -> String {
 
 /// Capsule-Stepper wie im Referenz-Screenshot (– / Wert / +).
 private struct SleepTimerCapsuleStepper: View {
+  @EnvironmentObject private var model: AppModel
   let centerText: String
   /// Kleines Icon vor „Off“, um Minuten- vs. Kapitel-Zeile zu unterscheiden.
   let offLeadingIcon: String?
@@ -607,13 +611,13 @@ private struct SleepTimerCapsuleStepper: View {
         if isOff, let offLeadingIcon {
           Image(systemName: offLeadingIcon)
             .font(.caption.weight(.semibold))
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
             .accessibilityHidden(true)
         }
         Text(centerText)
           .font(.body.weight(.medium))
           .monospacedDigit()
-          .foregroundStyle(AppTheme.textPrimary)
+          .foregroundStyle(model.appearancePalette.textPrimary)
           .lineLimit(1)
           .minimumScaleFactor(0.85)
       }
@@ -634,7 +638,7 @@ private struct SleepTimerCapsuleStepper: View {
     Button(action: action) {
       Image(systemName: systemName)
         .font(.body.weight(.semibold))
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
         .frame(width: 44, height: 36)
         .contentShape(Rectangle())
     }
@@ -810,7 +814,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
         VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
           Image(systemName: eqPreset.systemImage)
             .font(.title3)
-            .foregroundStyle(eqPreset == .flat ? AppTheme.textPrimary : themeAccent)
+            .foregroundStyle(eqPreset == .flat ? model.appearancePalette.textPrimary : themeAccent)
             .frame(
               maxWidth: .infinity,
               minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
@@ -819,7 +823,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
             )
           Text("EQ", comment: "Player control label")
             .font(.caption2)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
@@ -844,7 +848,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
         VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
           Text(miniPlayerFormatPlaybackRate(playbackRate))
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(AppTheme.textPrimary)
+            .foregroundStyle(model.appearancePalette.textPrimary)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
             .frame(
@@ -855,7 +859,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
             )
           Text("Tempo", comment: "Player control label")
             .font(.caption2)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
@@ -876,7 +880,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
           )
         Text("AirPlay", comment: "Player control label")
           .font(.caption2)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
       }
       .frame(maxWidth: .infinity)
       .contentShape(Rectangle())
@@ -907,7 +911,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
               )
             Text("Download", comment: "Player download control caption")
               .font(.caption2)
-              .foregroundStyle(AppTheme.textSecondary)
+              .foregroundStyle(model.appearancePalette.textSecondary)
           }
           .frame(maxWidth: .infinity)
           .contentShape(Rectangle())
@@ -928,7 +932,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
             )
           Text("Download", comment: "Player download control caption")
             .font(.caption2)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
@@ -946,7 +950,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
             )
           Text("Download", comment: "Player download control caption")
             .font(.caption2)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
@@ -958,7 +962,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
           VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
             Image(systemName: "arrow.down.circle")
               .font(.title3)
-              .foregroundStyle(AppTheme.textPrimary)
+              .foregroundStyle(model.appearancePalette.textPrimary)
               .frame(
                 maxWidth: .infinity,
                 minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
@@ -967,7 +971,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
               )
             Text("Download", comment: "Player download control caption")
               .font(.caption2)
-              .foregroundStyle(AppTheme.textSecondary)
+              .foregroundStyle(model.appearancePalette.textSecondary)
           }
           .frame(maxWidth: .infinity)
           .contentShape(Rectangle())
@@ -1136,10 +1140,7 @@ private struct FullPlayerTransportRowChrome: View, Equatable {
         }
         .frame(width: 72, height: 44)
       }
-      .buttonStyle(.borderedProminent)
-      .controlSize(.large)
-      .clipShape(Capsule(style: .continuous))
-      .tint(themeAccent)
+      .buttonStyle(AbstandProminentButtonStyle(capsule: true))
       .disabled(!snapshot.hasActiveBook)
       .frame(maxWidth: .infinity)
 
@@ -1158,7 +1159,7 @@ private struct FullPlayerTransportRowChrome: View, Equatable {
       fullPlayerTransportChapterSlot(isLeading: false, hasChapters: hasChapters, player: player)
         .frame(maxWidth: .infinity)
     }
-    .foregroundStyle(AppTheme.textPrimary)
+    .foregroundStyle(model.appearancePalette.textPrimary)
     .buttonStyle(.borderless)
     .padding(
       .top,
@@ -1453,7 +1454,7 @@ struct NowPlayingDetailView: View {
   /// dem ganzen Stack (Kind-Views wie `ScrollView` gewinnen die Geste trotzdem zuerst).
   private var fullPlayerDismissGrabber: some View {
     Capsule()
-      .fill(AppTheme.textSecondary.opacity(0.35))
+      .fill(model.appearancePalette.textSecondary.opacity(0.35))
       .frame(width: 36, height: 5)
       // Fester Abstand zum echten Fenster-Safe-Area-Top statt `.safeAreaPadding` (verhielt sich
       // auf einer kleinen Fixed-Frame-View unvorhersehbar — der Griff verschwand komplett) oder
@@ -1750,14 +1751,14 @@ struct NowPlayingDetailView: View {
     return VStack(alignment: .leading, spacing: 4) {
       Text(book.displayTitle)
         .font(.title2.weight(.bold))
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
         .multilineTextAlignment(.leading)
         .lineLimit(3)
         .frame(maxWidth: .infinity, alignment: .leading)
       if !authors.isEmpty, authors != "—" {
         Text(authors)
           .font(.title3)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
           .multilineTextAlignment(.leading)
           .lineLimit(2)
           .frame(maxWidth: .infinity, alignment: .leading)
@@ -1799,7 +1800,7 @@ struct NowPlayingDetailView: View {
     let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
     return overlay()
       .aspectRatio(1, contentMode: .fit)
-      .background(AppTheme.card.opacity(cardOpacity), in: shape)
+      .background(model.appearancePalette.card.opacity(cardOpacity), in: shape)
       .clipShape(shape)
       .overlay {
         shape.strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
@@ -1832,7 +1833,7 @@ struct NowPlayingDetailView: View {
     let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
     return Color.clear
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(AppTheme.card.opacity(cardOpacity), in: shape)
+      .background(model.appearancePalette.card.opacity(cardOpacity), in: shape)
       .overlay {
         overlay()
       }
@@ -1914,7 +1915,7 @@ struct NowPlayingDetailView: View {
           VStack(alignment: .leading, spacing: 8) {
             Text("Bookmarks")
               .font(.caption.weight(.bold))
-              .foregroundStyle(AppTheme.textSecondary)
+              .foregroundStyle(model.appearancePalette.textSecondary)
               .textCase(.uppercase)
               .tracking(0.6)
             ScrollView {
@@ -1952,7 +1953,7 @@ struct NowPlayingDetailView: View {
     return VStack(alignment: .leading, spacing: 8) {
       Text(title)
         .font(.caption.weight(.bold))
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
         .textCase(.uppercase)
         .tracking(0.6)
         .padding(.horizontal, pad)
@@ -2715,13 +2716,13 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
         Text(snapshot.primaryLine)
           .font(.footnote)
           .fontWeight(.medium)
-          .foregroundStyle(AppTheme.textPrimary)
+          .foregroundStyle(model.appearancePalette.textPrimary)
           .lineLimit(1)
           .frame(maxWidth: .infinity, alignment: .leading)
         if let subtitle = snapshot.subtitleText {
           Text(subtitle)
             .font(.caption)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
             .fontWeight(.medium)
             .lineLimit(1)
         }
@@ -2744,7 +2745,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
           systemName: PlaybackController.gobackwardSystemImage(
             seconds: snapshot.skipBackwardSeconds))
           .font(.headline.weight(.medium))
-          .foregroundStyle(AppTheme.textPrimary)
+          .foregroundStyle(model.appearancePalette.textPrimary)
           .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
           .contentShape(Rectangle())
       }
@@ -2764,12 +2765,12 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
           if busy {
             ProgressView()
               .progressViewStyle(.circular)
-              .tint(AppTheme.foregroundOnAccent(themeAccent))
+              .tint(model.appearancePalette.foregroundOnAccent(themeAccent))
               .scaleEffect(0.72)
           } else {
             Image(systemName: snapshot.isPlaying ? "pause.fill" : "play.fill")
               .font(.footnote.weight(.semibold))
-              .foregroundStyle(AppTheme.foregroundOnAccent(themeAccent))
+              .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
           }
         }
         .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
@@ -2811,7 +2812,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
         .overlay {
           Image(systemName: "waveform")
             .font(.caption2)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
     }
   }
@@ -2820,6 +2821,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
 
 /// Umrandete Aktions-Buttons (Bibliothekskarte), optisch an den Mini-Player angelehnt.
 struct LibraryCardActionButtonStyle: ButtonStyle {
+  @EnvironmentObject private var model: AppModel
   enum Variant {
     case neutral
     case accent
@@ -2841,7 +2843,7 @@ struct LibraryCardActionButtonStyle: ButtonStyle {
     let stroke: Color = {
       switch variant {
       case .neutral:
-        return AppTheme.textSecondary.opacity(isEnabled ? 0.42 : 0.22)
+        return model.appearancePalette.textSecondary.opacity(isEnabled ? 0.42 : 0.22)
       case .accent:
         return themeAccent.opacity(isEnabled ? 0.55 : 0.22)
       case .danger:

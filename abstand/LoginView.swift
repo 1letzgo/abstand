@@ -68,7 +68,10 @@ struct LoginView: View {
             }
           } label: {
             HStack(spacing: 8) {
-              if busy { ProgressView().tint(Color.black.opacity(0.85)) }
+              if busy {
+                ProgressView()
+                  .tint(model.appearancePalette.foregroundOnAccent(model.appearanceAccentColor))
+              }
               Text(addAccountMode ? "Add account" : "Sign in")
             }
           }

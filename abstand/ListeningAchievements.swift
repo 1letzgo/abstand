@@ -371,7 +371,11 @@ struct ListeningAchievementCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
 
-        levelBadge(edge: 36, levelFont: .title3.weight(.bold), cornerRadius: 10)
+        levelBadge(
+          edge: 36,
+          levelFont: .title3.weight(.bold),
+          cornerRadius: AppTheme.Layout.achievementBadgeCornerRadius
+        )
       }
       .padding(.horizontal, 14)
       .padding(.top, 14)
@@ -393,7 +397,11 @@ struct ListeningAchievementCard: View {
         HStack(alignment: .top, spacing: Self.compactRowSpacing) {
           achievementIcon(size: 17, slotWidth: Self.compactIconSlotWidth)
           Spacer(minLength: 0)
-          levelBadge(edge: Self.compactBadgeEdge, levelFont: .headline.weight(.bold), cornerRadius: 8)
+          levelBadge(
+            edge: Self.compactBadgeEdge,
+            levelFont: .headline.weight(.bold),
+            cornerRadius: DetailHeroLayoutMetrics.coverCornerRadius
+          )
         }
 
         VStack(alignment: .leading, spacing: 2) {

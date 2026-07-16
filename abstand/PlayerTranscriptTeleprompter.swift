@@ -325,8 +325,7 @@ struct PlayerLiveTranscriptPanelView: View {
           await transcription.startTeleprompterMode(player: player)
         }
       }
-      .buttonStyle(.borderedProminent)
-      .tint(AppTheme.accent)
+      .buttonStyle(AbstandProminentButtonStyle())
     }
     .padding(.horizontal, 20)
     .frame(maxWidth: .infinity, maxHeight: .infinity)

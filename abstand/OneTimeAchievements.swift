@@ -163,7 +163,7 @@ struct OneTimeAchievementCard: View {
   private var cardBody: some View {
     VStack(alignment: .center, spacing: 6) {
       RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
-        .fill(AppTheme.card)
+        .fill(model.appearancePalette.card)
         .frame(maxWidth: .infinity)
         .frame(height: 52)
         .overlay {
@@ -171,19 +171,19 @@ struct OneTimeAchievementCard: View {
             .font(.title3.weight(.semibold))
             .foregroundStyle(
               achievement.isUnlocked
-                ? model.appearanceAccentColor : AppTheme.textSecondary.opacity(0.4))
+                ? model.appearanceAccentColor : model.appearancePalette.textSecondary.opacity(0.4))
         }
         .overlay(alignment: .topTrailing) {
           if !achievement.isUnlocked {
             Image(systemName: "lock.fill")
               .font(.caption2.weight(.semibold))
-              .foregroundStyle(AppTheme.textSecondary.opacity(0.5))
+              .foregroundStyle(model.appearancePalette.textSecondary.opacity(0.5))
               .padding(6)
           }
         }
       Text(achievement.kind.title)
         .font(.caption2.weight(.medium))
-        .foregroundStyle(achievement.isUnlocked ? AppTheme.textPrimary : AppTheme.textSecondary)
+        .foregroundStyle(achievement.isUnlocked ? model.appearancePalette.textPrimary : model.appearancePalette.textSecondary)
         .multilineTextAlignment(.center)
         .lineLimit(2)
         .minimumScaleFactor(0.85)

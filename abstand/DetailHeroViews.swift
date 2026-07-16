@@ -193,8 +193,6 @@ enum DetailHeroLayoutMetrics {
   static let coverTopPadding: CGFloat = 4
   /// Quadratisches Cover (Hörbuch/Podcast/eBook) — nicht volle Bildschirmbreite.
   static let squareCoverMaxWidth: CGFloat = 280
-  /// Legacy-Alias — alle Detail-Cover nutzen `squareCoverMaxWidth` + 1:1-Letterboxing.
-  static let ebookCoverMaxWidth: CGFloat = squareCoverMaxWidth
   /// Leicht abgerundete Cover-Ecken (Album-Artwork, Detail + Vollplayer).
   static let coverCornerRadius: CGFloat = 8
   static let titleTopSpacing: CGFloat = 18
@@ -266,6 +264,7 @@ struct DetailHeroCoverFrame<Content: View>: View {
 
 /// Titel, Autor/Künstler und Dauer·Jahr unter dem Cover (Apple-Music-Stil).
 struct DetailHeroInfoSection: View {
+  @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
 
   let title: String
@@ -294,20 +293,20 @@ struct DetailHeroInfoSection: View {
     VStack(spacing: DetailHeroLayoutMetrics.heroInfoLineSpacing) {
       Text(title)
         .font(DetailHeroTypography.heroTitle)
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
         .multilineTextAlignment(.center)
       if !authorLinks.isEmpty {
         heroAuthorLinksRow
       } else if let resolvedSubtitle {
         Text(resolvedSubtitle)
           .font(DetailHeroTypography.heroArtist)
-          .foregroundStyle(AppTheme.textPrimary)
+          .foregroundStyle(model.appearancePalette.textPrimary)
           .multilineTextAlignment(.center)
       }
       if !tertiaryLine.isEmpty {
         Text(tertiaryLine)
           .font(DetailHeroTypography.heroTertiary)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
           .multilineTextAlignment(.center)
       }
     }
@@ -321,7 +320,7 @@ struct DetailHeroInfoSection: View {
         if idx > 0 {
           Text(", ")
             .font(DetailHeroTypography.heroArtist)
-            .foregroundStyle(AppTheme.textPrimary)
+            .foregroundStyle(model.appearancePalette.textPrimary)
         }
         Button {
           onAuthorTap?(link.id, link.name)
@@ -366,12 +365,12 @@ struct DetailHeroCircularButton: View {
 
   private var iconColor: Color {
     let _ = model.appearanceThemeRevision
-    guard enabled else { return AppTheme.textSecondary }
+    guard enabled else { return model.appearancePalette.textSecondary }
     return isFinished ? model.appearancePalette.foregroundOnAccent(themeAccent) : themeAccent
   }
 
   private var strokeColor: Color {
-    enabled ? themeAccent : AppTheme.textSecondary
+    enabled ? themeAccent : model.appearancePalette.textSecondary
   }
 
   var body: some View {
@@ -642,11 +641,9 @@ struct DetailHeroActionsBar: View {
 
 enum DetailMetaLayoutMetrics {
   static let thumbnailSize: CGFloat = 44
-  static let thumbnailCornerRadius: CGFloat = 8
   static let labelToContentSpacing: CGFloat = 6
   static let labelIconSpacing: CGFloat = 5
   static let linkRowSpacing: CGFloat = 10
-  static let pairColumnSpacing: CGFloat = AppTheme.Layout.withinSectionSpacing
   static let disclosureContentTopPadding: CGFloat = 6
   static let sectionCardSpacing: CGFloat = AppTheme.Layout.withinSectionSpacing
   /// Description-Card: Zeilen vor „More“.
@@ -685,6 +682,7 @@ enum DetailMetaLabelIcon {
 
 /// Einheitliches Disclosure-Label (Chapters, Bookmarks, About, …).
 struct DetailMetaDisclosureLabel: View {
+  @EnvironmentObject private var model: AppModel
   let title: String
 
   var body: some View {
@@ -692,12 +690,12 @@ struct DetailMetaDisclosureLabel: View {
       if let icon = DetailMetaLabelIcon.systemImage(for: title) {
         Image(systemName: icon)
           .font(.caption2.weight(.semibold))
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
           .accessibilityHidden(true)
       }
       Text(title.uppercased())
         .font(DetailHeroTypography.metaLabel)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
         .tracking(0.6)
     }
   }
@@ -727,6 +725,7 @@ extension View {
 /// Disclosure mit Meta-Label-Stil (statt gemischter `.caption.bold`-Varianten).
 /// Rendert eine Karte (wie `DetailDetailSectionCard`) — einheitlich für Chapters, Bookmarks, Sessions.
 struct DetailMetaDisclosure<Content: View>: View {
+  @EnvironmentObject private var model: AppModel
   @Environment(\.detailSectionCardBackground) private var cardBackground
   let title: String
   @Binding var isExpanded: Bool
@@ -741,7 +740,7 @@ struct DetailMetaDisclosure<Content: View>: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(AppTheme.Layout.detailSectionCardPadding)
-    .background(cardBackground ?? AppTheme.card, in: detailSectionCardShape)
+    .background(cardBackground ?? model.appearancePalette.card, in: detailSectionCardShape)
     .abstandCardElevation(.subtle)
   }
 
@@ -755,6 +754,7 @@ struct DetailMetaDisclosure<Content: View>: View {
 
 /// Gruppierter Meta-Block unter Play (People, Publication, Explore).
 struct DetailDetailSectionCard<Content: View>: View {
+  @EnvironmentObject private var model: AppModel
   @Environment(\.detailSectionCardBackground) private var cardBackground
   @ViewBuilder var content: () -> Content
 
@@ -762,7 +762,7 @@ struct DetailDetailSectionCard<Content: View>: View {
     content()
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(AppTheme.Layout.detailSectionCardPadding)
-      .background(cardBackground ?? AppTheme.card, in: detailSectionCardShape)
+      .background(cardBackground ?? model.appearancePalette.card, in: detailSectionCardShape)
       .abstandCardElevation(.subtle)
   }
 
@@ -776,6 +776,7 @@ struct DetailDetailSectionCard<Content: View>: View {
 
 /// Meta-Zeile: Label oben, Inhalt darunter (nicht mehr nebeneinander).
 struct DetailMetaField<Content: View>: View {
+  @EnvironmentObject private var model: AppModel
   let title: String
   @ViewBuilder var content: () -> Content
 
@@ -785,12 +786,12 @@ struct DetailMetaField<Content: View>: View {
         if let icon = DetailMetaLabelIcon.systemImage(for: title) {
           Image(systemName: icon)
             .font(.caption2.weight(.semibold))
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
             .accessibilityHidden(true)
         }
         Text(title.uppercased())
           .font(DetailHeroTypography.metaLabel)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
           .tracking(0.6)
       }
       content()
@@ -799,57 +800,14 @@ struct DetailMetaField<Content: View>: View {
   }
 }
 
-/// Zwei Meta-Felder nebeneinander (z. B. Series + Year, Genres + Tags).
-struct DetailMetaFieldPair<Left: View, Right: View>: View {
-  let leftTitle: String
-  let rightTitle: String
-  @ViewBuilder var left: () -> Left
-  @ViewBuilder var right: () -> Right
-
-  var body: some View {
-    HStack(alignment: .top, spacing: DetailMetaLayoutMetrics.pairColumnSpacing) {
-      DetailMetaField(title: leftTitle, content: left)
-        .frame(maxWidth: .infinity, alignment: .leading)
-      DetailMetaField(title: rightTitle, content: right)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-  }
-}
-
-/// Wie `DetailMetaFieldPair`, aber auf schmalen Screens untereinander.
-struct DetailMetaFieldPairAdaptive<Left: View, Right: View>: View {
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  let leftTitle: String
-  let rightTitle: String
-  @ViewBuilder var left: () -> Left
-  @ViewBuilder var right: () -> Right
-
-  var body: some View {
-    Group {
-      if horizontalSizeClass == .regular {
-        DetailMetaFieldPair(
-          leftTitle: leftTitle,
-          rightTitle: rightTitle,
-          left: left,
-          right: right
-        )
-      } else {
-        VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
-          DetailMetaField(title: leftTitle, content: left)
-          DetailMetaField(title: rightTitle, content: right)
-        }
-      }
-    }
-  }
-}
-
 struct DetailMetaTextBlock: View {
+  @EnvironmentObject private var model: AppModel
   let text: String
 
   var body: some View {
     Text(text)
       .font(DetailHeroTypography.metaValue)
-      .foregroundStyle(AppTheme.textPrimary)
+      .foregroundStyle(model.appearancePalette.textPrimary)
       .fixedSize(horizontal: false, vertical: true)
       .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -857,6 +815,7 @@ struct DetailMetaTextBlock: View {
 
 /// Description o. Ä.: gekürzt mit „More“ / „Less“.
 struct DetailMetaExpandableTextBlock: View {
+  @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
   let text: String
   @Binding var isExpanded: Bool
@@ -883,7 +842,7 @@ struct DetailMetaExpandableTextBlock: View {
     VStack(alignment: .leading, spacing: 8) {
       Text(text)
         .font(DetailHeroTypography.metaValue)
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
         .lineLimit(isExpanded ? nil : collapsedLineLimit)
         .frame(maxWidth: .infinity, alignment: .leading)
       HStack {
@@ -942,90 +901,6 @@ struct DetailAuthorLinkRow: View {
   }
 }
 
-/// Sprecher-Zeile mit Mikrofon-Platzhalter (kein API-Bild).
-struct DetailNarratorLinkRow: View {
-  @Environment(\.themeAccent) private var themeAccent
-  let name: String
-  let action: () -> Void
-
-  var body: some View {
-    Button(action: action) {
-      HStack(spacing: 12) {
-        ZStack {
-          Circle().fill(AppTheme.card)
-          Image(systemName: "mic.fill")
-            .font(.body)
-            .foregroundStyle(AppTheme.textSecondary)
-        }
-        .frame(
-          width: DetailMetaLayoutMetrics.thumbnailSize,
-          height: DetailMetaLayoutMetrics.thumbnailSize
-        )
-        Text(name)
-          .font(DetailHeroTypography.metaLink)
-          .foregroundStyle(themeAccent)
-          .multilineTextAlignment(.leading)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(name)
-  }
-}
-
-/// Show-/Cover-Zeile mit quadratischem Thumbnail (Podcast-Sendung, Serie, …).
-struct DetailCoverLinkRow: View {
-  @EnvironmentObject private var model: AppModel
-  @Environment(\.themeAccent) private var themeAccent
-  let itemId: String
-  let title: String
-  var updatedAt: Date? = nil
-  let action: () -> Void
-
-  var body: some View {
-    Button(action: action) {
-      HStack(spacing: 12) {
-        DetailCoverThumbnail(itemId: itemId, updatedAt: updatedAt)
-        Text(title)
-          .font(DetailHeroTypography.metaLink)
-          .foregroundStyle(themeAccent)
-          .multilineTextAlignment(.leading)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(title)
-  }
-}
-
-struct DetailCoverThumbnail: View {
-  @EnvironmentObject private var model: AppModel
-  let itemId: String
-  var updatedAt: Date? = nil
-
-  var body: some View {
-    CoverImageView(
-      url: model.coverURL(for: itemId),
-      token: model.token,
-      itemId: itemId,
-      cacheAccount: model.coverImageCacheAccountDirectory(),
-      cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: updatedAt),
-      contentMode: .fill
-    )
-    .frame(
-      width: DetailMetaLayoutMetrics.thumbnailSize,
-      height: DetailMetaLayoutMetrics.thumbnailSize
-    )
-    .clipShape(
-      RoundedRectangle(
-        cornerRadius: DetailMetaLayoutMetrics.thumbnailCornerRadius,
-        style: .continuous
-      )
-    )
-    .accessibilityHidden(true)
-  }
-}
-
 struct DetailAuthorThumbnail: View {
   @EnvironmentObject private var model: AppModel
   let authorId: String
@@ -1055,10 +930,10 @@ struct DetailAuthorThumbnail: View {
 
   private var detailAuthorPlaceholder: some View {
     ZStack {
-      Circle().fill(AppTheme.card)
+      Circle().fill(model.appearancePalette.card)
       Image(systemName: "person.fill")
         .font(.body)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
     }
   }
 }

@@ -75,6 +75,13 @@ private enum StatsLayout {
     GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
     GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
   ]
+  /// Vier Kacheln pro Zeile für Einmal-Achievements.
+  static let oneTimeColumns = [
+    GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
+    GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
+    GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
+    GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
+  ]
   static let statsCalendar: Calendar = {
     var cal = Calendar(identifier: .gregorian)
     cal.firstWeekday = 2 // Montag
@@ -191,6 +198,20 @@ struct StatsLevelSectionView: View {
       LazyVGrid(columns: StatsLayout.periodColumns, spacing: AppTheme.Layout.withinSectionSpacing) {
         ForEach(levelAchievements) { achievement in
           ListeningAchievementCard(achievement: achievement, compact: true)
+        }
+      }
+    }
+  }
+}
+
+struct StatsOneTimeSectionView: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    StatsContentSection(title: "Milestones") {
+      LazyVGrid(columns: StatsLayout.oneTimeColumns, spacing: AppTheme.Layout.withinSectionSpacing) {
+        ForEach(model.listeningOneTimeSnapshot.achievements) { achievement in
+          OneTimeAchievementCard(achievement: achievement)
         }
       }
     }
@@ -410,7 +431,7 @@ private struct StatsTopListenedBookCard: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(Color(white: 0.2, opacity: 0.88))
+            .background(model.appearancePalette.coverPlayBadgeBackground)
             .clipShape(Capsule())
             .padding(4)
             .accessibilityLabel("Rank \(rank)")

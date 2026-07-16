@@ -21,8 +21,6 @@ enum CoverImageContentMode {
   case fill
   /// Vollansicht: komplettes Cover sichtbar, Briefkasten nach Bedarf.
   case fit
-  /// Zeilen-Cover: 1:1-Slot, Breite variabel (Legacy — bevorzugt `squareFit` via `SquareCoverImageView`).
-  case fitVariableWidth
 }
 
 /// Einheitliches 1:1-Cover: Bild zentriert (`scaledToFit`), Letterboxing mit cover-abgeleiteter Farbe.
@@ -158,11 +156,6 @@ struct CoverImageView: View {
           .resizable()
           .scaledToFit()
           .frame(maxWidth: .infinity, maxHeight: .infinity)
-      case .fitVariableWidth:
-        // Kein greedy Frame: Breite ergibt sich aus Zeilenhöhe × Seitenverhältnis.
-        Image(uiImage: image)
-          .resizable()
-          .scaledToFit()
       }
     } else {
       ZStack {
@@ -186,10 +179,6 @@ struct CoverImageView: View {
       case .fit:
         content
           .frame(minWidth: 44, minHeight: 44)
-      case .fitVariableWidth:
-        // Platzhalter quadratisch bis das Cover geladen ist.
-        content
-          .aspectRatio(1, contentMode: .fit)
       }
     }
   }

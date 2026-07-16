@@ -329,12 +329,14 @@ struct ReadiumReaderView: View {
             showsReaderChromeHint = false
           }
         }
-        .buttonStyle(.borderedProminent)
-        .tint(themeAccent)
+        .buttonStyle(AbstandProminentButtonStyle())
       }
       .padding(20)
       .frame(maxWidth: 320)
-      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+      .background(
+        .regularMaterial,
+        in: RoundedRectangle(cornerRadius: AppTheme.Layout.readerChromeCornerRadius, style: .continuous)
+      )
       .padding(.bottom, 44)
     }
     .padding(.horizontal, 24)
@@ -567,16 +569,4 @@ private final class ReaderNavigatorContainerViewController: UIViewController {
 extension Notification.Name {
   static let readiumReaderToggleChrome = Notification.Name("abstand.readiumReaderToggleChrome")
   static let readiumReaderProgressDidChange = Notification.Name("abstand.readiumReaderProgressDidChange")
-}
-
-/// Badge für Hörbücher mit angehängter E-Book-/PDF-Datei.
-struct EpubAvailableBadge: View {
-  @Environment(\.themeAccent) private var themeAccent
-
-  var body: some View {
-    Image(systemName: "book.closed.fill")
-      .font(.caption)
-      .foregroundStyle(themeAccent)
-      .accessibilityLabel("eBook available")
-  }
 }

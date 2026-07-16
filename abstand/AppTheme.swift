@@ -10,13 +10,7 @@ enum AppTheme {
   static var card: Color { palette.card }
   static var textPrimary: Color { palette.textPrimary }
   static var textSecondary: Color { palette.textSecondary }
-  static var achievementLevel1: Color { palette.achievementLevel1 }
-  static var achievementLevel2: Color { palette.achievementLevel2 }
-  static var achievementLevel3: Color { palette.achievementLevel3 }
-  static var achievementLevel4: Color { palette.achievementLevel4 }
   static var progressTrack: Color { palette.progressTrack }
-  static var heroPlayPillBackground: Color { palette.heroPlayPillBackground }
-  static var heroPlayPillForeground: Color { palette.heroPlayPillForeground }
   static func foregroundOnAccent(_ accent: Color) -> Color {
     palette.foregroundOnAccent(accent)
   }
@@ -59,8 +53,6 @@ enum AppTheme {
   private(set) static var accent: Color = defaultAccent
   static let danger = Color(red: 0.92, green: 0.32, blue: 0.32)
   static let success = Color(red: 0.35, green: 0.82, blue: 0.55)
-  /// Verbindungs-Ampel „prüft …“ (gelb).
-  static let warning = Color(red: 0.98, green: 0.78, blue: 0.22)
 
   /// Home-Browse „Expanding Dock“ — Layout; Farben über `Colors` aus Palette + Akzent.
   enum ExpandingDock {
@@ -69,14 +61,6 @@ enum AppTheme {
     static let itemSpacing: CGFloat = 10
     static let horizontalPadding: CGFloat = 18
     static let verticalPadding: CGFloat = 4
-    /// Kompakter Abstand in Karten-/Zeileninhalten (VStack/HStack in Metadata-Blöcken).
-    static let compactSpacing: CGFloat = 8
-    /// Kleiner Abstand für Badges, Pills, Icon-Text-Kombinationen.
-    static let badgeSpacing: CGFloat = 6
-    /// Sehr enger Abstand (Titel ↔ Detail in Zeilen, dichte Gruppierungen).
-    static let microSpacing: CGFloat = 2
-    /// Standard-Padding für Karteninhalte.
-    static let cardContentPadding: CGFloat = 12
     static let circleSize: CGFloat = 46
     static let iconSize: CGFloat = 21
     static let activeCoverSize: CGFloat = 28
@@ -84,7 +68,6 @@ enum AppTheme {
     static let activeLeadingPadding: CGFloat = 14
     static let activeTrailingPadding: CGFloat = 18
     static let iconLabelSpacing: CGFloat = 9
-    static let labelFontSize: CGFloat = 15.5
     static let centerWhenFewThreshold = 4
 
     static let selectionAnimation = Animation.spring(response: 0.32, dampingFraction: 0.72)
@@ -142,20 +125,19 @@ enum AppTheme {
 
     /// Kompakte Kachel in der Podcast-„Shows“-Leiste (nicht identisch mit Buch-Cover-Ecken).
     static let podcastShelfCoverCorner: CGFloat = 12
+    /// Textfelder, Suchfeld-Chrome und kleine Control-Karten (gleicher Wert wie Podcast-Shelf).
+    static let fieldCornerRadius: CGFloat = podcastShelfCoverCorner
+    /// Kleine Cover-Thumbs / Chips in Metadata-Sheets.
+    static let chipCornerRadius: CGFloat = 6
+    /// Reader-Chrome-Hinweis (Material-Karte über dem EPUB).
+    static let readerChromeCornerRadius: CGFloat = 20
+    /// Level-Badge auf Achievement-Karten (regular).
+    static let achievementBadgeCornerRadius: CGFloat = 10
 
-    /// Horizontale Cover-Leiste: Podcast „Shows“ und Books „Browse“ (gleiche Maße).
-    static let horizontalBrowseStripTile: CGFloat = 68
-    /// Caption breiter als Kachel (`captionW = tile + labelWidthExtra`); Strip-Spalten mit
-    /// `.leading` — die Extra-Breite liegt rechts der Kachel (nicht zentriert), damit die Kachel
-    /// mit Library-Zeilen bündig ist; HStack-Abstand zieht `labelWidthExtra` ab.
-    static let horizontalBrowseStripLabelWidthExtra: CGFloat = 12
-    static let horizontalBrowseStripInterTileSpacing: CGFloat = max(
-      0, withinSectionSpacing - horizontalBrowseStripLabelWidthExtra)
     /// Abstand Strip ↔ Großtitel oben.
     static let horizontalBrowseStripToTitleSpacing: CGFloat = 8
     /// Abstand Strip ↔ Scroll-Inhalt / Sektionsüberschrift unten.
     static let horizontalBrowseStripToContentSpacing: CGFloat = 16
-    static let horizontalBrowseStripTileLabelSpacing: CGFloat = 6
     static let horizontalBrowseStripVerticalPadding: CGFloat = 4
 
     /// „Continue listening“-Karten (horizontal scrollbar, einheitliche Höhe).
@@ -187,16 +169,6 @@ enum AppTheme {
       + continueHeroMetadataExtraBottomPadding
     /// Gesamthöhe Continue-Hero-Karte (Cover + Metadaten).
     static let continueHeroCardTotalHeight: CGFloat = continueHeroCoverMaxHeight + continueHeroMetadataBlockHeight
-    static let continueHeroCardHeight: CGFloat = continueHeroCardTotalHeight
-    /// Library-Cover-Karten: zweispaltiges Raster.
-    static let libraryHeroCoverCardColumns: [GridItem] = [
-      GridItem(.flexible(), spacing: withinSectionSpacing),
-      GridItem(.flexible(), spacing: withinSectionSpacing),
-    ]
-    /// Hero-Raster (Library): drei große Cover-Karten pro Zeile.
-    static let heroCoverColumnsPerRow = 3
-    /// Hero-Raster (eBooks/Supplementary): größere Cover, nur zwei pro Zeile.
-    static let ebookHeroCoverColumnsPerRow = 2
     /// Metadaten unter dem Cover ohne Play-Pille (wie Continue-Hero-Textblock).
     static let libraryHeroMetadataBlockHeight: CGFloat =
       continueHeroMetadataVerticalPadding
@@ -215,10 +187,6 @@ enum AppTheme {
     static let heroCardShadowY: CGFloat = 6
     /// Mindesthöhe für Zeilen in gruppierten Karten (Settings, Stats, …).
     static let listRowMinHeight: CGFloat = 50
-    /// Mindesthöhe für interaktive Settings-Zeilen (Toggle, Picker, Eingabe).
-    static let settingsCardRowMinHeight: CGFloat = listRowMinHeight
-    /// Nur-Lese- oder Nav-Zeilen (Username, Account Type, …).
-    static let settingsCardCompactRowHeight: CGFloat = listRowMinHeight
     /// Horizontaler Innenabstand in Settings-Karten.
     static let settingsCardInsetHPadding: CGFloat = 16
     /// Vertikaler Innenabstand in Settings-Karten (symmetrisch, ~iOS Inset Grouped).
@@ -531,7 +499,7 @@ extension View {
       .toolbarBackground(.hidden, for: .tabBar)
   }
 
-  /// Mindesthöhe für eine Zeile in `ServerAdminCard` / `StatsGroupedListCard`.
+  /// Mindesthöhe für eine Zeile in `AbstandGroupedCard` / `StatsGroupedListCard`.
   func abstandCardListRowFrame(alignment: Alignment = .leading) -> some View {
     frame(
       maxWidth: .infinity,
@@ -625,54 +593,7 @@ struct AbstandBrowseStripIconMenu: View {
   }
 }
 
-/// Großtitel → fixer Browse-Menüstreifen → scrollender Inhalt (einheitlich auf Library, Stats, Podcasts).
-struct AbstandFixedBrowseStripTabLayout<Strip: View, ScrollBody: View>: View {
-  @EnvironmentObject private var model: AppModel
-
-  var showsStrip: Bool = true
-  let scrollBottomInset: CGFloat
-  var onRefresh: (() async -> Void)?
-  @ViewBuilder var strip: () -> Strip
-  @ViewBuilder var scrollBody: () -> ScrollBody
-
-  var body: some View {
-    VStack(spacing: 0) {
-      if showsStrip {
-        strip().abstandFixedBrowseStripHeaderChrome()
-      }
-      scrollView
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .abstandScrollScreenBackground()
-  }
-
-  @ViewBuilder
-  private var scrollView: some View {
-    let screenBackground = model.appearancePalette.background
-    let base = ScrollView {
-      scrollBody()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(
-          .top,
-          showsStrip ? 0 : AppTheme.Layout.tabTitleToHeaderBlockSpacing
-        )
-        .padding(.bottom, scrollBottomInset)
-        .background(screenBackground)
-    }
-    .scrollContentBackground(.hidden)
-    .background(screenBackground)
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-    if let onRefresh {
-      base.refreshable { await onRefresh() }
-    } else {
-      base
-    }
-  }
-}
-
-/// Wie `AbstandFixedBrowseStripTabLayout`, aber je Sektion ein eigener `ScrollView` (Scrollposition bleibt erhalten).
+/// Großtitel → fixer Browse-Menüstreifen → je Sektion ein eigener `ScrollView` (Scrollposition bleibt erhalten).
 /// Nur bereits besuchte Sektionen werden aufgebaut — verhindert N× schwere Listen (z. B. jede Podcast-Sendung).
 struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content: View>: View {
   @EnvironmentObject private var model: AppModel
@@ -851,15 +772,46 @@ struct AbstandPrimaryButtonStyle: ButtonStyle {
       .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
       .background(
         RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous)
-          .fill(themeAccent.opacity(fillOpacity(isPressed: configuration.isPressed)))
+          .fill(themeAccent.opacity(Self.fillOpacity(isPressed: configuration.isPressed, isEnabled: isEnabled)))
       )
       .scaleEffect(configuration.isPressed && isEnabled ? 0.98 : 1)
       .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
   }
 
-  private func fillOpacity(isPressed: Bool) -> Double {
+  fileprivate static func fillOpacity(isPressed: Bool, isEnabled: Bool) -> Double {
     guard isEnabled else { return 0.35 }
     return isPressed ? 0.88 : 1
+  }
+}
+
+/// Kompakte Primäraktion (Suche, Subscribe, Retry) — Appearance-Akzent ohne Vollbreite.
+struct AbstandProminentButtonStyle: ButtonStyle {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.isEnabled) private var isEnabled
+
+  /// Transport-Play u.ä.: Kapsel; Label liefert die Größe (kein Extra-Padding).
+  var capsule = false
+
+  func makeBody(configuration: Configuration) -> some View {
+    let fill = themeAccent.opacity(
+      AbstandPrimaryButtonStyle.fillOpacity(isPressed: configuration.isPressed, isEnabled: isEnabled)
+    )
+    configuration.label
+      .font(.body.weight(.semibold))
+      .padding(.horizontal, capsule ? 0 : 14)
+      .padding(.vertical, capsule ? 0 : 8)
+      .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
+      .background {
+        if capsule {
+          Capsule(style: .continuous).fill(fill)
+        } else {
+          RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous)
+            .fill(fill)
+        }
+      }
+      .scaleEffect(configuration.isPressed && isEnabled ? 0.98 : 1)
+      .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
   }
 }
 
@@ -868,16 +820,6 @@ struct AbstandExpandingDockButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .opacity(configuration.isPressed ? 0.9 : 1)
-  }
-}
-
-/// Dezentes Drücken für Icon-Kacheln und Listenzeilen.
-struct AbstandScalePressButtonStyle: ButtonStyle {
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .scaleEffect(configuration.isPressed ? 0.96 : 1)
-      .opacity(configuration.isPressed ? 0.9 : 1)
-      .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
   }
 }
 
@@ -907,7 +849,7 @@ struct AbstandLabeledTextField: View {
       .foregroundStyle(model.appearancePalette.textPrimary)
       .background(model.appearancePalette.card)
       .clipShape(
-        RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
+        RoundedRectangle(cornerRadius: AppTheme.Layout.fieldCornerRadius, style: .continuous)
       )
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -940,7 +882,7 @@ private struct AbstandSearchFieldChromeModifier: ViewModifier {
       .padding(12)
       .background(model.appearancePalette.card)
       .clipShape(
-        RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
+        RoundedRectangle(cornerRadius: AppTheme.Layout.fieldCornerRadius, style: .continuous)
       )
       .abstandThemeRefresh()
   }
