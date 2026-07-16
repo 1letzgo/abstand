@@ -28,7 +28,9 @@ final class EbookSyncController: ObservableObject {
   private let aligner = EbookAudioAligner()
   private weak var boundPlayer: PlaybackController?
   private var prepTask: Task<Void, Never>?
+  private var extendTask: Task<Void, Never>?
   private var activeLibraryItemId: String?
+  private var activeEbookFileURL: URL?
   private var lastHighlightSentenceId: String?
   private var lastHighlightWordIndex: Int?
   private var accountURL: URL?
@@ -174,6 +176,7 @@ final class EbookSyncController: ObservableObject {
 
     boundPlayer = player
     activeLibraryItemId = libraryItemId
+    activeEbookFileURL = ebookFileURL
     isSyncModeActive = true
     player.setReadAlongHighFrequencyTicks(true)
 
@@ -199,11 +202,14 @@ final class EbookSyncController: ObservableObject {
 
   func stopSyncMode() async {
     cancelPreparation()
+    extendTask?.cancel()
+    extendTask = nil
     isSyncModeActive = false
     activeSentenceId = nil
     activeWordIndex = nil
     lastHighlightSentenceId = nil
     lastHighlightWordIndex = nil
+    activeEbookFileURL = nil
     boundPlayer?.setReadAlongHighFrequencyTicks(
       boundPlayer?.liveTranscription.isTeleprompterModeActive == true
     )
@@ -223,12 +229,59 @@ final class EbookSyncController: ObservableObject {
   func handlePlaybackTick(player: PlaybackController) {
     guard isSyncModeActive, let map = alignmentMap else { return }
     let time = player.liveGlobalPlaybackPosition
+    maybeExtendAlignmentWindow(player: player, map: map, time: time)
     guard let sentence = map.sentence(atGlobalTime: time) else { return }
     let word = map.word(atGlobalTime: time, in: sentence)
     let wordIndex = word?.index
     if sentence.id != activeSentenceId || wordIndex != activeWordIndex {
       activeSentenceId = sentence.id
       activeWordIndex = wordIndex
+    }
+  }
+
+  /// Lädt das nächste Audio-Fenster nach, bevor der Cache endet.
+  private func maybeExtendAlignmentWindow(
+    player: PlaybackController,
+    map: EbookAudioAlignmentMap,
+    time: Double
+  ) {
+    guard let end = map.coveredGlobalEnd, let ebookURL = activeEbookFileURL,
+      let libraryItemId = activeLibraryItemId
+    else { return }
+    // ~90 s vor Fensterende nachladen.
+    guard end - time < 90, end - time > -30 else { return }
+    let total = max(player.totalDuration, end)
+    guard end < total - 15 else { return }
+    guard extendTask == nil, !isPreparing else { return }
+    extendTask = Task { @MainActor [weak self] in
+      guard let self else { return }
+      defer { self.extendTask = nil }
+      do {
+        let next = try await self.ensureAlignmentMap(
+          player: player,
+          libraryItemId: libraryItemId,
+          ebookFileURL: ebookURL,
+          preferredLanguageTag: player.preferredTranscriptionLanguageTag,
+          anchorGlobalTime: min(total, end + 30),
+          totalDurationHint: player.totalDuration,
+          showProgress: false,
+          forceRebuild: true
+        )
+        guard self.isSyncModeActive, self.activeLibraryItemId == libraryItemId else { return }
+        if let current = self.alignmentMap {
+          self.alignmentMap = current.merging(with: next)
+        } else {
+          self.alignmentMap = next
+        }
+        try? EbookAudioAlignmentStore.save(
+          self.alignmentMap!, account: self.accountURL, userId: self.userId)
+        self.syncGeneration &+= 1
+        self.handlePlaybackTick(player: player)
+      } catch is CancellationError {
+        // cancelled
+      } catch {
+        // Hintergrund-Extend still — laufender Sync bleibt mit bisherigem Fenster nutzbar.
+      }
     }
   }
 
@@ -354,7 +407,9 @@ final class EbookSyncController: ObservableObject {
     downloadRoot: URL? = nil,
     preferredLanguageTag: String? = nil,
     anchorGlobalTime: Double = 0,
-    totalDurationHint: Double? = nil
+    totalDurationHint: Double? = nil,
+    showProgress: Bool = true,
+    forceRebuild: Bool = false
   ) async throws -> EbookAudioAlignmentMap {
     let ebookHash = EbookAudioAlignmentStore.fileFingerprint(url: ebookFileURL)
     let totalDuration = resolveTotalDuration(
@@ -378,11 +433,12 @@ final class EbookSyncController: ObservableObject {
     )
     let languageTag = preferredLanguageTag ?? player?.preferredTranscriptionLanguageTag
 
-    if let cached = EbookAudioAlignmentStore.load(
-      account: accountURL,
-      userId: userId,
-      libraryItemId: libraryItemId
-    ),
+    if !forceRebuild,
+      let cached = EbookAudioAlignmentStore.load(
+        account: accountURL,
+        userId: userId,
+        libraryItemId: libraryItemId
+      ),
       cached.ebookFileHash == ebookHash,
       cached.audioFingerprint == audioHash,
       !cached.sentences.isEmpty,
@@ -392,19 +448,20 @@ final class EbookSyncController: ObservableObject {
       return cached
     }
 
-    isPreparing = true
-    preparingLibraryItemId = libraryItemId
-    prepProgress = 0
-    prepStatusMessage = String(localized: "Preparing ebook sync…", comment: "Ebook sync prep")
+    if showProgress {
+      isPreparing = true
+      preparingLibraryItemId = libraryItemId
+      prepProgress = 0
+      prepStatusMessage = String(localized: "Preparing ebook sync…", comment: "Ebook sync prep")
+    }
     defer {
-      isPreparing = false
-      preparingLibraryItemId = nil
-      // Status-/Progress nach erfolgreicher Prep kurz stehen lassen (UI), sonst leeren.
-      if Task.isCancelled {
+      if showProgress {
+        isPreparing = false
+        preparingLibraryItemId = nil
         prepProgress = nil
-        prepStatusMessage = nil
-      } else {
-        prepProgress = nil
+        if Task.isCancelled {
+          prepStatusMessage = nil
+        }
       }
     }
 
@@ -417,6 +474,7 @@ final class EbookSyncController: ObservableObject {
       audioFingerprint: audioHash,
       audioWindow: audioWindow
     ) { [weak self] progress in
+      guard showProgress else { return }
       self?.prepProgress = progress.fraction
       self?.prepStatusMessage = progress.statusMessage
     }
@@ -534,6 +592,38 @@ enum EbookSyncHighlightBridge {
     let word = wordIndex.map(String.init) ?? ""
     return """
     (function() {
+      function norm(s) {
+        return (s || '').toLowerCase().replace(/\\s+/g, ' ').replace(/^\\s+|\\s+$/g, '');
+      }
+      function bringIntoView(el) {
+        if (!el) return;
+        var root = document.scrollingElement || document.documentElement;
+        var rect = el.getBoundingClientRect();
+        var vw = Math.max(1, window.innerWidth);
+        var vh = Math.max(1, window.innerHeight);
+        var padX = vw * 0.08;
+        var padY = vh * 0.12;
+        var visible =
+          rect.top >= padY && rect.bottom <= vh - padY &&
+          rect.left >= padX && rect.right <= vw - padX;
+        if (visible) return;
+        var vertical = root.scrollHeight > root.clientHeight * 1.2;
+        if (vertical) {
+          try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' }); } catch (e) {
+            try { el.scrollIntoView(true); } catch (e2) {}
+          }
+          return;
+        }
+        // Paginierte Spalten: seitenweise nach links/rechts.
+        var targetX = window.scrollX + rect.left - (vw * 0.15);
+        var page = Math.round(targetX / vw);
+        if (page < 0) page = 0;
+        try {
+          window.scrollTo({ left: page * vw, top: 0, behavior: 'smooth' });
+        } catch (e) {
+          window.scrollTo(page * vw, 0);
+        }
+      }
       document.querySelectorAll('span.abs-sync-sentence.abs-sync-active').forEach(function(el) {
         el.classList.remove('abs-sync-active');
       });
@@ -543,32 +633,40 @@ enum EbookSyncHighlightBridge {
       var sid = '\(sid)';
       var needle = '\(needle)';
       if (!sid && !needle) return false;
-      var sentence = sid
-        ? (document.getElementById(sid) || document.querySelector('span[data-abs-sentence-id=\"' + sid + '\"]'))
-        : null;
-      if (!sentence && needle) {
-        var all = document.querySelectorAll('span.abs-sync-sentence');
-        var norm = function(s) { return (s || '').toLowerCase().replace(/\\s+/g, ' ').replace(/^\\s+|\\s+$/g, ''); };
+      var all = document.querySelectorAll('span.abs-sync-sentence');
+      if (!all.length) return false;
+      var sentence = null;
+      // Text zuerst — IDs aus Extractor und DOM-Splitter können divergieren.
+      if (needle) {
         var target = norm(needle);
+        var bestScore = 0;
         for (var i = 0; i < all.length; i++) {
-          if (norm(all[i].textContent).indexOf(target) !== -1 || target.indexOf(norm(all[i].textContent)) !== -1) {
-            sentence = all[i];
-            break;
+          var cand = norm(all[i].textContent);
+          if (!cand) continue;
+          if (cand === target) { sentence = all[i]; bestScore = 1; break; }
+          if (cand.indexOf(target) !== -1 || target.indexOf(cand) !== -1) {
+            var score = Math.min(cand.length, target.length) / Math.max(cand.length, target.length);
+            if (score > bestScore) { bestScore = score; sentence = all[i]; }
           }
         }
+        if (bestScore < 0.35) sentence = null;
+      }
+      if (!sentence && sid) {
+        sentence = document.getElementById(sid)
+          || document.querySelector('span[data-abs-sentence-id=\"' + sid + '\"]');
       }
       if (!sentence) return false;
       sentence.classList.add('abs-sync-active');
       var w = '\(word)';
+      var focusEl = sentence;
       if (w !== '') {
         var wordEl = sentence.querySelector('span.abs-sync-word[data-abs-word-index=\"' + w + '\"]');
         if (wordEl) {
           wordEl.classList.add('abs-sync-word-active');
-          try { wordEl.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' }); } catch (e) {}
-          return true;
+          focusEl = wordEl;
         }
       }
-      try { sentence.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' }); } catch (e) {}
+      bringIntoView(focusEl);
       return true;
     })();
     """
