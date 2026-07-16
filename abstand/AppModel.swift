@@ -7600,7 +7600,8 @@ final class AppModel: ObservableObject {
         offlineFilteredIfNeeded(
           booksInLocalSeries(
             seriesId: nav.entityId, displayName: nav.title, libraryId: nav.libraryId)),
-        seriesId: nav.entityId)
+        seriesId: nav.entityId,
+        seriesName: nav.title)
       entityDetailBooks = rows
       entityDetailTotal = rows.count
     case .narrator:
@@ -7915,7 +7916,8 @@ final class AppModel: ObservableObject {
             .filter(isUsableEntityDetailCatalogRow)
             .filter { bookMatchesEntityDetailLibrary($0, libraryId: nav.libraryId) }
           if !rows.isEmpty {
-            entityDetailBooks = entityDetailSortBooksBySeriesOrder(rows, seriesId: nav.entityId)
+            entityDetailBooks = entityDetailSortBooksBySeriesOrder(
+              rows, seriesId: nav.entityId, seriesName: nav.title)
             entityDetailTotal = rows.count
             entityDetailUsesLibraryItemFilter = false
           } else {
@@ -7975,7 +7977,8 @@ final class AppModel: ObservableObject {
     for series in detail.series ?? [] {
       let books = entityDetailSortBooksBySeriesOrder(
         (series.items ?? []).filter(\.isUsableAuthorDetailRow),
-        seriesId: series.id)
+        seriesId: series.id,
+        seriesName: series.name)
       guard !books.isEmpty else { continue }
       inSeriesIds.formUnion(books.map(\.id))
       sections.append(
@@ -7989,27 +7992,49 @@ final class AppModel: ObservableObject {
     entityDetailTotal = allItems.count
   }
 
+  /// Sortiert nach Series-Sequence. Fehlen brauchbare Nummern, bleibt die Eingangsreihenfolge
+  /// (Series-API / `LocalSeries.bookIds` sind bereits korrekt geordnet — Titel-Fallback würde sie zerstören).
   private func entityDetailSortBooksBySeriesOrder(
-    _ books: [ABSBook], seriesId: String? = nil
+    _ books: [ABSBook], seriesId: String? = nil, seriesName: String? = nil
   ) -> [ABSBook] {
-    books.sorted { lhs, rhs in
-      let lk = entityDetailSeriesSortKey(for: lhs, seriesId: seriesId)
-      let rk = entityDetailSeriesSortKey(for: rhs, seriesId: seriesId)
-      if lk.number != rk.number { return lk.number < rk.number }
-      if lk.text != rk.text { return lk.text.localizedStandardCompare(rk.text) == .orderedAscending }
-      return lhs.displayTitle.localizedStandardCompare(rhs.displayTitle) == .orderedAscending
+    guard books.count > 1 else { return books }
+    let keyed = books.map { book -> (ABSBook, Double, String) in
+      let key = entityDetailSeriesSortKey(for: book, seriesId: seriesId, seriesName: seriesName)
+      return (book, key.number, key.text)
     }
+    let sequencedCount = keyed.reduce(into: 0) { count, row in
+      if row.1.isFinite { count += 1 }
+    }
+    // Ohne mindestens zwei echte Sequence-Nummern nicht umsortieren — sonst Alphabet statt Lesereihenfolge.
+    guard sequencedCount >= 2 else { return books }
+    return keyed.sorted { lhs, rhs in
+      if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
+      if lhs.2 != rhs.2 { return lhs.2.localizedStandardCompare(rhs.2) == .orderedAscending }
+      return lhs.0.displayTitle.localizedStandardCompare(rhs.0.displayTitle) == .orderedAscending
+    }.map(\.0)
   }
 
   private func entityDetailSeriesSortKey(
-    for book: ABSBook, seriesId: String? = nil
+    for book: ABSBook, seriesId: String? = nil, seriesName: String? = nil
   ) -> (number: Double, text: String) {
     let allSeries = book.media.metadata.series ?? []
-    // Wenn eine seriesId übergeben wurde, die passende Series auswählen (Bücher können
-    // in mehreren Serien sein — sonst nimmt .first die falsche Sequence-Nummer).
+    let wantId = seriesId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let wantName = seriesName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    // Bücher können in mehreren Serien sein. Nie blind `.first` nehmen, wenn eine Ziel-Serie
+    // vorgegeben ist — sonst sortiert die falsche Sequence die Lesereihenfolge kaputt.
     let series: ABSSeries?
-    if let sid = seriesId {
-      series = allSeries.first(where: { $0.id == sid }) ?? allSeries.first
+    if !wantId.isEmpty || !wantName.isEmpty {
+      if !wantId.isEmpty, let byId = allSeries.first(where: { $0.id == wantId }) {
+        series = byId
+      } else if !wantName.isEmpty,
+        let byName = allSeries.first(where: {
+          $0.name.localizedCaseInsensitiveCompare(wantName) == .orderedSame
+        })
+      {
+        series = byName
+      } else {
+        return (.infinity, book.displayTitle)
+      }
     } else {
       series = allSeries.first
     }
@@ -8017,9 +8042,33 @@ final class AppModel: ObservableObject {
       return (.infinity, book.displayTitle)
     }
     let seq = series.sequence?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    if let n = Double(seq) { return (n, seq) }
+    if let n = Self.parseSeriesSequenceNumber(seq) { return (n, seq) }
     if !seq.isEmpty { return (.infinity, seq) }
     return (.infinity, series.name)
+  }
+
+  /// `"1"`, `"1.5"`, `"01"`, optional mit Suffix — führende Zahl für Series-Sortierung.
+  private static func parseSeriesSequenceNumber(_ raw: String) -> Double? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    if let n = Double(trimmed) { return n }
+    // z. B. "1.0 (ebook)" / "2a" → führende Zahl
+    var num = ""
+    var sawDot = false
+    for ch in trimmed {
+      if ch.isNumber {
+        num.append(ch)
+      } else if ch == ".", !sawDot, !num.isEmpty {
+        num.append(ch)
+        sawDot = true
+      } else if num.isEmpty {
+        continue
+      } else {
+        break
+      }
+    }
+    if num.hasSuffix(".") { num.removeLast() }
+    return Double(num)
   }
 
   private func reloadEntityDetailBooksViaLibraryFilter(
@@ -8035,8 +8084,16 @@ final class AppModel: ObservableObject {
     } else {
       guard entityDetailTotal > 0, entityDetailBooks.count < entityDetailTotal else { return }
     }
-    let ascending = catalogSortField == .random ? true : !catalogSortDescending
-    let sortKey = catalogSortField.apiSortParameter
+    // Series-Filter: ABS unterstützt `sort=sequence` für die Lesereihenfolge — nicht Katalog-Titel.
+    let ascending: Bool
+    let sortKey: String
+    if nav.kind == .series {
+      ascending = true
+      sortKey = "sequence"
+    } else {
+      ascending = catalogSortField == .random ? true : !catalogSortDescending
+      sortKey = catalogSortField.apiSortParameter
+    }
     let pageIndex = entityDetailPage
     let (page, _) = try await c.libraryItems(
       libraryId: lib.id,
@@ -8049,10 +8106,11 @@ final class AppModel: ObservableObject {
     )
     guard entityDetailNavKey == key else { return }
     let rawRows = page.results.filter(isUsableEntityDetailCatalogRow)
-    // Bei Series-Detail nach Series-Reihenfolge sortieren (Sequence-Nummer), nicht nach
-    // dem allgemeinen Katalog-Sortierfeld — sonst stimmt die Reihenfolge nicht.
+    // Series: API liefert bereits Sequence-Order; clientseitige Sortierung nur wenn Sequences greifen,
+    // sonst Eingangsreihenfolge behalten (siehe `entityDetailSortBooksBySeriesOrder`).
     let rows = nav.kind == .series
-      ? entityDetailSortBooksBySeriesOrder(rawRows, seriesId: nav.entityId)
+      ? entityDetailSortBooksBySeriesOrder(
+        rawRows, seriesId: nav.entityId, seriesName: nav.title)
       : rawRows
     if reset || pageIndex == 0 {
       entityDetailBooks = rows
