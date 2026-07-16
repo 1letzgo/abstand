@@ -1196,6 +1196,8 @@ final class AppModel: ObservableObject {
 
   let player = PlaybackController()
   let downloads = DownloadManager()
+  /// FIFO-Queue für Read-Along-Prepare (Speech ± EPUB), analog zu Downloads.
+  let readAlongPrepare = ReadAlongPrepareQueue()
   /// Nur Player-Chrome — entkoppelt `tabViewBottomAccessory` von übrigen `@Published`-Feldern in `AppModel`.
   let floatingChrome = FloatingPlayerChromeController()
 
@@ -1339,6 +1341,40 @@ final class AppModel: ObservableObject {
       .store(in: &cancellables)
     downloads.$progress
       .throttle(for: .milliseconds(450), scheduler: RunLoop.main, latest: true)
+      .removeDuplicates()
+      .receive(on: RunLoop.main)
+      .sink { [weak self] _ in
+        self?.objectWillChange.send()
+      }
+      .store(in: &cancellables)
+
+    readAlongPrepare.setCancelHandler { [weak self] _ in
+      self?.player.liveTranscription.cancelSpeechPreparation()
+      self?.player.ebookSync.cancelPreparation()
+    }
+    readAlongPrepare.$activeItemId
+      .removeDuplicates()
+      .receive(on: RunLoop.main)
+      .sink { [weak self] _ in
+        self?.objectWillChange.send()
+      }
+      .store(in: &cancellables)
+    readAlongPrepare.$queuedItemIds
+      .removeDuplicates()
+      .receive(on: RunLoop.main)
+      .sink { [weak self] _ in
+        self?.objectWillChange.send()
+      }
+      .store(in: &cancellables)
+    readAlongPrepare.$progress
+      .throttle(for: .milliseconds(200), scheduler: RunLoop.main, latest: true)
+      .removeDuplicates()
+      .receive(on: RunLoop.main)
+      .sink { [weak self] _ in
+        self?.objectWillChange.send()
+      }
+      .store(in: &cancellables)
+    readAlongPrepare.$readyItemIds
       .removeDuplicates()
       .receive(on: RunLoop.main)
       .sink { [weak self] _ in
@@ -10825,67 +10861,225 @@ final class AppModel: ObservableObject {
     )?.format
   }
 
-  /// Speech-/Read-Along vorbereiten (Teleprompter; optional EPUB-Alignment für Read & Listen).
-  func prepareReadAlong(for book: ABSBook) async {
-    errorMessage = nil
-    guard await ensureLocalPlaybackReady(for: book, autoPlay: false) else { return }
-
-    await player.liveTranscription.prepareSpeechAssets(player: player)
-    if let speechError = player.liveTranscription.speechPrepErrorMessage {
-      errorMessage = speechError
-      return
-    }
-
-    // Mit EPUB zusätzlich Alignment cachen.
-    if bookSupportsEbookSync(book) {
-      isPreparingEbook = true
-      let epubURL = await ensureLocalEpubURL(for: book)
-      isPreparingEbook = false
-      guard let epubURL else { return }
-      configureEbookSyncSession()
-      await player.ebookSync.refreshAvailability()
-      player.ebookSync.refreshPreparedState(
-        player: player, libraryItemId: book.id, ebookFileURL: epubURL)
-      await player.ebookSync.prepareAlignment(
-        player: player,
-        libraryItemId: book.id,
-        ebookFileURL: epubURL,
-        ebookFormat: .epub
-      )
-      if let syncError = player.ebookSync.errorMessage {
-        errorMessage = syncError
-      }
-    }
-  }
-
-  /// Speech-/Read-Along für eine Podcast-Folge vorbereiten (Teleprompter).
-  func prepareReadAlong(for episode: ABSPodcastEpisodeListItem) async {
+  /// Speech-/Read-Along in die Prepare-Queue legen (kein Player-Hijack).
+  func prepareReadAlong(for book: ABSBook) {
     errorMessage = nil
     let hasLocal =
-      (player.isReadAlongDownloadReady && player.activePlaybackEpisodeId == episode.episodeId)
-      || localDownloadRoot(for: podcastEpisodeOfflineStorageId(episode)) != nil
+      resolvedLocalDownloadForPlayback(book: book) != nil
+      || (player.activeBook?.id == book.id && player.isReadAlongDownloadReady)
     guard hasLocal else {
       errorMessage = EbookSyncError.downloadRequired.localizedDescription
       return
     }
-    if player.activePlaybackEpisodeId != episode.episodeId
-      || player.activeBook?.id != episode.libraryItemId
-    {
-      await playPodcastEpisode(episode, autoPlay: false)
+    let kind: ReadAlongPrepareKind =
+      bookSupportsEbookSync(book) ? .speechAndEbookSync : .speechOnly
+    let entry = ReadAlongPrepareCatalogEntry(
+      itemId: book.id,
+      libraryItemId: book.id,
+      episodeId: nil,
+      title: book.displayTitle,
+      subtitle: book.displayAuthors,
+      kind: kind
+    )
+    readAlongPrepare.enqueue(entry: entry) { [weak self] in
+      guard let self else { return }
+      try await self.performPrepareReadAlong(for: book)
     }
-    guard player.isReadAlongDownloadReady else {
+  }
+
+  /// Speech-/Read-Along für eine Podcast-Folge in die Prepare-Queue legen.
+  func prepareReadAlong(for episode: ABSPodcastEpisodeListItem) {
+    errorMessage = nil
+    let storageId = podcastEpisodeOfflineStorageId(episode)
+    let hasLocal =
+      localDownloadRoot(for: storageId) != nil
+      || (player.isReadAlongDownloadReady && player.activePlaybackEpisodeId == episode.episodeId)
+    guard hasLocal else {
       errorMessage = EbookSyncError.downloadRequired.localizedDescription
       return
     }
-    await player.liveTranscription.prepareSpeechAssets(player: player)
-    if let speechError = player.liveTranscription.speechPrepErrorMessage {
-      errorMessage = speechError
+    let entry = ReadAlongPrepareCatalogEntry(
+      itemId: storageId,
+      libraryItemId: episode.libraryItemId,
+      episodeId: episode.episodeId,
+      title: episode.episodeTitle,
+      subtitle: episode.showTitle,
+      kind: .speechOnly
+    )
+    readAlongPrepare.enqueue(entry: entry) { [weak self] in
+      guard let self else { return }
+      try await self.performPrepareReadAlong(for: episode)
     }
+  }
+
+  /// Bricht Prep für ein Item ab (aktiv oder in Queue).
+  func cancelReadAlongPrepare(itemId: String) {
+    readAlongPrepare.cancel(itemId: itemId)
+  }
+
+  /// Speech-/Read-Along vorbereiten (Teleprompter; optional EPUB-Alignment für Read & Listen).
+  /// Läuft nur über die Queue — kein `play()` / kein Tear-down der aktuellen Wiedergabe.
+  private func performPrepareReadAlong(for book: ABSBook) async throws {
+    try await suspendLiveSpeechForPrepareIfNeeded()
+
+    let downloadRoot =
+      resolvedLocalDownloadForPlayback(book: book)?.root
+      ?? (player.activeBook?.id == book.id && player.isReadAlongDownloadReady
+        ? player.localRootForReadAlongPrepare
+        : nil)
+    guard downloadRoot != nil
+      || (player.activeBook?.id == book.id && player.isReadAlongDownloadReady)
+    else {
+      throw EbookSyncError.downloadRequired
+    }
+
+    readAlongPrepare.updateProgress(
+      0.05,
+      status: String(localized: "Preparing speech recognition…", comment: "Read along prepare")
+    )
+    let languageTag = book.media.metadata.language
+    let speechProgressMirror = Task { @MainActor [weak self] in
+      guard let self else { return }
+      while !Task.isCancelled {
+        if let p = self.player.liveTranscription.speechPrepProgress {
+          self.readAlongPrepare.updateProgress(
+            0.05 + p * 0.25,
+            status: self.player.liveTranscription.speechPrepStatusMessage
+          )
+        }
+        try? await Task.sleep(nanoseconds: 150_000_000)
+      }
+    }
+    await player.liveTranscription.prepareSpeechAssets(
+      libraryItemId: book.id,
+      preferredLanguageTag: languageTag
+    )
+    speechProgressMirror.cancel()
+    try Task.checkCancellation()
+    if let speechError = player.liveTranscription.speechPrepErrorMessage {
+      throw ReadAlongPrepareError.message(speechError)
+    }
+
+    guard bookSupportsEbookSync(book) else {
+      readAlongPrepare.updateProgress(
+        1,
+        status: String(localized: "Ready for read along", comment: "Read along prepare")
+      )
+      return
+    }
+
+    readAlongPrepare.updateProgress(
+      0.35,
+      status: String(localized: "Preparing ebook sync…", comment: "Ebook sync prep")
+    )
+    isPreparingEbook = true
+    let epubURL = await ensureLocalEpubURL(for: book)
+    isPreparingEbook = false
+    try Task.checkCancellation()
+    guard let epubURL else {
+      throw EbookSyncError.ebookUnavailable
+    }
+
+    configureEbookSyncSession()
+    await player.ebookSync.refreshAvailability()
+    player.ebookSync.refreshPreparedState(
+      player: player,
+      libraryItemId: book.id,
+      ebookFileURL: epubURL,
+      downloadRoot: downloadRoot
+    )
+
+    let progressMirror = Task { @MainActor [weak self] in
+      guard let self else { return }
+      while !Task.isCancelled {
+        if let p = self.player.ebookSync.prepProgress {
+          self.readAlongPrepare.updateProgress(
+            0.35 + p * 0.65,
+            status: self.player.ebookSync.prepStatusMessage
+          )
+        }
+        try? await Task.sleep(nanoseconds: 150_000_000)
+      }
+    }
+    defer { progressMirror.cancel() }
+
+    await player.ebookSync.prepareAlignment(
+      player: player,
+      libraryItemId: book.id,
+      ebookFileURL: epubURL,
+      ebookFormat: .epub,
+      downloadRoot: downloadRoot,
+      preferredLanguageTag: languageTag
+    )
+    try Task.checkCancellation()
+    if let syncError = player.ebookSync.errorMessage {
+      throw ReadAlongPrepareError.message(syncError)
+    }
+    readAlongPrepare.updateProgress(
+      1,
+      status: String(localized: "Ready for Read & Listen", comment: "Ebook sync prep")
+    )
+  }
+
+  /// Speech-/Read-Along für eine Podcast-Folge vorbereiten (Teleprompter).
+  private func performPrepareReadAlong(for episode: ABSPodcastEpisodeListItem) async throws {
+    try await suspendLiveSpeechForPrepareIfNeeded()
+
+    let storageId = podcastEpisodeOfflineStorageId(episode)
+    guard localDownloadRoot(for: storageId) != nil
+      || (player.isReadAlongDownloadReady && player.activePlaybackEpisodeId == episode.episodeId)
+    else {
+      throw EbookSyncError.downloadRequired
+    }
+
+    readAlongPrepare.updateProgress(
+      0.1,
+      status: String(localized: "Preparing speech recognition…", comment: "Read along prepare")
+    )
+    let progressMirror = Task { @MainActor [weak self] in
+      guard let self else { return }
+      while !Task.isCancelled {
+        if let p = self.player.liveTranscription.speechPrepProgress {
+          self.readAlongPrepare.updateProgress(
+            max(0.1, p * 0.95),
+            status: self.player.liveTranscription.speechPrepStatusMessage
+          )
+        }
+        try? await Task.sleep(nanoseconds: 150_000_000)
+      }
+    }
+    defer { progressMirror.cancel() }
+
+    await player.liveTranscription.prepareSpeechAssets(
+      libraryItemId: episode.libraryItemId,
+      preferredLanguageTag: podcastShowTranscriptionLanguage(for: episode.libraryItemId)
+    )
+    try Task.checkCancellation()
+    if let speechError = player.liveTranscription.speechPrepErrorMessage {
+      throw ReadAlongPrepareError.message(speechError)
+    }
+    readAlongPrepare.updateProgress(
+      1,
+      status: String(localized: "Ready for read along", comment: "Read along prepare")
+    )
+  }
+
+  /// Teleprompter/SpeechAnalyzer stoppen, bevor Prepare einen zweiten Analyzer startet.
+  private func suspendLiveSpeechForPrepareIfNeeded() async throws {
+    if player.liveTranscription.isTeleprompterModeActive {
+      await player.liveTranscription.disable()
+    }
+    try Task.checkCancellation()
   }
 
   /// Ob Speech-Assets (und ggf. EPUB-Alignment) für dieses Buch bereit sind.
   @discardableResult
   func isReadAlongPrepared(for book: ABSBook) -> Bool {
+    if readAlongPrepare.isReady(book.id) {
+      let speechReady = player.liveTranscription.isSpeechPrepared(libraryItemId: book.id)
+      guard bookSupportsEbookSync(book) else { return speechReady }
+      return speechReady && isEbookSyncPrepared(for: book)
+    }
     let speechReady = player.liveTranscription.isSpeechPrepared(libraryItemId: book.id)
     guard bookSupportsEbookSync(book) else { return speechReady }
     guard speechReady else { return false }
@@ -10901,13 +11095,23 @@ final class AppModel: ObservableObject {
     guard
       let account = cacheAccountURL(),
       let cached = EbookLocalStore.cachedEbookIfPresent(account: account, libraryItemId: book.id),
-      cached.format == .epub,
-      player.activeBook?.id == book.id,
-      player.isReadAlongDownloadReady
+      cached.format == .epub
+    else { return false }
+    let downloadRoot =
+      resolvedLocalDownloadForPlayback(book: book)?.root
+      ?? (player.activeBook?.id == book.id && player.isReadAlongDownloadReady
+        ? player.localRootForReadAlongPrepare
+        : nil)
+    guard downloadRoot != nil
+      || (player.activeBook?.id == book.id && player.isReadAlongDownloadReady)
     else { return false }
     configureEbookSyncSession()
     sync.refreshPreparedState(
-      player: player, libraryItemId: book.id, ebookFileURL: cached.url)
+      player: player,
+      libraryItemId: book.id,
+      ebookFileURL: cached.url,
+      downloadRoot: downloadRoot
+    )
     return sync.isPrepared(libraryItemId: book.id)
   }
 

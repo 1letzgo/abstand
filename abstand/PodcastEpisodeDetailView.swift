@@ -343,6 +343,7 @@ struct PodcastEpisodeDetailView: View {
       if model.player.liveTranscription.isReadAlongAvailable {
         PodcastReadAlongPrepareBar(
           transcription: model.player.liveTranscription,
+          prepareQueue: model.readAlongPrepare,
           episode: episode
         )
           .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
@@ -446,19 +447,37 @@ struct PodcastEpisodeDetailView: View {
 private struct PodcastReadAlongPrepareBar: View {
   @EnvironmentObject private var model: AppModel
   @ObservedObject var transcription: PlayerLiveTranscriptionController
+  @ObservedObject private var prepareQueue: ReadAlongPrepareQueue
   let episode: ABSPodcastEpisodeListItem
 
-  private var itemId: String { episode.libraryItemId }
-  private var isPreparingThis: Bool { transcription.isPreparingSpeech(for: itemId) }
-  private var isPrepared: Bool { transcription.isSpeechPrepared(libraryItemId: itemId) }
+  init(
+    transcription: PlayerLiveTranscriptionController,
+    prepareQueue: ReadAlongPrepareQueue,
+    episode: ABSPodcastEpisodeListItem
+  ) {
+    self.transcription = transcription
+    self.prepareQueue = prepareQueue
+    self.episode = episode
+  }
+
+  private var queueItemId: String { model.podcastEpisodeOfflineStorageId(episode) }
+  private var isQueued: Bool { prepareQueue.isQueued(queueItemId) }
+  private var isActive: Bool { prepareQueue.isActive(queueItemId) }
+  private var isPreparingThis: Bool {
+    isActive || isQueued || transcription.isPreparingSpeech(for: episode.libraryItemId)
+  }
+  private var isPrepared: Bool {
+    prepareQueue.isReady(queueItemId)
+      || transcription.isSpeechPrepared(libraryItemId: episode.libraryItemId)
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       Button {
         if isPreparingThis {
-          transcription.cancelSpeechPreparation()
+          model.cancelReadAlongPrepare(itemId: queueItemId)
         } else {
-          Task { await model.prepareReadAlong(for: episode) }
+          model.prepareReadAlong(for: episode)
         }
       } label: {
         Label(
@@ -476,28 +495,35 @@ private struct PodcastReadAlongPrepareBar: View {
         .padding(.vertical, 12)
       }
       .buttonStyle(.bordered)
-      .disabled(transcription.isPreparingSpeechAssets && !isPreparingThis)
+      .disabled(
+        (transcription.isPreparingSpeechAssets || prepareQueue.pendingCount > 0) && !isPreparingThis
+      )
       .accessibilityHint(
         String(
           localized: "Download the on-device speech model for teleprompter read along.",
           comment: "Read along prepare accessibility hint")
       )
 
-      if isPreparingThis {
+      if isActive {
         VStack(alignment: .leading, spacing: 6) {
-          ProgressView(value: transcription.speechPrepProgress)
+          ProgressView(value: prepareQueue.progress)
           Text(
-            transcription.speechPrepStatusMessage
+            prepareQueue.statusMessage
+              ?? transcription.speechPrepStatusMessage
               ?? String(localized: "Preparing speech recognition…", comment: "Read along prepare")
           )
           .font(.caption)
           .foregroundStyle(.secondary)
         }
+      } else if isQueued {
+        Text(String(localized: "Queued", comment: "Read along prepare queued"))
+          .font(.caption)
+          .foregroundStyle(.secondary)
       } else if isPrepared {
         Text(String(localized: "Ready for read along", comment: "Read along prepare"))
           .font(.caption)
           .foregroundStyle(.secondary)
-      } else if let error = transcription.speechPrepErrorMessage {
+      } else if let error = prepareQueue.lastErrorMessage ?? transcription.speechPrepErrorMessage {
         Text(error)
           .font(.caption)
           .foregroundStyle(.red)

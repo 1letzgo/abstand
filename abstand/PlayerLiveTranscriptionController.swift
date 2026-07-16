@@ -249,16 +249,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   /// Auth + Speech-Modell für das aktive Medium vorbereiten (Teleprompter-Start wird schneller).
   func prepareSpeechAssets(player: PlaybackController) async {
-    speechPrepErrorMessage = nil
-    if !isReadAlongAvailable {
-      isReadAlongAvailable = await SpeechTranscriberAvailability.isSupported()
-    }
-    guard isReadAlongAvailable else {
-      speechPrepErrorMessage = String(
-        localized: "Speech recognition is not available on this device.",
-        comment: "Read along prepare error")
-      return
-    }
     guard player.isReadAlongDownloadReady else {
       speechPrepErrorMessage = String(
         localized: "Download the audiobook to prepare read along.",
@@ -267,6 +257,28 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     }
     guard let bookId = player.activeBook?.id else {
       speechPrepErrorMessage = PlayerLiveTranscriptionError.noActivePlayback.localizedDescription
+      return
+    }
+    await prepareSpeechAssets(
+      libraryItemId: bookId,
+      preferredLanguageTag: player.preferredTranscriptionLanguageTag
+    )
+  }
+
+  /// Speech-Modell ohne Player-Hijack vorbereiten (Prepare-Queue).
+  func prepareSpeechAssets(
+    libraryItemId: String,
+    preferredLanguageTag: String?
+  ) async {
+    speechPrepErrorMessage = nil
+    let bookId = libraryItemId
+    if !isReadAlongAvailable {
+      isReadAlongAvailable = await SpeechTranscriberAvailability.isSupported()
+    }
+    guard isReadAlongAvailable else {
+      speechPrepErrorMessage = String(
+        localized: "Speech recognition is not available on this device.",
+        comment: "Read along prepare error")
       return
     }
 
@@ -307,9 +319,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       }
       do {
         try await self.ensureSpeechRecognitionAuthorized()
-        let languageTag = player.preferredTranscriptionLanguageTag
         let resolution = try await SpeechTranscriptionLocaleResolver.resolve(
-          preferredLanguageTag: languageTag
+          preferredLanguageTag: preferredLanguageTag
         )
         try await self.ensureSpeechModel(locale: resolution.locale)
         self.preparedSpeechLibraryItemId = bookId

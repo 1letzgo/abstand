@@ -56,11 +56,14 @@ final class EbookSyncController: ObservableObject {
   }
 
   /// Nur Alignment vorbereiten (kein Reader, kein Sync-Mode).
+  /// `downloadRoot` erlaubt Prep ohne aktiven Player (Prepare-Queue).
   func prepareAlignment(
-    player: PlaybackController,
+    player: PlaybackController?,
     libraryItemId: String,
     ebookFileURL: URL,
-    ebookFormat: ABSEbookFormat
+    ebookFormat: ABSEbookFormat,
+    downloadRoot: URL? = nil,
+    preferredLanguageTag: String? = nil
   ) async {
     errorMessage = nil
     guard ebookFormat == .epub else {
@@ -71,15 +74,20 @@ final class EbookSyncController: ObservableObject {
       errorMessage = EbookSyncError.speechUnavailable.localizedDescription
       return
     }
-    guard player.isReadAlongDownloadReady else {
+    let hasLocalAudio =
+      downloadRoot != nil || player?.isReadAlongDownloadReady == true
+    guard hasLocalAudio else {
       errorMessage = EbookSyncError.downloadRequired.localizedDescription
       return
     }
 
     // Bereits gültiger Cache → sofort als vorbereitet markieren.
     if hasValidCachedAlignment(
-      player: player, libraryItemId: libraryItemId, ebookFileURL: ebookFileURL)
-    {
+      player: player,
+      libraryItemId: libraryItemId,
+      ebookFileURL: ebookFileURL,
+      downloadRoot: downloadRoot
+    ) {
       preparedLibraryItemId = libraryItemId
       prepStatusMessage = String(localized: "Ready for Read & Listen", comment: "Ebook sync prep")
       return
@@ -91,13 +99,16 @@ final class EbookSyncController: ObservableObject {
     }
 
     prepTask?.cancel()
+    let languageTag = preferredLanguageTag ?? player?.preferredTranscriptionLanguageTag
     let task = Task { @MainActor [weak self] in
       guard let self else { return }
       do {
         let map = try await self.ensureAlignmentMap(
           player: player,
           libraryItemId: libraryItemId,
-          ebookFileURL: ebookFileURL
+          ebookFileURL: ebookFileURL,
+          downloadRoot: downloadRoot,
+          preferredLanguageTag: languageTag
         )
         self.alignmentMap = map
         self.preparedLibraryItemId = libraryItemId
@@ -220,13 +231,18 @@ final class EbookSyncController: ObservableObject {
   // MARK: - Prep
 
   func hasValidCachedAlignment(
-    player: PlaybackController,
+    player: PlaybackController?,
     libraryItemId: String,
-    ebookFileURL: URL
+    ebookFileURL: URL,
+    downloadRoot: URL? = nil
   ) -> Bool {
     guard
       let fingerprints = alignmentFingerprints(
-        player: player, libraryItemId: libraryItemId, ebookFileURL: ebookFileURL)
+        player: player,
+        libraryItemId: libraryItemId,
+        ebookFileURL: ebookFileURL,
+        downloadRoot: downloadRoot
+      )
     else { return false }
     guard
       let cached = EbookAudioAlignmentStore.load(
@@ -240,29 +256,45 @@ final class EbookSyncController: ObservableObject {
 
   /// Aktualisiert `preparedLibraryItemId`, wenn Cache für das Item gültig ist.
   func refreshPreparedState(
-    player: PlaybackController,
+    player: PlaybackController?,
     libraryItemId: String,
-    ebookFileURL: URL
+    ebookFileURL: URL,
+    downloadRoot: URL? = nil
   ) {
     if hasValidCachedAlignment(
-      player: player, libraryItemId: libraryItemId, ebookFileURL: ebookFileURL)
-    {
+      player: player,
+      libraryItemId: libraryItemId,
+      ebookFileURL: ebookFileURL,
+      downloadRoot: downloadRoot
+    ) {
       preparedLibraryItemId = libraryItemId
     } else if preparedLibraryItemId == libraryItemId {
       preparedLibraryItemId = nil
     }
   }
 
+  private func resolveAudioContexts(
+    player: PlaybackController?,
+    downloadRoot: URL?
+  ) -> [PlayerTranscriptionAudioContext] {
+    if let downloadRoot {
+      return PlaybackController.makeLocalTranscriptionAudioContexts(root: downloadRoot)
+    }
+    guard let player else { return [] }
+    return player.makeLocalTranscriptionAudioContexts(
+      overlapping: 0...(max(player.totalDuration, 1))
+    )
+  }
+
   private func alignmentFingerprints(
-    player: PlaybackController,
+    player: PlaybackController?,
     libraryItemId: String,
-    ebookFileURL: URL
+    ebookFileURL: URL,
+    downloadRoot: URL? = nil
   ) -> (ebookHash: String, audioHash: String)? {
     _ = libraryItemId
     let ebookHash = EbookAudioAlignmentStore.fileFingerprint(url: ebookFileURL)
-    let contexts = player.makeLocalTranscriptionAudioContexts(
-      overlapping: 0...(max(player.totalDuration, 1))
-    )
+    let contexts = resolveAudioContexts(player: player, downloadRoot: downloadRoot)
     guard !contexts.isEmpty else { return nil }
     let audioHash = EbookAudioAlignmentStore.audioFingerprint(
       trackURLs: contexts.map(\.assetURL),
@@ -272,19 +304,20 @@ final class EbookSyncController: ObservableObject {
   }
 
   private func ensureAlignmentMap(
-    player: PlaybackController,
+    player: PlaybackController?,
     libraryItemId: String,
-    ebookFileURL: URL
+    ebookFileURL: URL,
+    downloadRoot: URL? = nil,
+    preferredLanguageTag: String? = nil
   ) async throws -> EbookAudioAlignmentMap {
     let ebookHash = EbookAudioAlignmentStore.fileFingerprint(url: ebookFileURL)
-    let contexts = player.makeLocalTranscriptionAudioContexts(
-      overlapping: 0...(max(player.totalDuration, 1))
-    )
+    let contexts = resolveAudioContexts(player: player, downloadRoot: downloadRoot)
     guard !contexts.isEmpty else { throw EbookSyncError.audioUnavailable }
     let audioHash = EbookAudioAlignmentStore.audioFingerprint(
       trackURLs: contexts.map(\.assetURL),
       trackOffsets: contexts.map(\.trackGlobalOffset)
     )
+    let languageTag = preferredLanguageTag ?? player?.preferredTranscriptionLanguageTag
 
     if let cached = EbookAudioAlignmentStore.load(
       account: accountURL,
@@ -319,7 +352,7 @@ final class EbookSyncController: ObservableObject {
       libraryItemId: libraryItemId,
       ebookFileURL: ebookFileURL,
       contexts: contexts,
-      preferredLanguageTag: player.preferredTranscriptionLanguageTag,
+      preferredLanguageTag: languageTag,
       ebookFileHash: ebookHash,
       audioFingerprint: audioHash
     ) { [weak self] progress in
