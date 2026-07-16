@@ -1453,7 +1453,7 @@ struct ContinueListeningHeroCoverPill<Content: View>: View {
     content()
       .padding(.horizontal, 6)
       .padding(.vertical, 5)
-      .background(.black.opacity(0.48), in: Capsule(style: .continuous))
+      .background(AppTheme.coverPlayBadgeBackground, in: Capsule(style: .continuous))
       .fixedSize()
       .padding(.vertical, ContinueListeningHeroCoverPillMetrics.verticalInset)
       .padding(.horizontal, ContinueListeningHeroCoverPillMetrics.horizontalInset)

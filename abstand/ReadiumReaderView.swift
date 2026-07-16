@@ -333,7 +333,10 @@ struct ReadiumReaderView: View {
       }
       .padding(20)
       .frame(maxWidth: 320)
-      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+      .background(
+        .regularMaterial,
+        in: RoundedRectangle(cornerRadius: AppTheme.Layout.readerChromeCornerRadius, style: .continuous)
+      )
       .padding(.bottom, 44)
     }
     .padding(.horizontal, 24)

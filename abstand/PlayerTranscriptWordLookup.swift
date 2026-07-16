@@ -97,7 +97,7 @@ struct PlayerTranscriptWordLookupSheet: View {
       sheetContent
         .padding(AppTheme.Layout.tabPaddingH)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(AppTheme.background)
+        .background(model.appearancePalette.background)
         .navigationTitle(
           String(localized: "Look up & translate", comment: "Teleprompter word lookup title")
         )
@@ -137,7 +137,7 @@ struct PlayerTranscriptWordLookupSheet: View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       Text(selection.term)
         .font(.title2.weight(.bold))
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
         .frame(maxWidth: .infinity, alignment: .leading)
 
       languagePairRow
@@ -148,7 +148,7 @@ struct PlayerTranscriptWordLookupSheet: View {
             .controlSize(.small)
           Text(String(localized: "Translating…", comment: "Teleprompter word lookup"))
             .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
       }
 
@@ -160,7 +160,7 @@ struct PlayerTranscriptWordLookupSheet: View {
           )
         )
         .font(.caption)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
       } else if let translatedText {
         lookupResultCard(
           title: String(localized: "Translation", comment: "Teleprompter word lookup result label"),
@@ -186,13 +186,13 @@ struct PlayerTranscriptWordLookupSheet: View {
           )
         )
         .font(.caption)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
       }
 
       if let translationError {
         Text(translationError)
           .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
       }
 
       if dictionaryAvailable {
@@ -210,7 +210,7 @@ struct PlayerTranscriptWordLookupSheet: View {
           )
         )
         .font(.caption)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
       }
 
       Spacer(minLength: 0)
@@ -223,17 +223,17 @@ struct PlayerTranscriptWordLookupSheet: View {
         HStack(spacing: 8) {
           Text(String(localized: "From", comment: "Teleprompter translation source language label"))
             .font(.caption.weight(.semibold))
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
             .textCase(.uppercase)
           Text(PlayerTranscriptWordLookup.localizedLanguageName(for: sourceLocale))
             .font(.subheadline)
-            .foregroundStyle(AppTheme.textPrimary)
+            .foregroundStyle(model.appearancePalette.textPrimary)
           Image(systemName: "arrow.right")
             .font(.caption.weight(.semibold))
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
           Text(String(localized: "To", comment: "Teleprompter translation target language label"))
             .font(.caption.weight(.semibold))
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
             .textCase(.uppercase)
           Spacer(minLength: 0)
         }
@@ -242,11 +242,11 @@ struct PlayerTranscriptWordLookupSheet: View {
       HStack(spacing: 12) {
         Image(systemName: "globe")
           .font(.body.weight(.semibold))
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
           .frame(width: 22)
         Text(String(localized: "Target language", comment: "Teleprompter translation target picker"))
           .font(.body)
-          .foregroundStyle(AppTheme.textPrimary)
+          .foregroundStyle(model.appearancePalette.textPrimary)
         Spacer(minLength: 8)
         Picker(
           String(localized: "Target language", comment: "Teleprompter translation target picker"),
@@ -263,7 +263,10 @@ struct PlayerTranscriptWordLookupSheet: View {
       }
       .padding(.horizontal, 14)
       .padding(.vertical, 12)
-      .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .background(
+        model.appearancePalette.card,
+        in: RoundedRectangle(cornerRadius: AppTheme.Layout.fieldCornerRadius, style: .continuous)
+      )
       .onChange(of: targetLanguageCode) { _, code in
         let normalized = TranslationTargetLanguage.normalized(code)
         if normalized != code {
@@ -284,15 +287,18 @@ struct PlayerTranscriptWordLookupSheet: View {
     VStack(alignment: .leading, spacing: 6) {
       Text(title)
         .font(.caption.weight(.bold))
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
         .textCase(.uppercase)
       Text(body)
         .font(.body)
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     .padding(14)
-    .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .background(
+      model.appearancePalette.card,
+      in: RoundedRectangle(cornerRadius: AppTheme.Layout.fieldCornerRadius, style: .continuous)
+    )
   }
 
   @MainActor
@@ -478,12 +484,15 @@ struct PlayerTranscriptWordLookupSheet: View {
         Spacer(minLength: 0)
         Image(systemName: "chevron.right")
           .font(.caption.weight(.semibold))
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
       }
-      .foregroundStyle(AppTheme.textPrimary)
+      .foregroundStyle(model.appearancePalette.textPrimary)
       .padding(.horizontal, 14)
       .padding(.vertical, 12)
-      .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .background(
+        model.appearancePalette.card,
+        in: RoundedRectangle(cornerRadius: AppTheme.Layout.fieldCornerRadius, style: .continuous)
+      )
     }
     .buttonStyle(.plain)
   }

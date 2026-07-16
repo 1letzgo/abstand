@@ -274,13 +274,13 @@ struct EditMetadataSheet: View {
           AsyncImage(url: URL(string: url)) { phase in
             switch phase {
             case .empty:
-              RoundedRectangle(cornerRadius: 6)
+              RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius)
                 .fill(AppTheme.card)
                 .overlay { ProgressView() }
             case .success(let img):
               img.resizable().scaledToFit()
             default:
-              RoundedRectangle(cornerRadius: 6)
+              RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius)
                 .fill(AppTheme.card)
                 .overlay {
                   Image(systemName: "photo")
@@ -289,7 +289,9 @@ struct EditMetadataSheet: View {
             }
           }
           .aspectRatio(2/3, contentMode: .fit)
-          .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+          .clipShape(
+            RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius, style: .continuous)
+          )
         }
         .buttonStyle(.plain)
         .disabled(isApplyingCover)

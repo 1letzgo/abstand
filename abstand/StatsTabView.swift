@@ -431,7 +431,7 @@ private struct StatsTopListenedBookCard: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(Color(white: 0.2, opacity: 0.88))
+            .background(model.appearancePalette.coverPlayBadgeBackground)
             .clipShape(Capsule())
             .padding(4)
             .accessibilityLabel("Rank \(rank)")

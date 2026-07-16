@@ -125,6 +125,14 @@ enum AppTheme {
 
     /// Kompakte Kachel in der Podcast-„Shows“-Leiste (nicht identisch mit Buch-Cover-Ecken).
     static let podcastShelfCoverCorner: CGFloat = 12
+    /// Textfelder, Suchfeld-Chrome und kleine Control-Karten (gleicher Wert wie Podcast-Shelf).
+    static let fieldCornerRadius: CGFloat = podcastShelfCoverCorner
+    /// Kleine Cover-Thumbs / Chips in Metadata-Sheets.
+    static let chipCornerRadius: CGFloat = 6
+    /// Reader-Chrome-Hinweis (Material-Karte über dem EPUB).
+    static let readerChromeCornerRadius: CGFloat = 20
+    /// Level-Badge auf Achievement-Karten (regular).
+    static let achievementBadgeCornerRadius: CGFloat = 10
 
     /// Abstand Strip ↔ Großtitel oben.
     static let horizontalBrowseStripToTitleSpacing: CGFloat = 8
@@ -841,7 +849,7 @@ struct AbstandLabeledTextField: View {
       .foregroundStyle(model.appearancePalette.textPrimary)
       .background(model.appearancePalette.card)
       .clipShape(
-        RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
+        RoundedRectangle(cornerRadius: AppTheme.Layout.fieldCornerRadius, style: .continuous)
       )
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -874,7 +882,7 @@ private struct AbstandSearchFieldChromeModifier: ViewModifier {
       .padding(12)
       .background(model.appearancePalette.card)
       .clipShape(
-        RoundedRectangle(cornerRadius: AppTheme.Layout.podcastShelfCoverCorner, style: .continuous)
+        RoundedRectangle(cornerRadius: AppTheme.Layout.fieldCornerRadius, style: .continuous)
       )
       .abstandThemeRefresh()
   }

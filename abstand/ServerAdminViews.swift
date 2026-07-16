@@ -204,7 +204,7 @@ private struct SettingsCardPickerRow: View {
       SettingsCardIcon(systemName: icon)
       Text(title)
         .font(.body)
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
       Spacer(minLength: 8)
       Picker(title, selection: $selection) {
         ForEach(options, id: \.id) { opt in
@@ -236,7 +236,7 @@ private struct SettingsSkipSecondsPickerRow: View {
       SettingsCardIcon(systemName: rowIcon)
       Text(title)
         .font(.body)
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
       Spacer(minLength: 8)
       Picker(title, selection: $seconds) {
         ForEach(PlaybackController.skipIntervalOptions, id: \.self) { value in
@@ -296,6 +296,7 @@ private struct SettingsMetricCard: View {
 
 /// Passwortzeile wie Picker-Zeilen: Titel links, Eingabe rechts (ohne doppeltes Label/Placeholder).
 private struct SettingsCardSecureFieldRow: View {
+  @EnvironmentObject private var model: AppModel
   let icon: String
   let title: String
   @Binding var text: String
@@ -306,15 +307,15 @@ private struct SettingsCardSecureFieldRow: View {
       SettingsCardIcon(systemName: icon)
       Text(title)
         .font(.body)
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
       Spacer(minLength: 8)
       SecureField(
         "",
         text: $text,
-        prompt: Text(placeholder).foregroundStyle(AppTheme.textSecondary.opacity(0.55))
+        prompt: Text(placeholder).foregroundStyle(model.appearancePalette.textSecondary.opacity(0.55))
       )
       .font(.body)
-      .foregroundStyle(AppTheme.textPrimary)
+      .foregroundStyle(model.appearancePalette.textPrimary)
       .multilineTextAlignment(.trailing)
       .textInputAutocapitalization(.never)
       .autocorrectionDisabled()
@@ -347,11 +348,11 @@ private struct SettingsCardStepperRow: View {
       SettingsCardIcon(systemName: icon)
       Text(title)
         .font(.body)
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
       Spacer(minLength: 8)
       Text(valueLabel)
         .font(.subheadline)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
         .monospacedDigit()
         .frame(minWidth: 88, alignment: .trailing)
       Stepper("", value: $value, in: range)
@@ -371,7 +372,7 @@ private struct SettingsCardAutoDownloadIntervalRow: View {
       SettingsCardIcon(systemName: "clock.arrow.circlepath")
       Text("Interval")
         .font(.body)
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
       Spacer(minLength: 8)
       Picker("Interval", selection: $selection) {
         ForEach(PodcastAutoDownloadInterval.allCases) { interval in
@@ -387,6 +388,7 @@ private struct SettingsCardAutoDownloadIntervalRow: View {
 }
 
 private struct SettingsCardActionRow: View {
+  @EnvironmentObject private var model: AppModel
   let icon: String
   let title: String
   let subtitle: String?
@@ -399,17 +401,17 @@ private struct SettingsCardActionRow: View {
       VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 4) {
         Text(title)
           .font(.body.weight(.medium))
-          .foregroundStyle(AppTheme.textPrimary)
+          .foregroundStyle(model.appearancePalette.textPrimary)
         if let subtitle {
           Text(subtitle)
             .font(.caption)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
         }
       }
       Spacer(minLength: 0)
       Image(systemName: trailingIcon)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
     }
     .opacity(isEnabled ? 1 : 0.45)
   }
@@ -793,10 +795,10 @@ struct SettingsAccountView: View {
                   VStack(alignment: .leading, spacing: 2) {
                     Text(account.displayUsername)
                       .font(.body.weight(.medium))
-                      .foregroundStyle(AppTheme.textPrimary)
+                      .foregroundStyle(model.appearancePalette.textPrimary)
                     Text(account.displayServerHost)
                       .font(.caption)
-                      .foregroundStyle(AppTheme.textPrimary)
+                      .foregroundStyle(model.appearancePalette.textPrimary)
                       .lineLimit(1)
                   }
                   Spacer(minLength: 0)
@@ -824,7 +826,7 @@ struct SettingsAccountView: View {
                 SettingsCardIcon(systemName: "plus.circle.fill")
                 Text("Add account")
                   .font(.body.weight(.medium))
-                  .foregroundStyle(AppTheme.textPrimary)
+                  .foregroundStyle(model.appearancePalette.textPrimary)
                 Spacer(minLength: 0)
               }
               .settingsCardCompactRowFrame()
@@ -868,7 +870,7 @@ struct SettingsAccountView: View {
           if model.sortedBookLibraries.isEmpty {
             Text("No book libraries on this server.")
               .font(.subheadline)
-              .foregroundStyle(AppTheme.textSecondary)
+              .foregroundStyle(model.appearancePalette.textSecondary)
               .settingsCardCompactRowFrame(alignment: .leading)
           } else {
             SettingsCardPickerRow(
@@ -885,7 +887,7 @@ struct SettingsAccountView: View {
           if model.sortedPodcastLibraries.isEmpty {
             Text("No podcast libraries on this server.")
               .font(.subheadline)
-              .foregroundStyle(AppTheme.textSecondary)
+              .foregroundStyle(model.appearancePalette.textSecondary)
               .settingsCardCompactRowFrame(alignment: .leading)
           } else {
             SettingsCardPickerRow(
@@ -1267,7 +1269,7 @@ struct ServerUsersListView: View {
         }
       }
     }
-    .background(AppTheme.background.ignoresSafeArea())
+    .background(model.appearancePalette.background.ignoresSafeArea())
     .navigationTitle("Users")
     .toolbarTitleDisplayMode(.inlineLarge)
     .tint(model.appearanceAccentColor)
@@ -1298,11 +1300,11 @@ private struct ServerUserListRow: View {
   var body: some View {
     HStack(spacing: 12) {
       Circle()
-        .fill(isOnline ? AppTheme.success : Color.secondary.opacity(0.35))
+        .fill(isOnline ? AppTheme.success : model.appearancePalette.textSecondary.opacity(0.35))
         .frame(width: 8, height: 8)
       Text(user.username)
         .font(.body.weight(.medium))
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
       if user.isRoot {
         Text("root")
           .font(.caption2.weight(.semibold))
@@ -1314,12 +1316,12 @@ private struct ServerUserListRow: View {
       } else if let type = user.typeLabel {
         Text(type)
           .font(.caption2)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
       }
       Spacer(minLength: 0)
       Image(systemName: "chevron.right")
         .font(.caption.weight(.semibold))
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
     }
   }
 }
@@ -1359,7 +1361,7 @@ struct ServerUserDetailView: View {
         } else if let loadError, detail == nil {
           Text(loadError)
             .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 32)
         } else if let detail {
@@ -1384,14 +1386,14 @@ struct ServerUserDetailView: View {
     HStack(spacing: 8) {
       Text(detail.lastSeenCaption)
         .font(.subheadline)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
       if let type = detail.typeLabel {
         Text(type)
           .font(.caption.weight(.semibold))
           .padding(.horizontal, 8)
           .padding(.vertical, 3)
-          .background(AppTheme.card)
-          .foregroundStyle(AppTheme.textSecondary)
+          .background(model.appearancePalette.card)
+          .foregroundStyle(model.appearancePalette.textSecondary)
           .clipShape(Capsule())
       }
     }
@@ -1402,7 +1404,7 @@ struct ServerUserDetailView: View {
     HStack(spacing: 10) {
       summaryCard(value: "\(inProgressCount)", label: "In Progress", color: model.appearanceAccentColor)
       summaryCard(value: "\(finishedCount)", label: "Finished", color: AppTheme.success)
-      summaryCard(value: "\(progressRows.count)", label: "Total", color: AppTheme.textPrimary)
+      summaryCard(value: "\(progressRows.count)", label: "Total", color: model.appearancePalette.textPrimary)
     }
   }
 
@@ -1413,11 +1415,11 @@ struct ServerUserDetailView: View {
         .foregroundStyle(color)
       Text(label)
         .font(.caption)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
     }
     .frame(maxWidth: .infinity)
     .padding(.vertical, 14)
-    .background(AppTheme.card)
+    .background(model.appearancePalette.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
     .abstandCardElevation(.standard)
   }
@@ -1432,11 +1434,11 @@ struct ServerUserDetailView: View {
             .foregroundStyle(model.appearanceAccentColor)
           Text("Recent Sessions")
             .fontWeight(.medium)
-            .foregroundStyle(AppTheme.textPrimary)
+            .foregroundStyle(model.appearancePalette.textPrimary)
           Spacer()
           Image(systemName: "chevron.right")
             .font(.caption.weight(.semibold))
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
       }
     }
@@ -1503,12 +1505,12 @@ struct ServerUserListeningSessionsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                   Text(session.libraryItemId.isEmpty ? session.id : session.libraryItemId)
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(AppTheme.textPrimary)
+                    .foregroundStyle(model.appearancePalette.textPrimary)
                   Text(
                     "\(formatPlaybackTime(session.startTime)) → \(formatPlaybackTime(session.currentTime))"
                   )
                   .font(.caption)
-                  .foregroundStyle(AppTheme.textSecondary)
+                  .foregroundStyle(model.appearancePalette.textSecondary)
                 }
               }
             }
@@ -1516,7 +1518,7 @@ struct ServerUserListeningSessionsView: View {
         }
       }
     }
-    .background(AppTheme.background.ignoresSafeArea())
+    .background(model.appearancePalette.background.ignoresSafeArea())
     .navigationTitle("Recent Sessions")
     .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
@@ -1554,12 +1556,12 @@ private struct ServerAdminLibrariesSection: View {
         if let scanMessage {
           Text(scanMessage)
             .font(.caption)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
         if sortedLibraries.isEmpty {
           Text("No libraries on this server.")
             .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 4)
         } else {
@@ -1576,10 +1578,10 @@ private struct ServerAdminLibrariesSection: View {
                   VStack(alignment: .leading, spacing: 4) {
                     Text(lib.name)
                       .font(.body.weight(.medium))
-                      .foregroundStyle(AppTheme.textPrimary)
+                      .foregroundStyle(model.appearancePalette.textPrimary)
                     Text(lib.mediaType?.capitalized ?? "Library")
                       .font(.caption)
-                      .foregroundStyle(AppTheme.textSecondary)
+                      .foregroundStyle(model.appearancePalette.textSecondary)
                   }
                   Spacer(minLength: 0)
                   if scanningId == lib.id {
@@ -1588,7 +1590,7 @@ private struct ServerAdminLibrariesSection: View {
                   } else {
                     Image(systemName: "chevron.right")
                       .font(.caption.weight(.semibold))
-                      .foregroundStyle(AppTheme.textSecondary)
+                      .foregroundStyle(model.appearancePalette.textSecondary)
                   }
                 }
               }
@@ -1637,7 +1639,7 @@ struct ServerLibraryDetailView: View {
             .padding(.vertical, 40)
         } else if let loadError, stats == nil {
           Text(loadError)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         } else if let stats {
           ServerAdminSection(title: "Overview") {
             statGrid(stats)
@@ -1686,14 +1688,14 @@ struct ServerLibraryDetailView: View {
         VStack(alignment: .leading, spacing: 4) {
           Text(row.0)
             .font(.caption)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
           Text(row.1)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(AppTheme.textPrimary)
+            .foregroundStyle(model.appearancePalette.textPrimary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(AppTheme.card)
+        .background(model.appearancePalette.card)
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
         .abstandCardElevation(.standard)
       }
@@ -1749,7 +1751,7 @@ struct ServerAdminPodcastShowsListView: View {
         }
       }
     }
-    .background(AppTheme.background.ignoresSafeArea())
+    .background(model.appearancePalette.background.ignoresSafeArea())
     .navigationTitle("Shows")
     .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
@@ -1801,7 +1803,7 @@ struct ServerAdminPodcastShowView: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
-    .background(AppTheme.background)
+    .background(model.appearancePalette.background)
     .navigationTitle(showTitle)
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
@@ -1895,7 +1897,7 @@ private struct ServerAdminPodcastRssSection: View {
         if let unavailable {
           Text(unavailable)
             .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
         }
 
@@ -1908,7 +1910,7 @@ private struct ServerAdminPodcastRssSection: View {
         } else if drafts.isEmpty, libraryOnly.isEmpty, unavailable == nil {
           Text("No episodes found in the feed.")
             .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         } else {
           ForEach(drafts) { draft in
             PodcastRssFeedDraftRow(
@@ -1920,7 +1922,7 @@ private struct ServerAdminPodcastRssSection: View {
           if !libraryOnly.isEmpty {
             Text("In library only")
               .font(.subheadline.weight(.semibold))
-              .foregroundStyle(AppTheme.textSecondary)
+              .foregroundStyle(model.appearancePalette.textSecondary)
               .padding(.top, 8)
             ForEach(libraryOnly, id: \.progressLookupKey) { episode in
               ServerAdminPodcastLibraryEpisodeRow(showId: showId, episode: episode)
@@ -1967,12 +1969,12 @@ private struct ServerAdminPodcastLibraryEpisodeRow: View {
       VStack(alignment: .leading, spacing: 4) {
         Text(episode.episodeTitle)
           .font(.body.weight(.medium))
-          .foregroundStyle(AppTheme.textPrimary)
+          .foregroundStyle(model.appearancePalette.textPrimary)
           .multilineTextAlignment(.leading)
           .lineLimit(3)
         Text(publishedCaption)
           .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
       }
       Spacer(minLength: 0)
       Button {
@@ -1988,7 +1990,7 @@ private struct ServerAdminPodcastLibraryEpisodeRow: View {
     }
     .padding(14)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(AppTheme.card)
+    .background(model.appearancePalette.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.libraryRowCornerRadius, style: .continuous))
     .alert("Delete episode?", isPresented: $deleteConfirmation) {
       Button("Delete", role: .destructive) {
@@ -2170,7 +2172,7 @@ private struct PodcastShowTranscriptionLanguageSettingsContent: View {
               SettingsCardIcon(systemName: "captions.bubble")
               Text("Language")
                 .font(.body.weight(.medium))
-                .foregroundStyle(AppTheme.textPrimary)
+                .foregroundStyle(model.appearancePalette.textPrimary)
               Spacer(minLength: 0)
               Picker("Language", selection: selection) {
                 ForEach(PodcastShowTranscriptionLanguage.allCases) { language in
@@ -2220,7 +2222,7 @@ private struct ServerAdminPodcastSettingsSection: View {
                 SettingsCardIcon(systemName: "arrow.clockwise.circle")
                 Text("Check & download new episodes")
                   .font(.body.weight(.medium))
-                  .foregroundStyle(AppTheme.textPrimary)
+                  .foregroundStyle(model.appearancePalette.textPrimary)
                 Spacer(minLength: 0)
                 if model.podcastCheckNewInProgressShowId == showId {
                   ProgressView()
@@ -2572,7 +2574,7 @@ private struct DownloadManageActiveRow: View {
       Button(action: onCancel) {
         Image(systemName: "xmark.circle.fill")
           .font(.title3)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
       }
       .buttonStyle(.plain)
       .accessibilityLabel(isQueued ? "Remove from queue" : "Cancel download")
@@ -2679,7 +2681,7 @@ private struct DebugLogExportView: View {
         VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
           Text("\(collector.entries.count) entries")
             .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
 
           HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
             Button {
@@ -2704,7 +2706,7 @@ private struct DebugLogExportView: View {
       if collector.entries.isEmpty {
         Text("No log entries yet.")
           .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
           .padding(.vertical, 8)
       } else {
         AbstandGroupedCard {
@@ -2712,7 +2714,7 @@ private struct DebugLogExportView: View {
             ForEach(collector.entries.suffix(50)) { entry in
               Text(entry.message)
                 .font(.caption.monospaced())
-                .foregroundStyle(AppTheme.textSecondary)
+                .foregroundStyle(model.appearancePalette.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
           }

@@ -89,7 +89,7 @@ struct MatchMetadataSheet: View {
       VStack(alignment: .leading, spacing: 6) {
         Text("Title")
           .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
         TextField("Title", text: $titleQuery)
           .textFieldStyle(.roundedBorder)
           .submitLabel(.search)
@@ -98,7 +98,7 @@ struct MatchMetadataSheet: View {
       VStack(alignment: .leading, spacing: 6) {
         Text("Author")
           .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
         TextField("Author", text: $authorQuery)
           .textFieldStyle(.roundedBorder)
           .submitLabel(.search)
@@ -108,7 +108,7 @@ struct MatchMetadataSheet: View {
         VStack(alignment: .leading, spacing: 6) {
           Text("Provider")
             .font(.caption)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
           Picker("Provider", selection: $provider) {
             ForEach(availableProviders) { p in
               Text(p.text).tag(p.value)
@@ -149,10 +149,10 @@ struct MatchMetadataSheet: View {
     VStack(spacing: 10) {
       Image(systemName: hasSearched ? "magnifyingglass" : "text.magnifyingglass")
         .font(.system(size: 40))
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
       Text(hasSearched ? "No matches found." : "Search for a book to match metadata.")
         .font(.footnote)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
         .multilineTextAlignment(.center)
     }
     .frame(maxWidth: .infinity)
@@ -181,28 +181,28 @@ struct MatchMetadataSheet: View {
           AsyncImage(url: url) { phase in
             switch phase {
             case .empty:
-              RoundedRectangle(cornerRadius: 6)
-                .fill(AppTheme.card)
+              RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius)
+                .fill(model.appearancePalette.card)
                 .overlay { ProgressView() }
             case .success(let img):
               img.resizable().scaledToFit()
             default:
-              RoundedRectangle(cornerRadius: 6)
-                .fill(AppTheme.card)
+              RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius)
+                .fill(model.appearancePalette.card)
                 .overlay {
                   Image(systemName: "book")
-                    .foregroundStyle(AppTheme.textSecondary)
+                    .foregroundStyle(model.appearancePalette.textSecondary)
                 }
             }
           }
           .frame(width: 56, height: 80)
-          .clipShape(RoundedRectangle(cornerRadius: 6))
+          .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius))
         } else {
-          RoundedRectangle(cornerRadius: 6)
-            .fill(AppTheme.card)
+          RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius)
+            .fill(model.appearancePalette.card)
             .overlay {
               Image(systemName: "book")
-                .foregroundStyle(AppTheme.textSecondary)
+                .foregroundStyle(model.appearancePalette.textSecondary)
             }
             .frame(width: 56, height: 80)
         }
@@ -210,18 +210,18 @@ struct MatchMetadataSheet: View {
         VStack(alignment: .leading, spacing: 4) {
           Text(match.title ?? "—")
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(AppTheme.textPrimary)
+            .foregroundStyle(model.appearancePalette.textPrimary)
             .lineLimit(2)
           if let a = match.displayAuthors {
             Text(a)
               .font(.footnote)
-              .foregroundStyle(AppTheme.textSecondary)
+              .foregroundStyle(model.appearancePalette.textSecondary)
               .lineLimit(1)
           }
           if let n = match.displayNarrator {
             Text("Narrated by \(n)")
               .font(.footnote)
-              .foregroundStyle(AppTheme.textSecondary)
+              .foregroundStyle(model.appearancePalette.textSecondary)
               .lineLimit(1)
           }
           HStack(spacing: 6) {
@@ -235,18 +235,18 @@ struct MatchMetadataSheet: View {
       if let s = match.displaySeries {
         Text(s)
           .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
           .lineLimit(1)
       }
       if let desc = match.displayDescription {
         Text(desc)
           .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
           .lineLimit(2)
       }
     }
     .padding(AppTheme.Layout.detailSectionCardPadding)
-    .background(AppTheme.card)
+    .background(model.appearancePalette.card)
     .clipShape(
       RoundedRectangle(cornerRadius: AppTheme.Layout.detailSectionCardCornerRadius,
                        style: .continuous)
@@ -259,10 +259,10 @@ struct MatchMetadataSheet: View {
   private func chip(_ text: String) -> some View {
     Text(text)
       .font(.caption2)
-      .foregroundStyle(AppTheme.textSecondary)
+      .foregroundStyle(model.appearancePalette.textSecondary)
       .padding(.horizontal, 8)
       .padding(.vertical, 3)
-      .background(AppTheme.background.opacity(0.6))
+      .background(model.appearancePalette.background.opacity(0.6))
       .clipShape(Capsule())
   }
 
@@ -278,7 +278,7 @@ struct MatchMetadataSheet: View {
             Text(match.title ?? "—")
               .font(.subheadline.weight(.semibold))
             if let a = match.displayAuthors {
-              Text(a).font(.footnote).foregroundStyle(AppTheme.textSecondary)
+              Text(a).font(.footnote).foregroundStyle(model.appearancePalette.textSecondary)
             }
           }
           .padding(.vertical, 4)
@@ -296,7 +296,7 @@ struct MatchMetadataSheet: View {
                   .font(.subheadline)
                 Text(previewText(for: field, in: match))
                   .font(.caption)
-                  .foregroundStyle(AppTheme.textSecondary)
+                  .foregroundStyle(model.appearancePalette.textSecondary)
                   .lineLimit(2)
               }
             }
