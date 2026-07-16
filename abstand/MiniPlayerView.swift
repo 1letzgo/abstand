@@ -1136,10 +1136,7 @@ private struct FullPlayerTransportRowChrome: View, Equatable {
         }
         .frame(width: 72, height: 44)
       }
-      .buttonStyle(.borderedProminent)
-      .controlSize(.large)
-      .clipShape(Capsule(style: .continuous))
-      .tint(themeAccent)
+      .buttonStyle(AbstandProminentButtonStyle(capsule: true))
       .disabled(!snapshot.hasActiveBook)
       .frame(maxWidth: .infinity)
 

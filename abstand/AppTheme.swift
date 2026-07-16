@@ -764,15 +764,46 @@ struct AbstandPrimaryButtonStyle: ButtonStyle {
       .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
       .background(
         RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous)
-          .fill(themeAccent.opacity(fillOpacity(isPressed: configuration.isPressed)))
+          .fill(themeAccent.opacity(Self.fillOpacity(isPressed: configuration.isPressed, isEnabled: isEnabled)))
       )
       .scaleEffect(configuration.isPressed && isEnabled ? 0.98 : 1)
       .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
   }
 
-  private func fillOpacity(isPressed: Bool) -> Double {
+  fileprivate static func fillOpacity(isPressed: Bool, isEnabled: Bool) -> Double {
     guard isEnabled else { return 0.35 }
     return isPressed ? 0.88 : 1
+  }
+}
+
+/// Kompakte Primäraktion (Suche, Subscribe, Retry) — Appearance-Akzent ohne Vollbreite.
+struct AbstandProminentButtonStyle: ButtonStyle {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.isEnabled) private var isEnabled
+
+  /// Transport-Play u.ä.: Kapsel; Label liefert die Größe (kein Extra-Padding).
+  var capsule = false
+
+  func makeBody(configuration: Configuration) -> some View {
+    let fill = themeAccent.opacity(
+      AbstandPrimaryButtonStyle.fillOpacity(isPressed: configuration.isPressed, isEnabled: isEnabled)
+    )
+    configuration.label
+      .font(.body.weight(.semibold))
+      .padding(.horizontal, capsule ? 0 : 14)
+      .padding(.vertical, capsule ? 0 : 8)
+      .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
+      .background {
+        if capsule {
+          Capsule(style: .continuous).fill(fill)
+        } else {
+          RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous)
+            .fill(fill)
+        }
+      }
+      .scaleEffect(configuration.isPressed && isEnabled ? 0.98 : 1)
+      .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
   }
 }
 

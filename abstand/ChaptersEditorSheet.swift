@@ -122,8 +122,7 @@ struct ChaptersEditorSheet: View {
           Label("Search", systemImage: "magnifyingglass")
             .labelStyle(.titleAndIcon)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(themeAccent)
+        .buttonStyle(AbstandProminentButtonStyle())
         .disabled(asinInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
       }
     }

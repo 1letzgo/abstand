@@ -325,12 +325,12 @@ private struct PodcastDirectoryHitRow: View {
       Button(action: onSubscribe) {
         if model.podcastSubscribeInProgressDirectoryHitId == hit.id {
           ProgressView()
+            .tint(model.appearancePalette.foregroundOnAccent(model.appearanceAccentColor))
         } else {
           Text("Subscribe")
         }
       }
-      .buttonStyle(.borderedProminent)
-      .tint(model.appearanceAccentColor)
+      .buttonStyle(AbstandProminentButtonStyle())
       .disabled(
         (hit.feedUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
           || !model.isNetworkReachable)

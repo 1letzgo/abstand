@@ -6,7 +6,6 @@ import SwiftUI
 struct MatchMetadataSheet: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.dismiss) private var dismiss
-  @Environment(\.themeAccent) private var themeAccent
 
   let itemId: String
   let currentTitle: String
@@ -124,8 +123,7 @@ struct MatchMetadataSheet: View {
           Label("Search", systemImage: "magnifyingglass")
             .labelStyle(.titleAndIcon)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(themeAccent)
+        .buttonStyle(AbstandProminentButtonStyle())
         .disabled(titleQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
       }
     }

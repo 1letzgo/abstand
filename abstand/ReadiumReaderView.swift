@@ -329,8 +329,7 @@ struct ReadiumReaderView: View {
             showsReaderChromeHint = false
           }
         }
-        .buttonStyle(.borderedProminent)
-        .tint(themeAccent)
+        .buttonStyle(AbstandProminentButtonStyle())
       }
       .padding(20)
       .frame(maxWidth: 320)

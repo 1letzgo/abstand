@@ -231,8 +231,7 @@ struct EditMetadataSheet: View {
             Label("Search", systemImage: "magnifyingglass")
               .labelStyle(.titleAndIcon)
           }
-          .buttonStyle(.borderedProminent)
-          .tint(themeAccent)
+          .buttonStyle(AbstandProminentButtonStyle())
           .disabled(coverTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearchingCovers)
         }
       }

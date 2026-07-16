@@ -1022,27 +1022,19 @@ struct SettingsChangePasswordView: View {
           }
         }
 
-        ServerAdminCard {
-          Button {
-            Task { await submit() }
-          } label: {
-            HStack {
-              if busy {
-                ProgressView()
-                  .tint(.white)
-              }
-              Text("Save password")
-                .font(.body.weight(.semibold))
+        Button {
+          Task { await submit() }
+        } label: {
+          HStack(spacing: 8) {
+            if busy {
+              ProgressView()
+                .tint(model.appearancePalette.foregroundOnAccent(model.appearanceAccentColor))
             }
-            .frame(maxWidth: .infinity)
-            .settingsCardRowFrame(alignment: .center)
-            .background(submitEnabled ? model.appearanceAccentColor : AppTheme.textSecondary.opacity(0.35))
-            .foregroundStyle(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Text("Save password")
           }
-          .buttonStyle(.plain)
-          .disabled(!submitEnabled)
         }
+        .buttonStyle(AbstandPrimaryButtonStyle())
+        .disabled(!submitEnabled)
 
         if let statusMessage {
           Text(statusMessage)
