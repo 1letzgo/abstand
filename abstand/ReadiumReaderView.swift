@@ -568,15 +568,3 @@ extension Notification.Name {
   static let readiumReaderToggleChrome = Notification.Name("abstand.readiumReaderToggleChrome")
   static let readiumReaderProgressDidChange = Notification.Name("abstand.readiumReaderProgressDidChange")
 }
-
-/// Badge für Hörbücher mit angehängter E-Book-/PDF-Datei.
-struct EpubAvailableBadge: View {
-  @Environment(\.themeAccent) private var themeAccent
-
-  var body: some View {
-    Image(systemName: "book.closed.fill")
-      .font(.caption)
-      .foregroundStyle(themeAccent)
-      .accessibilityLabel("eBook available")
-  }
-}

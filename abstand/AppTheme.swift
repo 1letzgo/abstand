@@ -625,54 +625,7 @@ struct AbstandBrowseStripIconMenu: View {
   }
 }
 
-/// Großtitel → fixer Browse-Menüstreifen → scrollender Inhalt (einheitlich auf Library, Stats, Podcasts).
-struct AbstandFixedBrowseStripTabLayout<Strip: View, ScrollBody: View>: View {
-  @EnvironmentObject private var model: AppModel
-
-  var showsStrip: Bool = true
-  let scrollBottomInset: CGFloat
-  var onRefresh: (() async -> Void)?
-  @ViewBuilder var strip: () -> Strip
-  @ViewBuilder var scrollBody: () -> ScrollBody
-
-  var body: some View {
-    VStack(spacing: 0) {
-      if showsStrip {
-        strip().abstandFixedBrowseStripHeaderChrome()
-      }
-      scrollView
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .abstandScrollScreenBackground()
-  }
-
-  @ViewBuilder
-  private var scrollView: some View {
-    let screenBackground = model.appearancePalette.background
-    let base = ScrollView {
-      scrollBody()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(
-          .top,
-          showsStrip ? 0 : AppTheme.Layout.tabTitleToHeaderBlockSpacing
-        )
-        .padding(.bottom, scrollBottomInset)
-        .background(screenBackground)
-    }
-    .scrollContentBackground(.hidden)
-    .background(screenBackground)
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-    if let onRefresh {
-      base.refreshable { await onRefresh() }
-    } else {
-      base
-    }
-  }
-}
-
-/// Wie `AbstandFixedBrowseStripTabLayout`, aber je Sektion ein eigener `ScrollView` (Scrollposition bleibt erhalten).
+/// Großtitel → fixer Browse-Menüstreifen → je Sektion ein eigener `ScrollView` (Scrollposition bleibt erhalten).
 /// Nur bereits besuchte Sektionen werden aufgebaut — verhindert N× schwere Listen (z. B. jede Podcast-Sendung).
 struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content: View>: View {
   @EnvironmentObject private var model: AppModel
@@ -868,16 +821,6 @@ struct AbstandExpandingDockButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .opacity(configuration.isPressed ? 0.9 : 1)
-  }
-}
-
-/// Dezentes Drücken für Icon-Kacheln und Listenzeilen.
-struct AbstandScalePressButtonStyle: ButtonStyle {
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .scaleEffect(configuration.isPressed ? 0.96 : 1)
-      .opacity(configuration.isPressed ? 0.9 : 1)
-      .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
   }
 }
 

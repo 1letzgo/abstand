@@ -741,6 +741,7 @@ struct HomeListeningStatsSectionView: View {
   var body: some View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
       StatsLevelSectionView()
+      StatsOneTimeSectionView()
       StatsTimelineHubSectionView()
 
       ForEach(SettingsStatsCategory.allCases) { category in

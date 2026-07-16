@@ -642,11 +642,9 @@ struct DetailHeroActionsBar: View {
 
 enum DetailMetaLayoutMetrics {
   static let thumbnailSize: CGFloat = 44
-  static let thumbnailCornerRadius: CGFloat = 8
   static let labelToContentSpacing: CGFloat = 6
   static let labelIconSpacing: CGFloat = 5
   static let linkRowSpacing: CGFloat = 10
-  static let pairColumnSpacing: CGFloat = AppTheme.Layout.withinSectionSpacing
   static let disclosureContentTopPadding: CGFloat = 6
   static let sectionCardSpacing: CGFloat = AppTheme.Layout.withinSectionSpacing
   /// Description-Card: Zeilen vor „More“.
@@ -799,50 +797,6 @@ struct DetailMetaField<Content: View>: View {
   }
 }
 
-/// Zwei Meta-Felder nebeneinander (z. B. Series + Year, Genres + Tags).
-struct DetailMetaFieldPair<Left: View, Right: View>: View {
-  let leftTitle: String
-  let rightTitle: String
-  @ViewBuilder var left: () -> Left
-  @ViewBuilder var right: () -> Right
-
-  var body: some View {
-    HStack(alignment: .top, spacing: DetailMetaLayoutMetrics.pairColumnSpacing) {
-      DetailMetaField(title: leftTitle, content: left)
-        .frame(maxWidth: .infinity, alignment: .leading)
-      DetailMetaField(title: rightTitle, content: right)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-  }
-}
-
-/// Wie `DetailMetaFieldPair`, aber auf schmalen Screens untereinander.
-struct DetailMetaFieldPairAdaptive<Left: View, Right: View>: View {
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  let leftTitle: String
-  let rightTitle: String
-  @ViewBuilder var left: () -> Left
-  @ViewBuilder var right: () -> Right
-
-  var body: some View {
-    Group {
-      if horizontalSizeClass == .regular {
-        DetailMetaFieldPair(
-          leftTitle: leftTitle,
-          rightTitle: rightTitle,
-          left: left,
-          right: right
-        )
-      } else {
-        VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
-          DetailMetaField(title: leftTitle, content: left)
-          DetailMetaField(title: rightTitle, content: right)
-        }
-      }
-    }
-  }
-}
-
 struct DetailMetaTextBlock: View {
   let text: String
 
@@ -939,90 +893,6 @@ struct DetailAuthorLinkRow: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel(name)
-  }
-}
-
-/// Sprecher-Zeile mit Mikrofon-Platzhalter (kein API-Bild).
-struct DetailNarratorLinkRow: View {
-  @Environment(\.themeAccent) private var themeAccent
-  let name: String
-  let action: () -> Void
-
-  var body: some View {
-    Button(action: action) {
-      HStack(spacing: 12) {
-        ZStack {
-          Circle().fill(AppTheme.card)
-          Image(systemName: "mic.fill")
-            .font(.body)
-            .foregroundStyle(AppTheme.textSecondary)
-        }
-        .frame(
-          width: DetailMetaLayoutMetrics.thumbnailSize,
-          height: DetailMetaLayoutMetrics.thumbnailSize
-        )
-        Text(name)
-          .font(DetailHeroTypography.metaLink)
-          .foregroundStyle(themeAccent)
-          .multilineTextAlignment(.leading)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(name)
-  }
-}
-
-/// Show-/Cover-Zeile mit quadratischem Thumbnail (Podcast-Sendung, Serie, …).
-struct DetailCoverLinkRow: View {
-  @EnvironmentObject private var model: AppModel
-  @Environment(\.themeAccent) private var themeAccent
-  let itemId: String
-  let title: String
-  var updatedAt: Date? = nil
-  let action: () -> Void
-
-  var body: some View {
-    Button(action: action) {
-      HStack(spacing: 12) {
-        DetailCoverThumbnail(itemId: itemId, updatedAt: updatedAt)
-        Text(title)
-          .font(DetailHeroTypography.metaLink)
-          .foregroundStyle(themeAccent)
-          .multilineTextAlignment(.leading)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(title)
-  }
-}
-
-struct DetailCoverThumbnail: View {
-  @EnvironmentObject private var model: AppModel
-  let itemId: String
-  var updatedAt: Date? = nil
-
-  var body: some View {
-    CoverImageView(
-      url: model.coverURL(for: itemId),
-      token: model.token,
-      itemId: itemId,
-      cacheAccount: model.coverImageCacheAccountDirectory(),
-      cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: updatedAt),
-      contentMode: .fill
-    )
-    .frame(
-      width: DetailMetaLayoutMetrics.thumbnailSize,
-      height: DetailMetaLayoutMetrics.thumbnailSize
-    )
-    .clipShape(
-      RoundedRectangle(
-        cornerRadius: DetailMetaLayoutMetrics.thumbnailCornerRadius,
-        style: .continuous
-      )
-    )
-    .accessibilityHidden(true)
   }
 }
 
