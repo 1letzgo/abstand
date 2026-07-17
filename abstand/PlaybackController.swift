@@ -35,8 +35,6 @@ enum SleepTimerMode: Equatable {
 final class PlaybackController: NSObject, ObservableObject {
   /// Mitlesen (SpeechAnalyzer / on-device).
   let liveTranscription = PlayerLiveTranscriptionController()
-  /// Ebook-Sync (Hörbuch + EPUB, on-device Alignment).
-  let ebookSync = EbookSyncController()
 
   @Published private(set) var activeBook: ABSBook?
   /// Gesetzte Podcast-Folge (`play/.../episodeId`); bei Hörbüchern `nil`.
@@ -179,9 +177,6 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Read-along nur bei vollständig heruntergeladenem Titel mit lokalen Audio-Dateien.
   var isReadAlongDownloadReady: Bool { isUsingLocalTrackFiles }
 
-  /// Download-Stamm des aktiven lokalen Players — für Prepare ohne erneutes `play()`.
-  var localRootForReadAlongPrepare: URL? { localRoot }
-
   var canBuildTranscriptionStreamContext: Bool {
     apiClient != nil && playSessionId != nil
   }
@@ -268,16 +263,9 @@ final class PlaybackController: NSObject, ObservableObject {
         self?.objectWillChange.send()
       }
       .store(in: &cancellables)
-    ebookSync.objectWillChange
-      .receive(on: DispatchQueue.main)
-      .sink { [weak self] _ in
-        self?.objectWillChange.send()
-      }
-      .store(in: &cancellables)
 
     Task { @MainActor in
       await liveTranscription.refreshReadAlongAvailability()
-      await ebookSync.refreshAvailability()
     }
 
     $sleepEndDate
@@ -710,20 +698,11 @@ final class PlaybackController: NSObject, ObservableObject {
     }
   }
 
-  /// Ebook-Sync stoppen (Reader geschlossen / Playback tear-down).
-  func disableEbookSyncIfNeeded() {
-    guard ebookSync.isSyncModeActive || ebookSync.isPreparing else { return }
-    Task { @MainActor in
-      await ebookSync.stopSyncMode()
-    }
-  }
-
   func tearDownPlayer() {
     DebugLogCollector.shared.log("tearDownPlayer START activeBook=\(activeBook?.id ?? "nil") episodeId=\(activePlaybackEpisodeId ?? "nil") isPlaying=\(isPlaying)")
     playResumeTask?.cancel()
     playResumeTask = nil
     liveTranscription.playbackDidStop()
-    disableEbookSyncIfNeeded()
     clearSleepTimer()
     showMiniPlayerPlaceholder = false
     miniPlayerBarFillColor = AppTheme.card
@@ -1197,7 +1176,6 @@ final class PlaybackController: NSObject, ObservableObject {
     accumulateListenTime()
     onPlaybackTick?()
     liveTranscription.handlePlaybackTick(player: self)
-    ebookSync.handlePlaybackTick(player: self)
     refreshGlobalFromPlayer()
     updateChapterUI(global: globalPosition)
     updateNowPlaying()
@@ -2082,32 +2060,6 @@ final class PlaybackController: NSObject, ObservableObject {
       guard let url = Self.resolvedLocalTrackURL(root: root, trackIndex: track.index, manifest: manifest) else {
         return nil
       }
-      return PlayerTranscriptionAudioContext(
-        assetURL: url,
-        streamAuthToken: nil,
-        trackGlobalOffset: start,
-        locale: locale,
-        trackIndex: index
-      )
-    }
-  }
-
-  /// Kontextliste aus einem Download-Ordner — ohne aktiven Player (Prepare-Queue).
-  static func makeLocalTranscriptionAudioContexts(
-    root: URL,
-    overlapping globalRange: ClosedRange<Double>? = nil,
-    locale: Locale = .current
-  ) -> [PlayerTranscriptionAudioContext] {
-    guard let manifest = ABSDownloadManifest.load(from: root), !manifest.tracks.isEmpty else {
-      return []
-    }
-    let range = globalRange ?? 0...(max(manifest.totalDuration ?? 0, 1))
-    return manifest.tracks.enumerated().compactMap { index, track in
-      let start = track.startOffset
-      let end = start + track.duration
-      guard end >= range.lowerBound, start <= range.upperBound else { return nil }
-      guard let url = resolvedLocalTrackURL(root: root, trackIndex: track.index, manifest: manifest)
-      else { return nil }
       return PlayerTranscriptionAudioContext(
         assetURL: url,
         streamAuthToken: nil,

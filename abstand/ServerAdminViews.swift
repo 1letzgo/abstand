@@ -65,7 +65,6 @@ private struct ServerAdminNavRow: View {
   let icon: String
   let title: String
   let subtitle: String?
-  var badge: String? = nil
 
   var body: some View {
     let _ = themeRevision
@@ -86,15 +85,6 @@ private struct ServerAdminNavRow: View {
         }
       }
       Spacer(minLength: 0)
-      if let badge, !badge.isEmpty {
-        Text(badge)
-          .font(.caption2.weight(.semibold))
-          .padding(.horizontal, 8)
-          .padding(.vertical, 3)
-          .background(themeAccent.opacity(0.18))
-          .foregroundStyle(themeAccent)
-          .clipShape(Capsule(style: .continuous))
-      }
       Image(systemName: "chevron.right")
         .font(.caption.weight(.semibold))
         .foregroundStyle(palette.textSecondary)

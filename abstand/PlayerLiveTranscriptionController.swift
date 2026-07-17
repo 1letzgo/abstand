@@ -166,14 +166,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   /// Nur aktivierbar, wenn Apple Intelligence verfügbar ist und nicht bereits läuft.
   var canGenerateRecap: Bool { !isGeneratingRecap && SystemLanguageModel.default.availability == .available }
 
-  /// Speech-Modell-/Auth-Vorbereitung (ohne Teleprompter-UI).
-  @Published private(set) var isPreparingSpeechAssets = false
-  @Published private(set) var speechPrepProgress: Double?
-  @Published private(set) var speechPrepStatusMessage: String?
-  @Published private(set) var speechPrepErrorMessage: String?
-  @Published private(set) var preparedSpeechLibraryItemId: String?
-  private var speechPrepTask: Task<Void, Never>?
-
   private var finalizedWords: [PlayerTranscriptWord] = []
   private var recapBookId: String?
   private var recapPlaybackTime: Double?
@@ -235,119 +227,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   func refreshReadAlongAvailability() async {
     isReadAlongAvailable = await SpeechTranscriberAvailability.isSupported()
-  }
-
-  func isSpeechPrepared(libraryItemId: String) -> Bool {
-    preparedSpeechLibraryItemId == libraryItemId
-  }
-
-  func isPreparingSpeech(for libraryItemId: String) -> Bool {
-    isPreparingSpeechAssets && preparingSpeechLibraryItemId == libraryItemId
-  }
-
-  private var preparingSpeechLibraryItemId: String?
-
-  /// Auth + Speech-Modell für das aktive Medium vorbereiten (Teleprompter-Start wird schneller).
-  func prepareSpeechAssets(player: PlaybackController) async {
-    guard player.isReadAlongDownloadReady else {
-      speechPrepErrorMessage = String(
-        localized: "Download the audiobook to prepare read along.",
-        comment: "Read along prepare error")
-      return
-    }
-    guard let bookId = player.activeBook?.id else {
-      speechPrepErrorMessage = PlayerLiveTranscriptionError.noActivePlayback.localizedDescription
-      return
-    }
-    await prepareSpeechAssets(
-      libraryItemId: bookId,
-      preferredLanguageTag: player.preferredTranscriptionLanguageTag
-    )
-  }
-
-  /// Speech-Modell ohne Player-Hijack vorbereiten (Prepare-Queue).
-  func prepareSpeechAssets(
-    libraryItemId: String,
-    preferredLanguageTag: String?
-  ) async {
-    speechPrepErrorMessage = nil
-    let bookId = libraryItemId
-    if !isReadAlongAvailable {
-      isReadAlongAvailable = await SpeechTranscriberAvailability.isSupported()
-    }
-    guard isReadAlongAvailable else {
-      speechPrepErrorMessage = String(
-        localized: "Speech recognition is not available on this device.",
-        comment: "Read along prepare error")
-      return
-    }
-
-    if isSpeechPrepared(libraryItemId: bookId) {
-      speechPrepStatusMessage = String(
-        localized: "Ready for read along", comment: "Read along prepare")
-      return
-    }
-
-    if isPreparingSpeechAssets, preparingSpeechLibraryItemId == bookId, let speechPrepTask {
-      await speechPrepTask.value
-      return
-    }
-
-    speechPrepTask?.cancel()
-    let task = Task { @MainActor [weak self] in
-      guard let self else { return }
-      self.isPreparingSpeechAssets = true
-      self.preparingSpeechLibraryItemId = bookId
-      self.speechPrepProgress = 0
-      self.speechPrepStatusMessage = String(
-        localized: "Preparing speech recognition…", comment: "Read along prepare")
-      let progressMirror = Task { @MainActor [weak self] in
-        while !Task.isCancelled {
-          if let p = self?.modelDownloadProgress {
-            self?.speechPrepProgress = p
-            self?.speechPrepStatusMessage = String(
-              localized: "Downloading speech model…", comment: "Read along prepare")
-          }
-          try? await Task.sleep(nanoseconds: 150_000_000)
-        }
-      }
-      defer {
-        progressMirror.cancel()
-        self.isPreparingSpeechAssets = false
-        self.preparingSpeechLibraryItemId = nil
-        self.speechPrepProgress = nil
-      }
-      do {
-        try await self.ensureSpeechRecognitionAuthorized()
-        let resolution = try await SpeechTranscriptionLocaleResolver.resolve(
-          preferredLanguageTag: preferredLanguageTag
-        )
-        try await self.ensureSpeechModel(locale: resolution.locale)
-        self.preparedSpeechLibraryItemId = bookId
-        self.speechPrepStatusMessage = String(
-          localized: "Ready for read along", comment: "Read along prepare")
-      } catch is CancellationError {
-        // cancelled
-      } catch {
-        self.speechPrepErrorMessage =
-          (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-        if self.preparedSpeechLibraryItemId == bookId {
-          self.preparedSpeechLibraryItemId = nil
-        }
-      }
-    }
-    speechPrepTask = task
-    await task.value
-    if speechPrepTask == task { speechPrepTask = nil }
-  }
-
-  func cancelSpeechPreparation() {
-    speechPrepTask?.cancel()
-    speechPrepTask = nil
-    isPreparingSpeechAssets = false
-    preparingSpeechLibraryItemId = nil
-    speechPrepProgress = nil
-    speechPrepStatusMessage = nil
   }
 
   func toggle(player: PlaybackController) async {
@@ -419,11 +298,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     guard player.activeBook != nil else {
       errorMessage = PlayerLiveTranscriptionError.noActivePlayback.localizedDescription
       return
-    }
-
-    // Ebook-Sync und Teleprompter teilen sich denselben Speech-/Tick-Pfad — nicht parallel.
-    if player.ebookSync.isSyncModeActive || player.ebookSync.isPreparing {
-      await player.ebookSync.stopSyncMode()
     }
 
     if let pendingStop = stopSessionTask {
