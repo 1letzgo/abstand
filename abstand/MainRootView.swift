@@ -2044,10 +2044,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
     .task(id: episode.progressLookupKey) {
       let account = model.coverImageCacheAccountDirectory()
       let itemId = episode.libraryItemId
-      if let c = CoverDerivedTintLoader.colorFromDiskOrCoverCache(account: account, itemId: itemId) {
-        tint = c
-      }
-      if let c = await CoverDerivedTintLoader.colorFromNetwork(
+      if let c = await CoverDerivedTintLoader.loadColor(
         account: account,
         itemId: itemId,
         coverURL: model.coverURL(for: itemId),
@@ -2304,12 +2301,7 @@ struct ContinueListeningHeroBookCard: View {
     .task(id: book.id) {
       let account = model.coverImageCacheAccountDirectory()
       let revision = model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
-      if let c = CoverDerivedTintLoader.colorFromDiskOrCoverCache(
-        account: account, itemId: book.id, revision: revision)
-      {
-        tint = c
-      }
-      if let c = await CoverDerivedTintLoader.colorFromNetwork(
+      if let c = await CoverDerivedTintLoader.loadColor(
         account: account,
         itemId: book.id,
         revision: revision,
@@ -2478,10 +2470,7 @@ struct ContinueListeningHeroPodcastCard: View {
     .task(id: episode.progressLookupKey) {
       let account = model.coverImageCacheAccountDirectory()
       let itemId = episode.libraryItemId
-      if let c = CoverDerivedTintLoader.colorFromDiskOrCoverCache(account: account, itemId: itemId) {
-        tint = c
-      }
-      if let c = await CoverDerivedTintLoader.colorFromNetwork(
+      if let c = await CoverDerivedTintLoader.loadColor(
         account: account,
         itemId: itemId,
         coverURL: model.coverURL(for: itemId),
