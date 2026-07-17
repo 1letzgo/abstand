@@ -936,8 +936,11 @@ actor ABSAPIClient {
     )
   }
 
-  func deleteLibraryItem(id: String) async throws {
-    let req = try authorizedRequest(path: "api/items/\(id)", method: "DELETE")
+  /// `hardDelete`: Dateien auf dem Server-Dateisystem mitlöschen (`?hard=1`, wie ABS-Web-UI).
+  func deleteLibraryItem(id: String, hardDelete: Bool = false) async throws {
+    var query: [String: String] = [:]
+    if hardDelete { query["hard"] = "1" }
+    let req = try authorizedRequest(path: "api/items/\(id)", method: "DELETE", query: query)
     try await sendData(req)
   }
 

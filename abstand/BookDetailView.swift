@@ -21,6 +21,8 @@ struct BookDetailView: View {
   @State private var confirmMarkBookUnfinished = false
   @State private var confirmMarkEbookAsRead = false
   @State private var confirmResetEbookRead = false
+  /// Root: Buch inkl. Dateien vom Server löschen.
+  @State private var confirmDeleteBook = false
   /// Autor/Serie/Genre/Sprecher oberhalb des Buch-Details — nicht `libraryEntityDetailNav` (würde Detail poppen).
   @State private var linkedEntityDetailNav: BooksEntityDetailNav?
   /// Match-Metadaten-Sheet (Admin/Root) — absorb-style Online-Match.
@@ -118,6 +120,23 @@ struct BookDetailView: View {
       }
     } message: {
       Text("This removes your saved position and listening sessions for this book. You cannot undo this.")
+    }
+    .alert("Delete book?", isPresented: $confirmDeleteBook) {
+      Button("Cancel", role: .cancel) {}
+      Button("Delete including file", role: .destructive) {
+        Task {
+          let title = (detail ?? book).displayTitle
+          let ok = await model.deleteFromServer(bookId: bookId, hardDelete: true)
+          if ok { dismiss() }
+          else if model.errorMessage == nil {
+            model.errorMessage = "Could not delete \"\(title)\"."
+          }
+        }
+      }
+    } message: {
+      Text(
+        "\"\((detail ?? book).displayTitle)\" will be deleted on the server including its files. Local downloads will be removed. You cannot undo this."
+      )
     }
     .alert("Mark as finished?", isPresented: $confirmMarkBookFinished) {
       Button("Cancel", role: .cancel) {}
@@ -302,7 +321,7 @@ struct BookDetailView: View {
     }
     .tint(discardEnabled ? AppTheme.danger : AppTheme.textSecondary)
 
-    // Match-Metadaten + Kapitel-Editor nur für Admin/Root (ABS `isAdminOrUp`).
+    // Match-Metadaten + Kapitel-Editor: Admin/Root. Löschen inkl. Datei: nur Root.
     if model.isServerAdmin || model.isServerRoot {
       Menu {
         Button {
@@ -319,6 +338,14 @@ struct BookDetailView: View {
           showChaptersSheet = true
         } label: {
           Label("Edit Chapters", systemImage: "list.bullet.below.rectangle")
+        }
+        if model.isServerRoot {
+          Divider()
+          Button(role: .destructive) {
+            confirmDeleteBook = true
+          } label: {
+            Label("Delete Book…", systemImage: "trash")
+          }
         }
       } label: {
         Image(systemName: "ellipsis.circle")
