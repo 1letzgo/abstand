@@ -771,9 +771,8 @@ final class AppModel: ObservableObject {
   @Published private(set) var listeningStats: ABSListeningStatsResponse?
   @Published private(set) var listeningStatsFetchedAt: Date?
   @Published private(set) var listeningStatsLoading = false
-  /// Stats-Achievements: zuerst leer/Cache, danach asynchron aus Stats + Fortschritt.
+  /// Stats-Level-Achievements: zuerst leer/Cache, danach asynchron aus Stats + Fortschritt.
   @Published private(set) var listeningAchievementsSnapshot: ListeningAchievementsSnapshot = .empty
-  @Published private(set) var listeningOneTimeSnapshot: ListeningOneTimeAchievementsSnapshot = .empty
   private var listeningAchievementsRebuildTask: Task<Void, Never>?
 
   /// Erhöhen nach `clearCoverImageCache()`, damit `CoverImageView` neu lädt.
@@ -4438,7 +4437,6 @@ final class AppModel: ObservableObject {
     listeningStatsFetchedAt = nil
     listeningAchievementsRebuildTask?.cancel()
     listeningAchievementsSnapshot = .empty
-    listeningOneTimeSnapshot = .empty
     UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
     if clearCredentials {
       UserDefaults.standard.removeObject(forKey: Keys.booksLibrary)
@@ -9119,14 +9117,12 @@ final class AppModel: ObservableObject {
     listeningAchievementsRebuildTask?.cancel()
     guard let context = currentLocalLibraryMainContext() else {
       listeningAchievementsSnapshot = .empty
-      listeningOneTimeSnapshot = .empty
       return
     }
     listeningAchievementsSnapshot = LocalLibraryQueries.achievementsSnapshot(context: context) ?? .empty
-    listeningOneTimeSnapshot = LocalLibraryQueries.oneTimeAchievementsSnapshot(context: context) ?? .empty
   }
 
-  /// Nach geladenen Stats: Achievements im Hintergrund berechnen und cachen.
+  /// Nach geladenen Stats: Level-Achievements im Hintergrund berechnen und cachen.
   func scheduleListeningAchievementsRebuild() {
     listeningAchievementsRebuildTask?.cancel()
     listeningAchievementsRebuildTask = Task { @MainActor [weak self] in
@@ -9142,20 +9138,10 @@ final class AppModel: ObservableObject {
         finishedBooks: finished.books,
         finishedEpisodes: finished.episodes
       )
-      let oneTime = ListeningOneTimeAchievementsSnapshot.make(
-        stats: stats,
-        finishedBooks: finished.books,
-        finishedEpisodes: finished.episodes,
-        downloadedItemCount: self.downloadedItemIds.count,
-        bookmarkCount: self.bookmarks.count,
-        flags: OneTimeAchievementPersistentFlags.load()
-      )
       self.listeningAchievementsSnapshot = snap
-      self.listeningOneTimeSnapshot = oneTime
       if let store = self.currentLocalLibraryStore() {
         Task.detached(priority: .utility) {
           try? await store.replaceAchievementsSnapshot(snap)
-          try? await store.replaceOneTimeAchievementsSnapshot(oneTime)
         }
       }
     }
@@ -9884,7 +9870,6 @@ final class AppModel: ObservableObject {
   func applySleepTimer(seconds: TimeInterval?) {
     if let seconds, seconds > 0 {
       player.applySleepTimerRemaining(seconds)
-      OneTimeAchievementPersistentFlags.markSleepTimerUsed()
     } else {
       player.clearSleepTimer()
       player.sleepTimerMode = .off
@@ -9907,7 +9892,6 @@ final class AppModel: ObservableObject {
     }
     player.sleepTimerMode = .chapters(chapters)
     player.applySleepTimerChapterTarget(targetIndex)
-    OneTimeAchievementPersistentFlags.markSleepTimerUsed()
     return player.isSleepTimerActive
   }
 
@@ -9946,9 +9930,6 @@ final class AppModel: ObservableObject {
 
   func applyPlaybackSpeed(_ rate: Float) {
     player.setPlaybackRate(rate)
-    if rate > 1.01 {
-      OneTimeAchievementPersistentFlags.markFasterPlaybackUsed()
-    }
   }
 
   /// EQ-Preset für die laufende Wiedergabe setzen (Voice Focus etc.).

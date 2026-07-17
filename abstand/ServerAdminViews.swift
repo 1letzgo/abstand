@@ -709,32 +709,57 @@ struct SettingsHubRootView: View {
 
 struct HomeListeningStatsSectionView: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+  private var isRegularWidth: Bool { horizontalSizeClass == .regular }
+
+  private var categoryColumns: [GridItem] {
+    let spacing = AppTheme.Layout.withinSectionSpacing
+    if isRegularWidth {
+      return [
+        GridItem(.flexible(), spacing: spacing),
+        GridItem(.flexible(), spacing: spacing),
+      ]
+    }
+    return [GridItem(.flexible(), spacing: spacing)]
+  }
 
   var body: some View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
       StatsLevelSectionView()
-      StatsOneTimeSectionView()
       StatsTimelineHubSectionView()
 
-      ForEach(SettingsStatsCategory.allCases) { category in
-        ServerAdminSection(title: category.rawValue) {
-          NavigationLink {
-            category.detailView
-              .navigationTitle(category.rawValue)
-              .toolbarTitleDisplayMode(.inline)
-          } label: {
-            AbstandGroupedCard {
-              ServerAdminNavRow(
-                icon: category.icon,
-                title: category.rawValue,
-                subtitle: category.subtitle
-              )
-            }
+      if isRegularWidth {
+        LazyVGrid(columns: categoryColumns, spacing: AppTheme.Layout.withinSectionSpacing) {
+          ForEach(SettingsStatsCategory.allCases) { category in
+            statsCategoryLink(category)
           }
-          .buttonStyle(.plain)
+        }
+      } else {
+        ForEach(SettingsStatsCategory.allCases) { category in
+          ServerAdminSection(title: category.rawValue) {
+            statsCategoryLink(category)
+          }
         }
       }
     }
+  }
+
+  private func statsCategoryLink(_ category: SettingsStatsCategory) -> some View {
+    NavigationLink {
+      category.detailView
+        .navigationTitle(category.rawValue)
+        .toolbarTitleDisplayMode(.inline)
+    } label: {
+      AbstandGroupedCard {
+        ServerAdminNavRow(
+          icon: category.icon,
+          title: category.rawValue,
+          subtitle: category.subtitle
+        )
+      }
+    }
+    .buttonStyle(.plain)
   }
 }
 

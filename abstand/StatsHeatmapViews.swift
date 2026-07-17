@@ -21,6 +21,7 @@ private enum HeatmapMetrics {
 
 struct ListeningMonthHeatmapCard: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let stats: ABSListeningStatsResponse
   var locale: Locale = Locale(identifier: "en_US")
   var calendar: Calendar = .current
@@ -29,6 +30,7 @@ struct ListeningMonthHeatmapCard: View {
   private var palette: AppColorPalette { model.appearancePalette }
   /// Akzentfarbe aus Appearance — Stufen über Opacity in `heatmapFill`.
   private var heatmapActiveColor: Color { accent }
+  private var isRegularWidth: Bool { horizontalSizeClass == .regular }
 
   @State private var monthsBack: Int = 0
   @State private var cardWidth: CGFloat = 0
@@ -53,9 +55,21 @@ struct ListeningMonthHeatmapCard: View {
   private var monthTitleLinksToCurrentMonth: Bool { monthsBack > 0 }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      calendarCard
-      listeningTimeCard
+    Group {
+      if isRegularWidth {
+        // iPad: Kalender und Listening-time nebeneinander — volle Breite wirkt sonst „leer“.
+        HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
+          calendarCard
+            .frame(maxWidth: 440, alignment: .leading)
+          listeningTimeCard
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+      } else {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+          calendarCard
+          listeningTimeCard
+        }
+      }
     }
     .onChange(of: monthsBack) { _, _ in
       let heatmap = stats.monthListeningHeatmap(

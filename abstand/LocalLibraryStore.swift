@@ -615,28 +615,6 @@ actor LocalLibraryStore {
     LocalLibraryQueries.achievementsSnapshot(context: modelContext)
   }
 
-  /// Upsert je Achievement-Kind — 1:1-Ersatz für `listeningOneTimeAchievements.snapshot.json`.
-  func replaceOneTimeAchievementsSnapshot(_ snapshot: ListeningOneTimeAchievementsSnapshot) throws {
-    let existing = try modelContext.fetch(FetchDescriptor<LocalOneTimeAchievementState>())
-    var byKind = Dictionary(uniqueKeysWithValues: existing.map { ($0.kind, $0) })
-    for achievement in snapshot.achievements {
-      if let row = byKind[achievement.kind.rawValue] {
-        row.isUnlocked = achievement.isUnlocked
-        row.savedAt = snapshot.savedAt
-      } else {
-        let row = LocalOneTimeAchievementState(
-          kind: achievement.kind, isUnlocked: achievement.isUnlocked, savedAt: snapshot.savedAt)
-        modelContext.insert(row)
-        byKind[achievement.kind.rawValue] = row
-      }
-    }
-    try modelContext.save()
-  }
-
-  func fetchOneTimeAchievementsSnapshot() -> ListeningOneTimeAchievementsSnapshot? {
-    LocalLibraryQueries.oneTimeAchievementsSnapshot(context: modelContext)
-  }
-
   // MARK: - Libraries / Author-Detail / Listening-Sessions / Podcast-RSS
 
   /// Voll-Ersatz der Account-Bibliotheksliste — Local-DB-First für den Library-Picker.
@@ -1058,16 +1036,6 @@ enum LocalLibraryQueries {
     return ListeningAchievementsSnapshot(achievements: list, savedAt: rows.compactMap(\.savedAt).max())
   }
 
-  static func oneTimeAchievementsSnapshot(context: ModelContext) -> ListeningOneTimeAchievementsSnapshot? {
-    let rows = (try? context.fetch(FetchDescriptor<LocalOneTimeAchievementState>())) ?? []
-    guard !rows.isEmpty else { return nil }
-    let byKind = Dictionary(uniqueKeysWithValues: rows.map { ($0.kind, $0) })
-    let list = OneTimeAchievementKind.allCases.map { kind in
-      OneTimeAchievementState(kind: kind, isUnlocked: byKind[kind.rawValue]?.isUnlocked ?? false)
-    }
-    return ListeningOneTimeAchievementsSnapshot(achievements: list, savedAt: rows.compactMap(\.savedAt).max())
-  }
-
   static func libraries(context: ModelContext) -> [ABSLibrary]? {
     var descriptor = FetchDescriptor<LocalLibrariesSnapshot>()
     descriptor.fetchLimit = 1
@@ -1181,7 +1149,7 @@ enum LocalLibraryStoreManager {
     return container
   }
 
-  /// Store-Dateiname (historisch `.v2` nach früherem Migrations-Wipe). Schema selbst: `LocalLibrarySchemaV3`.
+  /// Store-Dateiname (historisch `.v2` nach früherem Migrations-Wipe). Schema selbst: `LocalLibrarySchemaV4`.
   private static let localLibraryStoreFileName = "LocalLibrary.v2.store"
 
   private static func removeLegacyLocalLibraryStoreIfPresent(in directory: URL) {
