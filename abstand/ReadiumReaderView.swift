@@ -118,8 +118,6 @@ struct ReadiumReaderView: View {
       withAnimation(.easeInOut(duration: 0.2)) {
         showReaderChrome.toggle()
       }
-      guard ebookSyncMode, let epub = epubNavigator else { return }
-      Task { await ReadiumReaderService.shared.bindEbookSyncTapHandler(on: epub) }
     }
     .onReceive(NotificationCenter.default.publisher(for: .readiumReaderProgressDidChange)) { note in
       guard !isScrubbingProgress, !isInitialReaderLoad else { return }
@@ -176,12 +174,10 @@ struct ReadiumReaderView: View {
     .onDisappear {
       ebookSyncBadgeTask?.cancel()
       if ebookSyncMode {
+        // Read & Listen verlassen → Audio stoppen und Sync beenden.
+        player.pause()
         player.disableEbookSyncIfNeeded()
       }
-    }
-    .task(id: "ebook-sync-tap-\(ebookSyncMode)-\(epubNavigator != nil)") {
-      guard ebookSyncMode, epubNavigator != nil else { return }
-      await pollEbookSyncTaps()
     }
     .alert("Reset reading position?", isPresented: $confirmResetReadingPosition) {
       Button("Cancel", role: .cancel) {}
@@ -331,6 +327,20 @@ struct ReadiumReaderView: View {
         .accessibilityValue(readerTheme.displayName)
 
         Menu {
+          if ebookSyncMode, player.ebookSync.isSyncModeActive {
+            Button {
+              player.togglePlayPause()
+            } label: {
+              Label(
+                player.isPlaying
+                  ? String(localized: "Pause audiobook", comment: "Ebook sync menu")
+                  : String(localized: "Play audiobook", comment: "Ebook sync menu"),
+                systemImage: player.isPlaying ? "pause.fill" : "play.fill"
+              )
+            }
+            Divider()
+          }
+
           Button {
             confirmMarkAsFinished = true
           } label: {
@@ -540,91 +550,49 @@ struct ReadiumReaderView: View {
   @ViewBuilder
   private var ebookSyncOverlay: some View {
     let sync = player.ebookSync
-    ZStack(alignment: .bottom) {
-      VStack {
-        if sync.isPreparing {
-          VStack(spacing: 10) {
-            ProgressView(value: sync.prepProgress)
-              .tint(themeAccent)
-            Text(
-              sync.prepStatusMessage
-                ?? String(localized: "Preparing ebook sync…", comment: "Ebook sync")
-            )
-            .font(.footnote.weight(.medium))
-            .foregroundStyle(.white)
-            .multilineTextAlignment(.center)
-          }
-          .padding(16)
-          .frame(maxWidth: 320)
-          .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-          .padding(.top, 56)
-          .allowsHitTesting(true)
-        } else if let error = sync.errorMessage {
-          Text(error)
-            .font(.footnote)
-            .foregroundStyle(.white)
-            .padding(12)
-            .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .padding(.top, 56)
-            .padding(.horizontal, 20)
-            .allowsHitTesting(true)
-        } else if showEbookSyncBadge {
-          HStack(spacing: 8) {
-            Image(systemName: "text.book.closed.fill")
-            Text(String(localized: "Synced with audiobook", comment: "Ebook sync badge"))
-              .font(.caption.weight(.semibold))
-          }
+    VStack {
+      if sync.isPreparing {
+        VStack(spacing: 10) {
+          ProgressView(value: sync.prepProgress)
+            .tint(themeAccent)
+          Text(
+            sync.prepStatusMessage
+              ?? String(localized: "Preparing ebook sync…", comment: "Ebook sync")
+          )
+          .font(.footnote.weight(.medium))
           .foregroundStyle(.white)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 7)
-          .background(.black.opacity(0.55), in: Capsule())
-          .padding(.top, 52)
-          .transition(.opacity)
-          .allowsHitTesting(false)
+          .multilineTextAlignment(.center)
         }
-        Spacer()
+        .padding(16)
+        .frame(maxWidth: 320)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.top, 56)
+      } else if let error = sync.errorMessage {
+        Text(error)
+          .font(.footnote)
+          .foregroundStyle(.white)
+          .padding(12)
+          .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+          .padding(.top, 56)
+          .padding(.horizontal, 20)
+      } else if showEbookSyncBadge {
+        HStack(spacing: 8) {
+          Image(systemName: "text.book.closed.fill")
+          Text(String(localized: "Synced with audiobook", comment: "Ebook sync badge"))
+            .font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.black.opacity(0.55), in: Capsule())
+        .padding(.top, 52)
+        .transition(.opacity)
       }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .allowsHitTesting(sync.isPreparing)
-
-      if sync.isSyncModeActive, !sync.isPreparing {
-        ebookSyncPlaybackControls
-          .padding(.bottom, showReaderChrome ? 132 : 36)
-          .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
+      Spacer()
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .allowsHitTesting(sync.isPreparing)
     .animation(.easeOut(duration: 0.25), value: showEbookSyncBadge)
-    .animation(.easeInOut(duration: 0.2), value: showReaderChrome)
-  }
-
-  /// Play/Pause immer erreichbar, ohne Reader-Chrome öffnen zu müssen.
-  private var ebookSyncPlaybackControls: some View {
-    Button {
-      player.togglePlayPause()
-    } label: {
-      Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-        .font(.title2.weight(.semibold))
-        .foregroundStyle(.white)
-        .frame(width: 64, height: 64)
-        .background {
-          Circle().fill(.ultraThinMaterial)
-          Circle().fill(Color.black.opacity(0.38))
-        }
-        .overlay {
-          Circle()
-            .strokeBorder(Color.white.opacity(0.22), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.28), radius: 10, y: 4)
-        .contentShape(Circle())
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
-    .accessibilityHint(
-      String(
-        localized: "Controls audiobook playback while reading along.",
-        comment: "Ebook sync play pause accessibility")
-    )
   }
 
   private func presentEbookSyncBadge() {
@@ -642,7 +610,6 @@ struct ReadiumReaderView: View {
     guard format == .epub, let epub = epubNavigator else { return }
     // Nutzer-Scrollmodus beibehalten — Sync soll nicht in Continuous zwingen.
     ReadiumReaderService.shared.applyEPUBPreferences(to: epub)
-    await ReadiumReaderService.shared.bindEbookSyncTapHandler(on: epub)
     lastInstalledSyncChapterIndex = nil
     lastScrolledSyncSentenceId = nil
     _ = await refreshEbookSyncMarkupIfNeeded(force: true)
@@ -675,7 +642,6 @@ struct ReadiumReaderView: View {
       on: epub, chapterIndex: chapterIndex)
     if ok {
       lastInstalledSyncChapterIndex = chapterIndex
-      await ReadiumReaderService.shared.bindEbookSyncTapHandler(on: epub)
       return true
     }
     lastInstalledSyncChapterIndex = nil
@@ -747,18 +713,6 @@ struct ReadiumReaderView: View {
       lastAppliedSyncWordIndex = wordIndex
       lastAppliedSyncGeneration = gen
       if shouldScroll { lastScrolledSyncSentenceId = sentenceId }
-    }
-  }
-
-  @MainActor
-  private func pollEbookSyncTaps() async {
-    while !Task.isCancelled, ebookSyncMode {
-      if let epub = epubNavigator,
-        let sentenceId = await ReadiumReaderService.shared.consumeEbookSyncTap(on: epub)
-      {
-        player.ebookSync.seekAudio(toSentenceId: sentenceId, player: player)
-      }
-      try? await Task.sleep(nanoseconds: 180_000_000)
     }
   }
 

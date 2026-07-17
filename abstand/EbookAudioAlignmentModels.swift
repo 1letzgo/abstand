@@ -101,7 +101,12 @@ struct EbookAudioAlignmentMap: Codable, Equatable, Sendable {
 
   func sentence(atGlobalTime time: Double) -> AlignedSentence? {
     guard !sentences.isEmpty else { return nil }
-    if let exact = sentences.first(where: { time >= $0.globalStart && time < $0.globalEnd }) {
+    // Satz erst kurz nach Speech-Start aktiv — sonst wirkt die Markierung vor der Tonspur.
+    if let exact = sentences.first(where: {
+      let dur = max(0.25, $0.globalEnd - $0.globalStart)
+      let from = $0.globalStart + min(0.55, dur * 0.15)
+      return time >= from && time < $0.globalEnd
+    }) {
       return exact
     }
     // Außerhalb des abgedeckten Fensters: kein „letzter Satz“-Pin (sonst bleibt Highlight hängen).
@@ -110,8 +115,11 @@ struct EbookAudioAlignmentMap: Codable, Equatable, Sendable {
     {
       return nil
     }
-    // In Lücken den vorherigen Satz halten — „nächster Satz“ wirkt wie Highlight vor der Audio.
-    if let prev = sentences.last(where: { $0.globalStart <= time }) {
+    // In Lücken / vor Aktiv-Punkt: vorherigen Satz halten.
+    if let prev = sentences.last(where: {
+      let dur = max(0.25, $0.globalEnd - $0.globalStart)
+      return time >= $0.globalStart + min(0.55, dur * 0.15)
+    }) {
       return prev
     }
     return sentences.first
@@ -141,14 +149,25 @@ struct EbookAudioAlignmentMap: Codable, Equatable, Sendable {
 
   func word(atGlobalTime time: Double, in sentence: AlignedSentence) -> AlignedWord? {
     guard !sentence.words.isEmpty else { return nil }
-    if let exact = sentence.words.first(where: { time >= $0.globalStart && time < $0.globalEnd }) {
+    // Wort erst ab ~35 % seiner Dauer als „aktuell“ werten — Startzeiten aus Speech sind früh.
+    if let exact = sentence.words.first(where: {
+      let dur = max(0.05, $0.globalEnd - $0.globalStart)
+      let activeFrom = $0.globalStart + dur * 0.35
+      return time >= activeFrom && time < $0.globalEnd
+    }) {
       return exact
     }
-    // Lücke: vorheriges Wort halten (nicht zum nächsten springen).
-    if let prev = sentence.words.last(where: { $0.globalStart <= time }) {
+    // Lücke / vor dem 35 %-Punkt: vorheriges Wort halten.
+    if let prev = sentence.words.last(where: {
+      let dur = max(0.05, $0.globalEnd - $0.globalStart)
+      return time >= $0.globalStart + dur * 0.35
+    }) {
       return prev
     }
-    return sentence.words.first
+    if let first = sentence.words.first, time < first.globalStart + max(0.05, first.globalEnd - first.globalStart) * 0.35 {
+      return nil
+    }
+    return sentence.words.last
   }
 }
 
