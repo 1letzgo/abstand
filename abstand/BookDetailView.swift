@@ -344,7 +344,7 @@ struct BookDetailView: View {
           Button(role: .destructive) {
             confirmDeleteBook = true
           } label: {
-            Label("Delete Book…", systemImage: "trash")
+            Label("Delete book", systemImage: "trash")
           }
         }
       } label: {
