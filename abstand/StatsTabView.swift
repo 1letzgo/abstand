@@ -71,17 +71,6 @@ private struct StatsContentSection<Content: View>: View {
 
 private enum StatsLayout {
   static let statsLocale = Locale(identifier: "en_US")
-  static let periodColumns = [
-    GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
-    GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
-  ]
-  /// Vier Kacheln pro Zeile für Einmal-Achievements.
-  static let oneTimeColumns = [
-    GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
-    GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
-    GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
-    GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
-  ]
   static let statsCalendar: Calendar = {
     var cal = Calendar(identifier: .gregorian)
     cal.firstWeekday = 2 // Montag
@@ -96,6 +85,28 @@ private enum StatsLayout {
     f.timeStyle = .short
     return f
   }()
+
+  /// Level-Karten: 2 Spalten (iPhone), 4 auf iPad/`regular`-Breite.
+  static func levelColumns(isRegularWidth: Bool) -> [GridItem] {
+    let spacing = AppTheme.Layout.withinSectionSpacing
+    let count = isRegularWidth ? 4 : 2
+    return Array(
+      repeating: GridItem(.flexible(), spacing: spacing),
+      count: count
+    )
+  }
+
+  /// Top-10-/Sessions-Listen: 1 Spalte (iPhone), 2 auf iPad/`regular`-Breite.
+  static func detailListColumns(isRegularWidth: Bool) -> [GridItem] {
+    let spacing = AppTheme.Layout.withinSectionSpacing
+    if isRegularWidth {
+      return [
+        GridItem(.flexible(), spacing: spacing),
+        GridItem(.flexible(), spacing: spacing),
+      ]
+    }
+    return [GridItem(.flexible(), spacing: spacing)]
+  }
 }
 
 /// Settings-Unterseiten: Scroll + Offline-Hinweis + Ladezustand.
@@ -189,29 +200,17 @@ struct StatsSessionsDetailView: View {
 
 struct StatsLevelSectionView: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   var body: some View {
     let levelAchievements = ListeningAchievementKind.sortedForDisplay(
       model.listeningAchievementsSnapshot.achievements
     )
+    let columns = StatsLayout.levelColumns(isRegularWidth: horizontalSizeClass == .regular)
     return StatsContentSection(title: "Level") {
-      LazyVGrid(columns: StatsLayout.periodColumns, spacing: AppTheme.Layout.withinSectionSpacing) {
+      LazyVGrid(columns: columns, spacing: AppTheme.Layout.withinSectionSpacing) {
         ForEach(levelAchievements) { achievement in
           ListeningAchievementCard(achievement: achievement, compact: true)
-        }
-      }
-    }
-  }
-}
-
-struct StatsOneTimeSectionView: View {
-  @EnvironmentObject private var model: AppModel
-
-  var body: some View {
-    StatsContentSection(title: "Milestones") {
-      LazyVGrid(columns: StatsLayout.oneTimeColumns, spacing: AppTheme.Layout.withinSectionSpacing) {
-        ForEach(model.listeningOneTimeSnapshot.achievements) { achievement in
-          OneTimeAchievementCard(achievement: achievement)
         }
       }
     }
@@ -240,10 +239,12 @@ struct StatsTimelineHubSectionView: View {
 
 private struct StatsTopListenedSectionView: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let stats: ABSListeningStatsResponse
 
   var body: some View {
     let topItems = Array(stats.itemsSortedByListeningTime.prefix(10))
+    let columns = StatsLayout.detailListColumns(isRegularWidth: horizontalSizeClass == .regular)
     return StatsContentSection(title: "Top 10") {
       if topItems.isEmpty {
         Text("No listening history for individual titles yet.")
@@ -252,7 +253,7 @@ private struct StatsTopListenedSectionView: View {
           .frame(maxWidth: .infinity)
           .padding(.vertical, 32)
       } else {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+        LazyVGrid(columns: columns, spacing: AppTheme.Layout.withinSectionSpacing) {
           ForEach(Array(topItems.enumerated()), id: \.element.id) { index, row in
             StatsTopListenedBookCard(
               rank: index + 1,
@@ -268,10 +269,12 @@ private struct StatsTopListenedSectionView: View {
 
 private struct StatsSessionsSectionView: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let stats: ABSListeningStatsResponse
 
   var body: some View {
     let sessions = stats.recentSessions
+    let columns = StatsLayout.detailListColumns(isRegularWidth: horizontalSizeClass == .regular)
     return StatsContentSection(title: "Sessions") {
       if sessions.isEmpty {
         Text("No listening sessions yet.")
@@ -280,7 +283,7 @@ private struct StatsSessionsSectionView: View {
           .frame(maxWidth: .infinity)
           .padding(.vertical, 32)
       } else {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+        LazyVGrid(columns: columns, spacing: AppTheme.Layout.withinSectionSpacing) {
           ForEach(sessions) { session in
             StatsRecentSessionCard(session: session)
           }

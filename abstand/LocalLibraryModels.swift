@@ -625,16 +625,16 @@ final class LocalAchievementState {
   }
 }
 
-/// Einmal-Achievement — 1:1-Ersatz für `listeningOneTimeAchievements.snapshot.json`. Unique-Key `kind.rawValue`,
-/// eine Zeile je `OneTimeAchievementKind`.
+/// Historisches Einmal-Achievement-Modell (Schema V1–V3). Ab V4 nicht mehr im aktuellen Schema;
+/// Klasse bleibt für VersionedSchema-/Migrationspfade erhalten.
 @Model
 final class LocalOneTimeAchievementState {
   @Attribute(.unique) var kind: String
   var isUnlocked: Bool
   var savedAt: Date?
 
-  init(kind: OneTimeAchievementKind, isUnlocked: Bool, savedAt: Date?) {
-    self.kind = kind.rawValue
+  init(kind: String, isUnlocked: Bool, savedAt: Date?) {
+    self.kind = kind
     self.isUnlocked = isUnlocked
     self.savedAt = savedAt
   }
@@ -764,8 +764,8 @@ final class LocalPodcastRssFeedSnapshot {
 // MARK: - Schema-Versionen (SwiftData)
 
 private enum LocalLibrarySchemaModels {
-  /// Modelle bis Schema V2 (ohne V3-Erweiterungen).
-  static let core: [any PersistentModel.Type] = [
+  /// Gemeinsame Modelle ohne Einmal-Achievements (ab Schema V4).
+  static let coreWithoutOneTime: [any PersistentModel.Type] = [
     LocalStoreMeta.self, LocalProgress.self, LocalBookmark.self,
     LocalGenreStat.self, LocalTagStat.self,
     LocalAuthorListState.self, LocalAuthor.self, LocalNarrator.self,
@@ -775,8 +775,13 @@ private enum LocalLibrarySchemaModels {
     LocalPodcastEpisodeListState.self, LocalPodcastEpisode.self,
     LocalPodcastShowListState.self, LocalPodcastShowEntry.self,
     LocalHomeShelvesSnapshot.self, LocalEbookContinueEntry.self,
-    LocalListeningStatsSnapshot.self, LocalAchievementState.self, LocalOneTimeAchievementState.self,
+    LocalListeningStatsSnapshot.self, LocalAchievementState.self,
   ]
+
+  /// Modelle bis Schema V3 (inkl. Einmal-Achievements).
+  static let coreThroughV3: [any PersistentModel.Type] {
+    coreWithoutOneTime + [LocalOneTimeAchievementState.self]
+  }
 
   static let v1BrowseEbooks: [any PersistentModel.Type] = [
     LocalEbookListState.self, LocalEbookEntry.self,
@@ -796,7 +801,7 @@ enum LocalLibrarySchemaV1: VersionedSchema {
   static var versionIdentifier = Schema.Version(1, 0, 0)
 
   static var models: [any PersistentModel.Type] {
-    LocalLibrarySchemaModels.core + LocalLibrarySchemaModels.v1BrowseEbooks
+    LocalLibrarySchemaModels.coreThroughV3 + LocalLibrarySchemaModels.v1BrowseEbooks
   }
 }
 
@@ -805,26 +810,38 @@ enum LocalLibrarySchemaV2: VersionedSchema {
   static var versionIdentifier = Schema.Version(2, 0, 0)
 
   static var models: [any PersistentModel.Type] {
-    LocalLibrarySchemaModels.core
+    LocalLibrarySchemaModels.coreThroughV3
   }
 }
 
-/// Aktuelles Schema — Libraries-/Sessions-/Author-Detail-/RSS-Snapshots für Local-DB-First.
+/// Libraries-/Sessions-/Author-Detail-/RSS-Snapshots für Local-DB-First.
 enum LocalLibrarySchemaV3: VersionedSchema {
   static var versionIdentifier = Schema.Version(3, 0, 0)
 
   static var models: [any PersistentModel.Type] {
-    LocalLibrarySchemaModels.core + LocalLibrarySchemaModels.v3LocalFirstGaps
+    LocalLibrarySchemaModels.coreThroughV3 + LocalLibrarySchemaModels.v3LocalFirstGaps
+  }
+}
+
+/// Aktuelles Schema — ohne Einmal-Achievement-Tabelle (Milestones entfernt).
+enum LocalLibrarySchemaV4: VersionedSchema {
+  static var versionIdentifier = Schema.Version(4, 0, 0)
+
+  static var models: [any PersistentModel.Type] {
+    LocalLibrarySchemaModels.coreWithoutOneTime + LocalLibrarySchemaModels.v3LocalFirstGaps
   }
 }
 
 enum LocalLibraryMigrationPlan: SchemaMigrationPlan {
   static var schemas: [any VersionedSchema.Type] {
-    [LocalLibrarySchemaV1.self, LocalLibrarySchemaV2.self, LocalLibrarySchemaV3.self]
+    [
+      LocalLibrarySchemaV1.self, LocalLibrarySchemaV2.self, LocalLibrarySchemaV3.self,
+      LocalLibrarySchemaV4.self,
+    ]
   }
 
   static var stages: [MigrationStage] {
-    [migrateV1toV2, migrateV2toV3]
+    [migrateV1toV2, migrateV2toV3, migrateV3toV4]
   }
 
   static let migrateV1toV2 = MigrationStage.custom(
@@ -857,11 +874,29 @@ enum LocalLibraryMigrationPlan: SchemaMigrationPlan {
     fromVersion: LocalLibrarySchemaV2.self,
     toVersion: LocalLibrarySchemaV3.self
   )
+
+  static let migrateV3toV4 = MigrationStage.custom(
+    fromVersion: LocalLibrarySchemaV3.self,
+    toVersion: LocalLibrarySchemaV4.self,
+    willMigrate: { context in
+      try context.delete(model: LocalOneTimeAchievementState.self)
+      try context.save()
+    },
+    didMigrate: { context in
+      let descriptor = FetchDescriptor<LocalStoreMeta>()
+      if let meta = try context.fetch(descriptor).first {
+        meta.schemaVersion = 4
+      } else {
+        context.insert(LocalStoreMeta(schemaVersion: 4))
+      }
+      try context.save()
+    }
+  )
 }
 
 enum LocalLibrarySchema {
   static var current: Schema {
-    Schema(versionedSchema: LocalLibrarySchemaV3.self)
+    Schema(versionedSchema: LocalLibrarySchemaV4.self)
   }
 
   /// Logische Meta-Version in `LocalStoreMeta` — Backfill der eBook-Katalog-Flags (`catalogHasEbook`, …).
