@@ -441,15 +441,23 @@ private enum PlayerChromeLayout {
   static let tabAccessoryCover: CGFloat = 32
 }
 
-private func authorDashTitleLine(for book: ABSBook) -> String {
-  let a = book.displayAuthorsCardLine.trimmingCharacters(in: .whitespacesAndNewlines)
+/// Primärzeile Floating-Bar: „Show/Autor – Titel“. Bei Podcast-Folgen die Show, sonst Autor.
+private func playerDashTitleLine(for book: ABSBook, secondaryLine: String?) -> String {
+  let fallback = book.displayAuthorsCardLine.trimmingCharacters(in: .whitespacesAndNewlines)
+  let raw = secondaryLine?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+  let a = (!raw.isEmpty && raw != "—") ? raw : fallback
   let t = book.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
   if a.isEmpty || a == "—" { return t }
   return "\(a) – \(t)"
 }
 
-private func floatingBarPrimaryLine(for book: ABSBook, connecting: Bool) -> String {
-  let line = authorDashTitleLine(for: book).trimmingCharacters(in: .whitespacesAndNewlines)
+private func floatingBarPrimaryLine(
+  for book: ABSBook,
+  connecting: Bool,
+  episodeShowTitle: String?
+) -> String {
+  let line = playerDashTitleLine(for: book, secondaryLine: episodeShowTitle)
+    .trimmingCharacters(in: .whitespacesAndNewlines)
   if !line.isEmpty, line != "—", line != "…" { return line }
   if connecting { return "Loading…" }
   return ""
@@ -1747,9 +1755,9 @@ struct NowPlayingDetailView: View {
     }
   }
 
-  /// Titel und Autor direkt über dem Fortschrittsbalken (Apple-Music-Stil).
+  /// Titel und Show (Folge) bzw. Autor (Hörbuch) direkt über dem Fortschrittsbalken.
   private func fullPlayerTitleArea(book: ABSBook) -> some View {
-    let authors = book.displayAuthors.trimmingCharacters(in: .whitespacesAndNewlines)
+    let secondary = fullPlayerSecondaryLine(for: book)
     return VStack(alignment: .leading, spacing: 4) {
       Text(book.displayTitle)
         .font(.title2.weight(.bold))
@@ -1757,8 +1765,8 @@ struct NowPlayingDetailView: View {
         .multilineTextAlignment(.leading)
         .lineLimit(3)
         .frame(maxWidth: .infinity, alignment: .leading)
-      if !authors.isEmpty, authors != "—" {
-        Text(authors)
+      if !secondary.isEmpty, secondary != "—" {
+        Text(secondary)
           .font(.title3)
           .foregroundStyle(model.appearancePalette.textSecondary)
           .multilineTextAlignment(.leading)
@@ -1769,6 +1777,17 @@ struct NowPlayingDetailView: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.bottom, MiniPlayerMetrics.titleToScrubberSpacing)
     .accessibilityElement(children: .combine)
+  }
+
+  /// Bei aktiver Podcast-Folge die Show, sonst Autor — nicht `authorLine` aus dem Playback-Stub.
+  private func fullPlayerSecondaryLine(for book: ABSBook) -> String {
+    if let show = model.podcastEpisodeForActivePlayback()?.showTitle
+      .trimmingCharacters(in: .whitespacesAndNewlines),
+      !show.isEmpty, show != "—"
+    {
+      return show
+    }
+    return book.displayAuthors.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   @ViewBuilder
@@ -2469,7 +2488,11 @@ struct TabAccessoryMiniPlayerSnapshot: Equatable {
       let remainingSeconds = max(0, total - player.globalPosition)
       let caption = floatingBarRemainingSubtitle(total: total, position: player.globalPosition)
       let connecting = player.isBuffering || model.isPreparingPlayback
-      let primaryLine = floatingBarPrimaryLine(for: book, connecting: connecting)
+      let primaryLine = floatingBarPrimaryLine(
+        for: book,
+        connecting: connecting,
+        episodeShowTitle: model.podcastEpisodeForActivePlayback()?.showTitle
+      )
       guard !primaryLine.isEmpty else { return .hidden }
       return TabAccessoryMiniPlayerSnapshot(
         activeBookId: book.id,
