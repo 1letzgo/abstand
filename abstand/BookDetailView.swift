@@ -302,7 +302,7 @@ struct BookDetailView: View {
         ProgressView()
           .controlSize(.large)
           .tint(model.appearanceAccentColor)
-        Text("Deleting book…")
+        Text("Deleting book")
           .font(.headline.weight(.semibold))
           .foregroundStyle(palette.textPrimary)
           .multilineTextAlignment(.center)
