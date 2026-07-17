@@ -1448,6 +1448,8 @@ struct NowPlayingDetailView: View {
       .gesture(fullPlayerDismissDragGesture)
     }
     .ignoresSafeArea()
+    // Panel-Steuerbuttons (Kapitel, Teleprompter, …) in Cover-Kartenfarbe wie Buch-Detail.
+    .detailSectionCardsTinted(fromBackgroundTint: resolvedFullPlayerCoverTint)
   }
 
   /// Kleiner Griff wie beim nativen Sheet-Drag-Indicator — rein visuell, die Geste liegt auf
@@ -2982,10 +2984,11 @@ private extension View {
   }
 }
 
-/// Panel-Steuerbuttons — Icon-Kreis, aktiv in Appearance-Akzent (ohne Text-Pill).
+/// Panel-Steuerbuttons — Icon-Kreis, aktiv in Cover-Tint-Familie wie Detail-Karten (ohne Text-Pill).
 struct FullPlayerCoverOverlayButton: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.detailSectionCardBackground) private var coverCardBackground
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
   let systemName: String
@@ -2999,8 +3002,18 @@ struct FullPlayerCoverOverlayButton: View {
 
   private var dockColors: AppTheme.ExpandingDock.Colors {
     let _ = themeRevision
+    let palette = model.appearancePalette
+    // Mit Cover-Tint: Kartenfläche wie Buch-Detail; aktiv stärker abgesetzt in derselben Familie.
+    // Ohne Tint (Fallback): bisheriges Appearance-Akzent-Verhalten.
+    if let card = coverCardBackground {
+      return AppTheme.ExpandingDock.Colors(
+        palette: palette,
+        accent: detailSectionControlActiveTint(forCardTint: card),
+        inactiveBackground: card
+      )
+    }
     return AppTheme.ExpandingDock.Colors(
-      palette: model.appearancePalette,
+      palette: palette,
       accent: themeAccent
     )
   }

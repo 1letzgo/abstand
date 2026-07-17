@@ -82,10 +82,10 @@ enum AppTheme {
       let inactiveForeground: Color
       let activeShadow: Color
 
-      init(palette: AppColorPalette, accent: Color) {
+      init(palette: AppColorPalette, accent: Color, inactiveBackground: Color? = nil) {
         activeBackground = accent
         activeForeground = palette.foregroundOnAccent(accent)
-        inactiveBackground = palette.card
+        self.inactiveBackground = inactiveBackground ?? palette.card
         inactiveForeground = palette.textSecondary
         activeShadow = palette.cardShadow
       }
