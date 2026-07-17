@@ -65,6 +65,27 @@ func detailSectionCardTint(forBackgroundTint tint: Color) -> Color {
   )
 }
 
+/// Aktiver Panel-Steuerbutton auf Cover-Tint-Hintergrund: gleiche Farbfamilie wie
+/// `detailSectionCardTint`, aber stärker abgesetzt — Auswahl ohne Appearance-Akzent.
+func detailSectionControlActiveTint(forCardTint card: Color) -> Color {
+  guard let t = colorRGBComponents(of: card) else { return card }
+
+  if AppTheme.palette.isDarkLike {
+    return Color(
+      red: Double(min(1, t.r * 1.2 + 0.08)),
+      green: Double(min(1, t.g * 1.2 + 0.08)),
+      blue: Double(min(1, t.b * 1.2 + 0.08))
+    )
+  }
+
+  let darken: CGFloat = 0.86
+  return Color(
+    red: Double(max(0, min(1, t.r * darken))),
+    green: Double(max(0, min(1, t.g * darken))),
+    blue: Double(max(0, min(1, t.b * darken)))
+  )
+}
+
 private func colorRGBComponents(of color: Color) -> (r: CGFloat, g: CGFloat, b: CGFloat)? {
   let ui = UIColor(color)
   var r: CGFloat = 0
