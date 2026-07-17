@@ -110,11 +110,11 @@ struct EbookAudioAlignmentMap: Codable, Equatable, Sendable {
     {
       return nil
     }
-    // Nach Seek / Lücken: nächster Satz ab der aktuellen Zeit, sonst letzter davor.
-    if let next = sentences.first(where: { $0.globalStart >= time }) {
-      return next
+    // In Lücken den vorherigen Satz halten — „nächster Satz“ wirkt wie Highlight vor der Audio.
+    if let prev = sentences.last(where: { $0.globalStart <= time }) {
+      return prev
     }
-    return sentences.last
+    return sentences.first
   }
 
   /// Vereinigt zwei Fenster-Maps (für Nachladen während Sync).
@@ -144,10 +144,11 @@ struct EbookAudioAlignmentMap: Codable, Equatable, Sendable {
     if let exact = sentence.words.first(where: { time >= $0.globalStart && time < $0.globalEnd }) {
       return exact
     }
-    if let next = sentence.words.first(where: { $0.globalStart >= time }) {
-      return next
+    // Lücke: vorheriges Wort halten (nicht zum nächsten springen).
+    if let prev = sentence.words.last(where: { $0.globalStart <= time }) {
+      return prev
     }
-    return sentence.words.last
+    return sentence.words.first
   }
 }
 

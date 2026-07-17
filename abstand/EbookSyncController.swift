@@ -226,10 +226,14 @@ final class EbookSyncController: ObservableObject {
     prepStatusMessage = nil
   }
 
+  /// Speech-Timestamps laufen oft leicht voraus — Highlight an gefühlte Audio-Position koppeln.
+  private static let highlightLagSeconds: Double = 1.85
+
   func handlePlaybackTick(player: PlaybackController) {
     guard isSyncModeActive, let map = alignmentMap else { return }
-    let time = player.liveGlobalPlaybackPosition
-    maybeExtendAlignmentWindow(player: player, map: map, time: time)
+    let live = player.liveGlobalPlaybackPosition
+    maybeExtendAlignmentWindow(player: player, map: map, time: live)
+    let time = max(0, live - Self.highlightLagSeconds)
     guard let sentence = map.sentence(atGlobalTime: time) else { return }
     let word = map.word(atGlobalTime: time, in: sentence)
     let wordIndex = word?.index
@@ -298,7 +302,8 @@ final class EbookSyncController: ObservableObject {
 
   func activeSentence(for player: PlaybackController) -> AlignedSentence? {
     guard let map = alignmentMap else { return nil }
-    return map.sentence(atGlobalTime: player.liveGlobalPlaybackPosition)
+    let time = max(0, player.liveGlobalPlaybackPosition - Self.highlightLagSeconds)
+    return map.sentence(atGlobalTime: time)
   }
 
   // MARK: - Prep
