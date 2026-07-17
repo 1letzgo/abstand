@@ -118,8 +118,6 @@ struct ReadiumReaderView: View {
       withAnimation(.easeInOut(duration: 0.2)) {
         showReaderChrome.toggle()
       }
-      guard ebookSyncMode, let epub = epubNavigator else { return }
-      Task { await ReadiumReaderService.shared.bindEbookSyncTapHandler(on: epub) }
     }
     .onReceive(NotificationCenter.default.publisher(for: .readiumReaderProgressDidChange)) { note in
       guard !isScrubbingProgress, !isInitialReaderLoad else { return }
