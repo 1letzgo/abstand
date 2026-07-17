@@ -179,10 +179,6 @@ struct ReadiumReaderView: View {
         player.disableEbookSyncIfNeeded()
       }
     }
-    .task(id: "ebook-sync-tap-\(ebookSyncMode)-\(epubNavigator != nil)") {
-      guard ebookSyncMode, epubNavigator != nil else { return }
-      await pollEbookSyncTaps()
-    }
     .alert("Reset reading position?", isPresented: $confirmResetReadingPosition) {
       Button("Cancel", role: .cancel) {}
       Button("Reset", role: .destructive) {
@@ -614,7 +610,6 @@ struct ReadiumReaderView: View {
     guard format == .epub, let epub = epubNavigator else { return }
     // Nutzer-Scrollmodus beibehalten — Sync soll nicht in Continuous zwingen.
     ReadiumReaderService.shared.applyEPUBPreferences(to: epub)
-    await ReadiumReaderService.shared.bindEbookSyncTapHandler(on: epub)
     lastInstalledSyncChapterIndex = nil
     lastScrolledSyncSentenceId = nil
     _ = await refreshEbookSyncMarkupIfNeeded(force: true)
@@ -647,7 +642,6 @@ struct ReadiumReaderView: View {
       on: epub, chapterIndex: chapterIndex)
     if ok {
       lastInstalledSyncChapterIndex = chapterIndex
-      await ReadiumReaderService.shared.bindEbookSyncTapHandler(on: epub)
       return true
     }
     lastInstalledSyncChapterIndex = nil
@@ -719,18 +713,6 @@ struct ReadiumReaderView: View {
       lastAppliedSyncWordIndex = wordIndex
       lastAppliedSyncGeneration = gen
       if shouldScroll { lastScrolledSyncSentenceId = sentenceId }
-    }
-  }
-
-  @MainActor
-  private func pollEbookSyncTaps() async {
-    while !Task.isCancelled, ebookSyncMode {
-      if let epub = epubNavigator,
-        let sentenceId = await ReadiumReaderService.shared.consumeEbookSyncTap(on: epub)
-      {
-        player.ebookSync.seekAudio(toSentenceId: sentenceId, player: player)
-      }
-      try? await Task.sleep(nanoseconds: 180_000_000)
     }
   }
 
