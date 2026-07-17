@@ -414,14 +414,31 @@ actor LocalLibraryStore {
     LocalLibraryQueries.book(context: modelContext, id: id)
   }
 
-  /// Entfernt die lokale Buchzeile (Katalog- + Detail-Blob) nach Server-Löschung.
+  /// Entfernt die lokale Buchzeile (Katalog- + Detail-Blob) und Katalog-Einträge nach Server-Löschung.
   func deleteBook(id: String) throws {
     let bid = id.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !bid.isEmpty else { return }
-    var descriptor = FetchDescriptor<LocalBook>(predicate: #Predicate { $0.id == bid })
-    descriptor.fetchLimit = 1
-    guard let row = try modelContext.fetch(descriptor).first else { return }
-    modelContext.delete(row)
+    var bookDescriptor = FetchDescriptor<LocalBook>(predicate: #Predicate { $0.id == bid })
+    bookDescriptor.fetchLimit = 1
+    if let row = try modelContext.fetch(bookDescriptor).first {
+      modelContext.delete(row)
+    }
+    let catalogEntries = try modelContext.fetch(
+      FetchDescriptor<LocalCatalogEntry>(predicate: #Predicate { $0.bookId == bid })
+    )
+    var touchedLibraries = Set<String>()
+    for entry in catalogEntries {
+      touchedLibraries.insert(entry.libraryId)
+      modelContext.delete(entry)
+    }
+    for libraryId in touchedLibraries {
+      var stateDescriptor = FetchDescriptor<LocalCatalogListState>(
+        predicate: #Predicate { $0.libraryId == libraryId })
+      stateDescriptor.fetchLimit = 1
+      if let state = try modelContext.fetch(stateDescriptor).first {
+        state.total = max(0, state.total - 1)
+      }
+    }
     try modelContext.save()
   }
 
