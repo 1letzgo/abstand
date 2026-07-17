@@ -101,12 +101,8 @@ struct EbookAudioAlignmentMap: Codable, Equatable, Sendable {
 
   func sentence(atGlobalTime time: Double) -> AlignedSentence? {
     guard !sentences.isEmpty else { return nil }
-    // Satz erst kurz nach Speech-Start aktiv — sonst wirkt die Markierung vor der Tonspur.
-    if let exact = sentences.first(where: {
-      let dur = max(0.25, $0.globalEnd - $0.globalStart)
-      let from = $0.globalStart + min(0.55, dur * 0.15)
-      return time >= from && time < $0.globalEnd
-    }) {
+    // Absatz-Sync: Satzfenster 1:1 an Audiozeiten — ohne künstliche Aktivierungsverzögerung.
+    if let exact = sentences.first(where: { time >= $0.globalStart && time < $0.globalEnd }) {
       return exact
     }
     // Außerhalb des abgedeckten Fensters: kein „letzter Satz“-Pin (sonst bleibt Highlight hängen).
@@ -115,11 +111,8 @@ struct EbookAudioAlignmentMap: Codable, Equatable, Sendable {
     {
       return nil
     }
-    // In Lücken / vor Aktiv-Punkt: vorherigen Satz halten.
-    if let prev = sentences.last(where: {
-      let dur = max(0.25, $0.globalEnd - $0.globalStart)
-      return time >= $0.globalStart + min(0.55, dur * 0.15)
-    }) {
+    // In kurzen Lücken: vorherigen Satz halten (Absatz bleibt sichtbar).
+    if let prev = sentences.last(where: { time >= $0.globalStart }) {
       return prev
     }
     return sentences.first

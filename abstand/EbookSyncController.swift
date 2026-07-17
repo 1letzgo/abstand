@@ -15,7 +15,6 @@ final class EbookSyncController: ObservableObject {
   @Published private(set) var errorMessage: String?
   @Published private(set) var alignmentMap: EbookAudioAlignmentMap?
   @Published private(set) var activeSentenceId: String?
-  @Published private(set) var activeWordIndex: Int?
   /// Wie Teleprompter: sync-Initialwert aus Speech, async Refresh via `refreshAvailability()`.
   @Published private(set) var isSyncAvailable = SpeechTranscriber.isAvailable
   /// Erhöht bei Seek-/Start-Sync — Reader setzt Highlight hart zurück.
@@ -31,8 +30,6 @@ final class EbookSyncController: ObservableObject {
   private var extendTask: Task<Void, Never>?
   private var activeLibraryItemId: String?
   private var activeEbookFileURL: URL?
-  private var lastHighlightSentenceId: String?
-  private var lastHighlightWordIndex: Int?
   private var accountURL: URL?
   private var userId: String?
 
@@ -206,9 +203,6 @@ final class EbookSyncController: ObservableObject {
     extendTask = nil
     isSyncModeActive = false
     activeSentenceId = nil
-    activeWordIndex = nil
-    lastHighlightSentenceId = nil
-    lastHighlightWordIndex = nil
     activeEbookFileURL = nil
     boundPlayer?.setReadAlongHighFrequencyTicks(
       boundPlayer?.liveTranscription.isTeleprompterModeActive == true
@@ -226,21 +220,17 @@ final class EbookSyncController: ObservableObject {
     prepStatusMessage = nil
   }
 
-  /// Speech-`audioTimeRange` liegt typischerweise vor dem hörbaren Wort — stark nachziehen.
-  private static let highlightLagSeconds: Double = 4.0
-
   func handlePlaybackTick(player: PlaybackController) {
     guard isSyncModeActive, let map = alignmentMap else { return }
     let live = player.liveGlobalPlaybackPosition
     maybeExtendAlignmentWindow(player: player, map: map, time: live)
-    // Zusätzlich Wort-Mitte nutzen: Lookup leicht hinter dem Wortanfang.
-    let time = max(0, live - Self.highlightLagSeconds)
-    guard let sentence = map.sentence(atGlobalTime: time) else { return }
-    let word = map.word(atGlobalTime: time, in: sentence)
-    let wordIndex = word?.index
-    if sentence.id != activeSentenceId || wordIndex != activeWordIndex {
+    // Absatz-Markierung: Audiozeit direkt nutzen (kein Wort-Lag, kein 4s-Offset).
+    guard let sentence = map.sentence(atGlobalTime: live) else {
+      if activeSentenceId != nil { activeSentenceId = nil }
+      return
+    }
+    if sentence.id != activeSentenceId {
       activeSentenceId = sentence.id
-      activeWordIndex = wordIndex
     }
   }
 
@@ -290,21 +280,19 @@ final class EbookSyncController: ObservableObject {
     }
   }
 
-  /// Tippen auf einen Satz im EPUB → Audio-Seek.
+  /// Tippen auf einen Satz im EPUB → Audio-Seek (derzeit ungenutzt; Tap-Seek deaktiviert).
   func seekAudio(toSentenceId sentenceId: String, player: PlaybackController) {
     guard let map = alignmentMap,
       let sentence = map.sentences.first(where: { $0.id == sentenceId })
     else { return }
     player.seek(global: sentence.globalStart)
     activeSentenceId = sentence.id
-    activeWordIndex = sentence.words.first?.index
     syncGeneration &+= 1
   }
 
   func activeSentence(for player: PlaybackController) -> AlignedSentence? {
     guard let map = alignmentMap else { return nil }
-    let time = max(0, player.liveGlobalPlaybackPosition - Self.highlightLagSeconds)
-    return map.sentence(atGlobalTime: time)
+    return map.sentence(atGlobalTime: player.liveGlobalPlaybackPosition)
   }
 
   // MARK: - Prep
@@ -494,22 +482,26 @@ final class EbookSyncController: ObservableObject {
 // MARK: - Readium JS bridge helpers
 
 enum EbookSyncHighlightBridge {
-  /// Injiziert Satz-Spans und CSS; liefert Anzahl gemarkter Sätze.
+  /// Markiert Blatt-Absätze (p/li/h*) ohne Text umzuschreiben; liefert Anzahl.
   static func installMarkupScript(chapterIndex: Int) -> String {
     """
     (function() {
-      var existing = document.querySelectorAll('span.abs-sync-sentence').length;
+      var existing = document.querySelectorAll('.abs-sync-para[data-abs-para-id]').length;
       if (window.__absSyncInstalled === \(chapterIndex) && existing > 0) {
         return { installed: true, count: existing };
       }
-      // Alte Spans nach DOM-Reload / Kapitelwechsel entfernen.
-      document.querySelectorAll('span.abs-sync-word').forEach(function(el) {
+      // Altes Satz-/Wort-Markup und Anker entfernen (DOM-Reload / Migration).
+      document.querySelectorAll('span.abs-sync-word, span.abs-sync-sentence').forEach(function(el) {
         var t = document.createTextNode(el.textContent || '');
         el.parentNode && el.parentNode.replaceChild(t, el);
       });
-      document.querySelectorAll('span.abs-sync-sentence').forEach(function(el) {
-        var t = document.createTextNode(el.textContent || '');
-        el.parentNode && el.parentNode.replaceChild(t, el);
+      document.querySelectorAll('span.abs-sync-para-anchor').forEach(function(el) {
+        el.parentNode && el.parentNode.removeChild(el);
+      });
+      document.querySelectorAll('.abs-sync-para').forEach(function(el) {
+        el.classList.remove('abs-sync-para', 'abs-sync-active');
+        el.removeAttribute('data-abs-para-id');
+        el.removeAttribute('data-abs-para-text');
       });
       var style = document.getElementById('abs-sync-style');
       if (!style) {
@@ -518,105 +510,70 @@ enum EbookSyncHighlightBridge {
         document.head.appendChild(style);
       }
       style.textContent = `
-        span.abs-sync-sentence.abs-sync-active {
-          background: rgba(255, 196, 0, 0.38) !important;
+        .abs-sync-para.abs-sync-active {
+          background: rgba(255, 196, 0, 0.34) !important;
           border-radius: 2px;
           box-decoration-break: clone;
           -webkit-box-decoration-break: clone;
         }
-        span.abs-sync-word.abs-sync-word-active {
-          background: rgba(255, 140, 0, 0.62) !important;
-          border-radius: 2px;
-          box-decoration-break: clone;
-          -webkit-box-decoration-break: clone;
+        span.abs-sync-para-anchor {
+          display: inline;
+          width: 0;
+          height: 0;
+          overflow: hidden;
+          font-size: 0;
+          line-height: 0;
         }
       `;
 
-      function splitSentences(text) {
-        var parts = [];
-        var current = '';
-        for (var i = 0; i < text.length; i++) {
-          var ch = text[i];
-          current += ch;
-          if ('.!?…'.indexOf(ch) !== -1) {
-            var t = current.replace(/^\\s+|\\s+$/g, '');
-            if (t.length >= 2) parts.push(t);
-            current = '';
+      var roots = Array.prototype.slice.call(
+        document.querySelectorAll('p, div, li, h1, h2, h3, h4, h5, h6, blockquote')
+      );
+      var paraIndex = 0;
+      roots.forEach(function(node) {
+        if (node.classList.contains('abs-sync-para')) return;
+        if (node.closest && node.closest('.abs-sync-para')) return;
+        // Nur Blatt-Blöcke — Container mit verschachtelten Absätzen überspringen.
+        if (node.querySelector('p, div, li, h1, h2, h3, h4, h5, h6, blockquote')) return;
+        var text = (node.textContent || '').replace(/\\s+/g, ' ').replace(/^\\s+|\\s+$/g, '');
+        if (!text || text.length < 8) return;
+        var pid = 'abs-p-' + \(chapterIndex) + '-' + paraIndex;
+        node.classList.add('abs-sync-para');
+        node.setAttribute('data-abs-para-id', pid);
+        node.setAttribute('data-abs-para-text', text);
+        // Fragment-Anker für Readium go(to:) — bestehende EPUB-IDs nicht überschreiben.
+        var hasAnchor = false;
+        for (var c = node.firstChild; c; c = c.nextSibling) {
+          if (c.nodeType === 1 && c.classList && c.classList.contains('abs-sync-para-anchor')) {
+            hasAnchor = true;
+            break;
           }
         }
-        var tail = current.replace(/^\\s+|\\s+$/g, '');
-        if (tail) parts.push(tail);
-        return parts.filter(function(s) {
-          var words = s.split(/\\s+/).filter(Boolean);
-          return words.length >= 2 || s.length >= 12;
-        });
-      }
-
-      function wrapWords(sentenceEl, sentenceId) {
-        var text = sentenceEl.textContent || '';
-        var tokens = text.split(/(\\s+)/);
-        sentenceEl.textContent = '';
-        var wordIndex = 0;
-        tokens.forEach(function(tok) {
-          if (!tok) return;
-          if (/^\\s+$/.test(tok)) {
-            sentenceEl.appendChild(document.createTextNode(tok));
-            return;
-          }
-          var span = document.createElement('span');
-          span.className = 'abs-sync-word';
-          span.setAttribute('data-abs-word-index', String(wordIndex));
-          span.setAttribute('data-abs-sentence-id', sentenceId);
-          span.textContent = tok;
-          sentenceEl.appendChild(span);
-          wordIndex += 1;
-        });
-      }
-
-      var roots = Array.prototype.slice.call(document.querySelectorAll('p, div, li, h1, h2, h3, h4, h5, h6'));
-      var sentenceIndex = 0;
-      roots.forEach(function(node) {
-        if (node.closest('span.abs-sync-sentence')) return;
-        if (node.querySelector('p, div, li, h1, h2, h3, h4, h5, h6')) return;
-        var text = (node.textContent || '').replace(/\\s+/g, ' ').replace(/^\\s+|\\s+$/g, '');
-        if (!text) return;
-        var sentences = splitSentences(text);
-        if (!sentences.length) return;
-        node.textContent = '';
-        sentences.forEach(function(sentenceText, idx) {
-          if (idx > 0) node.appendChild(document.createTextNode(' '));
-          var span = document.createElement('span');
-          var sid = 'abs-s-' + \(chapterIndex) + '-' + sentenceIndex;
-          span.id = sid;
-          span.className = 'abs-sync-sentence';
-          span.setAttribute('data-abs-sentence-id', sid);
-          span.setAttribute('data-abs-sentence-text', sentenceText);
-          span.textContent = sentenceText;
-          wrapWords(span, sid);
-          node.appendChild(span);
-          sentenceIndex += 1;
-        });
+        if (!hasAnchor) {
+          var anchor = document.createElement('span');
+          anchor.id = pid;
+          anchor.className = 'abs-sync-para-anchor';
+          anchor.setAttribute('aria-hidden', 'true');
+          node.insertBefore(anchor, node.firstChild);
+        }
+        paraIndex += 1;
       });
       window.__absSyncInstalled = \(chapterIndex);
-      return { installed: true, count: sentenceIndex };
+      return { installed: true, count: paraIndex };
     })();
     """
   }
 
+  /// Hebt den passenden Absatz hervor. Rückgabe: `{ applied, visible, scrolled, paraId }`.
   static func highlightScript(
-    sentenceId: String?,
-    wordIndex: Int?,
-    sentenceText: String? = nil,
+    sentenceText: String?,
     scrollIntoView: Bool = true
   ) -> String {
-    let sid = sentenceId?.replacingOccurrences(of: "\\", with: "\\\\")
-      .replacingOccurrences(of: "'", with: "\\'")
-      .replacingOccurrences(of: "\n", with: " ") ?? ""
     let needle = (sentenceText ?? "")
       .replacingOccurrences(of: "\\", with: "\\\\")
       .replacingOccurrences(of: "'", with: "\\'")
       .replacingOccurrences(of: "\n", with: " ")
-    let word = wordIndex.map(String.init) ?? ""
+      .replacingOccurrences(of: "\r", with: " ")
     let doScroll = scrollIntoView ? "true" : "false"
     return """
     (function() {
@@ -627,89 +584,132 @@ enum EbookSyncHighlightBridge {
           .replace(/\\s+/g, ' ')
           .replace(/^\\s+|\\s+$/g, '');
       }
-      function tokenPrefixScore(a, b) {
+      function tokenOverlap(a, b) {
         var ta = a.split(' ').filter(Boolean);
         var tb = b.split(' ').filter(Boolean);
         if (!ta.length || !tb.length) return 0;
-        var n = Math.min(8, ta.length, tb.length);
+        var setB = {};
+        for (var i = 0; i < tb.length; i++) setB[tb[i]] = true;
         var hits = 0;
-        for (var i = 0; i < n; i++) {
-          if (ta[i] === tb[i]) hits += 1;
+        var n = Math.min(ta.length, 24);
+        for (var j = 0; j < n; j++) {
+          if (setB[ta[j]]) hits += 1;
         }
         return hits / n;
       }
-      function bringIntoView(el) {
-        if (!el) return;
-        var root = document.scrollingElement || document.documentElement;
+      function isComfortablyVisible(el) {
         var rect = el.getBoundingClientRect();
         var vw = Math.max(1, window.innerWidth);
         var vh = Math.max(1, window.innerHeight);
-        // Nur scrollen wenn wirklich außerhalb — kein ständiges Re-Centern.
-        var visible =
-          rect.top < vh * 0.9 && rect.bottom > vh * 0.1 &&
-          rect.left < vw * 0.92 && rect.right > vw * 0.08;
-        if (visible) return;
-        var vertical = root.scrollHeight > root.clientHeight * 1.2;
-        if (vertical) {
-          try { el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' }); } catch (e) {
-            try { el.scrollIntoView(false); } catch (e2) {}
-          }
-          return;
-        }
-        // Paginierte Spalten: nur bei echter Seitenänderung, ohne smooth (vermeidet Oszillation).
-        var curPage = Math.floor((Math.abs(window.scrollX) + 1) / vw);
-        var elCenter = window.scrollX + rect.left + (rect.width * 0.5);
-        var targetPage = Math.floor(elCenter / vw);
-        if (targetPage < 0) targetPage = 0;
-        if (targetPage === curPage) return;
-        window.scrollTo(targetPage * vw, 0);
+        var midY = rect.top + rect.height * 0.35;
+        var midX = rect.left + Math.min(rect.width, vw) * 0.5;
+        return midY >= vh * 0.12 && midY <= vh * 0.78
+          && midX >= vw * 0.05 && midX <= vw * 0.95
+          && rect.bottom > vh * 0.08 && rect.top < vh * 0.92;
       }
-      document.querySelectorAll('span.abs-sync-sentence.abs-sync-active').forEach(function(el) {
+      function bringIntoView(el) {
+        if (!el) return { scrolled: false, visible: false };
+        if (isComfortablyVisible(el)) {
+          return { scrolled: false, visible: true };
+        }
+        try {
+          el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'auto' });
+        } catch (e1) {
+          try { el.scrollIntoView(true); } catch (e2) {}
+        }
+        // Fallback paginiert: Spalten per scrollLeft der scrollbaren Vorfahren.
+        if (!isComfortablyVisible(el)) {
+          var rect = el.getBoundingClientRect();
+          var vw = Math.max(1, window.innerWidth);
+          var vh = Math.max(1, window.innerHeight);
+          var node = el.parentElement;
+          while (node && node !== document.body) {
+            var style = window.getComputedStyle(node);
+            var ox = style.overflowX;
+            var oy = style.overflowY;
+            var canX = (ox === 'auto' || ox === 'scroll' || ox === 'overlay')
+              && node.scrollWidth > node.clientWidth + 8;
+            var canY = (oy === 'auto' || oy === 'scroll' || oy === 'overlay')
+              && node.scrollHeight > node.clientHeight + 8;
+            if (canY) {
+              var top = el.getBoundingClientRect().top - node.getBoundingClientRect().top + node.scrollTop;
+              node.scrollTop = Math.max(0, top - node.clientHeight * 0.35);
+            }
+            if (canX) {
+              var left = el.getBoundingClientRect().left - node.getBoundingClientRect().left + node.scrollLeft;
+              var page = Math.floor((left + 1) / Math.max(1, node.clientWidth));
+              node.scrollLeft = page * node.clientWidth;
+            }
+            node = node.parentElement;
+          }
+          // window-Ebene (Readium scroll/paginated oft hier).
+          if (!isComfortablyVisible(el)) {
+            rect = el.getBoundingClientRect();
+            var root = document.scrollingElement || document.documentElement;
+            var vertical = root.scrollHeight > root.clientHeight * 1.15;
+            if (vertical) {
+              var y = window.scrollY + rect.top - vh * 0.3;
+              window.scrollTo(window.scrollX, Math.max(0, y));
+            } else {
+              var elCenter = window.scrollX + rect.left + rect.width * 0.5;
+              var targetPage = Math.floor(elCenter / vw);
+              if (targetPage < 0) targetPage = 0;
+              window.scrollTo(targetPage * vw, 0);
+            }
+          }
+        }
+        return { scrolled: true, visible: isComfortablyVisible(el) };
+      }
+
+      document.querySelectorAll('.abs-sync-para.abs-sync-active').forEach(function(el) {
         el.classList.remove('abs-sync-active');
       });
-      document.querySelectorAll('span.abs-sync-word.abs-sync-word-active').forEach(function(el) {
-        el.classList.remove('abs-sync-word-active');
-      });
-      var sid = '\(sid)';
+      // Legacy-Klassen aufräumen.
+      document.querySelectorAll('span.abs-sync-sentence.abs-sync-active, span.abs-sync-word.abs-sync-word-active')
+        .forEach(function(el) {
+          el.classList.remove('abs-sync-active', 'abs-sync-word-active');
+        });
+
       var needle = '\(needle)';
-      if (!sid && !needle) return false;
-      var all = document.querySelectorAll('span.abs-sync-sentence');
-      if (!all.length) return false;
-      var sentence = null;
-      // Text zuerst — IDs aus Extractor und DOM-Splitter können divergieren.
-      if (needle) {
-        var target = norm(needle);
-        var bestScore = 0;
-        for (var i = 0; i < all.length; i++) {
-          var raw = all[i].getAttribute('data-abs-sentence-text') || all[i].textContent || '';
-          var cand = norm(raw);
-          if (!cand) continue;
-          if (cand === target) { sentence = all[i]; bestScore = 1; break; }
-          var score = tokenPrefixScore(target, cand);
-          if (cand.indexOf(target) !== -1 || target.indexOf(cand) !== -1) {
-            score = Math.max(score, Math.min(cand.length, target.length) / Math.max(cand.length, target.length));
-          }
-          if (score > bestScore) { bestScore = score; sentence = all[i]; }
+      if (!needle) return { applied: false, visible: false, scrolled: false, paraId: null };
+      var all = document.querySelectorAll('.abs-sync-para[data-abs-para-id]');
+      if (!all.length) return { applied: false, visible: false, scrolled: false, paraId: null };
+
+      var target = norm(needle);
+      var best = null;
+      var bestScore = 0;
+      for (var i = 0; i < all.length; i++) {
+        var raw = all[i].getAttribute('data-abs-para-text') || all[i].textContent || '';
+        var cand = norm(raw);
+        if (!cand) continue;
+        var score = 0;
+        if (cand.indexOf(target) !== -1) {
+          score = 0.92 + Math.min(0.08, target.length / Math.max(cand.length, 1));
+        } else if (target.indexOf(cand) !== -1 && cand.length >= 24) {
+          score = 0.7;
+        } else {
+          score = tokenOverlap(target, cand);
+          // Präfix der ersten Wörter im Absatz gewichten.
+          var prefix = tokenOverlap(target, cand.split(' ').slice(0, 16).join(' '));
+          score = Math.max(score, prefix * 0.95);
         }
-        if (bestScore < 0.45) sentence = null;
+        if (score > bestScore) { bestScore = score; best = all[i]; }
       }
-      if (!sentence && sid) {
-        sentence = document.getElementById(sid)
-          || document.querySelector('span[data-abs-sentence-id=\"' + sid + '\"]');
+      if (!best || bestScore < 0.35) {
+        return { applied: false, visible: false, scrolled: false, paraId: null };
       }
-      if (!sentence) return false;
-      sentence.classList.add('abs-sync-active');
-      var w = '\(word)';
-      var focusEl = sentence;
-      if (w !== '') {
-        var wordEl = sentence.querySelector('span.abs-sync-word[data-abs-word-index=\"' + w + '\"]');
-        if (wordEl) {
-          wordEl.classList.add('abs-sync-word-active');
-          focusEl = wordEl;
-        }
+      best.classList.add('abs-sync-active');
+      var paraId = best.getAttribute('data-abs-para-id') || null;
+      var scrollResult = { scrolled: false, visible: isComfortablyVisible(best) };
+      if (\(doScroll)) {
+        scrollResult = bringIntoView(best);
       }
-      if (\(doScroll)) bringIntoView(focusEl);
-      return true;
+      return {
+        applied: true,
+        visible: !!scrollResult.visible,
+        scrolled: !!scrollResult.scrolled,
+        paraId: paraId
+      };
     })();
     """
   }
@@ -722,9 +722,9 @@ enum EbookSyncHighlightBridge {
       document.addEventListener('click', function(ev) {
         var t = ev.target;
         if (!t) return;
-        var sentence = t.closest ? t.closest('span.abs-sync-sentence') : null;
-        if (!sentence) return;
-        window.__absSyncLastTapSentenceId = sentence.getAttribute('data-abs-sentence-id') || sentence.id || null;
+        var para = t.closest ? t.closest('.abs-sync-para') : null;
+        if (!para) return;
+        window.__absSyncLastTapSentenceId = para.getAttribute('data-abs-para-id') || null;
       }, true);
       window.__absSyncTapBound = true;
       return true;
@@ -741,4 +741,15 @@ enum EbookSyncHighlightBridge {
     })();
     """
   }
+}
+
+/// Ergebnis eines Highlight-/Scroll-Versuchs im EPUB-DOM.
+struct EbookSyncHighlightApplyResult: Equatable, Sendable {
+  var applied: Bool
+  var visible: Bool
+  var scrolled: Bool
+  var paraId: String?
+
+  static let failed = EbookSyncHighlightApplyResult(
+    applied: false, visible: false, scrolled: false, paraId: nil)
 }
