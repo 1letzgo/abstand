@@ -56,14 +56,12 @@ struct SquareCoverImageView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .task(id: tintLoadIdentity) {
       tint = AppTheme.card
-      if let c = CoverDerivedTintLoader.colorFromDiskOrCoverCache(
-        account: cacheAccount, itemId: itemId, revision: cacheRevision)
-      {
-        tint = c
-      }
-      if let c = await CoverDerivedTintLoader.colorFromNetwork(
+      // Scope (z. B. `id#cover-hero`) mitgeben — sonst verfehlt der Tint-Loader den Hero-Cache
+      // und lädt bei jedem Detail-Öffnen erneut vom Server.
+      if let c = await CoverDerivedTintLoader.loadColor(
         account: cacheAccount,
         itemId: itemId,
+        cacheScopeId: cacheScopeId ?? itemId,
         revision: cacheRevision,
         coverURL: url,
         token: token
@@ -90,7 +88,7 @@ struct CoverImageView: View {
   @State private var image: UIImage?
 
   private var loadIdentity: String {
-    "\(itemId)|\(url?.absoluteString ?? "")|\(cacheRevision)"
+    "\(cacheScopeId)|\(url?.absoluteString ?? "")|\(cacheRevision)"
   }
 
   /// Storage-Key für Memory-/Disk-Cache. `cacheRevision` fließt hier mit ein (nicht nur in

@@ -157,28 +157,77 @@ enum CoverDominantTintSeed {
 /// Cover → Kartenfarbe (Cache, lokales Cover, optional Netz) für Continue-Hero und Home-Mini-Karten.
 @MainActor
 enum CoverDerivedTintLoader {
-  static func colorFromDiskOrCoverCache(account: URL?, itemId: String, revision: Int = 0) -> Color? {
-    if let c = ContinueHeroTintCache.load(account: account, itemId: itemId, revision: revision) { return c }
-    guard let account,
-      let img = CoverImageCache.syncUIImage(
-        itemId: revision == 0 ? itemId : "\(itemId)#r\(revision)", account: account),
-      let rgb = PlaybackController.coverBarTintRGB(from: img)
-    else { return nil }
+  /// Disk-Tint zuerst; sonst Cover aus Memory/Disk (Scope inkl. Hero); erst dann Netz.
+  /// Schreibt Netz-Treffer in `CoverImageCache`, damit `CoverImageView` denselben Key nutzt.
+  static func loadColor(
+    account: URL?,
+    itemId: String,
+    cacheScopeId: String? = nil,
+    revision: Int = 0,
+    coverURL: URL?,
+    token: String
+  ) async -> Color? {
+    if let c = colorFromDiskOrCoverCache(
+      account: account, itemId: itemId, cacheScopeId: cacheScopeId, revision: revision)
+    {
+      return c
+    }
+    return await colorFromNetwork(
+      account: account,
+      itemId: itemId,
+      cacheScopeId: cacheScopeId,
+      revision: revision,
+      coverURL: coverURL,
+      token: token
+    )
+  }
+
+  static func colorFromDiskOrCoverCache(
+    account: URL?,
+    itemId: String,
+    cacheScopeId: String? = nil,
+    revision: Int = 0
+  ) -> Color? {
+    if let c = ContinueHeroTintCache.load(account: account, itemId: itemId, revision: revision) {
+      return c
+    }
+    let scope = cacheScopeId ?? itemId
+    let primaryKey = CoverImageCache.cacheKey(scopeId: scope, revision: revision)
+    let thumbnailKey = CoverImageCache.cacheKey(scopeId: itemId, revision: revision)
+    guard let account else { return nil }
+    let img =
+      CoverImageCache.syncUIImage(itemId: primaryKey, account: account)
+      ?? (primaryKey != thumbnailKey
+        ? CoverImageCache.syncUIImage(itemId: thumbnailKey, account: account) : nil)
+    guard let img, let rgb = PlaybackController.coverBarTintRGB(from: img) else { return nil }
     ContinueHeroTintCache.save(
       account: account, itemId: itemId, revision: revision, red: rgb.0, green: rgb.1, blue: rgb.2)
     return Color(red: rgb.0, green: rgb.1, blue: rgb.2)
   }
 
   static func colorFromNetwork(
-    account: URL?, itemId: String, revision: Int = 0, coverURL: URL?, token: String
-  ) async
-    -> Color?
-  {
-    let cacheKey = revision == 0 ? itemId : "\(itemId)#r\(revision)"
+    account: URL?,
+    itemId: String,
+    cacheScopeId: String? = nil,
+    revision: Int = 0,
+    coverURL: URL?,
+    token: String
+  ) async -> Color? {
+    let scope = cacheScopeId ?? itemId
+    let cacheKey = CoverImageCache.cacheKey(scopeId: scope, revision: revision)
     if CoverImageCache.syncUIImage(itemId: cacheKey, account: account) != nil { return nil }
+    // Thumbnail-Cache als zweiter Treffer — kein Netz, wenn die Liste das Cover schon hat.
+    let thumbnailKey = CoverImageCache.cacheKey(scopeId: itemId, revision: revision)
+    if cacheKey != thumbnailKey,
+      CoverImageCache.syncUIImage(itemId: thumbnailKey, account: account) != nil
+    {
+      return nil
+    }
     guard let coverURL else { return nil }
     var req = URLRequest(url: coverURL)
-    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    if !token.isEmpty {
+      req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    }
     do {
       let (data, resp) = try await URLSession.shared.data(for: req)
       guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
@@ -186,6 +235,9 @@ enum CoverDerivedTintLoader {
         let rgb = PlaybackController.coverBarTintRGB(from: image)
       else { return nil }
       if let account {
+        // Dieselben Bytes wie `CoverImageView` persistieren — kein zweiter Download beim nächsten Öffnen.
+        try? CoverImageCache.saveToDisk(account: account, itemId: cacheKey, data: data)
+        CoverImageCache.storeMemory(itemId: cacheKey, image: image)
         ContinueHeroTintCache.save(
           account: account, itemId: itemId, revision: revision, red: rgb.0, green: rgb.1, blue: rgb.2)
       }
