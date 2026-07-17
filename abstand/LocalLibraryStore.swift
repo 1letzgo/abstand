@@ -414,6 +414,17 @@ actor LocalLibraryStore {
     LocalLibraryQueries.book(context: modelContext, id: id)
   }
 
+  /// Entfernt die lokale Buchzeile (Katalog- + Detail-Blob) nach Server-Löschung.
+  func deleteBook(id: String) throws {
+    let bid = id.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !bid.isEmpty else { return }
+    var descriptor = FetchDescriptor<LocalBook>(predicate: #Predicate { $0.id == bid })
+    descriptor.fetchLimit = 1
+    guard let row = try modelContext.fetch(descriptor).first else { return }
+    modelContext.delete(row)
+    try modelContext.save()
+  }
+
   /// Erweiterte Detail-Antwort (inkl. Beschreibung) separat vom Katalog-Blob sichern — siehe `LocalBook.detailBlob`.
   func upsertBookDetail(_ book: ABSBook) throws {
     let bid = book.id

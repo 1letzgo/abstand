@@ -9706,30 +9706,50 @@ final class AppModel: ObservableObject {
     )
   }
 
-  /// Entfernt den Eintrag aus der Audiobookshelf-Datenbank (wie Web-UI „Löschen“).
-  func deleteFromServer(bookId: String) async {
-    guard let c = client else { return }
+  /// Entfernt Buch inkl. Dateien vom Server (`DELETE /api/items/:id?hard=1`). Nur Root.
+  @discardableResult
+  func deleteFromServer(bookId: String, hardDelete: Bool = true) async -> Bool {
+    guard isServerRoot else {
+      errorMessage = "Only the root user can delete books."
+      return false
+    }
+    guard isNetworkReachable, let c = client else {
+      errorMessage = "No network connection."
+      return false
+    }
+    let id = bookId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !id.isEmpty else { return false }
     do {
-      try await c.deleteLibraryItem(id: bookId)
-      downloads.deleteDownload(itemId: bookId)
-      downloadedItemIds.remove(bookId)
+      try await c.deleteLibraryItem(id: id, hardDelete: hardDelete)
+      errorMessage = nil
+      downloads.deleteDownload(itemId: id)
+      downloadedItemIds.remove(id)
       persistDownloads()
-      progressByItemId[bookId] = nil
-      books.removeAll { $0.id == bookId }
-      podcastEpisodes.removeAll { $0.libraryItemId == bookId }
-      startBooks.removeAll { $0.id == bookId }
-      searchBooks.removeAll { $0.id == bookId }
-      podcastSearchBooks.removeAll { $0.id == bookId }
-      if player.activeBook?.id == bookId {
+      refreshDownloadedShelfFromManifests()
+      progressByItemId[id] = nil
+      books.removeAll { $0.id == id }
+      podcastEpisodes.removeAll { $0.libraryItemId == id }
+      startBooks.removeAll { $0.id == id }
+      searchBooks.removeAll { $0.id == id }
+      podcastSearchBooks.removeAll { $0.id == id }
+      browseEbooks.removeAll { $0.id == id }
+      browseEbooksSupplementary.removeAll { $0.id == id }
+      if let store = currentLocalLibraryStore() {
+        try? await store.deleteBook(id: id)
+      }
+      if player.activeBook?.id == id {
         await dismissPlayer(idlePlaceholder: false)
       }
-      if UserDefaults.standard.string(forKey: Keys.lastPlayedItemId) == bookId {
+      if UserDefaults.standard.string(forKey: Keys.lastPlayedItemId) == id {
         UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
       }
       await refreshProgressFromServer()
+      await reloadLibrary(reset: true)
       await loadStartDashboard()
+      return true
     } catch {
       publishErrorUnlessBenignCancellation(error)
+      return false
     }
   }
 
