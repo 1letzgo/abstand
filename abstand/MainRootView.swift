@@ -36,10 +36,8 @@ struct MainRootView: View {
         libraryItemId: session.libraryItemId,
         localFileURL: session.localFileURL,
         format: session.format,
-        serverResumeProgression: session.serverResumeProgression,
-        ebookSyncMode: session.ebookSyncMode
+        serverResumeProgression: session.serverResumeProgression
       )
-      .environmentObject(model.player)
       .themeAccentFromAppModel(model)
       .tint(model.appearanceAccentColor)
     }
