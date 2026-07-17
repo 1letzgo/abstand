@@ -23,6 +23,8 @@ struct BookDetailView: View {
   @State private var confirmResetEbookRead = false
   /// Root: Buch inkl. Dateien vom Server löschen.
   @State private var confirmDeleteBook = false
+  /// Blockierendes Popup, bis `deleteFromServer` die Server-Antwort hat.
+  @State private var isDeletingBook = false
   /// Autor/Serie/Genre/Sprecher oberhalb des Buch-Details — nicht `libraryEntityDetailNav` (würde Detail poppen).
   @State private var linkedEntityDetailNav: BooksEntityDetailNav?
   /// Match-Metadaten-Sheet (Admin/Root) — absorb-style Online-Match.
@@ -124,13 +126,11 @@ struct BookDetailView: View {
     .alert("Delete book?", isPresented: $confirmDeleteBook) {
       Button("Cancel", role: .cancel) {}
       Button("Delete including file", role: .destructive) {
+        isDeletingBook = true
         Task {
-          let title = (detail ?? book).displayTitle
           let ok = await model.deleteFromServer(bookId: bookId, hardDelete: true)
+          isDeletingBook = false
           if ok { dismiss() }
-          else if model.errorMessage == nil {
-            model.errorMessage = "Could not delete \"\(title)\"."
-          }
         }
       }
     } message: {
@@ -138,6 +138,12 @@ struct BookDetailView: View {
         "\"\((detail ?? book).displayTitle)\" will be deleted on the server including its files. Local downloads will be removed. You cannot undo this."
       )
     }
+    .overlay {
+      if isDeletingBook {
+        deletingBookPopup
+      }
+    }
+    .toolbar(isDeletingBook ? .hidden : .automatic, for: .navigationBar)
     .alert("Mark as finished?", isPresented: $confirmMarkBookFinished) {
       Button("Cancel", role: .cancel) {}
       Button("Mark as finished") {
@@ -284,6 +290,29 @@ struct BookDetailView: View {
           red: Double(r), green: Double(g), blue: Double(b)
         )
       }
+    }
+  }
+
+  private var deletingBookPopup: some View {
+    let palette = model.appearancePalette
+    ZStack {
+      Color.black.opacity(palette.isDarkLike ? 0.55 : 0.35)
+        .ignoresSafeArea()
+      VStack(spacing: 14) {
+        ProgressView()
+          .controlSize(.large)
+          .tint(model.appearanceAccentColor)
+        Text("Deleting book…")
+          .font(.headline.weight(.semibold))
+          .foregroundStyle(palette.textPrimary)
+          .multilineTextAlignment(.center)
+      }
+      .padding(.horizontal, 28)
+      .padding(.vertical, 24)
+      .background(palette.card, in: RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+      .abstandCardElevation(.standard)
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel("Deleting book")
     }
   }
 
