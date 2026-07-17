@@ -228,7 +228,7 @@ final class ReadiumReaderService {
     }
   }
 
-  /// Ob Sync-Spans für das Kapitel noch im aktuellen DOM liegen.
+  /// Ob Sync-Absatz-Markup für das Kapitel noch im aktuellen DOM liegt.
   @MainActor
   func ebookSyncMarkupInstalled(
     on navigator: EPUBNavigatorViewController,
@@ -237,7 +237,7 @@ final class ReadiumReaderService {
     let script = """
     (function() {
       if (window.__absSyncInstalled !== \(chapterIndex)) return false;
-      return document.querySelectorAll('span.abs-sync-sentence').length > 0;
+      return document.querySelectorAll('.abs-sync-para[data-abs-para-id]').length > 0;
     })();
     """
     switch await navigator.evaluateJavaScript(script) {
@@ -254,25 +254,87 @@ final class ReadiumReaderService {
   @discardableResult
   func applyEbookSyncHighlight(
     on navigator: EPUBNavigatorViewController,
-    sentenceId: String?,
-    wordIndex: Int?,
-    sentenceText: String? = nil,
+    sentenceText: String?,
     scrollIntoView: Bool = true
-  ) async -> Bool {
+  ) async -> EbookSyncHighlightApplyResult {
     let script = EbookSyncHighlightBridge.highlightScript(
-      sentenceId: sentenceId,
-      wordIndex: wordIndex,
       sentenceText: sentenceText,
       scrollIntoView: scrollIntoView
     )
     switch await navigator.evaluateJavaScript(script) {
     case let .success(value):
-      if let flag = value as? Bool { return flag }
-      if let num = value as? NSNumber { return num.boolValue }
-      return sentenceId != nil
+      return Self.parseEbookSyncHighlightResult(value)
     case .failure:
+      return .failed
+    }
+  }
+
+  /// Navigiert zum Absatz-Anker via Readium Locator (Scroll- und Blättermodus).
+  @MainActor
+  @discardableResult
+  func seekToEbookSyncParagraph(
+    navigator: EPUBNavigatorViewController,
+    href: String,
+    paraId: String,
+    paragraphText: String?
+  ) async -> Bool {
+    let key = EbookTextExtractor.hrefKey(href)
+    guard let link = navigator.publication.readingOrder.first(where: {
+      EbookTextExtractor.hrefKey($0.url().string) == key
+    }) else {
       return false
     }
+    let snippet = paragraphText.map { text -> String in
+      let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+      if trimmed.count <= 160 { return trimmed }
+      return String(trimmed.prefix(160))
+    }
+    var locator = Locator(
+      href: link.url(),
+      mediaType: link.mediaType ?? MediaType.html,
+      locations: Locator.Locations(fragments: [paraId]),
+      text: Locator.Text(highlight: snippet)
+    )
+    if let located = await navigator.publication.locate(locator) {
+      locator = located
+    }
+    let ok = await navigator.go(to: locator)
+    if ok {
+      // Nach Navigator-Jump Highlight erneut setzen (ohne weiteren JS-Scroll).
+      _ = await applyEbookSyncHighlight(
+        on: navigator,
+        sentenceText: paragraphText ?? snippet,
+        scrollIntoView: false
+      )
+    }
+    return ok
+  }
+
+  private static func parseEbookSyncHighlightResult(_ value: Any?) -> EbookSyncHighlightApplyResult {
+    guard let dict = value as? [String: Any] else {
+      if let flag = value as? Bool {
+        return EbookSyncHighlightApplyResult(
+          applied: flag, visible: flag, scrolled: false, paraId: nil)
+      }
+      if let num = value as? NSNumber {
+        let flag = num.boolValue
+        return EbookSyncHighlightApplyResult(
+          applied: flag, visible: flag, scrolled: false, paraId: nil)
+      }
+      return .failed
+    }
+    let applied = jsBool(dict["applied"])
+    let visible = jsBool(dict["visible"])
+    let scrolled = jsBool(dict["scrolled"])
+    let paraId = dict["paraId"] as? String
+    return EbookSyncHighlightApplyResult(
+      applied: applied, visible: visible, scrolled: scrolled, paraId: paraId)
+  }
+
+  private static func jsBool(_ value: Any?) -> Bool {
+    if let flag = value as? Bool { return flag }
+    if let num = value as? NSNumber { return num.boolValue }
+    return false
   }
 
   @MainActor

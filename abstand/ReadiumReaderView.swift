@@ -53,10 +53,9 @@ struct ReadiumReaderView: View {
   @State private var isInitialReaderLoad = true
   @State private var lastInstalledSyncChapterIndex: Int?
   @State private var lastAppliedSyncSentenceId: String?
-  @State private var lastAppliedSyncWordIndex: Int?
   @State private var lastAppliedSyncGeneration: UInt = 0
-  /// Satz, für den zuletzt gescrollt wurde — Wort-Updates scrollen nicht erneut.
-  @State private var lastScrolledSyncSentenceId: String?
+  /// Absatz, der zuletzt sichtbar gemacht wurde (Scroll-/Blättermodus).
+  @State private var lastScrolledSyncParagraphId: String?
   /// Kurz-Toast „Synced with audiobook“, danach ausblenden.
   @State private var showEbookSyncBadge = false
   @State private var ebookSyncBadgeTask: Task<Void, Never>?
@@ -139,10 +138,6 @@ struct ReadiumReaderView: View {
     }
     .onReceive(player.ebookSync.$activeSentenceId) { _ in
       Task { await applyEbookSyncHighlightIfNeeded(force: false, allowScroll: true) }
-    }
-    .onReceive(player.ebookSync.$activeWordIndex) { _ in
-      // Nur Highlight updaten — kein Scroll bei jedem Wort (sonst Seiten-/Fokus-Sprünge).
-      Task { await applyEbookSyncHighlightIfNeeded(force: false, allowScroll: false) }
     }
     .onReceive(player.ebookSync.$syncGeneration) { generation in
       Task {
@@ -501,7 +496,7 @@ struct ReadiumReaderView: View {
     guard ebookSyncMode else { return }
     // Theme/Schrift/Scroll laden DOM neu — Markup + Highlight neu setzen.
     lastInstalledSyncChapterIndex = nil
-    lastScrolledSyncSentenceId = nil
+    lastScrolledSyncParagraphId = nil
     Task {
       _ = await refreshEbookSyncMarkupIfNeeded(force: true)
       await applyEbookSyncHighlightIfNeeded(force: true, allowScroll: true)
@@ -611,7 +606,7 @@ struct ReadiumReaderView: View {
     // Nutzer-Scrollmodus beibehalten — Sync soll nicht in Continuous zwingen.
     ReadiumReaderService.shared.applyEPUBPreferences(to: epub)
     lastInstalledSyncChapterIndex = nil
-    lastScrolledSyncSentenceId = nil
+    lastScrolledSyncParagraphId = nil
     _ = await refreshEbookSyncMarkupIfNeeded(force: true)
     await applyEbookSyncHighlightIfNeeded(force: true, allowScroll: true)
     if player.ebookSync.isSyncModeActive, !player.ebookSync.isPreparing {
@@ -621,6 +616,7 @@ struct ReadiumReaderView: View {
     if let sentence = player.ebookSync.activeSentence(for: player) {
       _ = await ReadiumReaderService.shared.seekToEbookSyncHref(navigator: epub, href: sentence.href)
       lastInstalledSyncChapterIndex = nil
+      lastScrolledSyncParagraphId = nil
       _ = await refreshEbookSyncMarkupIfNeeded(force: true)
       await applyEbookSyncHighlightIfNeeded(force: true, allowScroll: true)
     }
@@ -657,62 +653,85 @@ struct ReadiumReaderView: View {
     guard ebookSyncMode, format == .epub, let epub = epubNavigator else { return }
     _ = await refreshEbookSyncMarkupIfNeeded()
     let sentenceId = player.ebookSync.activeSentenceId
-    let wordIndex = player.ebookSync.activeWordIndex
     let gen = generation ?? player.ebookSync.syncGeneration
     if !force,
       sentenceId == lastAppliedSyncSentenceId,
-      wordIndex == lastAppliedSyncWordIndex,
       gen == lastAppliedSyncGeneration
     {
       return
     }
+    let activeSentence = player.ebookSync.activeSentence(for: player)
     // Kapitelwechsel bei Audio-Seek.
-    if let sentence = player.ebookSync.activeSentence(for: player),
-      let current = epub.currentLocation
-    {
+    if let sentence = activeSentence, let current = epub.currentLocation {
       let currentKey = EbookTextExtractor.hrefKey(current.href.string)
       let targetKey = EbookTextExtractor.hrefKey(sentence.href)
       if currentKey != targetKey {
         _ = await ReadiumReaderService.shared.seekToEbookSyncHref(navigator: epub, href: sentence.href)
         lastInstalledSyncChapterIndex = nil
-        lastScrolledSyncSentenceId = nil
+        lastScrolledSyncParagraphId = nil
         _ = await refreshEbookSyncMarkupIfNeeded(force: true)
       }
     }
-    let sentenceText = player.ebookSync.activeSentence(for: player)?.text
-    let shouldScroll =
-      allowScroll
-      && sentenceId != nil
-      && sentenceId != lastScrolledSyncSentenceId
-    let applied = await ReadiumReaderService.shared.applyEbookSyncHighlight(
+    let sentenceText = activeSentence?.text
+    // Scroll nur bei neuem Absatz — Sätze im selben Absatz sollen nicht springen.
+    // `shouldScroll` wird nach dem Match anhand von `paraId` entschieden.
+    var result = await ReadiumReaderService.shared.applyEbookSyncHighlight(
       on: epub,
-      sentenceId: sentenceId,
-      wordIndex: wordIndex,
       sentenceText: sentenceText,
-      scrollIntoView: shouldScroll
+      scrollIntoView: false
     )
-    if applied {
-      lastAppliedSyncSentenceId = sentenceId
-      lastAppliedSyncWordIndex = wordIndex
-      lastAppliedSyncGeneration = gen
-      if shouldScroll { lastScrolledSyncSentenceId = sentenceId }
+    if !result.applied {
+      // Markup evtl. weg (Theme/Reload) — einmal neu installieren und erneut versuchen.
+      lastInstalledSyncChapterIndex = nil
+      _ = await refreshEbookSyncMarkupIfNeeded(force: true)
+      result = await ReadiumReaderService.shared.applyEbookSyncHighlight(
+        on: epub,
+        sentenceText: sentenceText,
+        scrollIntoView: false
+      )
+    }
+    guard result.applied else { return }
+
+    lastAppliedSyncSentenceId = sentenceId
+    lastAppliedSyncGeneration = gen
+
+    let paraId = result.paraId
+    // Bei force (Seek/Start/Prefs) erneut scrollen, auch wenn derselbe Absatz.
+    let needsScroll =
+      allowScroll
+      && paraId != nil
+      && !result.visible
+      && (force || paraId != lastScrolledSyncParagraphId)
+
+    guard needsScroll, let paraId else {
+      if result.visible, let paraId {
+        lastScrolledSyncParagraphId = paraId
+      }
       return
     }
-    // Markup evtl. weg (Theme/Reload) — einmal neu installieren und erneut versuchen.
-    lastInstalledSyncChapterIndex = nil
-    _ = await refreshEbookSyncMarkupIfNeeded(force: true)
-    let retry = await ReadiumReaderService.shared.applyEbookSyncHighlight(
+
+    // 1) DOM-Scroll (Scroll- und Spaltenmodus).
+    let scrolled = await ReadiumReaderService.shared.applyEbookSyncHighlight(
       on: epub,
-      sentenceId: sentenceId,
-      wordIndex: wordIndex,
       sentenceText: sentenceText,
-      scrollIntoView: shouldScroll
+      scrollIntoView: true
     )
-    if retry {
-      lastAppliedSyncSentenceId = sentenceId
-      lastAppliedSyncWordIndex = wordIndex
-      lastAppliedSyncGeneration = gen
-      if shouldScroll { lastScrolledSyncSentenceId = sentenceId }
+    if scrolled.visible {
+      lastScrolledSyncParagraphId = paraId
+      return
+    }
+
+    // 2) Readium-Locator mit Fragment-Anker (zuverlässiger im Blättermodus).
+    if let sentence = activeSentence {
+      let jumped = await ReadiumReaderService.shared.seekToEbookSyncParagraph(
+        navigator: epub,
+        href: sentence.href,
+        paraId: paraId,
+        paragraphText: sentenceText
+      )
+      if jumped {
+        lastScrolledSyncParagraphId = paraId
+      }
     }
   }
 
