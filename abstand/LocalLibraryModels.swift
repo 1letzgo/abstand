@@ -779,7 +779,7 @@ private enum LocalLibrarySchemaModels {
   ]
 
   /// Modelle bis Schema V3 (inkl. Einmal-Achievements).
-  static let coreThroughV3: [any PersistentModel.Type] {
+  static var coreThroughV3: [any PersistentModel.Type] {
     coreWithoutOneTime + [LocalOneTimeAchievementState.self]
   }
 
