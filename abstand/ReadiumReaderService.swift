@@ -87,12 +87,11 @@ final class ReadiumReaderService {
     }
   }
 
-  private func makeEPUBPreferences(forceContinuousScroll: Bool? = nil) -> EPUBPreferences {
-    let scroll = forceContinuousScroll ?? EpubReaderSettings.loadContinuousScroll()
-    return EPUBPreferences(
+  private func makeEPUBPreferences() -> EPUBPreferences {
+    EPUBPreferences(
       fontSize: EpubReaderSettings.loadFontSize(),
       publisherStyles: false,
-      scroll: scroll,
+      scroll: EpubReaderSettings.loadContinuousScroll(),
       theme: readiumTheme(from: EpubReaderSettings.loadTheme())
     )
   }
@@ -173,14 +172,6 @@ final class ReadiumReaderService {
     Task { await refreshEpubProgressDisplay(epub: navigator) }
   }
 
-  /// Read & Listen: kontinuierliches Scrollen, damit Highlight + Auto-Blättern zuverlässig greifen.
-  func applyEPUBPreferencesForEbookSync(to navigator: EPUBNavigatorViewController) {
-    ReadiumReaderDelegate.shared.invalidateChapterPageCache()
-    navigator.submitPreferences(makeEPUBPreferences(forceContinuousScroll: true))
-    updateDirectionalNavigation(for: navigator, scrollEnabled: true)
-    Task { await refreshEpubProgressDisplay(epub: navigator) }
-  }
-
   /// Nach Layout-Umbruch (Schriftgröße, Theme): Fortschritt inkl. gerenderte Seitenzahl aktualisieren.
   func refreshEpubProgressDisplay(epub: EPUBNavigatorViewController) async {
     try? await Task.sleep(nanoseconds: 450_000_000)
@@ -225,8 +216,37 @@ final class ReadiumReaderService {
   ) async -> Bool {
     let script = EbookSyncHighlightBridge.installMarkupScript(chapterIndex: chapterIndex)
     switch await navigator.evaluateJavaScript(script) {
-    case .success: return true
+    case let .success(value):
+      if let dict = value as? [String: Any], let count = dict["count"] as? Int {
+        return count > 0
+      }
+      if let dict = value as? [String: Any], let count = dict["count"] as? NSNumber {
+        return count.intValue > 0
+      }
+      return true
     case .failure: return false
+    }
+  }
+
+  /// Ob Sync-Spans für das Kapitel noch im aktuellen DOM liegen.
+  @MainActor
+  func ebookSyncMarkupInstalled(
+    on navigator: EPUBNavigatorViewController,
+    chapterIndex: Int
+  ) async -> Bool {
+    let script = """
+    (function() {
+      if (window.__absSyncInstalled !== \(chapterIndex)) return false;
+      return document.querySelectorAll('span.abs-sync-sentence').length > 0;
+    })();
+    """
+    switch await navigator.evaluateJavaScript(script) {
+    case let .success(value):
+      if let flag = value as? Bool { return flag }
+      if let num = value as? NSNumber { return num.boolValue }
+      return false
+    case .failure:
+      return false
     }
   }
 
@@ -236,10 +256,15 @@ final class ReadiumReaderService {
     on navigator: EPUBNavigatorViewController,
     sentenceId: String?,
     wordIndex: Int?,
-    sentenceText: String? = nil
+    sentenceText: String? = nil,
+    scrollIntoView: Bool = true
   ) async -> Bool {
     let script = EbookSyncHighlightBridge.highlightScript(
-      sentenceId: sentenceId, wordIndex: wordIndex, sentenceText: sentenceText)
+      sentenceId: sentenceId,
+      wordIndex: wordIndex,
+      sentenceText: sentenceText,
+      scrollIntoView: scrollIntoView
+    )
     switch await navigator.evaluateJavaScript(script) {
     case let .success(value):
       if let flag = value as? Bool { return flag }

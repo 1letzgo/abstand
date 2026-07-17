@@ -275,7 +275,7 @@ final class EbookSyncController: ObservableObject {
         }
         try? EbookAudioAlignmentStore.save(
           self.alignmentMap!, account: self.accountURL, userId: self.userId)
-        self.syncGeneration &+= 1
+        // Kein syncGeneration-Bump — sonst erzwingt der Reader einen Scroll-Jump.
         self.handlePlaybackTick(player: player)
       } catch is CancellationError {
         // cancelled
@@ -492,24 +492,39 @@ enum EbookSyncHighlightBridge {
   static func installMarkupScript(chapterIndex: Int) -> String {
     """
     (function() {
-      if (window.__absSyncInstalled === \(chapterIndex)) {
-        return { installed: true, count: document.querySelectorAll('span.abs-sync-sentence').length };
+      var existing = document.querySelectorAll('span.abs-sync-sentence').length;
+      if (window.__absSyncInstalled === \(chapterIndex) && existing > 0) {
+        return { installed: true, count: existing };
       }
-      if (!document.getElementById('abs-sync-style')) {
-        var style = document.createElement('style');
+      // Alte Spans nach DOM-Reload / Kapitelwechsel entfernen.
+      document.querySelectorAll('span.abs-sync-word').forEach(function(el) {
+        var t = document.createTextNode(el.textContent || '');
+        el.parentNode && el.parentNode.replaceChild(t, el);
+      });
+      document.querySelectorAll('span.abs-sync-sentence').forEach(function(el) {
+        var t = document.createTextNode(el.textContent || '');
+        el.parentNode && el.parentNode.replaceChild(t, el);
+      });
+      var style = document.getElementById('abs-sync-style');
+      if (!style) {
+        style = document.createElement('style');
         style.id = 'abs-sync-style';
-        style.textContent = `
-          span.abs-sync-sentence.abs-sync-active {
-            background: rgba(255, 196, 0, 0.28);
-            border-radius: 2px;
-          }
-          span.abs-sync-word.abs-sync-word-active {
-            background: rgba(255, 140, 0, 0.45);
-            border-radius: 2px;
-          }
-        `;
         document.head.appendChild(style);
       }
+      style.textContent = `
+        span.abs-sync-sentence.abs-sync-active {
+          background: rgba(255, 196, 0, 0.38) !important;
+          border-radius: 2px;
+          box-decoration-break: clone;
+          -webkit-box-decoration-break: clone;
+        }
+        span.abs-sync-word.abs-sync-word-active {
+          background: rgba(255, 140, 0, 0.62) !important;
+          border-radius: 2px;
+          box-decoration-break: clone;
+          -webkit-box-decoration-break: clone;
+        }
+      `;
 
       function splitSentences(text) {
         var parts = [];
@@ -569,6 +584,7 @@ enum EbookSyncHighlightBridge {
           span.id = sid;
           span.className = 'abs-sync-sentence';
           span.setAttribute('data-abs-sentence-id', sid);
+          span.setAttribute('data-abs-sentence-text', sentenceText);
           span.textContent = sentenceText;
           wrapWords(span, sid);
           node.appendChild(span);
@@ -581,7 +597,12 @@ enum EbookSyncHighlightBridge {
     """
   }
 
-  static func highlightScript(sentenceId: String?, wordIndex: Int?, sentenceText: String? = nil) -> String {
+  static func highlightScript(
+    sentenceId: String?,
+    wordIndex: Int?,
+    sentenceText: String? = nil,
+    scrollIntoView: Bool = true
+  ) -> String {
     let sid = sentenceId?.replacingOccurrences(of: "\\", with: "\\\\")
       .replacingOccurrences(of: "'", with: "\\'")
       .replacingOccurrences(of: "\n", with: " ") ?? ""
@@ -590,10 +611,26 @@ enum EbookSyncHighlightBridge {
       .replacingOccurrences(of: "'", with: "\\'")
       .replacingOccurrences(of: "\n", with: " ")
     let word = wordIndex.map(String.init) ?? ""
+    let doScroll = scrollIntoView ? "true" : "false"
     return """
     (function() {
       function norm(s) {
-        return (s || '').toLowerCase().replace(/\\s+/g, ' ').replace(/^\\s+|\\s+$/g, '');
+        return (s || '').toLowerCase()
+          .replace(/[“”„"']/g, '')
+          .replace(/[.,;:!?…()\\[\\]{}\\-—–]/g, ' ')
+          .replace(/\\s+/g, ' ')
+          .replace(/^\\s+|\\s+$/g, '');
+      }
+      function tokenPrefixScore(a, b) {
+        var ta = a.split(' ').filter(Boolean);
+        var tb = b.split(' ').filter(Boolean);
+        if (!ta.length || !tb.length) return 0;
+        var n = Math.min(8, ta.length, tb.length);
+        var hits = 0;
+        for (var i = 0; i < n; i++) {
+          if (ta[i] === tb[i]) hits += 1;
+        }
+        return hits / n;
       }
       function bringIntoView(el) {
         if (!el) return;
@@ -601,28 +638,25 @@ enum EbookSyncHighlightBridge {
         var rect = el.getBoundingClientRect();
         var vw = Math.max(1, window.innerWidth);
         var vh = Math.max(1, window.innerHeight);
-        var padX = vw * 0.08;
-        var padY = vh * 0.12;
+        // Nur scrollen wenn wirklich außerhalb — kein ständiges Re-Centern.
         var visible =
-          rect.top >= padY && rect.bottom <= vh - padY &&
-          rect.left >= padX && rect.right <= vw - padX;
+          rect.top < vh * 0.9 && rect.bottom > vh * 0.1 &&
+          rect.left < vw * 0.92 && rect.right > vw * 0.08;
         if (visible) return;
         var vertical = root.scrollHeight > root.clientHeight * 1.2;
         if (vertical) {
-          try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' }); } catch (e) {
-            try { el.scrollIntoView(true); } catch (e2) {}
+          try { el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' }); } catch (e) {
+            try { el.scrollIntoView(false); } catch (e2) {}
           }
           return;
         }
-        // Paginierte Spalten: seitenweise nach links/rechts.
-        var targetX = window.scrollX + rect.left - (vw * 0.15);
-        var page = Math.round(targetX / vw);
-        if (page < 0) page = 0;
-        try {
-          window.scrollTo({ left: page * vw, top: 0, behavior: 'smooth' });
-        } catch (e) {
-          window.scrollTo(page * vw, 0);
-        }
+        // Paginierte Spalten: nur bei echter Seitenänderung, ohne smooth (vermeidet Oszillation).
+        var curPage = Math.floor((Math.abs(window.scrollX) + 1) / vw);
+        var elCenter = window.scrollX + rect.left + (rect.width * 0.5);
+        var targetPage = Math.floor(elCenter / vw);
+        if (targetPage < 0) targetPage = 0;
+        if (targetPage === curPage) return;
+        window.scrollTo(targetPage * vw, 0);
       }
       document.querySelectorAll('span.abs-sync-sentence.abs-sync-active').forEach(function(el) {
         el.classList.remove('abs-sync-active');
@@ -641,15 +675,17 @@ enum EbookSyncHighlightBridge {
         var target = norm(needle);
         var bestScore = 0;
         for (var i = 0; i < all.length; i++) {
-          var cand = norm(all[i].textContent);
+          var raw = all[i].getAttribute('data-abs-sentence-text') || all[i].textContent || '';
+          var cand = norm(raw);
           if (!cand) continue;
           if (cand === target) { sentence = all[i]; bestScore = 1; break; }
+          var score = tokenPrefixScore(target, cand);
           if (cand.indexOf(target) !== -1 || target.indexOf(cand) !== -1) {
-            var score = Math.min(cand.length, target.length) / Math.max(cand.length, target.length);
-            if (score > bestScore) { bestScore = score; sentence = all[i]; }
+            score = Math.max(score, Math.min(cand.length, target.length) / Math.max(cand.length, target.length));
           }
+          if (score > bestScore) { bestScore = score; sentence = all[i]; }
         }
-        if (bestScore < 0.35) sentence = null;
+        if (bestScore < 0.45) sentence = null;
       }
       if (!sentence && sid) {
         sentence = document.getElementById(sid)
@@ -666,7 +702,7 @@ enum EbookSyncHighlightBridge {
           focusEl = wordEl;
         }
       }
-      bringIntoView(focusEl);
+      if (\(doScroll)) bringIntoView(focusEl);
       return true;
     })();
     """

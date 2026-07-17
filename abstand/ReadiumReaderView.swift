@@ -55,6 +55,11 @@ struct ReadiumReaderView: View {
   @State private var lastAppliedSyncSentenceId: String?
   @State private var lastAppliedSyncWordIndex: Int?
   @State private var lastAppliedSyncGeneration: UInt = 0
+  /// Satz, für den zuletzt gescrollt wurde — Wort-Updates scrollen nicht erneut.
+  @State private var lastScrolledSyncSentenceId: String?
+  /// Kurz-Toast „Synced with audiobook“, danach ausblenden.
+  @State private var showEbookSyncBadge = false
+  @State private var ebookSyncBadgeTask: Task<Void, Never>?
 
   private var chromeColorScheme: ColorScheme {
     readerTheme == .dark ? .dark : .light
@@ -126,17 +131,39 @@ struct ReadiumReaderView: View {
         fraction: ReadiumReaderProgressInfo.fraction(from: locator)
       )
       if ebookSyncMode {
-        Task { await refreshEbookSyncMarkupIfNeeded() }
+        Task {
+          let reinstalled = await refreshEbookSyncMarkupIfNeeded()
+          if reinstalled {
+            await applyEbookSyncHighlightIfNeeded(force: true, allowScroll: false)
+          }
+        }
       }
     }
     .onReceive(player.ebookSync.$activeSentenceId) { _ in
-      Task { await applyEbookSyncHighlightIfNeeded(force: false) }
+      Task { await applyEbookSyncHighlightIfNeeded(force: false, allowScroll: true) }
     }
     .onReceive(player.ebookSync.$activeWordIndex) { _ in
-      Task { await applyEbookSyncHighlightIfNeeded(force: false) }
+      // Nur Highlight updaten — kein Scroll bei jedem Wort (sonst Seiten-/Fokus-Sprünge).
+      Task { await applyEbookSyncHighlightIfNeeded(force: false, allowScroll: false) }
     }
     .onReceive(player.ebookSync.$syncGeneration) { generation in
-      Task { await applyEbookSyncHighlightIfNeeded(force: true, generation: generation) }
+      Task {
+        await applyEbookSyncHighlightIfNeeded(
+          force: true, generation: generation, allowScroll: true)
+      }
+    }
+    .onReceive(player.ebookSync.$isSyncModeActive) { active in
+      guard ebookSyncMode else { return }
+      if active, !player.ebookSync.isPreparing {
+        presentEbookSyncBadge()
+      } else if !active {
+        ebookSyncBadgeTask?.cancel()
+        showEbookSyncBadge = false
+      }
+    }
+    .onReceive(player.ebookSync.$isPreparing) { preparing in
+      guard ebookSyncMode, !preparing, player.ebookSync.isSyncModeActive else { return }
+      presentEbookSyncBadge()
     }
     .task(id: localFileURL.path) {
       fontSize = EpubReaderSettings.loadFontSize()
@@ -147,6 +174,7 @@ struct ReadiumReaderView: View {
       }
     }
     .onDisappear {
+      ebookSyncBadgeTask?.cancel()
       if ebookSyncMode {
         player.disableEbookSyncIfNeeded()
       }
@@ -460,6 +488,14 @@ struct ReadiumReaderView: View {
   private func applyEPUBPrefs() {
     guard let epubNavigator else { return }
     ReadiumReaderService.shared.applyEPUBPreferences(to: epubNavigator)
+    guard ebookSyncMode else { return }
+    // Theme/Schrift/Scroll laden DOM neu — Markup + Highlight neu setzen.
+    lastInstalledSyncChapterIndex = nil
+    lastScrolledSyncSentenceId = nil
+    Task {
+      _ = await refreshEbookSyncMarkupIfNeeded(force: true)
+      await applyEbookSyncHighlightIfNeeded(force: true, allowScroll: true)
+    }
   }
 
   private func applyReaderTheme(_ theme: EpubReaderTheme) {
@@ -526,7 +562,7 @@ struct ReadiumReaderView: View {
           .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
           .padding(.top, 56)
           .padding(.horizontal, 20)
-      } else if sync.isSyncModeActive {
+      } else if showEbookSyncBadge {
         HStack(spacing: 8) {
           Image(systemName: "text.book.closed.fill")
           Text(String(localized: "Synced with audiobook", comment: "Ebook sync badge"))
@@ -537,51 +573,78 @@ struct ReadiumReaderView: View {
         .padding(.vertical, 7)
         .background(.black.opacity(0.55), in: Capsule())
         .padding(.top, 52)
+        .transition(.opacity)
       }
       Spacer()
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .allowsHitTesting(sync.isPreparing)
+    .animation(.easeOut(duration: 0.25), value: showEbookSyncBadge)
+  }
+
+  private func presentEbookSyncBadge() {
+    ebookSyncBadgeTask?.cancel()
+    showEbookSyncBadge = true
+    ebookSyncBadgeTask = Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 2_400_000_000)
+      guard !Task.isCancelled else { return }
+      showEbookSyncBadge = false
+    }
   }
 
   @MainActor
   private func bootstrapEbookSyncMode() async {
     guard format == .epub, let epub = epubNavigator else { return }
-    continuousScroll = true
-    ReadiumReaderService.shared.applyEPUBPreferencesForEbookSync(to: epub)
+    // Nutzer-Scrollmodus beibehalten — Sync soll nicht in Continuous zwingen.
+    ReadiumReaderService.shared.applyEPUBPreferences(to: epub)
     await ReadiumReaderService.shared.bindEbookSyncTapHandler(on: epub)
     lastInstalledSyncChapterIndex = nil
-    await refreshEbookSyncMarkupIfNeeded(force: true)
-    await applyEbookSyncHighlightIfNeeded(force: true)
+    lastScrolledSyncSentenceId = nil
+    _ = await refreshEbookSyncMarkupIfNeeded(force: true)
+    await applyEbookSyncHighlightIfNeeded(force: true, allowScroll: true)
+    if player.ebookSync.isSyncModeActive, !player.ebookSync.isPreparing {
+      presentEbookSyncBadge()
+    }
     // Audio-Seek → Reader-Kapitel nachziehen.
     if let sentence = player.ebookSync.activeSentence(for: player) {
       _ = await ReadiumReaderService.shared.seekToEbookSyncHref(navigator: epub, href: sentence.href)
       lastInstalledSyncChapterIndex = nil
-      await refreshEbookSyncMarkupIfNeeded(force: true)
-      await applyEbookSyncHighlightIfNeeded(force: true)
+      _ = await refreshEbookSyncMarkupIfNeeded(force: true)
+      await applyEbookSyncHighlightIfNeeded(force: true, allowScroll: true)
     }
   }
 
+  /// Installiert Sync-Spans; `true` wenn Markup neu gesetzt wurde.
   @MainActor
-  private func refreshEbookSyncMarkupIfNeeded(force: Bool = false) async {
-    guard ebookSyncMode, format == .epub, let epub = epubNavigator else { return }
+  @discardableResult
+  private func refreshEbookSyncMarkupIfNeeded(force: Bool = false) async -> Bool {
+    guard ebookSyncMode, format == .epub, let epub = epubNavigator else { return false }
     let chapterIndex = ReadiumReaderService.shared.chapterIndex(for: epub.currentLocation) ?? 0
-    if force || lastInstalledSyncChapterIndex != chapterIndex {
-      let ok = await ReadiumReaderService.shared.installEbookSyncMarkup(
+    if !force, lastInstalledSyncChapterIndex == chapterIndex {
+      // DOM kann nach Page-Turn neu sein — fehlende Spans neu setzen.
+      let stillThere = await ReadiumReaderService.shared.ebookSyncMarkupInstalled(
         on: epub, chapterIndex: chapterIndex)
-      if ok {
-        lastInstalledSyncChapterIndex = chapterIndex
-        await ReadiumReaderService.shared.bindEbookSyncTapHandler(on: epub)
-      } else {
-        lastInstalledSyncChapterIndex = nil
-      }
+      if stillThere { return false }
     }
+    let ok = await ReadiumReaderService.shared.installEbookSyncMarkup(
+      on: epub, chapterIndex: chapterIndex)
+    if ok {
+      lastInstalledSyncChapterIndex = chapterIndex
+      await ReadiumReaderService.shared.bindEbookSyncTapHandler(on: epub)
+      return true
+    }
+    lastInstalledSyncChapterIndex = nil
+    return false
   }
 
   @MainActor
-  private func applyEbookSyncHighlightIfNeeded(force: Bool, generation: UInt? = nil) async {
+  private func applyEbookSyncHighlightIfNeeded(
+    force: Bool,
+    generation: UInt? = nil,
+    allowScroll: Bool = true
+  ) async {
     guard ebookSyncMode, format == .epub, let epub = epubNavigator else { return }
-    await refreshEbookSyncMarkupIfNeeded()
+    _ = await refreshEbookSyncMarkupIfNeeded()
     let sentenceId = player.ebookSync.activeSentenceId
     let wordIndex = player.ebookSync.activeWordIndex
     let gen = generation ?? player.ebookSync.syncGeneration
@@ -601,27 +664,44 @@ struct ReadiumReaderView: View {
       if currentKey != targetKey {
         _ = await ReadiumReaderService.shared.seekToEbookSyncHref(navigator: epub, href: sentence.href)
         lastInstalledSyncChapterIndex = nil
-        await refreshEbookSyncMarkupIfNeeded(force: true)
+        lastScrolledSyncSentenceId = nil
+        _ = await refreshEbookSyncMarkupIfNeeded(force: true)
       }
     }
     let sentenceText = player.ebookSync.activeSentence(for: player)?.text
+    let shouldScroll =
+      allowScroll
+      && sentenceId != nil
+      && sentenceId != lastScrolledSyncSentenceId
     let applied = await ReadiumReaderService.shared.applyEbookSyncHighlight(
-      on: epub, sentenceId: sentenceId, wordIndex: wordIndex, sentenceText: sentenceText)
+      on: epub,
+      sentenceId: sentenceId,
+      wordIndex: wordIndex,
+      sentenceText: sentenceText,
+      scrollIntoView: shouldScroll
+    )
     if applied {
       lastAppliedSyncSentenceId = sentenceId
       lastAppliedSyncWordIndex = wordIndex
       lastAppliedSyncGeneration = gen
-    } else {
-      // Markup evtl. weg (Theme/Reload) — einmal neu installieren und erneut versuchen.
-      lastInstalledSyncChapterIndex = nil
-      await refreshEbookSyncMarkupIfNeeded(force: true)
-      let retry = await ReadiumReaderService.shared.applyEbookSyncHighlight(
-        on: epub, sentenceId: sentenceId, wordIndex: wordIndex, sentenceText: sentenceText)
-      if retry {
-        lastAppliedSyncSentenceId = sentenceId
-        lastAppliedSyncWordIndex = wordIndex
-        lastAppliedSyncGeneration = gen
-      }
+      if shouldScroll { lastScrolledSyncSentenceId = sentenceId }
+      return
+    }
+    // Markup evtl. weg (Theme/Reload) — einmal neu installieren und erneut versuchen.
+    lastInstalledSyncChapterIndex = nil
+    _ = await refreshEbookSyncMarkupIfNeeded(force: true)
+    let retry = await ReadiumReaderService.shared.applyEbookSyncHighlight(
+      on: epub,
+      sentenceId: sentenceId,
+      wordIndex: wordIndex,
+      sentenceText: sentenceText,
+      scrollIntoView: shouldScroll
+    )
+    if retry {
+      lastAppliedSyncSentenceId = sentenceId
+      lastAppliedSyncWordIndex = wordIndex
+      lastAppliedSyncGeneration = gen
+      if shouldScroll { lastScrolledSyncSentenceId = sentenceId }
     }
   }
 
