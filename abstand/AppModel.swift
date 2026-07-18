@@ -9919,6 +9919,7 @@ final class AppModel: ObservableObject {
     if let book = downloadedShelfBooks.first(where: { $0.id == id }) { return book }
     if let book = entityDetailBooks.first(where: { $0.id == id }) { return book }
     if let book = podcastShows.first(where: { $0.id == id }) { return book }
+    if let book = podcastSearchBooks.first(where: { $0.id == id }) { return book }
     if let book = bookFromLocalStore(libraryItemId: id) { return book }
     for series in browseSeries {
       if let book = series.books?.first(where: { $0.id == id }) { return book }

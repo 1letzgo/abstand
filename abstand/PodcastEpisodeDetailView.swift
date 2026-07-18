@@ -25,6 +25,11 @@ struct PodcastEpisodeDetailView: View {
 
   private var prog: ABSUserMediaProgress? { model.progressByItemId[episode.progressLookupKey] }
 
+  /// Show-Cover-Cache-Key — dieselbe `updatedAt`-Revision wie Listen/`PodcastShowRowCard`.
+  private var showCoverCacheRevision: Int {
+    model.coverImageCacheRevision(forBookId: episode.libraryItemId)
+  }
+
   /// Der persistierte Cover-Durchschnitt steht bereits vor `.onAppear` und `.task` zur Verfügung.
   private var resolvedCoverTint: Color {
     let scope = model.coverImageCacheScopeId(for: episode.libraryItemId, tier: .hero)
@@ -33,7 +38,7 @@ struct PodcastEpisodeDetailView: View {
       itemId: episode.libraryItemId,
       heroScopeId: scope,
       fallbackScopeId: episode.libraryItemId,
-      revision: model.coverImageCacheRevision
+      revision: showCoverCacheRevision
     )?.tint ?? coverTintColor
   }
 
@@ -144,10 +149,12 @@ struct PodcastEpisodeDetailView: View {
         fromAverageRed: rgb.r, green: rgb.g, blue: rgb.b)
       return
     }
-    // Fallback: Hero-Karten-Tint als Näherung, bis `loadCoverTint()` den echten Wert liefert.
+    // Fallback: Hero-/Listen-Cover-Cache mit derselben Revision wie die Show-Zeile.
     if let cached = CoverDerivedTintLoader.colorFromDiskOrCoverCache(
       account: account,
-      itemId: episode.libraryItemId
+      itemId: episode.libraryItemId,
+      cacheScopeId: model.coverImageCacheScopeId(for: episode.libraryItemId, tier: .hero),
+      revision: showCoverCacheRevision
     ) {
       coverTintColor = cached
     } else {
@@ -170,7 +177,7 @@ struct PodcastEpisodeDetailView: View {
   private func loadCoverTint() async {
     let cacheKey = CoverImageCache.cacheKey(
       scopeId: model.coverImageCacheScopeId(for: episode.libraryItemId, tier: .hero),
-      revision: model.coverImageCacheRevision
+      revision: showCoverCacheRevision
     )
     guard let image = await CoverImageCache.loadHeroImage(
       itemId: cacheKey,
@@ -225,7 +232,7 @@ struct PodcastEpisodeDetailView: View {
         itemId: episode.libraryItemId,
         cacheAccount: model.coverImageCacheAccountDirectory(),
         cacheScopeId: model.coverImageCacheScopeId(for: episode.libraryItemId, tier: .hero),
-        cacheRevision: model.coverImageCacheRevision
+        cacheRevision: showCoverCacheRevision
       )
     }
   }

@@ -542,7 +542,7 @@ private struct StatsRecentSessionCard: View {
             token: model.token,
             itemId: libraryItemId,
             cacheAccount: model.coverImageCacheAccountDirectory(),
-            cacheRevision: model.coverImageCacheRevision
+            cacheRevision: model.coverImageCacheRevision(forBookId: libraryItemId)
           )
         }
 

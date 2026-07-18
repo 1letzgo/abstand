@@ -204,7 +204,7 @@ struct AbstandExpandingDockChip: View {
       token: model.token,
       itemId: resolvedItemId,
       cacheAccount: model.coverImageCacheAccountDirectory(),
-      cacheRevision: model.coverImageCacheRevision
+      cacheRevision: model.coverImageCacheRevision(forBookId: resolvedItemId)
     )
     .frame(width: size, height: size)
     .clipShape(Circle())
