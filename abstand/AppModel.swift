@@ -1428,6 +1428,10 @@ final class AppModel: ObservableObject {
     scheduleHomeLaunchRestoreFromLocalStore()
     if offlineHomeUIActive {
       mainTab = .start
+      // Nicht nur gecachte Online-Regale zeigen — Continue strikt aus Downloads aufbauen.
+      Task { @MainActor in
+        await loadStartDashboard(force: true)
+      }
     } else if isLoggedIn {
       // Overlay bis Floating Bar / Resume-Restore fertig; Bootstrap sofort (nicht auf SwiftUI-.task warten).
       isAppBootstrapInProgress = true
@@ -1445,7 +1449,8 @@ final class AppModel: ObservableObject {
     pathMonitor.cancel()
   }
 
-  /// Abgleich `downloadedItemIds` mit vorhandenen `download.json` auf Disk (vgl. Absorb `_validateDownloads`).
+  /// Abgleich `downloadedItemIds` mit Disk: ungültige IDs entfernen **und** vorhandene Ordner
+  /// des aktiven Accounts entdecken (sonst bleibt Continue offline leer, wenn UserDefaults veraltet ist).
   func reconcileDownloadedItemIdsWithDisk() {
     guard let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
       return
@@ -1458,26 +1463,31 @@ final class AppModel: ObservableObject {
       }
       return
     }
-    let validated = downloadedItemIds.filter { id in
-      let dir = downloadsRoot.appendingPathComponent(id, isDirectory: true)
-      guard let manifest = ABSDownloadManifest.load(from: dir) else { return false }
-      return downloadManifestBelongsToActiveAccount(manifest)
+    var discovered = Set<String>()
+    if let dirs = try? FileManager.default.contentsOfDirectory(
+      at: downloadsRoot, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
+    ) {
+      for dir in dirs {
+        let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        guard isDir else { continue }
+        let id = dir.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty,
+          let manifest = ABSDownloadManifest.load(from: dir),
+          downloadManifestBelongsToActiveAccount(manifest)
+        else { continue }
+        discovered.insert(id)
+      }
     }
-    guard validated != downloadedItemIds else { return }
-    downloadedItemIds = validated
+    guard discovered != downloadedItemIds else { return }
+    downloadedItemIds = discovered
     persistDownloads(skipRefresh: true)
   }
 
-  /// Liest alle `Downloads/*/download.json` für bekannte `downloadedItemIds` und baut Stubs für UI / Offline-Wiedergabe.
-  /// Re-Entry-Guard: Mehrfache Trigger beim Start (Pfadmonitor, Deferred-Restore, Home-Reload) werden koalesziert.
-  func refreshDownloadedShelfFromManifests() {
-    guard !isRefreshingDownloadedShelves else { return }
-    isRefreshingDownloadedShelves = true
-    defer { isRefreshingDownloadedShelves = false }
-    let sp = AppLog.launchSignposter.beginInterval("refreshDownloadedShelves")
-    defer { AppLog.launchSignposter.endInterval("refreshDownloadedShelves", sp) }
+  /// Disk → `downloadedItemIds` + `downloadedShelfBooks` (ohne Continue-Regal-Mutation).
+  private func syncDownloadedShelfBooksFromDisk() {
     reconcileDownloadedItemIdsWithDisk()
     var list: [ABSBook] = []
+    list.reserveCapacity(downloadedItemIds.count)
     for id in downloadedItemIds.sorted() {
       guard let root = try? downloads.downloadFolder(for: id),
         let manifest = ABSDownloadManifest.load(from: root),
@@ -1486,10 +1496,27 @@ final class AppModel: ObservableObject {
       list.append(ABSBook.fromDownloadManifest(manifest))
     }
     downloadedShelfBooks = list
+  }
+
+  /// Liest alle `Downloads/*/download.json` und baut Stubs für UI / Offline-Wiedergabe.
+  /// Re-Entry-Guard: Mehrfache Trigger beim Start (Pfadmonitor, Deferred-Restore, Home-Reload) werden koalesziert.
+  func refreshDownloadedShelfFromManifests() {
+    guard !isRefreshingDownloadedShelves else { return }
+    isRefreshingDownloadedShelves = true
+    defer { isRefreshingDownloadedShelves = false }
+    let sp = AppLog.launchSignposter.beginInterval("refreshDownloadedShelves")
+    defer { AppLog.launchSignposter.endInterval("refreshDownloadedShelves", sp) }
+    syncDownloadedShelfBooksFromDisk()
+    // Offline-Home: Continue ausschließlich aus Downloads neu aufbauen — sonst bleiben
+    // gecachte Online-Continue-Titel stehen oder das Regal bleibt nach spätem Disk-Scan leer.
+    if offlineHomeUIActive {
+      rebuildOfflineStartDashboardShelvesOnly()
+      return
+    }
     if !startShelves.isEmpty {
       purgeForeignContinueListeningItems()
     }
-    if !startShelves.isEmpty, !isNetworkReachable, !offlineHomeUIActive {
+    if !startShelves.isEmpty, !isNetworkReachable {
       repairContinueListeningShelfFromLocalProgressOnly()
     }
   }
@@ -2576,6 +2603,8 @@ final class AppModel: ObservableObject {
   /// Kaltstart: Beide Continue-Regale live aus dem lokalen Fortschritt aufbauen.
   /// Dadurch ist „Continue reading“ nicht mehr von einem separaten Rank-Snapshot abhängig.
   private func applyHomeContinueCacheFromLocalStore() {
+    // Offline-Home: keine Online-/Cache-Continue-Merges (sonst nicht-heruntergeladene Titel).
+    guard !offlineHomeUIActive else { return }
     if let context = currentLocalLibraryMainContext(),
       let payload = LocalLibraryQueries.itemsInProgressPayload(context: context, limit: 80)
     {
@@ -3036,8 +3065,10 @@ final class AppModel: ObservableObject {
     applyContinueListeningFinishedFilter()
   }
 
-  /// Ergänzt „Continue listening“ aus Katalog-/Download-Cache und gespeichertem Fortschritt (nur offline).
+  /// Ergänzt „Continue listening“ aus Katalog-/Download-Cache und gespeichertem Fortschritt.
+  /// Nicht im Offline-Home: dort baut `applyOfflineStartDashboard` ausschließlich aus Downloads.
   private func repairContinueListeningShelfFromLocalProgressOnly() {
+    guard !offlineHomeUIActive else { return }
     guard isStartCategoryEnabled(Self.homeContinueCategory) else { return }
     let books = localContinueAudiobookBookCandidates()
     let eps = localContinuePodcastEpisodeCandidates()
@@ -3077,6 +3108,15 @@ final class AppModel: ObservableObject {
   /// Offline: `startShelves` komplett aus lokalem Katalog + Downloads aufbauen (kein Server-Request).
   /// Ersetzt statt zu mergen — Home zeigt ausschließlich, was gerade heruntergeladen ist.
   private func applyOfflineStartDashboard() {
+    // Zuerst Disk abgleichen — sonst Filter auf leerem/`veraltetem` `downloadedItemIds`.
+    if !isRefreshingDownloadedShelves {
+      syncDownloadedShelfBooksFromDisk()
+    }
+    rebuildOfflineStartDashboardShelvesOnly()
+  }
+
+  /// Nur Regal-Aufbau (Downloads bereits synchron). Kein erneuter Disk-Scan.
+  private func rebuildOfflineStartDashboardShelvesOnly() {
     var shelves: [ABSStartShelfSection] = []
 
     if isStartCategoryEnabled(Self.homeContinueCategory) {
@@ -3106,6 +3146,7 @@ final class AppModel: ObservableObject {
 
     startShelves = shelves
     recomputeStartBooksUnion(from: shelves)
+    updateStartSettingsCategoryList(parsed: shelves)
   }
 
   /// Downloads (nur Hörbücher, keine Podcast-Folgen) mit vollen Katalog-Metadaten statt Manifest-Stub —
@@ -4644,6 +4685,10 @@ final class AppModel: ObservableObject {
       if !bookmarksList.isEmpty {
         self.applyUserBookmarks(bookmarksList, persistToDisk: false)
       }
+      if self.offlineHomeUIActive {
+        self.applyOfflineStartDashboard()
+        return
+      }
       var parsed: [ABSStartShelfSection] = []
       if let cached = cachedShelves {
         parsed = cached
@@ -4704,6 +4749,10 @@ final class AppModel: ObservableObject {
         libraries.first(where: { $0.id == libId && $0.isBookLibrary })
         ?? ABSLibrary(id: libId, name: "Books", mediaType: "book", displayOrder: nil)
     }
+    if offlineHomeUIActive {
+      applyOfflineStartDashboard()
+      return
+    }
     var parsed: [ABSStartShelfSection] = []
     if let context, let cached = LocalLibraryQueries.homeShelves(context: context, libraryId: libId) {
       parsed = cached
@@ -4730,6 +4779,10 @@ final class AppModel: ObservableObject {
     libraryId: String?,
     parsed: [ABSStartShelfSection]
   ) {
+    if offlineHomeUIActive {
+      applyOfflineStartDashboard()
+      return
+    }
     var transaction = Transaction()
     transaction.disablesAnimations = true
     withTransaction(transaction) {
