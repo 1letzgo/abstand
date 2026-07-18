@@ -4823,12 +4823,11 @@ final class AppModel: ObservableObject {
   /// Server antwortet (`reloadLibrary` ersetzt die Liste bei jedem Reset unten verbindlich durch
   /// die frische Server-Seite 0). Rückgabe `true`, wenn `books` lokal gefüllt wurde:
   /// 1. Gecachte Katalogseiten in **Server-Reihenfolge**, wenn Sort/Filter exakt passen.
-  /// 2. Sonst `LocalBook`-Superset, client-seitig sortiert — nur ohne Server-Filter und wenn
-  ///    das Sortierfeld lokal abbildbar ist (`supportsLocalBookSort`). Der frühere stille
-  ///    Titel-Fallback zeigte bei allen anderen Sortierungen eine falsche, pro Fetch
-  ///    wechselnde Reihenfolge an.
+  /// 2. Optional `LocalBook`-Superset, client-seitig sortiert — nur offline sinnvoll. Online
+  ///    würde der Superset kurz die ganze lokale Lib zeigen und gleich durch Server-Seite 0
+  ///    ersetzt (sichtbarer Flash falscher Bücher beim Sort-/Filterwechsel).
   @discardableResult
-  private func loadLibraryFromLocalStore() -> Bool {
+  private func loadLibraryFromLocalStore(allowSupersetFallback: Bool = false) -> Bool {
     guard let context = currentLocalLibraryMainContext(),
       let libId = selectedBooksLibrary?.id else { return false }
     let ascending = catalogSortField == .random ? true : !catalogSortDescending
@@ -4840,10 +4839,9 @@ final class AppModel: ObservableObject {
       applyBooksCatalogLocalMerge(books: merged.items, total: merged.total, nextPage: merged.nextPage)
       return true
     }
-    // Superset nur, wenn die gewählte Sortierung lokal korrekt abbildbar ist — offline
-    // ausnahmsweise auch sonst (lieber Titel-Reihenfolge als gar keine Liste, Server-Reset
-    // als Korrektur ist ohne Netz ohnehin nicht möglich).
-    guard activeLibraryFilter == nil,
+    // Superset nur offline (oder wenn explizit erlaubt): online wartet `reloadLibrary` auf
+    // Server-Seite 0 statt eine abweichende Voll-Liste zwischenzublenden.
+    guard allowSupersetFallback, activeLibraryFilter == nil,
       LocalLibraryQueries.supportsLocalBookSort(catalogSortField) || !isNetworkReachable
     else { return false }
     let localBooks = LocalLibraryQueries.allBooks(
@@ -5031,26 +5029,45 @@ final class AppModel: ObservableObject {
       await loadStartDashboard()
       return
     }
-    // Lokale DB nur für die SOFORT-Anzeige, bevor der Server antwortet — deterministische
-    // Reihenfolge (siehe `loadLibraryFromLocalStore`), aber nie verbindlich: Ein echter Reset
-    // holt unten IMMER Seite 0 frisch vom Server und diese Antwort entscheidet die Reihenfolge.
-    // (Vorherige Version hielt `libraryPage` aus dem Cache-Stand und fragte je nach Sitzung eine
-    // beliebige Seite ab, gemergt statt ersetzt — daher wechselnde/falsche Sortierung bei jedem
-    // Pull-to-Refresh.)
+    // Lokale DB nur für die SOFORT-Anzeige, bevor der Server antwortet — und nur wenn der
+    // Cache-Slug (Sort/Filter) exakt passt. Online kein Superset-Fallback: der würde kurz die
+    // ganze lokale Lib in Client-Sortierung zeigen und gleich durch Server-Seite 0 ersetzt
+    // (Flash beim Sort-/Filterwechsel). Offline: Superset erlaubt.
+    // Ein echter Reset holt unten IMMER Seite 0 frisch vom Server — die Antwort ist verbindlich.
+    var didWarmFromExactLocalCatalog = false
     if reset {
-      loadLibraryFromLocalStore()
+      didWarmFromExactLocalCatalog = loadLibraryFromLocalStore(
+        allowSupersetFallback: !isNetworkReachable
+      )
     }
     guard let c = client else {
+      if reset, !didWarmFromExactLocalCatalog {
+        _ = loadLibraryFromLocalStore(allowSupersetFallback: true)
+      }
       if startShelves.isEmpty { await loadStartDashboard() }
       return
     }
     if !isNetworkReachable {
+      if reset, !didWarmFromExactLocalCatalog {
+        _ = loadLibraryFromLocalStore(allowSupersetFallback: true)
+      }
       refreshDownloadedShelfFromManifests()
       applyCachedStartDashboard()
       return
     }
     isLoadingLibrary = true
     defer { isLoadingLibrary = false }
+    // Kein passender Sort/Filter-Cache: alte Liste nicht stehen lassen und keinen Superset
+    // blenden — Spinner bis Server-Seite 0 da ist. Stille Background-Refreshes behalten die Liste.
+    if reset, !preserveOtherCachedPages, !didWarmFromExactLocalCatalog {
+      var transaction = Transaction()
+      transaction.disablesAnimations = true
+      withTransaction(transaction) {
+        books = []
+        libraryTotal = 0
+        libraryPage = 0
+      }
+    }
     let ascending = catalogSortField == .random ? true : !catalogSortDescending
     let sortKey = catalogSortField.apiSortParameter
     do {
