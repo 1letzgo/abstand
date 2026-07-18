@@ -142,9 +142,25 @@ enum AppTheme {
 
     /// „Continue listening“-Karten (horizontal scrollbar, einheitliche Höhe).
     static let continueHeroCardCornerRadius: CGFloat = 16
+    /// Fallback-Breite, bis die Viewport-Messung steht; Ziel: 1½ Karten sichtbar.
     static let continueHeroCardWidth: CGFloat = 176
-    /// Quadrat wie die Kartenbreite: typisches Cover vollständig sichtbar (`scaledToFit`).
+    /// Sichtbare Karten pro Reihe im Continue-Listening-Carousel (1 volle + ½ nächste).
+    static let continueHeroVisibleCardsPerRow: CGFloat = 1.5
+    /// Minimale Kartenbreite (schmale iPhones / Split View).
+    static let continueHeroCardMinWidth: CGFloat = 140
+    /// Fallback-Coverhöhe (1:1 zur Fallback-Breite); dynamisch = Kartenbreite.
     static let continueHeroCoverMaxHeight: CGFloat = 176
+
+    /// Kartenbreite für genau `continueHeroVisibleCardsPerRow` im verfügbaren Viewport.
+    static func continueHeroCardWidth(forViewportWidth viewport: CGFloat) -> CGFloat {
+      let spacing = withinSectionSpacing
+      guard viewport > 0 else { return continueHeroCardWidth }
+      return max(continueHeroCardMinWidth, (viewport - spacing) / continueHeroVisibleCardsPerRow)
+    }
+
+    static func continueHeroCardTotalHeight(forCardWidth width: CGFloat) -> CGFloat {
+      width + continueHeroMetadataBlockHeight
+    }
     /// Abstand Titel ↔ Autor/Show (wie `BookRowCard` metadata `spacing: 2`).
     static let continueHeroMetadataTitleDetailSpacing: CGFloat = 2
     static let continueHeroMetadataVerticalPadding: CGFloat = 8
