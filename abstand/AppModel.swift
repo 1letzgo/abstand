@@ -5969,13 +5969,13 @@ final class AppModel: ObservableObject {
 
   /// Nach Sortierwechsel im Books-Tab: kurz entkoppeln, damit das Sort-`Menu` nicht bei jedem `@Published`-Takt zuklappt.
   func scheduleBooksToolbarSortReload(_ kind: BooksToolbarSortReloadKind) {
-    // Sofort nach oben — sonst bleibt ein tiefer Offset, während `reloadLibrary(reset:)` die
-    // Liste auf Seite 0 verkürzt → weißer Viewport (vgl. Delete-Pfad ohne Full-Reload).
-    requestLibraryCatalogScrollToTop()
     booksToolbarSortReloadTask?.cancel()
     booksToolbarSortReloadTask = Task { @MainActor in
       try? await Task.sleep(nanoseconds: 350_000_000)
       guard !Task.isCancelled else { return }
+      // Nach dem Debounce: erst nach oben, dann Reload auf Seite 0.
+      // Sofortiger Scroll-Epoch-Bump würde das Sort-`Menu` flackern/schließen.
+      requestLibraryCatalogScrollToTop()
       switch kind {
       case .allCatalogs:
         await reloadLibrary(reset: true)
