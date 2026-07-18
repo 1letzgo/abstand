@@ -230,6 +230,7 @@ struct MainRootView: View {
     AbstandFixedBrowseStripSectionsLayout(
       relayoutTrigger: libraryRelayoutEpoch,
       bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
+      scrollToTopTrigger: model.libraryCatalogScrollToTopEpoch,
       selection: model.booksBrowseSection,
       sectionIDs: BooksBrowseSection.audiobookStripOrder,
       scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
