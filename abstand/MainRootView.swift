@@ -2045,9 +2045,11 @@ private struct LibraryHeroPodcastEpisodeCard: View {
     .task(id: episode.progressLookupKey) {
       let account = model.coverImageCacheAccountDirectory()
       let itemId = episode.libraryItemId
+      let revision = model.coverImageCacheRevision(forBookId: itemId)
       if let c = await CoverDerivedTintLoader.loadColor(
         account: account,
         itemId: itemId,
+        revision: revision,
         coverURL: model.coverURL(for: itemId),
         token: model.token
       ) {
@@ -2471,9 +2473,11 @@ struct ContinueListeningHeroPodcastCard: View {
     .task(id: episode.progressLookupKey) {
       let account = model.coverImageCacheAccountDirectory()
       let itemId = episode.libraryItemId
+      let revision = model.coverImageCacheRevision(forBookId: itemId)
       if let c = await CoverDerivedTintLoader.loadColor(
         account: account,
         itemId: itemId,
+        revision: revision,
         coverURL: model.coverURL(for: itemId),
         token: model.token
       ) {
