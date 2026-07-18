@@ -9722,6 +9722,8 @@ final class AppModel: ObservableObject {
   /// Entfernt Buch inkl. Dateien vom Server (`DELETE /api/items/:id?hard=1`). Nur Root.
   /// Kein `reloadLibrary(reset:)` danach — der würde die Liste auf Seite 0 schrumpfen und bei
   /// erhaltener Scroll-Position den bekannten weißen Katalog-Viewport auslösen.
+  /// Nach lokalem Entfernen: Scroll an den Anfang klemmen — sonst bleibt ein point-basierter
+  /// Offset unterhalb der verkürzten Liste (nach mehreren Deletes oft: kein Scrollen mehr).
   @discardableResult
   func deleteFromServer(bookId: String, hardDelete: Bool = true) async -> Bool {
     guard isServerRoot else {
@@ -9746,6 +9748,7 @@ final class AppModel: ObservableObject {
       books.removeAll { $0.id == id }
       if removedFromCatalog {
         libraryTotal = max(books.count, libraryTotal - 1)
+        requestLibraryCatalogScrollToTop()
       }
       podcastEpisodes.removeAll { $0.libraryItemId == id }
       startBooks.removeAll { $0.id == id }

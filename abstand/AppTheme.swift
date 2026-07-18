@@ -690,9 +690,15 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
     }
   }
 
-  /// Sort/Filter-Reload: aktive Sektion an den Anfang — verhindert weiße Fläche bei verkürztem Content.
+  /// Sort/Filter/Delete: aktive Sektion an den Anfang.
+  /// Zuerst `nil` (wie `reapplyScrollPosition`), sonst bleibt ein point-basierter Offset past
+  /// Content erhalten → weißer Viewport / kein Scrollen mehr (SwiftUI clamped Edge, nicht Point).
   private func scrollActiveSectionToTop() {
-    sectionScrollPositions[selection] = ScrollPosition(edge: .top)
+    sectionScrollPositions[selection] = nil
+    Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 32_000_000)
+      sectionScrollPositions[selection] = ScrollPosition(edge: .top)
+    }
   }
 
   @ViewBuilder
