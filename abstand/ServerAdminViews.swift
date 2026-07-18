@@ -413,6 +413,7 @@ private struct SettingsCardActionRow: View {
       Image(systemName: trailingIcon)
         .foregroundStyle(model.appearancePalette.textSecondary)
     }
+    .settingsCardCompactRowFrame(alignment: .leading)
     .opacity(isEnabled ? 1 : 0.45)
   }
 }
@@ -929,7 +930,7 @@ struct SettingsAccountView: View {
           NavigationLink {
             SettingsChangePasswordView()
           } label: {
-            AbstandGroupedCard(verticalPadding: 0) {
+            AbstandGroupedCard {
               ServerAdminNavRow(
                 icon: "lock.rotation",
                 title: "Change Password",
@@ -944,7 +945,7 @@ struct SettingsAccountView: View {
           .opacity(model.mayUseServerNetwork ? 1 : 0.45)
         }
 
-        AbstandGroupedCard(verticalPadding: 0) {
+        AbstandGroupedCard {
           Button {
             model.logout()
           } label: {
@@ -2264,7 +2265,7 @@ private struct ServerAdminPodcastSettingsSection: View {
           }
         }
 
-        AbstandGroupedCard(verticalPadding: 0) {
+        AbstandGroupedCard {
           Button {
             onRemove()
           } label: {
