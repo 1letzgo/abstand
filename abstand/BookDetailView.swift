@@ -90,6 +90,8 @@ struct BookDetailView: View {
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         bookDetailUtilityToolbarItems(book: detail ?? book)
+          // Während Delete nur Aktionen sperren — Nav-Bar bleibt sichtbar (UI-Konzept).
+          .disabled(isDeletingBook)
       }
     }
     .onChange(of: model.appearanceThemeRevision) { _, _ in
@@ -143,7 +145,6 @@ struct BookDetailView: View {
         deletingBookPopup
       }
     }
-    .toolbar(isDeletingBook ? .hidden : .automatic, for: .navigationBar)
     .alert("Mark as finished?", isPresented: $confirmMarkBookFinished) {
       Button("Cancel", role: .cancel) {}
       Button("Mark as finished") {
