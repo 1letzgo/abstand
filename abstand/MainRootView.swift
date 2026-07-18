@@ -1117,7 +1117,7 @@ struct PodcastRssFeedDraftRow: View {
             token: model.token,
             itemId: sid,
             cacheAccount: model.coverImageCacheAccountDirectory(),
-            cacheRevision: model.coverImageCacheRevision
+            cacheRevision: model.coverImageCacheRevision(forBookId: sid)
           )
         }
         .accessibilityHidden(true)
@@ -1671,7 +1671,7 @@ struct PodcastEpisodeRowCard: View {
               token: model.token,
               itemId: episode.libraryItemId,
               cacheAccount: model.coverImageCacheAccountDirectory(),
-              cacheRevision: model.coverImageCacheRevision
+              cacheRevision: model.coverImageCacheRevision(forBookId: episode.libraryItemId)
             )
           } overlay: {
             Image(systemName: "play.fill")
@@ -2073,7 +2073,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
           token: model.token,
           itemId: episode.libraryItemId,
           cacheAccount: model.coverImageCacheAccountDirectory(),
-          cacheRevision: model.coverImageCacheRevision,
+          cacheRevision: model.coverImageCacheRevision(forBookId: episode.libraryItemId),
           contentMode: .fit
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2400,7 +2400,7 @@ struct ContinueListeningHeroPodcastCard: View {
           token: model.token,
           itemId: episode.libraryItemId,
           cacheAccount: model.coverImageCacheAccountDirectory(),
-          cacheRevision: model.coverImageCacheRevision,
+          cacheRevision: model.coverImageCacheRevision(forBookId: episode.libraryItemId),
           contentMode: .fit
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2654,7 +2654,7 @@ private struct SeriesMultiCoverView: View {
       token: model.token,
       itemId: id,
       cacheAccount: model.coverImageCacheAccountDirectory(),
-      cacheRevision: model.coverImageCacheRevision
+      cacheRevision: model.coverImageCacheRevision(forBookId: id)
     )
     .frame(width: width, height: height)
     .clipped()
@@ -2677,6 +2677,11 @@ struct BrowseEntityRowCard: View {
   /// Autoren-Portraits: fest 1:1, Mitte beschnitten.
   var usesSquareCenterCropCover = false
 
+  /// Wie `BookRowCard`: `updatedAt`-Revision für Buch-IDs, sonst globaler Zähler.
+  private var coverCacheRevision: Int {
+    model.coverImageCacheRevision(forBookId: cacheItemId)
+  }
+
   var body: some View {
     HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
       if usesSquareCenterCropCover, coverBookIds == nil || (coverBookIds?.count ?? 0) <= 1 {
@@ -2686,7 +2691,7 @@ struct BrowseEntityRowCard: View {
             token: model.token,
             itemId: cacheItemId,
             cacheAccount: model.coverImageCacheAccountDirectory(),
-            cacheRevision: model.coverImageCacheRevision
+            cacheRevision: coverCacheRevision
           )
         }
       } else {
@@ -2699,7 +2704,7 @@ struct BrowseEntityRowCard: View {
               token: model.token,
               itemId: cacheItemId,
               cacheAccount: model.coverImageCacheAccountDirectory(),
-              cacheRevision: model.coverImageCacheRevision
+              cacheRevision: coverCacheRevision
             )
           }
         }
