@@ -662,6 +662,8 @@ final class AppModel: ObservableObject {
   @Published var activeLibraryFilterSummary: String?
   @Published var libraryCatalogQuickFilter: LibraryCatalogQuickFilter?
   @Published var booksBrowseSection: BooksBrowseSection = .books
+  /// Erhöhen → Bücher-Katalog-ScrollView springt nach oben (vor Sort/Filter-Reload auf Seite 0).
+  @Published private(set) var libraryCatalogScrollToTopEpoch: Int = 0
   @Published private(set) var browseEbooks: [ABSBook] = []
   @Published private(set) var browseEbooksSupplementary: [ABSBook] = []
   @Published private(set) var browseEbooksLoading = false
@@ -1642,6 +1644,7 @@ final class AppModel: ObservableObject {
       clearCatalogFilter()
       return
     }
+    requestLibraryCatalogScrollToTop()
     libraryCatalogQuickFilter = filter
     booksBrowseSection = .books
     navigateToMedia(.audiobooks)
@@ -1670,6 +1673,7 @@ final class AppModel: ObservableObject {
       clearCatalogFilter()
       return
     }
+    requestLibraryCatalogScrollToTop()
     libraryCatalogQuickFilter = nil
     activeLibraryFilter = trimmed
     setBooksLibraryFilterSummary(prefix: summaryPrefix, detail: summaryDetail)
@@ -5958,8 +5962,16 @@ final class AppModel: ObservableObject {
     case browseSeries
   }
 
+  /// Bücher-Katalog an den Listenanfang scrollen (vor destruktivem Reload auf Seite 0).
+  func requestLibraryCatalogScrollToTop() {
+    libraryCatalogScrollToTopEpoch &+= 1
+  }
+
   /// Nach Sortierwechsel im Books-Tab: kurz entkoppeln, damit das Sort-`Menu` nicht bei jedem `@Published`-Takt zuklappt.
   func scheduleBooksToolbarSortReload(_ kind: BooksToolbarSortReloadKind) {
+    // Sofort nach oben — sonst bleibt ein tiefer Offset, während `reloadLibrary(reset:)` die
+    // Liste auf Seite 0 verkürzt → weißer Viewport (vgl. Delete-Pfad ohne Full-Reload).
+    requestLibraryCatalogScrollToTop()
     booksToolbarSortReloadTask?.cancel()
     booksToolbarSortReloadTask = Task { @MainActor in
       try? await Task.sleep(nanoseconds: 350_000_000)
@@ -8177,6 +8189,7 @@ final class AppModel: ObservableObject {
 
   func clearCatalogFilter() {
     guard activeLibraryFilter != nil || libraryCatalogQuickFilter != nil else { return }
+    requestLibraryCatalogScrollToTop()
     activeLibraryFilter = nil
     activeLibraryFilterSummary = nil
     libraryCatalogQuickFilter = nil

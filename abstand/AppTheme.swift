@@ -607,6 +607,9 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
   /// Floating Bar erscheint/verschwindet), wird die Scroll-Position revalidiert. Ohne das behält
   /// `sectionScrollPositions` eine veraltete Position für die alte Content-Höhe → weißer View.
   var bottomInsetRevalidationTrigger: AnyHashable?
+  /// Sort/Filter: Katalog wird auf Seite 0 ersetzt. Scroll muss nach oben — nicht `relayoutTrigger`
+  /// nutzen, der die alte (tiefe) Position erneut anwenden und den weißen Viewport auslösen würde.
+  var scrollToTopTrigger: AnyHashable?
   let selection: ID
   let sectionIDs: [ID]
   let scrollBottomInset: CGFloat
@@ -654,6 +657,11 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
       DebugLogCollector.shared.log("layout onChange bottomInsetRevalidationTrigger newValue=\(String(describing: newValue)) selection=\(String(describing: selection))")
       reapplyScrollPosition(for: selection)
     }
+    .onChange(of: scrollToTopTrigger) { _, _ in
+      guard scrollToTopTrigger != nil else { return }
+      DebugLogCollector.shared.log("layout onChange scrollToTopTrigger selection=\(String(describing: selection))")
+      scrollActiveSectionToTop()
+    }
   }
 
   private func shouldRenderSection(_ sectionID: ID) -> Bool {
@@ -680,6 +688,11 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
       try? await Task.sleep(nanoseconds: 32_000_000)
       sectionScrollPositions[sectionID] = saved ?? ScrollPosition(edge: .top)
     }
+  }
+
+  /// Sort/Filter-Reload: aktive Sektion an den Anfang — verhindert weiße Fläche bei verkürztem Content.
+  private func scrollActiveSectionToTop() {
+    sectionScrollPositions[selection] = ScrollPosition(edge: .top)
   }
 
   @ViewBuilder
