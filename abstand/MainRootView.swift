@@ -1546,17 +1546,34 @@ struct ContinueListeningHeroPodcastOfflineBadgeSlot: View {
   }
 }
 
+private struct ContinueCarouselViewportWidthKey: PreferenceKey {
+  static var defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
+  }
+}
+
 /// Feste Reihenfolge solange sich Regal-Inhalt nicht ändert (kein Neu-Sortieren bei Fortschritt-Ticks).
+/// Kartenbreite so, dass 1½ Karten pro Viewport sichtbar sind.
 struct ContinueListeningHeroCarousel: View {
   @EnvironmentObject private var model: AppModel
   let shelf: ABSStartShelfSection
 
   @State private var rows: [ABSStartShelfMergedRow] = []
+  @State private var viewportWidth: CGFloat = 0
 
   private var contentSignature: String {
     let bookPart = shelf.books.map(\.id).joined(separator: "\u{1f}")
     let episodePart = shelf.podcastEpisodes.map(\.progressLookupKey).joined(separator: "\u{1f}")
     return "\(bookPart)\u{1e}\(episodePart)"
+  }
+
+  private var cardWidth: CGFloat {
+    AppTheme.Layout.continueHeroCardWidth(forViewportWidth: viewportWidth)
+  }
+
+  private var cardTotalHeight: CGFloat {
+    AppTheme.Layout.continueHeroCardTotalHeight(forCardWidth: cardWidth)
   }
 
   var body: some View {
@@ -1568,13 +1585,20 @@ struct ContinueListeningHeroCarousel: View {
         ForEach(rows) { row in
           switch row {
           case .book(let book):
-            ContinueListeningHeroBookCard(book: book, model: model)
+            ContinueListeningHeroBookCard(book: book, model: model, cardWidth: cardWidth)
           case .podcastEpisode(let episode):
-            ContinueListeningHeroPodcastCard(episode: episode, model: model)
+            ContinueListeningHeroPodcastCard(episode: episode, model: model, cardWidth: cardWidth)
           }
         }
       }
     }
+    .frame(height: cardTotalHeight)
+    .background {
+      GeometryReader { geo in
+        Color.clear.preference(key: ContinueCarouselViewportWidthKey.self, value: geo.size.width)
+      }
+    }
+    .onPreferenceChange(ContinueCarouselViewportWidthKey.self) { viewportWidth = $0 }
     .onAppear { rebuildRows() }
     .onChange(of: contentSignature) { _, _ in rebuildRows() }
   }
@@ -2173,12 +2197,14 @@ private struct LibraryHeroPodcastEpisodeCard: View {
 struct ContinueListeningHeroBookCard: View {
   @EnvironmentObject private var model: AppModel
   let book: ABSBook
+  var cardWidth: CGFloat = AppTheme.Layout.continueHeroCardWidth
   @StateObject private var rowLive: LibraryBookRowLiveState
   @State private var tint: Color = AppTheme.card
   @State private var showDetail = false
 
-  init(book: ABSBook, model: AppModel) {
+  init(book: ABSBook, model: AppModel, cardWidth: CGFloat = AppTheme.Layout.continueHeroCardWidth) {
     self.book = book
+    self.cardWidth = cardWidth
     _rowLive = StateObject(
       wrappedValue: LibraryBookRowLiveState(bookId: book.id, model: model)
     )
@@ -2213,8 +2239,8 @@ struct ContinueListeningHeroBookCard: View {
   }
 
   var body: some View {
-    let w = AppTheme.Layout.continueHeroCardWidth
-    let h = AppTheme.Layout.continueHeroCoverMaxHeight
+    let w = cardWidth
+    let h = cardWidth
     let barH = AppTheme.Layout.libraryRowBottomProgressHeight
     let coverInset = AppTheme.Layout.libraryRowCardInset
     let coverTopRadius = AppTheme.Layout.coverCornerRadius
@@ -2297,7 +2323,7 @@ struct ContinueListeningHeroBookCard: View {
       }
       .background(model.appearancePalette.card)
     }
-    .frame(width: w, height: AppTheme.Layout.continueHeroCardTotalHeight, alignment: .top)
+    .frame(width: w, height: AppTheme.Layout.continueHeroCardTotalHeight(forCardWidth: w), alignment: .top)
     .background(model.appearancePalette.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous))
     .abstandHeroCardOutline(palette: model.appearancePalette)
@@ -2323,12 +2349,18 @@ struct ContinueListeningHeroBookCard: View {
 struct ContinueListeningHeroPodcastCard: View {
   @EnvironmentObject private var model: AppModel
   let episode: ABSPodcastEpisodeListItem
+  var cardWidth: CGFloat = AppTheme.Layout.continueHeroCardWidth
   @StateObject private var rowLive: LibraryPodcastEpisodeRowLiveState
   @State private var tint: Color = AppTheme.card
   @State private var showDetail = false
 
-  init(episode: ABSPodcastEpisodeListItem, model: AppModel) {
+  init(
+    episode: ABSPodcastEpisodeListItem,
+    model: AppModel,
+    cardWidth: CGFloat = AppTheme.Layout.continueHeroCardWidth
+  ) {
     self.episode = episode
+    self.cardWidth = cardWidth
     _rowLive = StateObject(
       wrappedValue: LibraryPodcastEpisodeRowLiveState(
         progressLookupKey: episode.progressLookupKey,
@@ -2379,8 +2411,8 @@ struct ContinueListeningHeroPodcastCard: View {
   }
 
   var body: some View {
-    let w = AppTheme.Layout.continueHeroCardWidth
-    let h = AppTheme.Layout.continueHeroCoverMaxHeight
+    let w = cardWidth
+    let h = cardWidth
     let barH = AppTheme.Layout.libraryRowBottomProgressHeight
     let coverInset = AppTheme.Layout.libraryRowCardInset
     let coverTopRadius = AppTheme.Layout.coverCornerRadius
@@ -2466,7 +2498,7 @@ struct ContinueListeningHeroPodcastCard: View {
       }
       .background(model.appearancePalette.card)
     }
-    .frame(width: w, height: AppTheme.Layout.continueHeroCardTotalHeight, alignment: .top)
+    .frame(width: w, height: AppTheme.Layout.continueHeroCardTotalHeight(forCardWidth: w), alignment: .top)
     .background(model.appearancePalette.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous))
     .abstandHeroCardOutline(palette: model.appearancePalette)
