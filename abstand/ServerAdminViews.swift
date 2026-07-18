@@ -2350,7 +2350,8 @@ private struct SettingsDownloadsManageView: View {
                 token: model.token,
                 coverURL: entry.flatMap { model.coverURL(for: $0.libraryItemId) },
                 cacheAccount: model.coverImageCacheAccountDirectory(),
-                cacheRevision: model.coverImageCacheRevision,
+                cacheRevision: entry.map { model.coverImageCacheRevision(forBookId: $0.libraryItemId) }
+                  ?? model.coverImageCacheRevision,
                 onCancel: { model.removeLocalDownload(bookId: activeId) }
               )
             }
@@ -2366,7 +2367,8 @@ private struct SettingsDownloadsManageView: View {
                 token: model.token,
                 coverURL: entry.flatMap { model.coverURL(for: $0.libraryItemId) },
                 cacheAccount: model.coverImageCacheAccountDirectory(),
-                cacheRevision: model.coverImageCacheRevision,
+                cacheRevision: entry.map { model.coverImageCacheRevision(forBookId: $0.libraryItemId) }
+                  ?? model.coverImageCacheRevision,
                 onCancel: { model.removeLocalDownload(bookId: qid) }
               )
             }
@@ -2419,7 +2421,7 @@ private struct SettingsDownloadsManageView: View {
                 token: model.token,
                 coverURL: model.coverURL(for: row.libraryItemId),
                 cacheAccount: model.coverImageCacheAccountDirectory(),
-                cacheRevision: model.coverImageCacheRevision,
+                cacheRevision: model.coverImageCacheRevision(forBookId: row.libraryItemId),
                 onDelete: { delete(row) }
               )
             }

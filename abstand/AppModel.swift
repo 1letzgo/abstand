@@ -2780,6 +2780,12 @@ final class AppModel: ObservableObject {
       for book in list {
         let id = book.id.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else { continue }
+        // Katalog-Zeilen mit `updatedAt` nicht durch Serien-Stubs ohne Datum überschreiben
+        // (sonst verfehlen Cover-Cache-Keys die Books-Liste).
+        if let existing = byId[id] {
+          if existing.updatedAt == nil, book.updatedAt != nil { byId[id] = book }
+          continue
+        }
         byId[id] = book
       }
     }
@@ -2798,6 +2804,9 @@ final class AppModel: ObservableObject {
       add(list)
     }
     for item in browseSeries {
+      add(item.books ?? [])
+    }
+    for item in searchSeries {
       add(item.books ?? [])
     }
     return Array(byId.values)
@@ -9881,6 +9890,43 @@ final class AppModel: ObservableObject {
   func coverImageCacheRevision(forItemUpdatedAt updatedAt: Date?) -> Int {
     guard let updatedAt else { return coverImageCacheRevision }
     return coverImageCacheRevision &+ Int(updatedAt.timeIntervalSince1970)
+  }
+
+  /// Cache-Key wie in der Books-Liste: `updatedAt` aus Katalog/LocalStore bevorzugen, damit Series/
+  /// Search/Home dieselben gecachten Buchcover treffen (nicht Revision 0 vs. `#r<updatedAt>`).
+  func coverImageCacheRevision(forBookId bookId: String) -> Int {
+    let id = bookId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !id.isEmpty else { return coverImageCacheRevision }
+    // Synthetische Keys (Autorenfoto, Platzhalter) — kein Buch-Cover.
+    if id.hasPrefix("author:") || id.hasPrefix("series-ph:") || id.hasPrefix("narrator-ph:")
+      || id.hasPrefix("search:")
+    {
+      return coverImageCacheRevision
+    }
+    if let book = bookForCoverCacheRevision(id: id) {
+      return coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+    }
+    return coverImageCacheRevision
+  }
+
+  /// Katalog-/LocalStore-Zeilen zuerst (haben `updatedAt`); Serien-Stubs oft ohne und würden den Key verfehlen.
+  private func bookForCoverCacheRevision(id: String) -> ABSBook? {
+    if let book = books.first(where: { $0.id == id }) { return book }
+    if let book = startBooks.first(where: { $0.id == id }) { return book }
+    if let book = searchBooks.first(where: { $0.id == id }) { return book }
+    if let book = browseEbooks.first(where: { $0.id == id }) { return book }
+    if let book = browseEbooksSupplementary.first(where: { $0.id == id }) { return book }
+    if let book = downloadedShelfBooks.first(where: { $0.id == id }) { return book }
+    if let book = entityDetailBooks.first(where: { $0.id == id }) { return book }
+    if let book = podcastShows.first(where: { $0.id == id }) { return book }
+    if let book = bookFromLocalStore(libraryItemId: id) { return book }
+    for series in browseSeries {
+      if let book = series.books?.first(where: { $0.id == id }) { return book }
+    }
+    for series in searchSeries {
+      if let book = series.books?.first(where: { $0.id == id }) { return book }
+    }
+    return nil
   }
 
   /// Autorenfoto (`GET /api/authors/:id/image`).
