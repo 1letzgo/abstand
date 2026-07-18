@@ -295,7 +295,7 @@ struct BookDetailView: View {
 
   private var deletingBookPopup: some View {
     let palette = model.appearancePalette
-    ZStack {
+    return ZStack {
       Color.black.opacity(palette.isDarkLike ? 0.55 : 0.35)
         .ignoresSafeArea()
       VStack(spacing: 14) {
