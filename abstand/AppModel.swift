@@ -2406,8 +2406,8 @@ final class AppModel: ObservableObject {
     !startDisabledCategories.contains(Self.normalizedStartSettingsCategory(category))
   }
 
-  /// Eingeschaltete Home-Regale für die horizontale Leiste (Continue-Regale als ein Eintrag).
-  /// Stats links neben Continue; Continue bleibt der Standard-Tab (`homeBrowseCategory`).
+  /// Home-Browse-Leiste: Stats + Continue (alle Regale liegen unter Continue).
+  /// Offline: Continue + Downloaded. Ausblend-Schalter steuern die Regale *innerhalb* von Continue.
   var homeBrowseStripRows: [(category: String, label: String)] {
     if offlineHomeUIActive {
       // Offline nur Regale, die rein lokal befüllbar sind — keine Server-Personalisierung/Stats.
@@ -2422,51 +2422,18 @@ final class AppModel: ObservableObject {
         ),
       ]
     }
-    var rows: [(category: String, label: String)] = []
-    var insertedContinue = false
-    var insertedRecent = false
-    for row in startSettingsCategoryList {
-      if ABSStartShelfLocalization.isHomeBrowseContinueCategory(row.category) {
-        if !insertedContinue, isAnyHomeBrowseContinueShelfEnabled {
-          rows.append(
-            (
-              ABSStartShelfLocalization.homeBrowseStatsSectionID,
-              ABSStartShelfLocalization.homeBrowseStatsStripLabel
-            ))
-          rows.append(
-            (
-              ABSStartShelfLocalization.homeBrowseContinueSectionID,
-              ABSStartShelfLocalization.homeBrowseContinueStripLabel
-            ))
-          insertedContinue = true
-        }
-        continue
-      }
-      if ABSStartShelfLocalization.isHomeBrowseRecentCategory(row.category) {
-        if !insertedRecent, isAnyHomeBrowseRecentShelfEnabled {
-          rows.append(
-            (
-              ABSStartShelfLocalization.homeBrowseRecentSectionID,
-              ABSStartShelfLocalization.homeBrowseRecentStripLabel
-            ))
-          insertedRecent = true
-        }
-        continue
-      }
-      if isStartCategoryEnabled(row.category) {
-        rows.append((row.category, row.label))
-      }
-    }
-    if !rows.contains(where: {
-      ABSStartShelfLocalization.isHomeBrowseStatsCategory($0.category)
-    }) {
-      rows.insert(
-        (
-          ABSStartShelfLocalization.homeBrowseStatsSectionID,
-          ABSStartShelfLocalization.homeBrowseStatsStripLabel
-        ),
-        at: 0
+    var rows: [(category: String, label: String)] = [
+      (
+        ABSStartShelfLocalization.homeBrowseStatsSectionID,
+        ABSStartShelfLocalization.homeBrowseStatsStripLabel
       )
+    ]
+    if isAnyHomeBrowseContinueShelfEnabled {
+      rows.append(
+        (
+          ABSStartShelfLocalization.homeBrowseContinueSectionID,
+          ABSStartShelfLocalization.homeBrowseContinueStripLabel
+        ))
     }
     return rows
   }
@@ -2475,26 +2442,25 @@ final class AppModel: ObservableObject {
     homeBrowseStripRows.map(\.category)
   }
 
+  /// Mindestens ein Home-Regal (Settings → Appearance → Home) ist eingeschaltet.
   var isAnyHomeBrowseContinueShelfEnabled: Bool {
-    ABSStartShelfLocalization.homeBrowseContinueCategories.contains { isStartCategoryEnabled($0) }
-  }
-
-  var isAnyHomeBrowseRecentShelfEnabled: Bool {
-    ABSStartShelfLocalization.homeBrowseRecentCategories.contains { isStartCategoryEnabled($0) }
+    startSettingsCategoryList.contains { isStartCategoryEnabled($0.category) }
   }
 
   func startShelf(forCategory category: String) -> ABSStartShelfSection? {
     startShelves.first { $0.category == category }
   }
 
-  /// Regale für einen Home-Menüpunkt (`continue` = alle eingeschalteten Continue-Regale).
+  /// Regale für einen Home-Menüpunkt.
+  /// `continue` = alle eingeschalteten Settings-Regale (Reihenfolge wie Appearance → Home).
   func startShelves(forHomeBrowseSection sectionID: String) -> [ABSStartShelfSection] {
     if sectionID == ABSStartShelfLocalization.homeBrowseContinueSectionID {
-      return ABSStartShelfLocalization.homeBrowseContinueCategories.compactMap { cat in
-        guard isStartCategoryEnabled(cat) else { return nil }
-        return startShelf(forCategory: cat)
+      return startSettingsCategoryList.compactMap { row in
+        guard isStartCategoryEnabled(row.category) else { return nil }
+        return startShelf(forCategory: row.category)
       }
     }
+    // Legacy: früherer „Recent“-Pill — Inhalte liegen jetzt unter Continue.
     if sectionID == ABSStartShelfLocalization.homeBrowseRecentSectionID {
       return ABSStartShelfLocalization.homeBrowseRecentCategories.compactMap { cat in
         guard isStartCategoryEnabled(cat) else { return nil }
@@ -2515,19 +2481,25 @@ final class AppModel: ObservableObject {
   }
 
   func clampHomeBrowseSectionIfNeeded() {
-    if ABSStartShelfLocalization.isHomeBrowseContinueCategory(homeBrowseCategory) {
+    // Frühere eigene Pills (Continue-Unterregale, Recent, Recommended, …) → Continue.
+    let mapsIntoContinue =
+      ABSStartShelfLocalization.isHomeBrowseContinueCategory(homeBrowseCategory)
+      || ABSStartShelfLocalization.isHomeBrowseRecentCategory(homeBrowseCategory)
+      || homeBrowseCategory == ABSStartShelfLocalization.homeBrowseRecentSectionID
+      || startSettingsCategoryList.contains(where: { $0.category == homeBrowseCategory })
+    if mapsIntoContinue {
       homeBrowseCategory = ABSStartShelfLocalization.homeBrowseContinueSectionID
-      UserDefaults.standard.set(homeBrowseCategory, forKey: Keys.homeBrowseCategory)
-    }
-    if ABSStartShelfLocalization.isHomeBrowseRecentCategory(homeBrowseCategory) {
-      homeBrowseCategory = ABSStartShelfLocalization.homeBrowseRecentSectionID
       UserDefaults.standard.set(homeBrowseCategory, forKey: Keys.homeBrowseCategory)
     }
     let ids = homeBrowseStripCategoryIDs
     guard !ids.isEmpty else { return }
-    guard !ids.contains(homeBrowseCategory), let first = ids.first else { return }
-    homeBrowseCategory = first
-    UserDefaults.standard.set(first, forKey: Keys.homeBrowseCategory)
+    guard !ids.contains(homeBrowseCategory) else { return }
+    let fallback =
+      ids.contains(ABSStartShelfLocalization.homeBrowseContinueSectionID)
+      ? ABSStartShelfLocalization.homeBrowseContinueSectionID
+      : ids[0]
+    homeBrowseCategory = fallback
+    UserDefaults.standard.set(fallback, forKey: Keys.homeBrowseCategory)
   }
 
   func setStartCategoryEnabled(_ category: String, enabled: Bool) {

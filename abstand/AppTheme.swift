@@ -161,6 +161,21 @@ enum AppTheme {
     static func continueHeroCardTotalHeight(forCardWidth width: CGFloat) -> CGFloat {
       width + continueHeroMetadataBlockHeight
     }
+
+    /// Home-Continue: sekundäre Regale als Cover-only-Scroll (≈3 sichtbar, wie Library „Cover only“).
+    static let homeShelfCoverVisibleCardsPerRow: CGFloat = 3
+    static let homeShelfCoverCardMinWidth: CGFloat = 96
+    static let homeShelfCoverCardFallbackWidth: CGFloat = 110
+
+    static func homeShelfCoverCardWidth(forViewportWidth viewport: CGFloat) -> CGFloat {
+      let spacing = withinSectionSpacing
+      let gaps = homeShelfCoverVisibleCardsPerRow - 1
+      guard viewport > 0 else { return homeShelfCoverCardFallbackWidth }
+      return max(
+        homeShelfCoverCardMinWidth,
+        (viewport - spacing * gaps) / homeShelfCoverVisibleCardsPerRow
+      )
+    }
     /// Abstand Titel ↔ Autor/Show (wie `BookRowCard` metadata `spacing: 2`).
     static let continueHeroMetadataTitleDetailSpacing: CGFloat = 2
     static let continueHeroMetadataVerticalPadding: CGFloat = 8

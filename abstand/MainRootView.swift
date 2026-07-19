@@ -3234,6 +3234,12 @@ struct LibraryBookListCard: View {
   var usesSquareCenterCropCover = false
   /// eBooks-/Supplementary-Tab: Lesefortschritt statt Hörbuch-Dauer/-Fortschritt anzeigen.
   var usesEbookProgressDisplay = false
+  /// Home-Cover-Reihen u. Ä.: Style unabhängig von Library-Settings erzwingen.
+  var styleOverride: LibraryBookCardStyle? = nil
+
+  private var resolvedCardStyle: LibraryBookCardStyle {
+    styleOverride ?? model.libraryBookCardStyle
+  }
 
   var body: some View {
     if forceCompactListStyle {
@@ -3251,7 +3257,7 @@ struct LibraryBookListCard: View {
         usesEbookProgressDisplay: usesEbookProgressDisplay
       )
     } else {
-      switch model.libraryBookCardStyle {
+      switch resolvedCardStyle {
       case .heroCover:
         // `LibraryHeroBookRowCard` erkennt reine eBooks selbst (`isPureEbookLibraryItem`) und
         // zeigt automatisch Lesefortschritt statt Hörbuch-Dauer — kein Sonderfall nötig.
