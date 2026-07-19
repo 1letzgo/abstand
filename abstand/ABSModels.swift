@@ -2236,7 +2236,7 @@ enum ABSStartShelfLocalization {
   }
 
   static var homeBrowseContinueStripLabel: String {
-    String(localized: "Home", comment: "Home browse strip: all enabled shelves under one pill")
+    String(localized: "Dashboard", comment: "Home browse strip: all enabled shelves under one pill")
   }
 
   /// Legacy-ID — früher eigener Pill; Inhalte liegen unter Continue.
