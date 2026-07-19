@@ -35,6 +35,8 @@ enum AppearanceMode: String, CaseIterable, Identifiable, Hashable {
 enum LibraryBookCardStyle: String, CaseIterable, Identifiable, Hashable {
   case compact
   case heroCover
+  /// Nur Cover (1:1) mit Status-Icons — ohne Titel/Autor darunter.
+  case coverOnly
 
   var id: String { rawValue }
 
@@ -42,6 +44,24 @@ enum LibraryBookCardStyle: String, CaseIterable, Identifiable, Hashable {
     switch self {
     case .compact: "Compact row"
     case .heroCover: "Cover card"
+    case .coverOnly: "Cover only"
+    }
+  }
+
+  /// Mehrspaltiges Cover-Raster statt einspaltiger Liste.
+  var usesMultiColumnGrid: Bool {
+    switch self {
+    case .compact: false
+    case .heroCover, .coverOnly: true
+    }
+  }
+
+  /// Spalten auf iPhone (`compact` Width); iPad legt in `LibraryHeroMultiColumnRows` +2 drauf.
+  var phoneGridColumns: Int {
+    switch self {
+    case .compact: 1
+    case .heroCover: 2
+    case .coverOnly: 3
     }
   }
 
