@@ -2219,6 +2219,12 @@ struct ContinueListeningHeroBookCard: View {
     _rowLive = StateObject(
       wrappedValue: LibraryBookRowLiveState(bookId: book.id, model: model)
     )
+    let seeded = CoverDerivedTintLoader.colorFromDiskOrCoverCache(
+      account: model.coverImageCacheAccountDirectory(),
+      itemId: book.id,
+      revision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+    )
+    _tint = State(initialValue: seeded ?? AppTheme.card)
   }
 
   private var prog: ABSUserMediaProgress? { rowLive.progress }
@@ -2332,27 +2338,34 @@ struct ContinueListeningHeroBookCard: View {
           Task { await model.play(book: book) }
         }
       }
-      .background(model.appearancePalette.card)
+      .background(tint)
     }
     .frame(width: w, height: AppTheme.Layout.continueHeroCardTotalHeight(forCardWidth: w), alignment: .top)
-    .background(model.appearancePalette.card)
+    .background(tint)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous))
     .abstandHeroCardOutline(palette: model.appearancePalette)
     .task(id: book.id) {
-      let account = model.coverImageCacheAccountDirectory()
-      let revision = model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
-      if let c = await CoverDerivedTintLoader.loadColor(
-        account: account,
-        itemId: book.id,
-        revision: revision,
-        coverURL: model.coverURL(for: book.id),
-        token: model.token
-      ) {
-        tint = c
-      }
+      await refreshContinueHeroTint()
+    }
+    .onChange(of: model.appearanceThemeRevision) { _, _ in
+      Task { await refreshContinueHeroTint() }
     }
     .navigationDestination(isPresented: $showDetail) {
       BookDetailView(bookId: book.id)
+    }
+  }
+
+  private func refreshContinueHeroTint() async {
+    let account = model.coverImageCacheAccountDirectory()
+    let revision = model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+    if let c = await CoverDerivedTintLoader.loadColor(
+      account: account,
+      itemId: book.id,
+      revision: revision,
+      coverURL: model.coverURL(for: book.id),
+      token: model.token
+    ) {
+      tint = c
     }
   }
 }
@@ -2379,6 +2392,13 @@ struct ContinueListeningHeroPodcastCard: View {
         model: model
       )
     )
+    let itemId = episode.libraryItemId
+    let seeded = CoverDerivedTintLoader.colorFromDiskOrCoverCache(
+      account: model.coverImageCacheAccountDirectory(),
+      itemId: itemId,
+      revision: model.coverImageCacheRevision(forBookId: itemId)
+    )
+    _tint = State(initialValue: seeded ?? AppTheme.card)
   }
 
   private var prog: ABSUserMediaProgress? { rowLive.progress }
@@ -2507,28 +2527,35 @@ struct ContinueListeningHeroPodcastCard: View {
           Task { await model.playPodcastEpisode(episode) }
         }
       }
-      .background(model.appearancePalette.card)
+      .background(tint)
     }
     .frame(width: w, height: AppTheme.Layout.continueHeroCardTotalHeight(forCardWidth: w), alignment: .top)
-    .background(model.appearancePalette.card)
+    .background(tint)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous))
     .abstandHeroCardOutline(palette: model.appearancePalette)
     .task(id: episode.progressLookupKey) {
-      let account = model.coverImageCacheAccountDirectory()
-      let itemId = episode.libraryItemId
-      let revision = model.coverImageCacheRevision(forBookId: itemId)
-      if let c = await CoverDerivedTintLoader.loadColor(
-        account: account,
-        itemId: itemId,
-        revision: revision,
-        coverURL: model.coverURL(for: itemId),
-        token: model.token
-      ) {
-        tint = c
-      }
+      await refreshContinueHeroTint()
+    }
+    .onChange(of: model.appearanceThemeRevision) { _, _ in
+      Task { await refreshContinueHeroTint() }
     }
     .navigationDestination(isPresented: $showDetail) {
       PodcastEpisodeDetailView(episode: episode)
+    }
+  }
+
+  private func refreshContinueHeroTint() async {
+    let account = model.coverImageCacheAccountDirectory()
+    let itemId = episode.libraryItemId
+    let revision = model.coverImageCacheRevision(forBookId: itemId)
+    if let c = await CoverDerivedTintLoader.loadColor(
+      account: account,
+      itemId: itemId,
+      revision: revision,
+      coverURL: model.coverURL(for: itemId),
+      token: model.token
+    ) {
+      tint = c
     }
   }
 }

@@ -3,11 +3,12 @@ import Foundation
 import SwiftUI
 import UIKit
 
-/// Gespeicherte Cover-abgeleitete Hero-Karten-Hintergrundfarbe (`PlaybackController.coverBarTintRGB`),
-/// pro `itemId` unter dem Account-Ordner — erscheint sofort beim nächsten Start, ohne erneutes Cover-Fetch.
+/// Roher Cover-Durchschnitts-RGB für Continue-Listening-Karten — Formel
+/// (`continueListeningCardTint`) wird palette-abhängig beim Lesen angewandt.
+/// Neuer Ordner `heroTintAvg`: alte gemischte `heroTints`-Caches werden ignoriert.
 enum ContinueHeroTintCache {
   private static let fm = FileManager.default
-  private static let subdir = "heroTints"
+  private static let subdir = "heroTintAvg"
 
   private struct Payload: Codable {
     var r: Double
@@ -34,14 +35,27 @@ enum ContinueHeroTintCache {
     revision == 0 ? itemId : "\(itemId)#r\(revision)"
   }
 
-  static func load(account: URL?, itemId: String, revision: Int = 0) -> Color? {
+  static func loadRGB(
+    account: URL?,
+    itemId: String,
+    revision: Int = 0
+  ) -> (r: Double, g: Double, b: Double)? {
     guard let account else { return nil }
     let u = fileURL(account: account, itemId: cacheKey(itemId: itemId, revision: revision))
     guard fm.fileExists(atPath: u.path),
       let data = try? Data(contentsOf: u),
       let p = try? JSONDecoder().decode(Payload.self, from: data)
     else { return nil }
-    return Color(red: p.r, green: p.g, blue: p.b)
+    return (p.r, p.g, p.b)
+  }
+
+  static func load(account: URL?, itemId: String, revision: Int = 0) -> Color? {
+    guard let rgb = loadRGB(account: account, itemId: itemId, revision: revision) else { return nil }
+    return continueListeningCardTint(
+      fromAverageRed: CGFloat(rgb.r),
+      green: CGFloat(rgb.g),
+      blue: CGFloat(rgb.b)
+    )
   }
 
   static func save(account: URL, itemId: String, revision: Int = 0, red: Double, green: Double, blue: Double) {
@@ -199,10 +213,16 @@ enum CoverDerivedTintLoader {
       CoverImageCache.syncUIImage(itemId: primaryKey, account: account)
       ?? (primaryKey != thumbnailKey
         ? CoverImageCache.syncUIImage(itemId: thumbnailKey, account: account) : nil)
-    guard let img, let rgb = PlaybackController.coverBarTintRGB(from: img) else { return nil }
+    guard let img, let avg = coverAverageRGB(from: img) else { return nil }
     ContinueHeroTintCache.save(
-      account: account, itemId: itemId, revision: revision, red: rgb.0, green: rgb.1, blue: rgb.2)
-    return Color(red: rgb.0, green: rgb.1, blue: rgb.2)
+      account: account,
+      itemId: itemId,
+      revision: revision,
+      red: Double(avg.0),
+      green: Double(avg.1),
+      blue: Double(avg.2)
+    )
+    return continueListeningCardTint(fromAverageRed: avg.0, green: avg.1, blue: avg.2)
   }
 
   static func colorFromNetwork(
@@ -215,13 +235,18 @@ enum CoverDerivedTintLoader {
   ) async -> Color? {
     let scope = cacheScopeId ?? itemId
     let cacheKey = CoverImageCache.cacheKey(scopeId: scope, revision: revision)
-    if CoverImageCache.syncUIImage(itemId: cacheKey, account: account) != nil { return nil }
+    if CoverImageCache.syncUIImage(itemId: cacheKey, account: account) != nil {
+      // Cover liegt schon lokal — Farbe aus Cache ableiten (nicht nil zurückgeben).
+      return colorFromDiskOrCoverCache(
+        account: account, itemId: itemId, cacheScopeId: cacheScopeId, revision: revision)
+    }
     // Thumbnail-Cache als zweiter Treffer — kein Netz, wenn die Liste das Cover schon hat.
     let thumbnailKey = CoverImageCache.cacheKey(scopeId: itemId, revision: revision)
     if cacheKey != thumbnailKey,
       CoverImageCache.syncUIImage(itemId: thumbnailKey, account: account) != nil
     {
-      return nil
+      return colorFromDiskOrCoverCache(
+        account: account, itemId: itemId, cacheScopeId: cacheScopeId, revision: revision)
     }
     guard let coverURL else { return nil }
     var req = URLRequest(url: coverURL)
@@ -232,16 +257,22 @@ enum CoverDerivedTintLoader {
       let (data, resp) = try await URLSession.shared.data(for: req)
       guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
         let image = UIImage(data: data),
-        let rgb = PlaybackController.coverBarTintRGB(from: image)
+        let avg = coverAverageRGB(from: image)
       else { return nil }
       if let account {
         // Dieselben Bytes wie `CoverImageView` persistieren — kein zweiter Download beim nächsten Öffnen.
         try? CoverImageCache.saveToDisk(account: account, itemId: cacheKey, data: data)
         CoverImageCache.storeMemory(itemId: cacheKey, image: image)
         ContinueHeroTintCache.save(
-          account: account, itemId: itemId, revision: revision, red: rgb.0, green: rgb.1, blue: rgb.2)
+          account: account,
+          itemId: itemId,
+          revision: revision,
+          red: Double(avg.0),
+          green: Double(avg.1),
+          blue: Double(avg.2)
+        )
       }
-      return Color(red: rgb.0, green: rgb.1, blue: rgb.2)
+      return continueListeningCardTint(fromAverageRed: avg.0, green: avg.1, blue: avg.2)
     } catch {
       return nil
     }

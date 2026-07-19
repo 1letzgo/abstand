@@ -34,6 +34,39 @@ func coverDominantBackgroundTint(fromAverageRed r: CGFloat, green g: CGFloat, bl
   )
 }
 
+/// Continue-Listening-Karten: spürbar stärkere Cover-Tönung als Detail/Player
+/// (`coverDominantBackgroundTint` mix 0.34 / weight 0.3).
+func continueListeningCardTint(from image: UIImage) -> Color {
+  guard let (r, g, b) = coverAverageRGB(from: image) else { return AppTheme.card }
+  return continueListeningCardTint(fromAverageRed: r, green: g, blue: b)
+}
+
+func continueListeningCardTint(fromAverageRed r: CGFloat, green g: CGFloat, blue b: CGFloat) -> Color {
+  if AppTheme.palette.isDarkLike {
+    let mix: CGFloat = 0.62
+    let floor: CGFloat = 0.06
+    return Color(
+      red: Double(min(1, r * mix + floor)),
+      green: Double(min(1, g * mix + floor)),
+      blue: Double(min(1, b * mix + floor))
+    )
+  }
+
+  let paper = UIColor(AppTheme.background)
+  var pr: CGFloat = 0
+  var pg: CGFloat = 0
+  var pb: CGFloat = 0
+  var pa: CGFloat = 0
+  paper.getRed(&pr, green: &pg, blue: &pb, alpha: &pa)
+  let coverWeight: CGFloat = 0.55
+  let paperWeight = 1 - coverWeight
+  return Color(
+    red: Double(r * coverWeight + pr * paperWeight),
+    green: Double(g * coverWeight + pg * paperWeight),
+    blue: Double(b * coverWeight + pb * paperWeight)
+  )
+}
+
 /// Kartenfläche für Buch-/Folgen-Detail, abgestimmt auf den Cover-Tint-Hintergrund
 /// (`abstandDetailScrollBackground`): gleiche Farbfamilie wie der getönte Hintergrund statt der
 /// neutralen Palette-`card`. Dark: etwas heller als der Tint (erhabene Fläche, gleiches Delta wie
