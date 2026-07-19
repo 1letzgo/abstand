@@ -280,9 +280,6 @@ struct StartDashboardView: View {
       guard model.offlineHomeUIActive else {
         return "Content for this shelf appears when your server provides it."
       }
-      if category == ABSStartShelfLocalization.homeBrowseDownloadedSectionID {
-        return "Offline mode only shows titles you have downloaded. Go back online to download more."
-      }
       return "Titles you're currently playing will appear here once downloaded."
     }()
     return ContentUnavailableView(

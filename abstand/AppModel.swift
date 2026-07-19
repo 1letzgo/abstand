@@ -1709,7 +1709,7 @@ final class AppModel: ObservableObject {
     Task { await reloadLibrary(reset: true) }
   }
 
-  /// Podcast-Folge aus lokalem `download.json` (Home „Downloaded“, Offline) — Auflösungsreihenfolge
+  /// Podcast-Folge aus lokalem `download.json` (Offline/Downloads) — Auflösungsreihenfolge
   /// wie `audiobookForDownloadedStorageId`: Manifest-Stub → gemergter In-Memory-Katalog → persistenter
   /// SwiftData-Store → Show-Titel-Anreicherung → roher Stub.
   func podcastEpisodeForDownloadedStorageId(_ storageId: String) -> ABSPodcastEpisodeListItem? {
@@ -2406,20 +2406,16 @@ final class AppModel: ObservableObject {
     !startDisabledCategories.contains(Self.normalizedStartSettingsCategory(category))
   }
 
-  /// Home-Browse-Leiste: Stats + Continue (alle Regale liegen unter Continue).
-  /// Offline: Continue + Downloaded. Ausblend-Schalter steuern die Regale *innerhalb* von Continue.
+  /// Home-Browse-Leiste: Stats + Dashboard (alle Regale liegen unter Dashboard).
+  /// Offline: nur Dashboard (Continue aus Downloads) — kein separates Downloaded-Regal.
   var homeBrowseStripRows: [(category: String, label: String)] {
     if offlineHomeUIActive {
-      // Offline nur Regale, die rein lokal befüllbar sind — keine Server-Personalisierung/Stats.
+      // Offline nur lokal befüllbares Dashboard — keine Server-Personalisierung/Stats.
       return [
         (
           ABSStartShelfLocalization.homeBrowseContinueSectionID,
           ABSStartShelfLocalization.homeBrowseContinueStripLabel
-        ),
-        (
-          ABSStartShelfLocalization.homeBrowseDownloadedSectionID,
-          ABSStartShelfLocalization.homeBrowseDownloadedStripLabel
-        ),
+        )
       ]
     }
     var rows: [(category: String, label: String)] = [
@@ -3102,18 +3098,6 @@ final class AppModel: ObservableObject {
             id: "offline-continue", books: continueBooks, podcastEpisodes: continueEpisodes)
         )
       }
-    }
-
-    let downloadedBooks = downloadedAudiobooksWithFullMetadata()
-    if !downloadedBooks.isEmpty {
-      shelves.append(
-        ABSStartShelfSection(
-          id: "offline-downloaded",
-          category: ABSStartShelfLocalization.homeBrowseDownloadedSectionID,
-          displayTitle: ABSStartShelfLocalization.homeBrowseDownloadedStripLabel,
-          books: downloadedBooks
-        )
-      )
     }
 
     startShelves = shelves

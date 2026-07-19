@@ -2265,13 +2265,6 @@ enum ABSStartShelfLocalization {
     String(localized: "Stats", comment: "Home browse strip: listening statistics")
   }
 
-  /// Offline-Modus: Regal mit allen heruntergeladenen Hörbüchern.
-  static let homeBrowseDownloadedSectionID = "downloaded"
-
-  static var homeBrowseDownloadedStripLabel: String {
-    String(localized: "Downloaded", comment: "Home browse strip: downloaded titles (offline mode)")
-  }
-
   static let categoryTitles: [String: String] = [
     "recentlyListened": "Continue listening",
     "continueEbooks": "Continue reading",
@@ -2281,7 +2274,6 @@ enum ABSStartShelfLocalization {
     "recommended": "Recommended",
     "recentlyFinished": "Listen again",
     "newestAuthors": "New authors",
-    "downloaded": "Downloaded",
   ]
 
   static func displayTitle(category: String, serverLabel: String) -> String {
@@ -2305,7 +2297,6 @@ enum ABSStartShelfLocalization {
     case "continueSeries": return "rectangle.stack.fill"
     case homeBrowseRecentSectionID, "newestItems": return "sparkles"
     case homeBrowseStatsSectionID: return "chart.bar.fill"
-    case homeBrowseDownloadedSectionID: return "arrow.down.circle.fill"
     case "newestSeries": return "books.vertical.fill"
     case "recommended": return "lightbulb.fill"
     case "recentlyFinished": return "arrow.counterclockwise"
