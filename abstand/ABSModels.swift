@@ -2223,9 +2223,10 @@ enum ABSStartShelfMergedRow: Identifiable {
 }
 
 enum ABSStartShelfLocalization {
-  /// Ein Menüpunkt auf Home für Continue listening / reading / series.
+  /// Einziger Home-Menüpunkt für alle Settings-Regale (Cover-Reihen unter Continue).
   static let homeBrowseContinueSectionID = "continue"
 
+  /// Historische Continue-Unterregale (weiterhin für Localization / Migration).
   static let homeBrowseContinueCategories: [String] = [
     "recentlyListened", "continueEbooks", "continueSeries",
   ]
@@ -2238,7 +2239,7 @@ enum ABSStartShelfLocalization {
     String(localized: "Continue", comment: "Home browse strip: combined continue shelves")
   }
 
-  /// Ein Menüpunkt auf Home für Recently added + Recent series.
+  /// Legacy-ID — früher eigener Pill; Inhalte liegen unter Continue.
   static let homeBrowseRecentSectionID = "recent"
 
   static let homeBrowseRecentCategories: [String] = [
@@ -2250,7 +2251,7 @@ enum ABSStartShelfLocalization {
   }
 
   static var homeBrowseRecentStripLabel: String {
-    String(localized: "Recent", comment: "Home browse strip: combined newest shelves")
+    String(localized: "Recent", comment: "Home browse strip: legacy newest shelves label")
   }
 
   /// Statistik-Bereich auf Home (nicht mehr unter Settings).

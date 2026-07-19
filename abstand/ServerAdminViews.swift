@@ -1203,7 +1203,7 @@ struct SettingsAppearanceView: View {
               ServerAdminNavRow(
                 icon: "house.fill",
                 title: "Home",
-                subtitle: "Shelf layout & sections"
+                subtitle: "Show or hide shelves under Continue"
               )
             }
           }
