@@ -337,7 +337,7 @@ struct MainRootView: View {
           .font(.subheadline)
           .foregroundStyle(AppTheme.textSecondary)
           .padding(.vertical, 8)
-      } else if model.libraryBookCardStyle == .heroCover {
+      } else if model.libraryBookCardStyle.usesMultiColumnGrid {
         libraryHeroMultiColumnBookRows(books: rows)
       } else {
         ForEach(rows) { book in
@@ -361,8 +361,9 @@ struct MainRootView: View {
 
   @ViewBuilder
   private func libraryHeroMultiColumnBookRows(books: [ABSBook]) -> some View {
-    LibraryHeroTwoColumnRows(
+    LibraryHeroMultiColumnRows(
       items: books,
+      columns: model.libraryBookCardStyle.phoneGridColumns,
       spacing: AppTheme.Layout.withinSectionSpacing
     ) { book in
       libraryCatalogBookCard(book)
@@ -907,9 +908,19 @@ private struct BooksSearchBrowseView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         searchSection(title: "Books", isEmpty: model.searchBooks.isEmpty) {
-          LibraryBookCardsFlow {
-            ForEach(model.searchBooks) { book in
+          if model.libraryBookCardStyle.usesMultiColumnGrid {
+            LibraryHeroMultiColumnRows(
+              items: model.searchBooks,
+              columns: model.libraryBookCardStyle.phoneGridColumns,
+              spacing: AppTheme.Layout.withinSectionSpacing
+            ) { book in
               LibraryBookListCard(book: book, model: model)
+            }
+          } else {
+            LibraryBookCardsFlow {
+              ForEach(model.searchBooks) { book in
+                LibraryBookListCard(book: book, model: model)
+              }
             }
           }
         }
@@ -3193,35 +3204,19 @@ private struct EbookTabListCard: View {
   let book: ABSBook
   let model: AppModel
 
-  private var usesHeroCoverStyle: Bool {
-    model.libraryBookCardStyle == .heroCover
-  }
-
   var body: some View {
-    if usesHeroCoverStyle {
-      // 1:1-Cover wie überall im Katalog — Portrait-eBook-Cover werden per Letterboxing gefüllt,
-      // nicht als eigenes Seitenverhältnis behandelt.
-      LibraryHeroBookRowCard(
-        book: book,
-        model: model,
-        showEbookBadge: true,
-        usesEbookProgressDisplay: true,
-        showsDownloadStatus: true
-      )
-    } else {
-      LibraryBookListCard(
-        book: book,
-        model: model,
-        showEbookBadge: true,
-        showsPlaybackControls: book.isPlayableAudiobook,
-        opensDetailOnTap: true,
-        usesEbookProgressDisplay: true
-      )
-    }
+    LibraryBookListCard(
+      book: book,
+      model: model,
+      showEbookBadge: true,
+      showsPlaybackControls: book.isPlayableAudiobook,
+      opensDetailOnTap: true,
+      usesEbookProgressDisplay: true
+    )
   }
 }
 
-/// Wählt kompakte Zeile oder Cover-Karte gemäß `libraryBookCardStyle`.
+/// Wählt kompakte Zeile, Cover-Karte oder Cover-only gemäß `libraryBookCardStyle`.
 struct LibraryBookListCard: View {
   let book: ABSBook
   let model: AppModel
@@ -3240,25 +3235,8 @@ struct LibraryBookListCard: View {
   /// eBooks-/Supplementary-Tab: Lesefortschritt statt Hörbuch-Dauer/-Fortschritt anzeigen.
   var usesEbookProgressDisplay = false
 
-  private var usesHeroCoverStyle: Bool {
-    !forceCompactListStyle && model.libraryBookCardStyle == .heroCover
-  }
-
   var body: some View {
-    if usesHeroCoverStyle {
-      // `LibraryHeroBookRowCard` erkennt reine eBooks selbst (`isPureEbookLibraryItem`) und
-      // zeigt automatisch Lesefortschritt statt Hörbuch-Dauer — kein Sonderfall nötig.
-      LibraryHeroBookRowCard(
-        book: book,
-        model: model,
-        showEbookBadge: showEbookBadge,
-        usesEbookProgressDisplay: usesEbookProgressDisplay,
-        progressOverride: progressOverride,
-        authorLineOverride: authorLineOverride,
-        showsDownloadStatus: showsDownloadStatus,
-        opensDetailOnTap: opensDetailOnTap
-      )
-    } else {
+    if forceCompactListStyle {
       BookRowCard(
         book: book,
         model: model,
@@ -3272,11 +3250,55 @@ struct LibraryBookListCard: View {
         usesSquareCenterCropCover: usesSquareCenterCropCover,
         usesEbookProgressDisplay: usesEbookProgressDisplay
       )
+    } else {
+      switch model.libraryBookCardStyle {
+      case .heroCover:
+        // `LibraryHeroBookRowCard` erkennt reine eBooks selbst (`isPureEbookLibraryItem`) und
+        // zeigt automatisch Lesefortschritt statt Hörbuch-Dauer — kein Sonderfall nötig.
+        LibraryHeroBookRowCard(
+          book: book,
+          model: model,
+          showEbookBadge: showEbookBadge,
+          usesEbookProgressDisplay: usesEbookProgressDisplay,
+          progressOverride: progressOverride,
+          authorLineOverride: authorLineOverride,
+          showsDownloadStatus: showsDownloadStatus,
+          opensDetailOnTap: opensDetailOnTap,
+          showsMetadataBlock: true
+        )
+      case .coverOnly:
+        LibraryHeroBookRowCard(
+          book: book,
+          model: model,
+          showEbookBadge: showEbookBadge,
+          usesEbookProgressDisplay: usesEbookProgressDisplay,
+          progressOverride: progressOverride,
+          authorLineOverride: authorLineOverride,
+          showsDownloadStatus: showsDownloadStatus,
+          opensDetailOnTap: opensDetailOnTap,
+          showsMetadataBlock: false
+        )
+      case .compact:
+        BookRowCard(
+          book: book,
+          model: model,
+          showEbookBadge: showEbookBadge,
+          progressOverride: progressOverride,
+          authorLineOverride: authorLineOverride,
+          showsPlaybackControls: showsPlaybackControls,
+          showsDownloadStatus: showsDownloadStatus,
+          opensDetailOnTap: opensDetailOnTap,
+          onCoverOpen: onCoverOpen,
+          usesSquareCenterCropCover: usesSquareCenterCropCover,
+          usesEbookProgressDisplay: usesEbookProgressDisplay
+        )
+      }
     }
   }
 }
 
-/// Library-Cover-Karte im Continue-Hero-Stil (Rasterzelle, ohne Play-Pille und Typ-Badge).
+/// Library-Cover-Karte im Continue-Hero-Stil (Rasterzelle, ohne Play-Pille).
+/// Mit `showsMetadataBlock == false`: nur Cover + Cover-Icons, Tap → Detail (kein Start).
 private struct LibraryHeroBookRowCard: View {
   let book: ABSBook
   let model: AppModel
@@ -3290,6 +3312,8 @@ private struct LibraryHeroBookRowCard: View {
   var coverAspectRatio: CGFloat = 1
   /// eBook-Lesefortschritt in Balken auf dem Cover.
   var usesEbookProgressDisplay = false
+  /// `false` = Cover-only (keine Titel/Autor-Zeile, keine Fortschrittsleiste/Gradient).
+  var showsMetadataBlock = true
 
   @StateObject private var live: LibraryBookRowLiveState
   @State private var showDetail = false
@@ -3308,7 +3332,8 @@ private struct LibraryHeroBookRowCard: View {
     authorLineOverride: String? = nil,
     showsDownloadStatus: Bool = true,
     opensDetailOnTap: Bool = true,
-    coverAspectRatio: CGFloat = 1
+    coverAspectRatio: CGFloat = 1,
+    showsMetadataBlock: Bool = true
   ) {
     self.showEbookBadge = showEbookBadge
     self.usesEbookProgressDisplay = usesEbookProgressDisplay
@@ -3317,6 +3342,7 @@ private struct LibraryHeroBookRowCard: View {
     self.showsDownloadStatus = showsDownloadStatus
     self.opensDetailOnTap = opensDetailOnTap
     self.coverAspectRatio = coverAspectRatio
+    self.showsMetadataBlock = showsMetadataBlock
     self.model = model
     self.supplementaryEbookBadge = model.bookShowsSupplementaryEbookBadge(book)
     let resolvedBook = model.bookStubEnrichedForListDisplay(book)
@@ -3397,24 +3423,16 @@ private struct LibraryHeroBookRowCard: View {
     let _ = themeRevision
     let palette = model.appearancePalette
     let coverInset = AppTheme.Layout.libraryRowCardInset
-    let coverTopRadius = AppTheme.Layout.coverCornerRadius
     let barH = AppTheme.Layout.libraryRowBottomProgressHeight
-    let coverClip = UnevenRoundedRectangle(
-      topLeadingRadius: coverTopRadius,
-      bottomLeadingRadius: 0,
-      bottomTrailingRadius: 0,
-      topTrailingRadius: coverTopRadius,
-      style: .continuous
-    )
 
     return Group {
       if opensDetailOnTap {
-        cardBody(palette: palette, coverInset: coverInset, coverClip: coverClip, barH: barH)
+        cardBody(palette: palette, coverInset: coverInset, barH: barH)
           .navigationDestination(isPresented: $showDetail) {
             BookDetailView(bookId: book.id)
           }
       } else {
-        cardBody(palette: palette, coverInset: coverInset, coverClip: coverClip, barH: barH)
+        cardBody(palette: palette, coverInset: coverInset, barH: barH)
       }
     }
     .abstandThemeRefresh()
@@ -3439,77 +3457,55 @@ private struct LibraryHeroBookRowCard: View {
     return formatPlaybackTime(resolvedTotalDurationSeconds)
   }
 
+  private var outerCornerRadius: CGFloat {
+    AppTheme.Layout.continueHeroCardCornerRadius
+  }
+
   @ViewBuilder
   private func cardBody(
     palette: AppColorPalette,
     coverInset: CGFloat,
-    coverClip: UnevenRoundedRectangle,
     barH: CGFloat
   ) -> some View {
-    VStack(alignment: .leading, spacing: 0) {
-      ZStack(alignment: .bottom) {
-        SquareCoverImageView(
-          url: model.coverURL(for: book.id),
-          token: model.token,
-          itemId: book.id,
-          cacheAccount: model.coverImageCacheAccountDirectory(),
-          cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
-        )
-        .clipShape(coverClip)
-        .contentShape(coverClip)
-        .onTapGesture {
-          if opensDetailOnTap {
-            showDetail = true
-          }
-        }
-        .accessibilityLabel(book.displayTitle)
-        .accessibilityHint(opensDetailOnTap ? "Opens book details." : "")
+    let fullClip = RoundedRectangle(cornerRadius: outerCornerRadius, style: .continuous)
 
-        LinearGradient(
-          stops: [
-            .init(color: .black.opacity(0.45), location: 0),
-            .init(color: .black.opacity(0), location: 1),
-          ],
-          startPoint: .bottom,
-          endPoint: .top
-        )
-        .frame(height: 72)
-        .frame(maxWidth: .infinity)
-        .allowsHitTesting(false)
+    Group {
+      if showsMetadataBlock {
+        heroCardWithMetadata(palette: palette, coverInset: coverInset, barH: barH)
+      } else {
+        coverOnlyCard()
+      }
+    }
+    .background(palette.card)
+    .clipShape(fullClip)
+    .abstandHeroCardOutline(palette: palette)
+    .frame(maxWidth: .infinity, alignment: .top)
+    .accessibilityElement(children: .contain)
+    .accessibilityHint(opensDetailOnTap ? "Opens book details." : "")
+  }
 
-        Group {
-          if usesEbookMetrics, live.isPreparingEbook {
-            ProgressView()
-              .tint(.white)
-              .frame(maxWidth: .infinity)
-              .frame(height: barH)
-          } else if let v = heroProgress01 {
-            AbstandCardBottomProgress(value: v, height: barH)
-              .frame(maxWidth: .infinity)
-          } else {
-            Color.clear
-              .frame(maxWidth: .infinity)
-              .frame(height: barH)
-          }
-        }
-      }
-      .aspectRatio(coverAspectRatio, contentMode: .fit)
-      .frame(maxWidth: .infinity)
-      .overlay(alignment: .topLeading) {
-        // Wie `ContinueListeningHeroTypePill` — gleiche Größe/Padding, oben statt unten.
-        typeBadge
-          .fixedSize()
-      }
-      .overlay(alignment: .topTrailing) {
-        HStack(spacing: 0) {
-          ebookAvailableBadge
-          if showsDownloadStatus {
-            ContinueListeningHeroBookOfflineBadgeSlot(rowLive: live)
-              .fixedSize()
-          }
-        }
-      }
-      .clipped()
+  /// Reines 1:1-Cover mit denselben Cover-Icons wie die Cover-Karte; Tap → Detail.
+  private func coverOnlyCard() -> some View {
+    let fullClip = RoundedRectangle(cornerRadius: outerCornerRadius, style: .continuous)
+    return coverStack(clip: fullClip, showsProgressChrome: false)
+  }
+
+  private func heroCardWithMetadata(
+    palette: AppColorPalette,
+    coverInset: CGFloat,
+    barH: CGFloat
+  ) -> some View {
+    let coverTopRadius = AppTheme.Layout.coverCornerRadius
+    let heroCoverClip = UnevenRoundedRectangle(
+      topLeadingRadius: coverTopRadius,
+      bottomLeadingRadius: 0,
+      bottomTrailingRadius: 0,
+      topTrailingRadius: coverTopRadius,
+      style: .continuous
+    )
+
+    return VStack(alignment: .leading, spacing: 0) {
+      coverStack(clip: heroCoverClip, showsProgressChrome: true, barH: barH)
 
       VStack(alignment: .leading, spacing: 0) {
         ContinueListeningHeroMetadataBlock(
@@ -3550,14 +3546,77 @@ private struct LibraryHeroBookRowCard: View {
       }
       .background(palette.card)
     }
-    .background(palette.card)
-    .clipShape(
-      RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous)
-    )
-    .abstandHeroCardOutline(palette: palette)
-    .frame(maxWidth: .infinity, alignment: .top)
-    .accessibilityElement(children: .contain)
-    .accessibilityHint(opensDetailOnTap ? "Opens book details." : "")
+  }
+
+  private func coverStack<Clip: Shape>(
+    clip: Clip,
+    showsProgressChrome: Bool,
+    barH: CGFloat = AppTheme.Layout.libraryRowBottomProgressHeight
+  ) -> some View {
+    ZStack(alignment: .bottom) {
+      SquareCoverImageView(
+        url: model.coverURL(for: book.id),
+        token: model.token,
+        itemId: book.id,
+        cacheAccount: model.coverImageCacheAccountDirectory(),
+        cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+      )
+      .clipShape(clip)
+      .contentShape(clip)
+      .onTapGesture {
+        if opensDetailOnTap {
+          showDetail = true
+        }
+      }
+      .accessibilityLabel(book.displayTitle)
+      .accessibilityHint(opensDetailOnTap ? "Opens book details." : "")
+
+      if showsProgressChrome {
+        LinearGradient(
+          stops: [
+            .init(color: .black.opacity(0.45), location: 0),
+            .init(color: .black.opacity(0), location: 1),
+          ],
+          startPoint: .bottom,
+          endPoint: .top
+        )
+        .frame(height: 72)
+        .frame(maxWidth: .infinity)
+        .allowsHitTesting(false)
+
+        Group {
+          if usesEbookMetrics, live.isPreparingEbook {
+            ProgressView()
+              .tint(.white)
+              .frame(maxWidth: .infinity)
+              .frame(height: barH)
+          } else if let v = heroProgress01 {
+            AbstandCardBottomProgress(value: v, height: barH)
+              .frame(maxWidth: .infinity)
+          } else {
+            Color.clear
+              .frame(maxWidth: .infinity)
+              .frame(height: barH)
+          }
+        }
+      }
+    }
+    .aspectRatio(coverAspectRatio, contentMode: .fit)
+    .frame(maxWidth: .infinity)
+    .overlay(alignment: .topLeading) {
+      typeBadge
+        .fixedSize()
+    }
+    .overlay(alignment: .topTrailing) {
+      HStack(spacing: 0) {
+        ebookAvailableBadge
+        if showsDownloadStatus {
+          ContinueListeningHeroBookOfflineBadgeSlot(rowLive: live)
+            .fixedSize()
+        }
+      }
+    }
+    .clipped()
   }
 }
 
