@@ -100,8 +100,11 @@ struct StartDashboardView: View {
       stripIDs.isEmpty
       ? [ABSStartShelfLocalization.homeBrowseContinueSectionID]
       : stripIDs
+    // Offline nur noch Dashboard — Strip mit einer Pill ausblenden.
+    let showsBrowseStrip =
+      !isRestoringContinue && !(model.offlineHomeUIActive && stripIDs.count <= 1)
     return AbstandFixedBrowseStripSectionsLayout(
-      showsStrip: !isRestoringContinue,
+      showsStrip: showsBrowseStrip,
       bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
       selection: model.homeBrowseCategory,
       sectionIDs: layoutSectionIDs,
@@ -110,7 +113,7 @@ struct StartDashboardView: View {
       topScrollEdgeEffectStyle: .soft,
       onRefresh: { await model.refreshStartTabPullToRefresh() }
     ) {
-      if isRestoringContinue || stripIDs.isEmpty {
+      if isRestoringContinue || stripIDs.isEmpty || !showsBrowseStrip {
         homeBrowseStripBootstrapPlaceholder
       } else {
         homeBrowseSectionStrip
