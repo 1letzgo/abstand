@@ -110,6 +110,8 @@ enum AppTheme {
     static let sectionSpacing: CGFloat = 22
     /// Home-Dashboard: Abstand zwischen Kategorie-Regalen (etwas großzügiger als `sectionSpacing`).
     static let homeSectionSpacing: CGFloat = 32
+    /// Home: Überschrift ↔ zugehörige Card/Carousel (enger als `withinSectionSpacing`).
+    static let homeTitleToContentSpacing: CGFloat = 8
     /// Kategoriezeile ↔ erste Zeile / Karten innerhalb eines Blocks.
     /// Etwas Luft für Karten-Schatten zwischen Zeilen/Blöcken.
     static let withinSectionSpacing: CGFloat = 14
