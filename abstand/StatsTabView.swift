@@ -77,6 +77,8 @@ struct StatsTabRootView: View {
   @ViewBuilder
   private func statsSectionScrollContent(_ category: String) -> some View {
     let section = StatsBrowseSection(rawValue: category) ?? .level
+    // Kein Extra-Padding: `AbstandFixedBrowseStripSectionsLayout` setzt bereits
+    // horizontale `contentMargins` und Abstand unter dem Strip.
     VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
       if let fetched = model.listeningStatsFetchedAt, model.listeningStats != nil,
         !model.isNetworkReachable
@@ -86,16 +88,16 @@ struct StatsTabRootView: View {
 
       switch section {
       case .level:
-        StatsLevelSectionView()
+        StatsLevelSectionView(showsSectionTitle: false)
       case .timeline:
-        StatsTimelineHubSectionView()
+        StatsTimelineHubSectionView(showsSectionTitle: false)
       case .topListened:
         if model.listeningStatsLoading, model.listeningStats == nil {
           ProgressView()
             .frame(maxWidth: .infinity)
             .padding(.vertical, 48)
         } else if let stats = model.listeningStats {
-          StatsTopListenedSectionView(stats: stats)
+          StatsTopListenedSectionView(stats: stats, showsSectionTitle: false)
         } else {
           statsUnavailableMessage
         }
@@ -105,14 +107,12 @@ struct StatsTabRootView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 48)
         } else if let stats = model.listeningStats {
-          StatsSessionsSectionView(stats: stats)
+          StatsSessionsSectionView(stats: stats, showsSectionTitle: false)
         } else {
           statsUnavailableMessage
         }
       }
     }
-    .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-    .padding(.top, AppTheme.Layout.withinSectionSpacing)
   }
 
   @ViewBuilder
@@ -189,11 +189,14 @@ private extension View {
 /// Wie Home: enger Abstand Überschrift → Inhalt; `sectionSpacing` nur zwischen mehreren Blöcken.
 private struct StatsContentSection<Content: View>: View {
   let title: String
+  var showsTitle: Bool = true
   @ViewBuilder var content: () -> Content
 
   var body: some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      TabContentSectionTitle(title: title)
+    VStack(alignment: .leading, spacing: showsTitle ? AppTheme.Layout.withinSectionSpacing : 0) {
+      if showsTitle {
+        TabContentSectionTitle(title: title)
+      }
       content()
     }
   }
@@ -333,13 +336,14 @@ struct StatsSessionsDetailView: View {
 struct StatsLevelSectionView: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  var showsSectionTitle: Bool = true
 
   var body: some View {
     let levelAchievements = ListeningAchievementKind.sortedForDisplay(
       model.listeningAchievementsSnapshot.achievements
     )
     let columns = StatsLayout.levelColumns(isRegularWidth: horizontalSizeClass == .regular)
-    return StatsContentSection(title: "Level") {
+    return StatsContentSection(title: "Level", showsTitle: showsSectionTitle) {
       LazyVGrid(columns: columns, spacing: AppTheme.Layout.withinSectionSpacing) {
         ForEach(levelAchievements) { achievement in
           ListeningAchievementCard(achievement: achievement, compact: true)
@@ -351,9 +355,10 @@ struct StatsLevelSectionView: View {
 
 struct StatsTimelineHubSectionView: View {
   @EnvironmentObject private var model: AppModel
+  var showsSectionTitle: Bool = true
 
   var body: some View {
-    StatsContentSection(title: "Timeline") {
+    StatsContentSection(title: "Timeline", showsTitle: showsSectionTitle) {
       if model.listeningStatsLoading, model.listeningStats == nil {
         ProgressView()
           .frame(maxWidth: .infinity)
@@ -373,11 +378,12 @@ struct StatsTopListenedSectionView: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let stats: ABSListeningStatsResponse
+  var showsSectionTitle: Bool = true
 
   var body: some View {
     let topItems = Array(stats.itemsSortedByListeningTime.prefix(10))
     let columns = StatsLayout.detailListColumns(isRegularWidth: horizontalSizeClass == .regular)
-    return StatsContentSection(title: "Top 10") {
+    return StatsContentSection(title: "Top 10", showsTitle: showsSectionTitle) {
       if topItems.isEmpty {
         Text("No listening history for individual titles yet.")
           .font(.subheadline)
@@ -403,11 +409,12 @@ struct StatsSessionsSectionView: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let stats: ABSListeningStatsResponse
+  var showsSectionTitle: Bool = true
 
   var body: some View {
     let sessions = stats.recentSessions
     let columns = StatsLayout.detailListColumns(isRegularWidth: horizontalSizeClass == .regular)
-    return StatsContentSection(title: "Sessions") {
+    return StatsContentSection(title: "Sessions", showsTitle: showsSectionTitle) {
       if sessions.isEmpty {
         Text("No listening sessions yet.")
           .font(.subheadline)
