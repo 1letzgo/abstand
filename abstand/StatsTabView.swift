@@ -1,6 +1,138 @@
 import SwiftUI
 
-// MARK: - Settings hub categories
+// MARK: - Stats tab browse sections
+
+enum StatsBrowseSection: String, CaseIterable, Identifiable, Hashable {
+  case level
+  case timeline
+  case topListened
+  case sessions
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .level: return "Level"
+    case .timeline: return "Timeline"
+    case .topListened: return "Top 10"
+    case .sessions: return "Sessions"
+    }
+  }
+
+  var systemImage: String {
+    switch self {
+    case .level: return "trophy.fill"
+    case .timeline: return "calendar"
+    case .topListened: return "list.star"
+    case .sessions: return "play.circle.fill"
+    }
+  }
+}
+
+/// Stats-Tab: eigene Browse-Pills (Level / Timeline / Top 10 / Sessions).
+struct StatsTabRootView: View {
+  @EnvironmentObject private var model: AppModel
+  @State private var section: StatsBrowseSection = .level
+
+  private var sectionIDs: [String] { StatsBrowseSection.allCases.map(\.rawValue) }
+
+  var body: some View {
+    NavigationStack {
+      AbstandFixedBrowseStripSectionsLayout(
+        bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
+        selection: section.rawValue,
+        sectionIDs: sectionIDs,
+        scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
+          + model.nowPlayingAccessoryScrollBottomInset,
+        topScrollEdgeEffectStyle: .soft,
+        onRefresh: { await model.loadListeningStats() }
+      ) {
+        AbstandBrowseStripIconMenu(
+          items: StatsBrowseSection.allCases.map {
+            AbstandBrowseStripItem(id: $0.rawValue, label: $0.label, systemImage: $0.systemImage)
+          },
+          selectionID: section.rawValue,
+          onSelect: { id in
+            if let next = StatsBrowseSection(rawValue: id) {
+              section = next
+            }
+          }
+        )
+      } sectionBody: { category in
+        statsSectionScrollContent(category)
+      }
+      .abstandTabScreenChrome()
+      .navigationTitle(AppModel.MainTab.stats.rawValue)
+      .toolbarTitleDisplayMode(.inlineLarge)
+      .task(id: model.sessionUserId) {
+        model.prepareListeningAchievementsForStatsTab()
+        await model.loadListeningStats()
+      }
+      .onChange(of: section) { _, _ in
+        model.prepareListeningAchievementsForStatsTab()
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func statsSectionScrollContent(_ category: String) -> some View {
+    let section = StatsBrowseSection(rawValue: category) ?? .level
+    VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      if let fetched = model.listeningStatsFetchedAt, model.listeningStats != nil,
+        !model.isNetworkReachable
+      {
+        StatsOfflineCacheBanner(fetchedAt: fetched)
+      }
+
+      switch section {
+      case .level:
+        StatsLevelSectionView()
+      case .timeline:
+        StatsTimelineHubSectionView()
+      case .topListened:
+        if model.listeningStatsLoading, model.listeningStats == nil {
+          ProgressView()
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 48)
+        } else if let stats = model.listeningStats {
+          StatsTopListenedSectionView(stats: stats)
+        } else {
+          statsUnavailableMessage
+        }
+      case .sessions:
+        if model.listeningStatsLoading, model.listeningStats == nil {
+          ProgressView()
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 48)
+        } else if let stats = model.listeningStats {
+          StatsSessionsSectionView(stats: stats)
+        } else {
+          statsUnavailableMessage
+        }
+      }
+    }
+    .padding(.horizontal, AppTheme.Layout.tabPaddingH)
+    .padding(.top, AppTheme.Layout.withinSectionSpacing)
+  }
+
+  @ViewBuilder
+  private var statsUnavailableMessage: some View {
+    if !model.isNetworkReachable {
+      Text("No saved statistics. Connect to the server to load and cache your listening data.")
+        .font(.subheadline)
+        .foregroundStyle(model.appearancePalette.textSecondary)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+    } else {
+      Text("No statistics loaded.")
+        .foregroundStyle(model.appearancePalette.textSecondary)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+    }
+  }
+}
+
+// MARK: - Settings hub categories (legacy detail links)
 
 enum SettingsStatsCategory: String, CaseIterable, Identifiable {
   case topListened = "Top 10"
@@ -156,7 +288,7 @@ struct StatsDetailScrollScreen<Content: View>: View {
   }
 }
 
-private struct StatsOfflineCacheBanner: View {
+struct StatsOfflineCacheBanner: View {
   @EnvironmentObject private var model: AppModel
   let fetchedAt: Date
 
@@ -237,7 +369,7 @@ struct StatsTimelineHubSectionView: View {
   }
 }
 
-private struct StatsTopListenedSectionView: View {
+struct StatsTopListenedSectionView: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let stats: ABSListeningStatsResponse
@@ -267,7 +399,7 @@ private struct StatsTopListenedSectionView: View {
   }
 }
 
-private struct StatsSessionsSectionView: View {
+struct StatsSessionsSectionView: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let stats: ABSListeningStatsResponse

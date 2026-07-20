@@ -784,11 +784,17 @@ final class AppModel: ObservableObject {
   /// damit der Download-Manager (Settings) Titel/Show zeigt, BEVOR das Manifest geschrieben ist.
   /// Besonders wichtig für Podcast-Folgen, deren In-Memory-Katalog oft leer ist (Relaunch, BG-Download).
   @Published private(set) var pendingDownloadCatalog: [String: DownloadCatalogEntry] = [:]
-  /// Aus `download.json` gebaute Stubs für Home-Regal „Heruntergeladen“ und Offline-Katalog.
+  /// Aus `download.json` gebaute Stubs für Offline-Katalog und Download-UI.
   @Published private(set) var downloadedShelfBooks: [ABSBook] = []
   /// Re-Entry-Guard für `refreshDownloadedShelfFromManifests` — verhindert redundante Manifest-Scans
   /// beim Start (Pfadmonitor + Deferred-Restore + `loadStartDashboard` feuern oft gleichzeitig).
   private var isRefreshingDownloadedShelves = false
+  /// O(1)-Lookup: Library-Item-ID → Storage-ID (inkl. Podcast `li-ep`).
+  private var downloadStorageIdByLibraryItemId: [String: String] = [:]
+  /// Cache für Offline-/Downloaded-Library-Liste (vermeidet Merge+Disk je Body-Pass).
+  private var cachedDownloadedAudiobooksFullMetadata: [ABSBook]?
+  private var cachedDownloadedAudiobooksFullMetadataToken: Int = 0
+  private var downloadedAudiobooksFullMetadataGeneration: Int = 0
   @Published private(set) var isNetworkReachable = true
   /// `true`, wenn die aktive Route Wi‑Fi (oder Ethernet) nutzt und erreichbar ist — für Smart-Download nur im WLAN.
   @Published private(set) var networkUsesUnmeteredLAN: Bool = false
@@ -1283,6 +1289,7 @@ final class AppModel: ObservableObject {
     case start = "Home"
     case search = "Search"
     case library = "Library"
+    case stats = "Stats"
     case settings = "Settings"
   }
 
@@ -1459,6 +1466,9 @@ final class AppModel: ObservableObject {
     guard FileManager.default.fileExists(atPath: downloadsRoot.path) else {
       if !downloadedItemIds.isEmpty {
         downloadedItemIds = []
+        downloadStorageIdByLibraryItemId = [:]
+        downloadedShelfBooks = []
+        invalidateDownloadedAudiobooksFullMetadataCache()
         persistDownloads()
       }
       return
@@ -1483,19 +1493,34 @@ final class AppModel: ObservableObject {
     persistDownloads(skipRefresh: true)
   }
 
-  /// Disk → `downloadedItemIds` + `downloadedShelfBooks` (ohne Continue-Regal-Mutation).
+  /// Disk → `downloadedItemIds` + `downloadedShelfBooks` + Lookup-Index (ohne Continue-Regal-Mutation).
   private func syncDownloadedShelfBooksFromDisk() {
     reconcileDownloadedItemIdsWithDisk()
     var list: [ABSBook] = []
+    var storageByLibraryItem: [String: String] = [:]
     list.reserveCapacity(downloadedItemIds.count)
+    storageByLibraryItem.reserveCapacity(downloadedItemIds.count)
     for id in downloadedItemIds.sorted() {
       guard let root = try? downloads.downloadFolder(for: id),
         let manifest = ABSDownloadManifest.load(from: root),
         downloadManifestBelongsToActiveAccount(manifest)
       else { continue }
       list.append(ABSBook.fromDownloadManifest(manifest))
+      let lid = manifest.libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !lid.isEmpty {
+        storageByLibraryItem[lid] = id
+      }
+      // Hörbuch-Storage-ID = Library-Item-ID.
+      storageByLibraryItem[id] = id
     }
+    downloadStorageIdByLibraryItemId = storageByLibraryItem
     downloadedShelfBooks = list
+    invalidateDownloadedAudiobooksFullMetadataCache()
+  }
+
+  private func invalidateDownloadedAudiobooksFullMetadataCache() {
+    cachedDownloadedAudiobooksFullMetadata = nil
+    downloadedAudiobooksFullMetadataGeneration &+= 1
   }
 
   /// Liest alle `Downloads/*/download.json` und baut Stubs für UI / Offline-Wiedergabe.
@@ -1758,29 +1783,17 @@ final class AppModel: ObservableObject {
 
   /// Ob ein Hörbuch oder eine Podcast-Folge (Manifest) lokal vorliegt.
   func isLibraryItemDownloaded(libraryItemId: String) -> Bool {
-    let lid = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !lid.isEmpty else { return false }
-    if downloadedItemIds.contains(lid) { return true }
-    for storageId in downloadedItemIds {
-      guard let root = try? downloads.downloadFolder(for: storageId),
-        let manifest = ABSDownloadManifest.load(from: root),
-        manifest.libraryItemId == lid
-      else { continue }
-      return true
-    }
-    return false
+    downloadStorageIdForLibraryItem(libraryItemId) != nil
   }
 
   /// Speicherordner-ID für Download-Badge / aktiven Download (Folge: `li_…-ep_…`).
   func downloadStorageIdForLibraryItem(_ libraryItemId: String) -> String? {
     let lid = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !lid.isEmpty else { return nil }
+    if let mapped = downloadStorageIdByLibraryItemId[lid] { return mapped }
     if downloadedItemIds.contains(lid) { return lid }
-    for storageId in downloadedItemIds {
-      guard let root = try? downloads.downloadFolder(for: storageId),
-        let manifest = ABSDownloadManifest.load(from: root),
-        manifest.libraryItemId == lid
-      else { continue }
+    // Index noch kalt (z. B. vor erstem Sync) — einmalig aus Storage-IDs ableiten, ohne Manifest-I/O.
+    for storageId in downloadedItemIds where storageId.hasPrefix("\(lid)-") {
       return storageId
     }
     return nil
@@ -2406,11 +2419,10 @@ final class AppModel: ObservableObject {
     !startDisabledCategories.contains(Self.normalizedStartSettingsCategory(category))
   }
 
-  /// Home-Browse-Leiste: Stats + Dashboard (alle Regale liegen unter Dashboard).
-  /// Offline: nur Dashboard (Continue aus Downloads) — kein separates Downloaded-Regal.
+  /// Home-Browse-Leiste: nur Dashboard (alle Regale). Stats ist eigener Tab.
+  /// Offline: nur Dashboard (Continue aus Downloads).
   var homeBrowseStripRows: [(category: String, label: String)] {
     if offlineHomeUIActive {
-      // Offline nur lokal befüllbares Dashboard — keine Server-Personalisierung/Stats.
       return [
         (
           ABSStartShelfLocalization.homeBrowseContinueSectionID,
@@ -2418,20 +2430,13 @@ final class AppModel: ObservableObject {
         )
       ]
     }
-    var rows: [(category: String, label: String)] = [
+    guard isAnyHomeBrowseContinueShelfEnabled else { return [] }
+    return [
       (
-        ABSStartShelfLocalization.homeBrowseStatsSectionID,
-        ABSStartShelfLocalization.homeBrowseStatsStripLabel
+        ABSStartShelfLocalization.homeBrowseContinueSectionID,
+        ABSStartShelfLocalization.homeBrowseContinueStripLabel
       )
     ]
-    if isAnyHomeBrowseContinueShelfEnabled {
-      rows.append(
-        (
-          ABSStartShelfLocalization.homeBrowseContinueSectionID,
-          ABSStartShelfLocalization.homeBrowseContinueStripLabel
-        ))
-    }
-    return rows
   }
 
   var homeBrowseStripCategoryIDs: [String] {
@@ -2470,17 +2475,15 @@ final class AppModel: ObservableObject {
   func selectHomeBrowseSection(_ category: String) {
     guard homeBrowseStripCategoryIDs.contains(category) else { return }
     homeBrowseCategory = category
-    // Stats nur für die Session — Kaltstart beginnt immer bei Continue.
-    if !ABSStartShelfLocalization.isHomeBrowseStatsCategory(category) {
-      UserDefaults.standard.set(category, forKey: Keys.homeBrowseCategory)
-    }
+    UserDefaults.standard.set(category, forKey: Keys.homeBrowseCategory)
   }
 
   func clampHomeBrowseSectionIfNeeded() {
-    // Frühere eigene Pills (Continue-Unterregale, Recent, Recommended, …) → Continue.
+    // Frühere eigene Pills (Continue-Unterregale, Recent, Recommended, Stats, …) → Dashboard.
     let mapsIntoContinue =
       ABSStartShelfLocalization.isHomeBrowseContinueCategory(homeBrowseCategory)
       || ABSStartShelfLocalization.isHomeBrowseRecentCategory(homeBrowseCategory)
+      || ABSStartShelfLocalization.isHomeBrowseStatsCategory(homeBrowseCategory)
       || homeBrowseCategory == ABSStartShelfLocalization.homeBrowseRecentSectionID
       || startSettingsCategoryList.contains(where: { $0.category == homeBrowseCategory })
     if mapsIntoContinue {
@@ -3109,8 +3112,17 @@ final class AppModel: ObservableObject {
   /// nutzt den bereits synchronisierten lokalen Katalog (Genres, Serien, Autoren, Cover) statt der schlanken
   /// `download.json`-Stubs, sofern der Titel noch im lokalen Katalog bekannt ist.
   private func downloadedAudiobooksWithFullMetadata() -> [ABSBook] {
+    if let cached = cachedDownloadedAudiobooksFullMetadata,
+      cachedDownloadedAudiobooksFullMetadataToken == downloadedAudiobooksFullMetadataGeneration
+    {
+      return cached
+    }
     let catalogById = Dictionary(
       mergedLocalCatalogBooks().map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    let shelfById = Dictionary(
+      downloadedShelfBooks.map { ($0.id, $0) },
       uniquingKeysWith: { first, _ in first }
     )
     var out: [ABSBook] = []
@@ -3118,10 +3130,15 @@ final class AppModel: ObservableObject {
     for storageId in downloadedItemIds.sorted() {
       if let full = catalogById[storageId] {
         out.append(full)
-      } else if let stub = audiobookForDownloadedStorageId(storageId) {
+        continue
+      }
+      // Shelf-Stub ohne erneutes Manifest-I/O; `audiobookForDownloadedStorageId` nur als Fallback.
+      if let stub = shelfById[storageId] ?? audiobookForDownloadedStorageId(storageId) {
         out.append(stub)
       }
     }
+    cachedDownloadedAudiobooksFullMetadata = out
+    cachedDownloadedAudiobooksFullMetadataToken = downloadedAudiobooksFullMetadataGeneration
     return out
   }
 
@@ -4484,6 +4501,8 @@ final class AppModel: ObservableObject {
     player.tearDownPlayer()
     downloadedShelfBooks = []
     downloadedItemIds = []
+    downloadStorageIdByLibraryItemId = [:]
+    invalidateDownloadedAudiobooksFullMetadataCache()
     isRestoringLaunchPlayback = false
     isPreparingPlayback = false
     libraryEntityDetailNav = nil
@@ -7858,7 +7877,7 @@ final class AppModel: ObservableObject {
     case .library:
       mediaCatalogKind = .audiobooks
       libraryEntityDetailNav = nav
-    case .settings:
+    case .settings, .stats:
       break
     case .search:
       mediaCatalogKind = .audiobooks
