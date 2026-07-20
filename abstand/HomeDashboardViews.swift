@@ -175,24 +175,22 @@ struct StartDashboardView: View {
       }
     } else {
       // Alle anderen Settings-Regale: Cover-only horizontale Scroll-Reihen (wie Library „Cover only“).
-      VStack(alignment: .leading, spacing: AppTheme.Layout.homeTitleToContentSpacing) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
         TabContentSectionTitle(title: shelf.displayTitle)
-        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          if shelf.hasBooks {
-            HomeCoverOnlyBooksCarousel(
-              books: shelf.books,
-              usesEbookProgressDisplay: shelf.category == "continueEbooks"
-            )
-          }
-          if shelf.hasSeries {
-            HomeCoverOnlySeriesCarousel(series: shelf.series)
-          }
-          if shelf.hasAuthors {
-            HomeCoverOnlyAuthorsCarousel(authors: shelf.authors)
-          }
-          if shelf.hasPodcastEpisodes {
-            HomeCoverOnlyPodcastEpisodesCarousel(episodes: shelf.podcastEpisodes)
-          }
+        if shelf.hasBooks {
+          HomeCoverOnlyBooksCarousel(
+            books: shelf.books,
+            usesEbookProgressDisplay: shelf.category == "continueEbooks"
+          )
+        }
+        if shelf.hasSeries {
+          HomeCoverOnlySeriesCarousel(series: shelf.series)
+        }
+        if shelf.hasAuthors {
+          HomeCoverOnlyAuthorsCarousel(authors: shelf.authors)
+        }
+        if shelf.hasPodcastEpisodes {
+          HomeCoverOnlyPodcastEpisodesCarousel(episodes: shelf.podcastEpisodes)
         }
       }
     }
@@ -203,7 +201,7 @@ struct StartDashboardView: View {
     title: String,
     authors: [ABSAuthorShelfEntity]
   ) -> some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.homeTitleToContentSpacing) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title: title)
       HomeCoverOnlyAuthorsCarousel(authors: authors)
     }
@@ -241,7 +239,7 @@ struct StartDashboardView: View {
 
   @ViewBuilder
   private func startDashboardContinueListeningSection(_ shelf: ABSStartShelfSection) -> some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.homeTitleToContentSpacing) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title: shelf.displayTitle)
       ContinueListeningHeroCarousel(shelf: shelf)
     }
