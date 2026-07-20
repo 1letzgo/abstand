@@ -147,8 +147,10 @@ struct StartDashboardView: View {
     if shelves.isEmpty {
       startDashboardSectionEmptyState(category: ABSStartShelfLocalization.homeBrowseContinueSectionID)
     } else {
-      ForEach(shelves) { shelf in
-        startDashboardShelfContent(shelf)
+      VStack(alignment: .leading, spacing: AppTheme.Layout.homeSectionSpacing) {
+        ForEach(shelves) { shelf in
+          startDashboardShelfContent(shelf)
+        }
       }
     }
   }
