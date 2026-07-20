@@ -108,6 +108,8 @@ enum AppTheme {
     static let tabTitleToHeaderBlockSpacing: CGFloat = 16
     /// Zwischen Hauptblöcken (Regale, Suchbereich ↔ Liste) — wie Home `LazyVStack`.
     static let sectionSpacing: CGFloat = 22
+    /// Home-Dashboard: Abstand zwischen Kategorie-Regalen (etwas großzügiger als `sectionSpacing`).
+    static let homeSectionSpacing: CGFloat = 32
     /// Kategoriezeile ↔ erste Zeile / Karten innerhalb eines Blocks.
     /// Etwas Luft für Karten-Schatten zwischen Zeilen/Blöcken.
     static let withinSectionSpacing: CGFloat = 14
@@ -188,7 +190,7 @@ enum AppTheme {
     /// Höhe der Play-/Read-Pille (Capsule inkl. Innen-Padding).
     static let continueHeroMetadataPlayPillIntrinsicHeight: CGFloat = 34
     /// Abstand unter der Play-/Read-Pille (Continue Listening + Library-Cover-Karten).
-    static let continueHeroMetadataExtraBottomPadding: CGFloat = 10
+    static let continueHeroMetadataExtraBottomPadding: CGFloat = 16
     /// Fester Textblock unter dem Cover — alle Continue-Hero-Karten gleich hoch.
     static let continueHeroMetadataBlockHeight: CGFloat =
       continueHeroMetadataVerticalPadding
