@@ -95,67 +95,41 @@ struct StartDashboardView: View {
 
   private var startDashboardOnlineLayout: some View {
     let isRestoringContinue = model.isHomeContinueRestoreInProgress
-    let stripIDs = model.homeBrowseStripCategoryIDs
-    let layoutSectionIDs =
-      stripIDs.isEmpty
-      ? [ABSStartShelfLocalization.homeBrowseContinueSectionID]
-      : stripIDs
-    // Offline nur noch Dashboard — Strip mit einer Pill ausblenden.
-    let showsBrowseStrip =
-      !isRestoringContinue && !(model.offlineHomeUIActive && stripIDs.count <= 1)
+    let continueID = ABSStartShelfLocalization.homeBrowseContinueSectionID
+    // Kein Browse-Menü mehr — Stats ist eigener Tab; Home zeigt nur Dashboard-Inhalte.
     return AbstandFixedBrowseStripSectionsLayout(
-      showsStrip: showsBrowseStrip,
+      showsStrip: false,
       bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
-      selection: model.homeBrowseCategory,
-      sectionIDs: layoutSectionIDs,
+      selection: continueID,
+      sectionIDs: [continueID],
       scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
         + model.nowPlayingAccessoryScrollBottomInset,
       topScrollEdgeEffectStyle: .soft,
       onRefresh: { await model.refreshStartTabPullToRefresh() }
     ) {
-      if isRestoringContinue || stripIDs.isEmpty || !showsBrowseStrip {
-        homeBrowseStripBootstrapPlaceholder
-      } else {
-        homeBrowseSectionStrip
-      }
-    } sectionBody: { category in
+      Color.clear
+        .frame(maxWidth: .infinity)
+        .accessibilityHidden(true)
+    } sectionBody: { _ in
       if isRestoringContinue {
         homeBrowseContentBootstrapPlaceholder
-      } else if stripIDs.isEmpty {
+      } else if !model.isAnyHomeBrowseContinueShelfEnabled {
         startDashboardAllShelvesDisabledState
           .frame(maxWidth: .infinity)
       } else {
-        startDashboardSectionScrollContent(category: category)
+        startDashboardContinueCombinedContent()
       }
     }
-    .onAppear { model.clampHomeBrowseSectionIfNeeded() }
+    .onAppear {
+      model.homeBrowseCategory = continueID
+      model.clampHomeBrowseSectionIfNeeded()
+    }
     .onChange(of: model.startDisabledCategories) { _, _ in
       model.clampHomeBrowseSectionIfNeeded()
     }
     .onChange(of: model.startSettingsCategoryList.count) { _, _ in
       model.clampHomeBrowseSectionIfNeeded()
     }
-  }
-
-  private var homeBrowseSectionStrip: some View {
-    AbstandBrowseStripIconMenu(
-      items: model.homeBrowseStripRows.map { row in
-        AbstandBrowseStripItem(
-          id: row.category,
-          label: row.label,
-          systemImage: ABSStartShelfLocalization.stripSystemImage(category: row.category)
-        )
-      },
-      selectionID: model.homeBrowseCategory,
-      onSelect: { model.selectHomeBrowseSection($0) }
-    )
-  }
-
-  /// Leerer Strip bis Regale da sind — gleiche Layout-Höhe wie echter Strip (kein Nav-Bar-Relayout).
-  private var homeBrowseStripBootstrapPlaceholder: some View {
-    Color.clear
-      .frame(maxWidth: .infinity)
-      .accessibilityHidden(true)
   }
 
   /// Hält den Home-Inhalt kurz leer, bis alle lokal rekonstruierten Continue-Regale atomar vorliegen.
@@ -165,20 +139,6 @@ struct StartDashboardView: View {
       .accessibilityHidden(true)
   }
 
-  private func startDashboardSectionScrollContent(category: String) -> some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-      if category == ABSStartShelfLocalization.homeBrowseContinueSectionID {
-        startDashboardContinueCombinedContent()
-      } else if category == ABSStartShelfLocalization.homeBrowseRecentSectionID {
-        startDashboardRecentCombinedContent()
-      } else if let shelf = model.startShelf(forCategory: category) {
-        startDashboardShelfContent(shelf)
-      } else {
-        startDashboardSectionEmptyState(category: category)
-      }
-    }
-  }
-
   @ViewBuilder
   private func startDashboardContinueCombinedContent() -> some View {
     let shelves = model.startShelves(
@@ -186,21 +146,6 @@ struct StartDashboardView: View {
     ).filter(startDashboardShelfHasVisibleContent)
     if shelves.isEmpty {
       startDashboardSectionEmptyState(category: ABSStartShelfLocalization.homeBrowseContinueSectionID)
-    } else {
-      ForEach(shelves) { shelf in
-        startDashboardShelfContent(shelf)
-      }
-    }
-  }
-
-  @ViewBuilder
-  private func startDashboardRecentCombinedContent() -> some View {
-    // Legacy-Route: frühere „Recent“-Pill — Inhalte erscheinen unter Continue als Cover-Reihen.
-    let shelves = model.startShelves(
-      forHomeBrowseSection: ABSStartShelfLocalization.homeBrowseRecentSectionID
-    ).filter(startDashboardShelfHasVisibleContent)
-    if shelves.isEmpty {
-      startDashboardSectionEmptyState(category: ABSStartShelfLocalization.homeBrowseRecentSectionID)
     } else {
       ForEach(shelves) { shelf in
         startDashboardShelfContent(shelf)
