@@ -112,7 +112,7 @@ enum AppTheme {
     static let homeSectionSpacing: CGFloat = 32
     /// Kategoriezeile ↔ erste Zeile / Karten innerhalb eines Blocks.
     /// Etwas Luft für Karten-Schatten zwischen Zeilen/Blöcken.
-    static let withinSectionSpacing: CGFloat = 8
+    static let withinSectionSpacing: CGFloat = 10
     /// Buch-/Folgen-Detail: Titelblock → Play.
     static let detailPlayButtonTopPadding: CGFloat = 10
     /// Buch-/Folgen-Detail: Play → Metadaten (ohne Trennlinie).
