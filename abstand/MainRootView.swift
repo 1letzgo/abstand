@@ -26,7 +26,7 @@ struct MainRootView: View {
     .onAppear {
       activatedTabs.insert(model.mainTab)
       if model.shouldPrewarmSecondaryTabs {
-        activatedTabs.formUnion([.library, .settings])
+        activatedTabs.formUnion([.library, .stats, .settings])
       }
     }
     .fullScreenCover(item: $model.ebookReaderSession) { session in
@@ -59,7 +59,7 @@ struct MainRootView: View {
     }
     .onChange(of: model.shouldPrewarmSecondaryTabs) { _, prewarm in
       guard prewarm else { return }
-      activatedTabs.formUnion([.library, .settings])
+      activatedTabs.formUnion([.library, .stats, .settings])
     }
     .onChange(of: model.ebookReaderSession?.libraryItemId) { _, newId in
       if newId == nil {
@@ -142,6 +142,12 @@ struct MainRootView: View {
       Tab(AppModel.MainTab.library.rawValue, systemImage: "books.vertical", value: AppModel.MainTab.library) {
         lazyTabContent(.library) {
           mediaTabRoot
+        }
+      }
+
+      Tab(AppModel.MainTab.stats.rawValue, systemImage: "chart.bar.fill", value: AppModel.MainTab.stats) {
+        lazyTabContent(.stats) {
+          StatsTabRootView()
         }
       }
 
@@ -1272,24 +1278,30 @@ private struct LibraryRowCollapsedMetaLine: View {
   let label: String
   let value: String?
   var valueLineLimit: Int = 2
+  /// Continue-Hero: lesbare Farben auf Cover-Tint statt Palette.
+  var labelColor: Color? = nil
+  var valueColor: Color? = nil
 
   var body: some View {
     let palette = model.appearancePalette
+    let resolvedLabel = labelColor ?? palette.textSecondary
+    let resolvedValue = valueColor ?? palette.textPrimary
+    let resolvedEmpty = labelColor ?? palette.textSecondary
     HStack(alignment: .firstTextBaseline, spacing: 6) {
       Text(label)
         .font(.footnote.weight(.semibold))
-        .foregroundStyle(palette.textSecondary)
+        .foregroundStyle(resolvedLabel)
         .textCase(.uppercase)
       let line = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       if line.isEmpty || line == "—" {
         Text("—")
           .font(.footnote)
-          .foregroundStyle(palette.textSecondary)
+          .foregroundStyle(resolvedEmpty)
           .frame(maxWidth: .infinity, alignment: .leading)
       } else {
         Text(line)
           .font(.footnote)
-          .foregroundStyle(palette.textPrimary)
+          .foregroundStyle(resolvedValue)
           .lineLimit(valueLineLimit)
           .minimumScaleFactor(0.88)
           .multilineTextAlignment(.leading)
@@ -1356,12 +1368,18 @@ struct ContinueListeningHeroMetadataBlock: View {
   var onTitleTap: () -> Void = {}
   var includesBottomPadding: Bool = false
   var blockHeight: CGFloat
+  /// Cover-Tint der Karte — steuert lesbare Titel-/Author-Farben.
+  var cardTint: Color? = nil
 
   var body: some View {
+    let readable = cardTint.map { model.appearancePalette.readableTextOnTintedCard($0) }
+    let titleColor = readable?.primary ?? model.appearancePalette.textPrimary
+    let labelColor = readable?.secondary
+    let valueColor = readable?.primary
     VStack(alignment: .leading, spacing: AppTheme.Layout.continueHeroMetadataTitleDetailSpacing) {
       Text(title)
         .font(.headline.weight(.semibold))
-        .foregroundStyle(model.appearancePalette.textPrimary)
+        .foregroundStyle(titleColor)
         .lineLimit(2)
         .multilineTextAlignment(.leading)
         .minimumScaleFactor(0.85)
@@ -1375,13 +1393,19 @@ struct ContinueListeningHeroMetadataBlock: View {
         .contentShape(Rectangle())
         .onTapGesture { onTitleTap() }
 
-      LibraryRowCollapsedMetaLine(label: detailLabel, value: detailValue, valueLineLimit: 1)
-        .frame(
-          maxWidth: .infinity,
-          minHeight: detailFixedHeight,
-          maxHeight: detailFixedHeight,
-          alignment: .topLeading
-        )
+      LibraryRowCollapsedMetaLine(
+        label: detailLabel,
+        value: detailValue,
+        valueLineLimit: 1,
+        labelColor: labelColor,
+        valueColor: valueColor
+      )
+      .frame(
+        maxWidth: .infinity,
+        minHeight: detailFixedHeight,
+        maxHeight: detailFixedHeight,
+        alignment: .topLeading
+      )
     }
     .padding(.horizontal, horizontalInset)
     .padding(.top, AppTheme.Layout.continueHeroMetadataVerticalPadding)
@@ -1403,6 +1427,7 @@ struct ContinueListeningHeroTextBlock<Pill: View>: View {
   let detailValue: String
   let horizontalInset: CGFloat
   var onTitleTap: () -> Void = {}
+  var cardTint: Color? = nil
   @ViewBuilder private let playPill: () -> Pill
 
   private var titleDetailHeight: CGFloat {
@@ -1425,6 +1450,7 @@ struct ContinueListeningHeroTextBlock<Pill: View>: View {
     detailValue: String,
     horizontalInset: CGFloat,
     onTitleTap: @escaping () -> Void = {},
+    cardTint: Color? = nil,
     @ViewBuilder playPill: @escaping () -> Pill
   ) {
     self.title = title
@@ -1432,6 +1458,7 @@ struct ContinueListeningHeroTextBlock<Pill: View>: View {
     self.detailValue = detailValue
     self.horizontalInset = horizontalInset
     self.onTitleTap = onTitleTap
+    self.cardTint = cardTint
     self.playPill = playPill
   }
 
@@ -1443,7 +1470,8 @@ struct ContinueListeningHeroTextBlock<Pill: View>: View {
         detailValue: detailValue,
         horizontalInset: horizontalInset,
         onTitleTap: onTitleTap,
-        blockHeight: titleDetailHeight
+        blockHeight: titleDetailHeight,
+        cardTint: cardTint
       )
 
       playPill()
@@ -2328,7 +2356,8 @@ struct ContinueListeningHeroBookCard: View {
         detailLabel: "Author",
         detailValue: continueHeroAuthorSingleLine(for: book),
         horizontalInset: coverInset,
-        onTitleTap: { showDetail = true }
+        onTitleTap: { showDetail = true },
+        cardTint: tint
       ) {
         continueHeroPlayPill(
           accent: model.appearanceAccentColor,
@@ -2517,7 +2546,8 @@ struct ContinueListeningHeroPodcastCard: View {
           return s.isEmpty ? "—" : s
         }(),
         horizontalInset: coverInset,
-        onTitleTap: { showDetail = true }
+        onTitleTap: { showDetail = true },
+        cardTint: tint
       ) {
         continueHeroPlayPill(
           accent: model.appearanceAccentColor,
@@ -4255,7 +4285,7 @@ struct BooksEntityDetailNavigationModifier: ViewModifier {
         get: { model.homeEntityDetailNav },
         set: { model.homeEntityDetailNav = $0 }
       )
-    case .settings:
+    case .settings, .stats:
       Binding.constant(nil)
     case .search:
       Binding(

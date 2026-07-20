@@ -303,6 +303,26 @@ struct AppColorPalette: Equatable {
     }
     return .white
   }
+
+  /// Primär-/Sekundärtext auf Cover-getönten Continue-Karten (stärkerer Tint als Detail).
+  func readableTextOnTintedCard(_ tint: Color) -> (primary: Color, secondary: Color) {
+    guard let rgb = Self.rgbComponents(from: tint) else {
+      return (textPrimary, textSecondary)
+    }
+    let lum = Self.relativeLuminance(r: rgb.r, g: rgb.g, b: rgb.b)
+    if lum > 0.48 {
+      // Helle/kräftige Tönung → dunkle Schrift.
+      return (
+        Color(red: 22 / 255, green: 22 / 255, blue: 24 / 255),
+        Color(red: 70 / 255, green: 70 / 255, blue: 78 / 255)
+      )
+    }
+    // Dunkle Tönung → helle Schrift (sekundär etwas weicher).
+    return (
+      Color.white,
+      Color.white.opacity(0.78)
+    )
+  }
 }
 
 /// Akzentfarbe pro Paletten-Familie (Dark vs. Light); System nutzt aufgelöst Dark oder Light.

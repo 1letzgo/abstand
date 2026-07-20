@@ -135,12 +135,6 @@ struct StartDashboardView: View {
     .onChange(of: model.startSettingsCategoryList.count) { _, _ in
       model.clampHomeBrowseSectionIfNeeded()
     }
-    .task(id: model.homeBrowseCategory) {
-      guard ABSStartShelfLocalization.isHomeBrowseStatsCategory(model.homeBrowseCategory) else { return }
-      guard !model.offlineHomeUIActive else { return }
-      model.prepareListeningAchievementsForStatsTab()
-      await model.loadListeningStats()
-    }
   }
 
   private var homeBrowseSectionStrip: some View {
@@ -173,9 +167,7 @@ struct StartDashboardView: View {
 
   private func startDashboardSectionScrollContent(category: String) -> some View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-      if ABSStartShelfLocalization.isHomeBrowseStatsCategory(category) {
-        HomeListeningStatsSectionView()
-      } else if category == ABSStartShelfLocalization.homeBrowseContinueSectionID {
+      if category == ABSStartShelfLocalization.homeBrowseContinueSectionID {
         startDashboardContinueCombinedContent()
       } else if category == ABSStartShelfLocalization.homeBrowseRecentSectionID {
         startDashboardRecentCombinedContent()
