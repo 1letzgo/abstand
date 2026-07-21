@@ -1329,6 +1329,21 @@ final class AppModel: ObservableObject {
         self?.objectWillChange.send()
       }
       .store(in: &cancellables)
+    // Detail-Play-Button (Play ↔ Pause) — kein CurrentTime-Tick, nur Zustand.
+    player.$isPlaying
+      .removeDuplicates()
+      .receive(on: RunLoop.main)
+      .sink { [weak self] _ in
+        self?.objectWillChange.send()
+      }
+      .store(in: &cancellables)
+    player.$activePlaybackEpisodeId
+      .removeDuplicates()
+      .receive(on: RunLoop.main)
+      .sink { [weak self] _ in
+        self?.objectWillChange.send()
+      }
+      .store(in: &cancellables)
 
     // Download-Fortschritt nur gedrosselt — Karten nutzen `LibraryRowLiveState` direkt.
     downloads.$activeItemId
@@ -3142,7 +3157,8 @@ final class AppModel: ObservableObject {
     return out
   }
 
-  private func isActivelyPlayingMedia(libraryItemId: String, episodeId: String?) -> Bool {
+  /// `true`, wenn genau dieses Medium (Hörbuch ohne Episode bzw. Podcast-Folge) im Player geladen ist.
+  func isActivelyPlayingMedia(libraryItemId: String, episodeId: String?) -> Bool {
     guard let active = player.activeBook, active.id == libraryItemId else { return false }
     let activeEp = player.activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let wantEp = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

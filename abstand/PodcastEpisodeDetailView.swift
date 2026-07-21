@@ -313,6 +313,11 @@ struct PodcastEpisodeDetailView: View {
     let subtitle = trimmedMetaValue(d.subtitle)
     let publishedLine = episodePublishedDateLabel(d.pubDate)
     let categories = resolvedCategories(d)
+    let isCurrentInPlayer = model.isActivelyPlayingMedia(
+      libraryItemId: episode.libraryItemId,
+      episodeId: episode.episodeId
+    )
+    let showsPause = isCurrentInPlayer && model.player.isPlaying
 
     return VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
       DetailHeroActionsBar(
@@ -329,16 +334,22 @@ struct PodcastEpisodeDetailView: View {
                 confirmMarkEpisodeFinished = true
               }
             },
-            kind: .play,
+            kind: showsPause ? .pause : .play,
             progress01: episodePlayProgress01,
             isFinished: isFinished,
             primaryEnabled: true,
             onPrimary: {
-              Task {
-                await model.playPodcastEpisode(
-                  episode,
-                  resumeAtOverride: isFinished ? 0 : nil
-                )
+              if isCurrentInPlayer && model.player.isPlaying {
+                model.player.pause()
+              } else if isCurrentInPlayer && !isFinished {
+                model.player.play()
+              } else {
+                Task {
+                  await model.playPodcastEpisode(
+                    episode,
+                    resumeAtOverride: isFinished ? 0 : nil
+                  )
+                }
               }
             }
           ),
