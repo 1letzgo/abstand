@@ -490,6 +490,8 @@ struct BookDetailView: View {
   ) -> [DetailHeroMediaAction] {
     var actions: [DetailHeroMediaAction] = []
     if d.isPlayableAudiobook {
+      let isCurrentInPlayer = model.isActivelyPlayingMedia(libraryItemId: d.id, episodeId: nil)
+      let showsPause = isCurrentInPlayer && model.player.isPlaying
       actions.append(
         DetailHeroMediaAction(
           id: "play",
@@ -503,17 +505,23 @@ struct BookDetailView: View {
               confirmMarkBookFinished = true
             }
           },
-          kind: .play,
+          kind: showsPause ? .pause : .play,
           progress01: bookPlayProgress01,
           isFinished: isListenFinished,
           primaryEnabled: !model.isPreparingEbook,
           onPrimary: {
-            Task {
-              await model.play(
-                book: d,
-                resumeAtOverride: isListenFinished ? 0 : nil,
-                autoPlay: true
-              )
+            if isCurrentInPlayer && model.player.isPlaying {
+              model.player.pause()
+            } else if isCurrentInPlayer && !isListenFinished {
+              model.player.play()
+            } else {
+              Task {
+                await model.play(
+                  book: d,
+                  resumeAtOverride: isListenFinished ? 0 : nil,
+                  autoPlay: true
+                )
+              }
             }
           }
         )

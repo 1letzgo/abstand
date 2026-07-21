@@ -456,11 +456,13 @@ struct DetailHeroPrimaryButton: View {
 
   enum Kind {
     case play
+    case pause
     case read
 
     var systemImage: String {
       switch self {
       case .play: "play.fill"
+      case .pause: "pause.fill"
       case .read: "book.closed.fill"
       }
     }
@@ -468,6 +470,7 @@ struct DetailHeroPrimaryButton: View {
     var title: String {
       switch self {
       case .play: "Play"
+      case .pause: "Pause"
       case .read: "Read"
       }
     }
@@ -475,6 +478,7 @@ struct DetailHeroPrimaryButton: View {
     var accessibilityLabel: String {
       switch self {
       case .play: "Play"
+      case .pause: "Pause"
       case .read: "Read eBook"
       }
     }
@@ -483,7 +487,7 @@ struct DetailHeroPrimaryButton: View {
       if isFinished { return "Finished" }
       if isEmpty { return "Not started" }
       switch self {
-      case .play:
+      case .play, .pause:
         return "\(Int(fillAmount * 100)) percent listened"
       case .read:
         return "\(Int(fillAmount * 100)) percent read"
@@ -607,7 +611,7 @@ struct DetailHeroPrimaryButton: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(kind.accessibilityLabel)
     .accessibilityValue(progressAccessibilityLabel)
-    .accessibilityHint(isFinished ? "Starts from the beginning" : "")
+    .accessibilityHint(isFinished && kind == .play ? "Starts from the beginning" : "")
   }
 }
 
