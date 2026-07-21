@@ -1,0 +1,4 @@
+{
+  "summary": "Im Library-Horizontalmenü die zwei getrennten Audiobooks/Podcasts-Chips durch einen kompakten Zweiseiten-Umschalter (AbstandExpandingDockBinarySwitch) ersetzt; Theme-Konstanten ergänzt, VoiceOver als Toggle mit Adjustable-Action, Build erfolgreich.",
+  "current_status": "Library-Browse-Strip zeigt bei verfügbarer Bücher- und Podcast-Bibliothek einen Icon-Umschalter statt zweier Buttons; Sekundär-Strip (Browse/Shows) unverändert."
+}

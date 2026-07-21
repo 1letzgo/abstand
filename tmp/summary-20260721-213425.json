@@ -1,0 +1,4 @@
+{
+  "summary": "Trenner zwischen Media-Umschalter und Browse-Strip entfernt; Navigationstitel der Library-Shells zeigt jetzt mediaCatalogKind (Audiobooks/Podcasts) statt festem „Library“.",
+  "current_status": "Library-Leiste: kompakter Icon-Umschalter ohne Divider; Seitentitel wechselt mit der Auswahl zwischen Audiobooks und Podcasts."
+}

@@ -69,6 +69,9 @@ enum AppTheme {
     static let activeTrailingPadding: CGFloat = 18
     static let iconLabelSpacing: CGFloat = 9
     static let centerWhenFewThreshold = 4
+    /// Zweiseitiger Media-Kind-Umschalter (Audiobooks ↔ Podcasts) in der Library-Leiste.
+    static let binarySwitchInnerPadding: CGFloat = 4
+    static let binarySwitchSegmentWidth: CGFloat = 42
 
     static let selectionAnimation = Animation.spring(response: 0.32, dampingFraction: 0.72)
 
