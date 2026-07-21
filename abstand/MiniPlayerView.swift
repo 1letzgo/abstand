@@ -1226,7 +1226,6 @@ struct NowPlayingDetailView: View {
 
   @State private var readAlongDownloadWarningPresented = false
   @State private var isRecapActive = false
-  @State private var isGeneratingRecap = false
   @State private var chromeSnapshot = FullPlayerChromeSnapshot.empty
   @State private var activeBook: ABSBook?
   @State private var isTeleprompterActive = false
@@ -1403,7 +1402,6 @@ struct NowPlayingDetailView: View {
       .onReceive(model.$downloadedItemIds) { _ in refreshChromeSnapshot() }
       .onReceive(player.liveTranscription.objectWillChange.receive(on: DispatchQueue.main)) { _ in
         isTeleprompterActive = player.liveTranscription.isTeleprompterModeActive
-        isGeneratingRecap = player.liveTranscription.isGeneratingRecap
       }
   }
 
@@ -2149,27 +2147,28 @@ struct NowPlayingDetailView: View {
       FullPlayerCoverOverlayButton(
         systemName: "sparkles",
         isActive: isRecapActive,
-        isBusy: isGeneratingRecap,
         isEnabled: transcription.canGenerateRecap,
-        accessibilityLabel: String(
-          localized: "Recap of the last 5 minutes", comment: "Accessibility")
+        accessibilityLabel: isRecapActive
+          ? String(localized: "Hide recap", comment: "Accessibility")
+          : String(localized: "Recap of the last 5 minutes", comment: "Accessibility")
       ) {
         guard isDownloadReady else {
           readAlongDownloadWarningPresented = true
           return
         }
+        // Sofort umschalten wie Chapters/Teleprompter — Fortschritt nur in der Karte.
         if isRecapActive {
           isRecapActive = false
           return
         }
+        isRecapActive = true
+        coverPanel = .artwork
         Task { @MainActor in
           // Die Teleprompter-Card hat im Header Vorrang. Zuerst ihre Session beenden,
           // sonst bleibt sie trotz aktivem Recap-Flag sichtbar.
           if transcription.isTeleprompterModeActive {
             await transcription.disable()
           }
-          isRecapActive = true
-          coverPanel = .artwork
           await transcription.generateRecap(player: player)
         }
       }

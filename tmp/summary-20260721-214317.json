@@ -1,0 +1,4 @@
+{
+  "summary": "Recap-Überschrift an Chapters-Stil angeglichen (caption/bold/uppercase); Recap-Button ohne Spinner, sofortiges Toggle wie andere Panel-Buttons; Loading bleibt in der Karte; canGenerateRecap sperrt nicht mehr während der Generierung.",
+  "current_status": "Miniplayer-Recap optisch und im Button-Verhalten an Chapters/Teleprompter angeglichen; Library-Umschalter aus vorherigem Turn unverändert."
+}

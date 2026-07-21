@@ -163,8 +163,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   /// Sprache der laufenden Transkription (für Wort-Übersetzung).
   var transcriptionLocale: Locale? { activeContext?.locale }
-  /// Nur aktivierbar, wenn Apple Intelligence verfügbar ist und nicht bereits läuft.
-  var canGenerateRecap: Bool { !isGeneratingRecap && SystemLanguageModel.default.availability == .available }
+  /// Nur aktivierbar, wenn Apple Intelligence verfügbar ist.
+  var canGenerateRecap: Bool { SystemLanguageModel.default.availability == .available }
 
   private var finalizedWords: [PlayerTranscriptWord] = []
   private var recapBookId: String?
