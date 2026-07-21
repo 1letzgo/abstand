@@ -10,12 +10,10 @@
 		37RD0B12FBA41D6001BFF73 /* ReadiumShared in Frameworks */ = {isa = PBXBuildFile; productRef = 37RD002F9D32F90003D078 /* ReadiumShared */; };
 		37RD0B22FBA41D6001BFF73 /* ReadiumStreamer in Frameworks */ = {isa = PBXBuildFile; productRef = 37RD003F9D32F90003D078 /* ReadiumStreamer */; };
 		37RD0B32FBA41D6001BFF73 /* ReadiumNavigator in Frameworks */ = {isa = PBXBuildFile; productRef = 37RD004F9D32F90003D078 /* ReadiumNavigator */; };
-		ABCD1234ABCD1234ABCD0002 /* DebugLogCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCD1234ABCD1234ABCD0001 /* DebugLogCollector.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		37DCB5012F9D32F90003D078 /* abstand.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = abstand.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		ABCD1234ABCD1234ABCD0001 /* DebugLogCollector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogCollector.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
