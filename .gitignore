@@ -12,6 +12,7 @@ CLAUDE.md
 *.md
 !README.md
 !SKILLS.md
+!docs/plans/**/*.md
 
 # --- Secrets & credentials ---
 .env

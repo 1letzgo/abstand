@@ -11,6 +11,10 @@ struct ABSStoredAccount: Codable, Identifiable, Equatable {
   var booksLibraryId: String?
   var podcastsLibraryId: String?
   var ebooksLibraryId: String?
+  /// Aktive Libraries inkl. Reihenfolge; `nil` = noch nicht migriert (Legacy Books/Podcasts-Slots).
+  var libraryActivations: [LibraryActivationPreference]? = nil
+  /// Zuletzt im Library-Tab fokussierte Library-ID.
+  var focusedLibraryId: String? = nil
   var lastUsedAt: Date
 
   var id: String { accountKey }
