@@ -2105,7 +2105,22 @@ final class AppModel: ObservableObject {
     clampFocusedLibraryToActiveSet()
     syncPodcastsTabVisibilityFromLibraries()
     clampMediaCatalogKindIfNeeded()
-    Task { await loadStartDashboard(force: true) }
+    // Sofort Continue Listening an die aktive Menge anpassen; danach Server-Refresh mit Replace.
+    refreshContinueListeningForActiveLibraries(reloadFromServer: true)
+  }
+
+  /// Continue Listening an `activeLibraries` anpassen (Settings Toggle / Reconcile).
+  func refreshContinueListeningForActiveLibraries(reloadFromServer: Bool) {
+    ensureLocalProgressLoaded()
+    purgeForeignContinueListeningItems()
+    repairContinueListeningShelfFromLocalProgressOnly()
+    applyContinueListeningFinishedFilter()
+    normalizeHomeContinueListeningShelves()
+    persistHomeShelvesToLocalStore()
+    guard reloadFromServer else { return }
+    Task {
+      await loadStartDashboard(force: true, replaceContinueShelves: true)
+    }
   }
 
   func moveLibraryActivation(fromOffsets source: IndexSet, toOffset destination: Int) {
@@ -2563,11 +2578,14 @@ final class AppModel: ObservableObject {
   /// `skipAuthorizeRefresh`: nach frischem `authorize` in Bootstrap/Login — kein zweites `/authorize`.
   /// `force`: Netzwerk-Refresh auch wenn Regale schon da sind (Pull-to-Refresh, Bootstrap, Settings).
   /// `forPullToRefresh`: expliziter Pull — Netz trotz PathMonitor versuchen, Fehler anzeigen.
+  /// `replaceContinueShelves`: Continue Listening neu aus Server/lokalen aktiven Libraries aufbauen
+  /// (z. B. nach Library aktivieren/deaktivieren in Settings).
   @discardableResult
   func loadStartDashboard(
     skipAuthorizeRefresh: Bool = false,
     force: Bool = false,
-    forPullToRefresh: Bool = false
+    forPullToRefresh: Bool = false,
+    replaceContinueShelves: Bool = false
   ) async -> ContinueRefreshAttemptResult {
     ensureLocalProgressLoaded()
 
@@ -2575,6 +2593,8 @@ final class AppModel: ObservableObject {
     if !force, !offlineHomeUIActive, !startShelves.isEmpty {
       return ContinueRefreshAttemptResult()
     }
+
+    let shouldReplaceContinue = forPullToRefresh || replaceContinueShelves
 
     var result = ContinueRefreshAttemptResult()
     var didApplyOnlineStartDashboard = false
@@ -2595,6 +2615,10 @@ final class AppModel: ObservableObject {
     }
     guard let c = client else {
       applyCachedStartDashboard()
+      if replaceContinueShelves {
+        purgeForeignContinueListeningItems()
+        persistHomeShelvesToLocalStore()
+      }
       if forPullToRefresh {
         errorMessage = "Not connected to the server."
       }
@@ -2602,6 +2626,10 @@ final class AppModel: ObservableObject {
     }
     if !forPullToRefresh, !isNetworkReachable {
       applyCachedStartDashboard()
+      if replaceContinueShelves {
+        purgeForeignContinueListeningItems()
+        persistHomeShelvesToLocalStore()
+      }
       return result
     }
     if startShelves.isEmpty {
@@ -2622,12 +2650,12 @@ final class AppModel: ObservableObject {
           ABSAPIClient.parsePersonalizedStartShelves(data: data)
         }.value
         updateStartSettingsCategoryList(parsed: parsed)
-        // `force` nur: Early-Exit umgehen. Continue-Replace nur bei Pull-to-Refresh —
-        // Hintergrund-Refresh bleibt local-first (Merge + lokale Continue-Reading-Regale erhalten).
+        // `force` nur: Early-Exit umgehen. Continue-Replace bei Pull-to-Refresh oder
+        // Library-Aktivierungswechsel — Hintergrund-Refresh bleibt sonst local-first.
         applyOnlineStartDashboard(
           parsed: parsed,
           itemsInProgress: inProgressPacked.payload,
-          replaceContinueShelves: forPullToRefresh
+          replaceContinueShelves: shouldReplaceContinue
         )
         didApplyOnlineStartDashboard = true
         result.appliedOnline = true
@@ -2657,6 +2685,10 @@ final class AppModel: ObservableObject {
       }
       if !forPullToRefresh {
         applyCachedStartDashboard()
+      }
+      if replaceContinueShelves {
+        purgeForeignContinueListeningItems()
+        persistHomeShelvesToLocalStore()
       }
       publishErrorUnlessBenignCancellation(error, forceDisplay: forPullToRefresh)
     }
