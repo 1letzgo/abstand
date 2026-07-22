@@ -653,79 +653,53 @@ struct PodcastCatalogTabShell<Catalog: View>: View {
 
 /// Eigener Leading-Toolbar-Block — nicht mit Trailing-Sort/Filter mischen.
 struct LibraryNavbarPickerToolbar: ToolbarContent {
-  @EnvironmentObject private var model: AppModel
-
   var body: some ToolbarContent {
     ToolbarItem(placement: .topBarLeading) {
-      LibraryNavbarPickerMenu(
-        items: model.activeLibraries.map {
-          LibraryNavbarPickerItem(
-            id: $0.id,
-            name: $0.name,
-            isPodcast: $0.isPodcastLibrary
-          )
-        },
-        selectedId: model.focusedLibrary?.id
-          ?? model.activeLibraries.first?.id
-          ?? "",
-        onSelect: { id in
-          guard let lib = model.activeLibraries.first(where: { $0.id == id }) else { return }
-          model.focusLibrary(lib)
-        }
-      )
-      .equatable()
+      LibraryNavbarPicker()
     }
   }
 }
 
-struct LibraryNavbarPickerItem: Equatable, Identifiable, Hashable {
-  let id: String
-  let name: String
-  let isPodcast: Bool
-
-  var systemImage: String {
-    isPodcast ? "mic.fill" : "books.vertical.fill"
-  }
-}
-
-/// Equatable: kein Re-Render bei unrelated `AppModel`-Updates (verhindert Menü-Flackern).
-struct LibraryNavbarPickerMenu: View, Equatable {
+/// Library-Auswahl oben links in der Navbar (nur Icon der aktiven Library).
+struct LibraryNavbarPicker: View {
+  @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
 
-  let items: [LibraryNavbarPickerItem]
-  let selectedId: String
-  var onSelect: (String) -> Void
+  private var libraries: [ABSLibrary] { model.activeLibraries }
 
-  static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.items == rhs.items && lhs.selectedId == rhs.selectedId
+  private var selected: ABSLibrary? {
+    if let focused = model.focusedLibrary, libraries.contains(where: { $0.id == focused.id }) {
+      return focused
+    }
+    return libraries.first
   }
 
-  private var selected: LibraryNavbarPickerItem? {
-    items.first(where: { $0.id == selectedId }) ?? items.first
+  private var selectedIcon: String {
+    selected?.isPodcastLibrary == true ? "mic.fill" : "books.vertical.fill"
   }
 
   var body: some View {
     Group {
-      if items.count <= 1 {
+      if libraries.count <= 1 {
         Color.clear.frame(width: 0, height: 0)
       } else {
         Menu {
-          ForEach(items) { item in
+          ForEach(libraries) { lib in
             Button {
-              guard item.id != selectedId else { return }
+              guard lib.id != selected?.id else { return }
               UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-              onSelect(item.id)
+              model.focusLibrary(lib)
             } label: {
               Label {
-                Text(item.name)
+                Text(lib.name)
               } icon: {
-                Image(systemName: item.systemImage)
+                Image(systemName: lib.isPodcastLibrary ? "mic.fill" : "books.vertical.fill")
               }
             }
           }
         } label: {
           HStack(spacing: 3) {
-            Image(systemName: selected?.systemImage ?? "books.vertical.fill")
+            Image(systemName: selectedIcon)
               .font(.body.weight(.semibold))
             Image(systemName: "chevron.down")
               .font(.caption2.weight(.bold))
