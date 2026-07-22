@@ -47,11 +47,17 @@ struct AbstandPinnedBrowseStrip<Secondary: View>: View {
   let pinnedItems: [AbstandBrowseStripItem]
   let pinnedSelectionID: String
   let onSelectPinned: (String) -> Void
+  /// Wenn gesetzt: Library-Dropdown statt Binary-Switch (N aktive Libraries).
+  var libraryPickerItems: [AbstandBrowseStripItem] = []
+  var libraryPickerSelectionID: String = ""
+  var onSelectLibrary: ((String) -> Void)? = nil
   @ViewBuilder var secondary: () -> Secondary
 
   var body: some View {
-    // Nur ein pinned item → Umschalter ausblenden, nur den sekundären Strip zeigen.
-    if pinnedItems.count <= 1 {
+    let showsLibraryPicker = onSelectLibrary != nil && libraryPickerItems.count > 1
+    let showsBinarySwitch = !showsLibraryPicker && pinnedItems.count > 1
+
+    if !showsLibraryPicker && !showsBinarySwitch {
       HStack(spacing: 0) {
         secondary()
           .frame(maxWidth: .infinity)
@@ -60,13 +66,23 @@ struct AbstandPinnedBrowseStrip<Secondary: View>: View {
       .abstandThemeRefresh()
     } else {
       HStack(spacing: AppTheme.ExpandingDock.itemSpacing) {
-        AbstandExpandingDockBinarySwitch(
-          items: pinnedItems,
-          selectionID: pinnedSelectionID,
-          onSelect: onSelectPinned
-        )
-        .padding(.leading, AppTheme.ExpandingDock.horizontalPadding)
-        .padding(.vertical, AppTheme.ExpandingDock.verticalPadding)
+        if showsLibraryPicker, let onSelectLibrary {
+          AbstandLibraryPickerMenu(
+            items: libraryPickerItems,
+            selectionID: libraryPickerSelectionID,
+            onSelect: onSelectLibrary
+          )
+          .padding(.leading, AppTheme.ExpandingDock.horizontalPadding)
+          .padding(.vertical, AppTheme.ExpandingDock.verticalPadding)
+        } else {
+          AbstandExpandingDockBinarySwitch(
+            items: pinnedItems,
+            selectionID: pinnedSelectionID,
+            onSelect: onSelectPinned
+          )
+          .padding(.leading, AppTheme.ExpandingDock.horizontalPadding)
+          .padding(.vertical, AppTheme.ExpandingDock.verticalPadding)
+        }
 
         secondary()
           .frame(maxWidth: .infinity)
@@ -74,6 +90,69 @@ struct AbstandPinnedBrowseStrip<Secondary: View>: View {
       }
       .abstandThemeRefresh()
     }
+  }
+}
+
+/// Dropdown zur Auswahl der fokussierten Library im Library-Tab.
+struct AbstandLibraryPickerMenu: View {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
+
+  let items: [AbstandBrowseStripItem]
+  let selectionID: String
+  let onSelect: (String) -> Void
+
+  private var dockColors: AppTheme.ExpandingDock.Colors {
+    let _ = themeRevision
+    return AppTheme.ExpandingDock.Colors(
+      palette: model.appearancePalette,
+      accent: themeAccent
+    )
+  }
+
+  private var selectedItem: AbstandBrowseStripItem? {
+    items.first(where: { $0.id == selectionID }) ?? items.first
+  }
+
+  var body: some View {
+    Menu {
+      ForEach(items) { item in
+        Button {
+          guard item.id != selectionID else { return }
+          UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+          onSelect(item.id)
+        } label: {
+          if item.id == selectionID {
+            Label(item.label, systemImage: item.systemImage)
+          } else {
+            Label(item.label, systemImage: item.systemImage)
+          }
+        }
+      }
+    } label: {
+      HStack(spacing: AppTheme.ExpandingDock.iconLabelSpacing) {
+        Image(systemName: selectedItem?.systemImage ?? "books.vertical")
+          .font(.system(size: AppTheme.ExpandingDock.iconSize, weight: .semibold))
+        Text(selectedItem?.label ?? "Library")
+          .font(.subheadline.weight(.semibold))
+          .lineLimit(1)
+        Image(systemName: "chevron.up.chevron.down")
+          .font(.system(size: 10, weight: .bold))
+      }
+      .foregroundStyle(dockColors.activeForeground)
+      .padding(.horizontal, 14)
+      .frame(height: AppTheme.ExpandingDock.activeHeight)
+      .background {
+        Capsule(style: .continuous)
+          .fill(dockColors.activeBackground)
+          .shadow(color: dockColors.activeShadow.opacity(0.35), radius: 6, x: 0, y: 3)
+      }
+    }
+    .tint(themeAccent)
+    .accessibilityLabel("Library")
+    .accessibilityValue(selectedItem?.label ?? "")
+    .accessibilityHint("Chooses which library to browse")
   }
 }
 

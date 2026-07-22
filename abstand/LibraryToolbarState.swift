@@ -528,13 +528,11 @@ struct BooksLibraryTabShell<Catalog: View>: View {
       catalog()
         .abstandTabScreenChrome()
         .navigationTitle(model.mediaCatalogKind.rawValue)
-        // Inline: Leading-Picker bleibt sichtbar oben links (nicht erst nach Scroll).
-        .toolbarTitleDisplayMode(.inline)
-        // Leading und Trailing getrennt — sonst kann SwiftUI den Picker in die rechte Gruppe ziehen.
+        .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
-          LibraryNavbarPickerToolbar()
-        }
-        .toolbar {
+          ToolbarItem(placement: .topBarLeading) {
+            LibraryNavbarPicker()
+          }
           if model.booksBrowseSection != .search {
             BooksLibraryToolbarContent(toolbarState: toolbarState)
           }
@@ -632,7 +630,7 @@ struct PodcastCatalogTabShell<Catalog: View>: View {
       catalog()
         .abstandTabScreenChrome()
         .navigationTitle(model.mediaCatalogKind.rawValue)
-        .toolbarTitleDisplayMode(.inline)
+        .toolbarTitleDisplayMode(.inlineLarge)
         .navigationDestination(for: PodcastCatalogNavigation.self) { destination in
           switch destination {
           case .addPodcast:
@@ -642,20 +640,11 @@ struct PodcastCatalogTabShell<Catalog: View>: View {
           }
         }
         .toolbar {
-          LibraryNavbarPickerToolbar()
-        }
-        .toolbar {
+          ToolbarItem(placement: .topBarLeading) {
+            LibraryNavbarPicker()
+          }
           PodcastCatalogToolbarContent(toolbarState: toolbarState)
         }
-    }
-  }
-}
-
-/// Eigener Leading-Toolbar-Block — nicht mit Trailing-Sort/Filter mischen.
-struct LibraryNavbarPickerToolbar: ToolbarContent {
-  var body: some ToolbarContent {
-    ToolbarItem(placement: .topBarLeading) {
-      LibraryNavbarPicker()
     }
   }
 }
@@ -675,41 +664,40 @@ struct LibraryNavbarPicker: View {
   }
 
   var body: some View {
-    Group {
-      if libraries.count <= 1 {
-        Color.clear.frame(width: 0, height: 0)
-      } else {
-        Menu {
-          ForEach(libraries) { lib in
-            Button {
-              guard lib.id != selected?.id else { return }
-              UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-              model.focusLibrary(lib)
-            } label: {
-              HStack {
-                Text(lib.name)
-                if lib.id == selected?.id {
-                  Image(systemName: "checkmark")
-                }
+    if libraries.count <= 1 {
+      EmptyView()
+    } else {
+      Menu {
+        ForEach(libraries) { lib in
+          Button {
+            guard lib.id != selected?.id else { return }
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            model.focusLibrary(lib)
+          } label: {
+            Label {
+              Text(lib.name)
+            } icon: {
+              if lib.id == selected?.id {
+                Image(systemName: "checkmark")
+              } else {
+                Image(systemName: lib.isPodcastLibrary ? "mic.fill" : "books.vertical")
               }
             }
           }
-        } label: {
-          HStack(spacing: 4) {
-            Image(systemName: selected?.isPodcastLibrary == true ? "mic.fill" : "books.vertical")
-              .font(.body.weight(.semibold))
-            Text(selected?.name ?? "Library")
-              .font(.body.weight(.semibold))
-              .lineLimit(1)
-            Image(systemName: "chevron.down")
-              .font(.caption2.weight(.bold))
-          }
-          .foregroundStyle(themeAccent)
         }
-        .accessibilityLabel("Library")
-        .accessibilityValue(selected?.name ?? "")
-        .accessibilityHint("Chooses which library to browse")
+      } label: {
+        HStack(spacing: 4) {
+          Text(selected?.name ?? "Library")
+            .font(.body.weight(.semibold))
+            .lineLimit(1)
+          Image(systemName: "chevron.down")
+            .font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(themeAccent)
       }
+      .accessibilityLabel("Library")
+      .accessibilityValue(selected?.name ?? "")
+      .accessibilityHint("Chooses which library to browse")
     }
   }
 }
