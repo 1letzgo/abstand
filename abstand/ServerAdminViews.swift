@@ -140,54 +140,35 @@ private struct SettingsCardToggleRow: View {
   }
 }
 
-/// Settings: alle Server-Libraries aktivieren/deaktivieren und per Drag sortieren (iOS-List-Standard).
-struct SettingsLibrariesView: View {
+/// Settings: alle Server-Libraries aktivieren/deaktivieren und per Drag sortieren.
+private struct SettingsLibrariesActivationList: View {
   @EnvironmentObject private var model: AppModel
 
   var body: some View {
-    Group {
-      if model.libraries.isEmpty {
-        ContentUnavailableView(
-          "No Libraries",
-          systemImage: "books.vertical",
-          description: Text("No libraries on this server.")
+    List {
+      ForEach(model.librariesInActivationOrder) { lib in
+        SettingsCardToggleRow(
+          icon: lib.isPodcastLibrary ? "mic.fill" : "books.vertical.fill",
+          title: lib.name,
+          isOn: Binding(
+            get: { model.isLibraryActivationEnabled(lib.id) },
+            set: { model.setLibraryActivationEnabled(lib.id, enabled: $0) }
+          ),
+          subtitle: lib.isPodcastLibrary ? "Podcasts" : "Books"
         )
-      } else {
-        List {
-          Section {
-            ForEach(model.librariesInActivationOrder) { lib in
-              Toggle(isOn: Binding(
-                get: { model.isLibraryActivationEnabled(lib.id) },
-                set: { model.setLibraryActivationEnabled(lib.id, enabled: $0) }
-              )) {
-                Label {
-                  VStack(alignment: .leading, spacing: 2) {
-                    Text(lib.name)
-                    Text(lib.isPodcastLibrary ? "Podcasts" : "Books")
-                      .font(.caption)
-                      .foregroundStyle(.secondary)
-                  }
-                } icon: {
-                  Image(systemName: lib.isPodcastLibrary ? "mic.fill" : "books.vertical.fill")
-                }
-              }
-              .tint(model.appearanceAccentColor)
-            }
-            .onMove { source, destination in
-              model.moveLibraryActivation(fromOffsets: source, toOffset: destination)
-            }
-          } footer: {
-            Text("Enabled libraries appear in Continue Listening and the Library tab. Drag to change order.")
-          }
-        }
-        .environment(\.editMode, .constant(.active))
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+      }
+      .onMove { source, destination in
+        model.moveLibraryActivation(fromOffsets: source, toOffset: destination)
       }
     }
-    .navigationTitle("Libraries")
-    .toolbarTitleDisplayMode(.inlineLarge)
-    .themeAccentFromAppModel(model)
-    .abstandThemeRefresh()
-    .tint(model.appearanceAccentColor)
+    .listStyle(.plain)
+    .scrollDisabled(true)
+    .frame(minHeight: CGFloat(max(model.librariesInActivationOrder.count, 1)) * 56)
+    .environment(\.editMode, .constant(.active))
+    .padding(.vertical, 4)
   }
 }
 
@@ -831,14 +812,6 @@ struct SettingsAccountView: View {
   @State private var showAddAccount = false
   @State private var accountPendingLogout: ABSStoredAccount?
 
-  private var librariesSettingsSubtitle: String {
-    let total = model.libraries.count
-    guard total > 0 else { return "No libraries on this server" }
-    let active = model.activeLibraries.count
-    if active == total { return "\(total) libraries" }
-    return "\(active) of \(total) enabled"
-  }
-
   var body: some View {
     ServerAdminSection(title: "Accounts") {
       LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
@@ -968,18 +941,16 @@ struct SettingsAccountView: View {
 
     ServerAdminSection(title: "Libraries") {
       LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-        NavigationLink {
-          SettingsLibrariesView()
-        } label: {
-          AbstandGroupedCard {
-            ServerAdminNavRow(
-              icon: "books.vertical.fill",
-              title: "Libraries",
-              subtitle: librariesSettingsSubtitle
-            )
+        AbstandGroupedCard {
+          if model.libraries.isEmpty {
+            Text("No libraries on this server.")
+              .font(.subheadline)
+              .foregroundStyle(model.appearancePalette.textSecondary)
+              .settingsCardCompactRowFrame(alignment: .leading)
+          } else {
+            SettingsLibrariesActivationList()
           }
         }
-        .buttonStyle(.plain)
       }
     }
     .alert("Log out?", isPresented: Binding(

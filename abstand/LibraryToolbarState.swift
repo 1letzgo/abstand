@@ -527,12 +527,9 @@ struct BooksLibraryTabShell<Catalog: View>: View {
     NavigationStack {
       catalog()
         .abstandTabScreenChrome()
-        .navigationTitle(model.mediaCatalogKind.rawValue)
+        .navigationTitle(model.focusedLibrary?.name ?? model.mediaCatalogKind.rawValue)
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
-          ToolbarItem(placement: .topBarLeading) {
-            LibraryNavbarPicker()
-          }
           if model.booksBrowseSection != .search {
             BooksLibraryToolbarContent(toolbarState: toolbarState)
           }
@@ -629,7 +626,7 @@ struct PodcastCatalogTabShell<Catalog: View>: View {
     return NavigationStack(path: $navigationPath) {
       catalog()
         .abstandTabScreenChrome()
-        .navigationTitle(model.mediaCatalogKind.rawValue)
+        .navigationTitle(model.focusedLibrary?.name ?? model.mediaCatalogKind.rawValue)
         .toolbarTitleDisplayMode(.inlineLarge)
         .navigationDestination(for: PodcastCatalogNavigation.self) { destination in
           switch destination {
@@ -640,64 +637,8 @@ struct PodcastCatalogTabShell<Catalog: View>: View {
           }
         }
         .toolbar {
-          ToolbarItem(placement: .topBarLeading) {
-            LibraryNavbarPicker()
-          }
           PodcastCatalogToolbarContent(toolbarState: toolbarState)
         }
-    }
-  }
-}
-
-/// Library-Auswahl oben links in der Navbar.
-struct LibraryNavbarPicker: View {
-  @EnvironmentObject private var model: AppModel
-  @Environment(\.themeAccent) private var themeAccent
-
-  private var libraries: [ABSLibrary] { model.activeLibraries }
-
-  private var selected: ABSLibrary? {
-    if let focused = model.focusedLibrary, libraries.contains(where: { $0.id == focused.id }) {
-      return focused
-    }
-    return libraries.first
-  }
-
-  var body: some View {
-    if libraries.count <= 1 {
-      EmptyView()
-    } else {
-      Menu {
-        ForEach(libraries) { lib in
-          Button {
-            guard lib.id != selected?.id else { return }
-            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-            model.focusLibrary(lib)
-          } label: {
-            Label {
-              Text(lib.name)
-            } icon: {
-              if lib.id == selected?.id {
-                Image(systemName: "checkmark")
-              } else {
-                Image(systemName: lib.isPodcastLibrary ? "mic.fill" : "books.vertical")
-              }
-            }
-          }
-        }
-      } label: {
-        HStack(spacing: 4) {
-          Text(selected?.name ?? "Library")
-            .font(.body.weight(.semibold))
-            .lineLimit(1)
-          Image(systemName: "chevron.down")
-            .font(.caption.weight(.semibold))
-        }
-        .foregroundStyle(themeAccent)
-      }
-      .accessibilityLabel("Library")
-      .accessibilityValue(selected?.name ?? "")
-      .accessibilityHint("Chooses which library to browse")
     }
   }
 }
