@@ -319,9 +319,6 @@ struct MainRootView: View {
   private var booksCatalogBookListBody: some View {
     let rows = model.booksForDisplay()
     return LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      if let lib = model.selectedBooksLibrary {
-        TabContentSectionTitle(title:lib.name)
-      }
       if model.isLibraryCatalogFiltered {
         catalogFilterBanner
       }
