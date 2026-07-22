@@ -76,6 +76,10 @@ struct MainRootView: View {
     .onChange(of: model.selectedPodcastLibrary?.id) { _, _ in
       model.clampMediaCatalogKindIfNeeded()
     }
+    .onChange(of: model.focusedLibrary?.id) { _, _ in
+      bumpActiveMediaRelayoutEpoch()
+      model.clampMediaCatalogKindIfNeeded()
+    }
     .onChange(of: model.showPodcastsTab) { _, _ in
       model.clampMediaCatalogKindIfNeeded()
     }
