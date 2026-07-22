@@ -8,7 +8,7 @@ I’ve been hacking on this as a side project for a few months now and thought i
 
 ## What I wanted that wasn’t quite there for me
 
-- **Audiobooks and podcasts in one app** — activate any server libraries you want, pick one in the Library tab, and keep Continue Listening across all active libraries
+- **Audiobooks and podcasts in one app** — you can use **two libraries at once** (e.g. one book library + one podcast library) without juggling separate clients or workflows
 - **Fully open source** — code is on GitHub, no paywall, no subscription, no “pro” tier
 - **Actually free** — build and run it yourself, or grab a build
 
