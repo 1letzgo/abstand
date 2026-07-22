@@ -116,78 +116,18 @@ private struct SettingsCardToggleRow: View {
   let icon: String
   let title: String
   @Binding var isOn: Bool
-  var subtitle: String? = nil
 
   var body: some View {
     HStack(spacing: 12) {
       SettingsCardIcon(systemName: icon)
-      VStack(alignment: .leading, spacing: 2) {
+      Toggle(isOn: $isOn) {
         Text(title)
           .font(.body)
           .foregroundStyle(model.appearancePalette.textPrimary)
-        if let subtitle, !subtitle.isEmpty {
-          Text(subtitle)
-            .font(.caption)
-            .foregroundStyle(model.appearancePalette.textSecondary)
-        }
       }
-      Spacer(minLength: 8)
-      Toggle("", isOn: $isOn)
-        .labelsHidden()
-        .tint(themeAccent)
+      .tint(themeAccent)
     }
     .settingsCardRowFrame()
-  }
-}
-
-/// Settings: alle Server-Libraries aktivieren/deaktivieren und per Drag sortieren (iOS-List-Standard).
-struct SettingsLibrariesView: View {
-  @EnvironmentObject private var model: AppModel
-
-  var body: some View {
-    Group {
-      if model.libraries.isEmpty {
-        ContentUnavailableView(
-          "No Libraries",
-          systemImage: "books.vertical",
-          description: Text("No libraries on this server.")
-        )
-      } else {
-        List {
-          Section {
-            ForEach(model.librariesInActivationOrder) { lib in
-              Toggle(isOn: Binding(
-                get: { model.isLibraryActivationEnabled(lib.id) },
-                set: { model.setLibraryActivationEnabled(lib.id, enabled: $0) }
-              )) {
-                Label {
-                  VStack(alignment: .leading, spacing: 2) {
-                    Text(lib.name)
-                    Text(lib.isPodcastLibrary ? "Podcasts" : "Books")
-                      .font(.caption)
-                      .foregroundStyle(.secondary)
-                  }
-                } icon: {
-                  Image(systemName: lib.isPodcastLibrary ? "mic.fill" : "books.vertical.fill")
-                }
-              }
-              .tint(model.appearanceAccentColor)
-            }
-            .onMove { source, destination in
-              model.moveLibraryActivation(fromOffsets: source, toOffset: destination)
-            }
-          } footer: {
-            Text("Enabled libraries appear in Continue Listening and the Library tab. Drag to change order.")
-          }
-        }
-        .environment(\.editMode, .constant(.active))
-      }
-    }
-    .navigationTitle("Libraries")
-    .toolbarTitleDisplayMode(.inlineLarge)
-    .themeAccentFromAppModel(model)
-    .abstandThemeRefresh()
-    .tint(model.appearanceAccentColor)
   }
 }
 
@@ -831,12 +771,36 @@ struct SettingsAccountView: View {
   @State private var showAddAccount = false
   @State private var accountPendingLogout: ABSStoredAccount?
 
-  private var librariesSettingsSubtitle: String {
-    let total = model.libraries.count
-    guard total > 0 else { return "No libraries on this server" }
-    let active = model.activeLibraries.count
-    if active == total { return "\(total) libraries" }
-    return "\(active) of \(total) enabled"
+  private var booksLibraryPickerSelection: Binding<String> {
+    Binding(
+      get: {
+        if model.booksLibraryPreferenceIsNone { return AppModel.libraryPickerNoneTag }
+        return model.selectedBooksLibrary?.id ?? AppModel.libraryPickerNoneTag
+      },
+      set: { newId in
+        if newId == AppModel.libraryPickerNoneTag {
+          model.clearBooksLibrarySelection()
+        } else if let lib = model.sortedBookLibraries.first(where: { $0.id == newId }) {
+          model.selectBooksLibrary(lib)
+          Task { await model.reloadLibrary(reset: true) }
+        }
+      })
+  }
+
+  private var podcastsLibraryPickerSelection: Binding<String> {
+    Binding(
+      get: {
+        if model.podcastsLibraryPreferenceIsNone { return AppModel.libraryPickerNoneTag }
+        return model.selectedPodcastLibrary?.id ?? AppModel.libraryPickerNoneTag
+      },
+      set: { newId in
+        if newId == AppModel.libraryPickerNoneTag {
+          model.clearPodcastLibrarySelection()
+        } else if let lib = model.sortedPodcastLibraries.first(where: { $0.id == newId }) {
+          model.selectPodcastLibrary(lib)
+          Task { await model.reloadPodcastLibrary(reset: true) }
+        }
+      })
   }
 
   var body: some View {
@@ -928,6 +892,40 @@ struct SettingsAccountView: View {
           )
         }
 
+        AbstandGroupedCard {
+          if model.sortedBookLibraries.isEmpty {
+            Text("No book libraries on this server.")
+              .font(.subheadline)
+              .foregroundStyle(model.appearancePalette.textSecondary)
+              .settingsCardCompactRowFrame(alignment: .leading)
+          } else {
+            SettingsCardPickerRow(
+              icon: "books.vertical.fill",
+              title: "Books library",
+              selection: booksLibraryPickerSelection,
+              options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
+                + model.sortedBookLibraries.map { (id: $0.id, label: $0.name) }
+            )
+          }
+        }
+
+        AbstandGroupedCard {
+          if model.sortedPodcastLibraries.isEmpty {
+            Text("No podcast libraries on this server.")
+              .font(.subheadline)
+              .foregroundStyle(model.appearancePalette.textSecondary)
+              .settingsCardCompactRowFrame(alignment: .leading)
+          } else {
+            SettingsCardPickerRow(
+              icon: "mic.fill",
+              title: "Podcasts library",
+              selection: podcastsLibraryPickerSelection,
+              options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
+                + model.sortedPodcastLibraries.map { (id: $0.id, label: $0.name) }
+            )
+          }
+        }
+
         if !model.isSessionGuest {
           NavigationLink {
             SettingsChangePasswordView()
@@ -963,23 +961,6 @@ struct SettingsAccountView: View {
           }
           .buttonStyle(.plain)
         }
-      }
-    }
-
-    ServerAdminSection(title: "Libraries") {
-      LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-        NavigationLink {
-          SettingsLibrariesView()
-        } label: {
-          AbstandGroupedCard {
-            ServerAdminNavRow(
-              icon: "books.vertical.fill",
-              title: "Libraries",
-              subtitle: librariesSettingsSubtitle
-            )
-          }
-        }
-        .buttonStyle(.plain)
       }
     }
     .alert("Log out?", isPresented: Binding(

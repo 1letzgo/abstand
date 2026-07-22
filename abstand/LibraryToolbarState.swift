@@ -527,13 +527,8 @@ struct BooksLibraryTabShell<Catalog: View>: View {
     NavigationStack {
       catalog()
         .abstandTabScreenChrome()
-        .navigationTitle(model.focusedLibrary?.name ?? model.mediaCatalogKind.rawValue)
-        // Inline: Leading-Picker bleibt sichtbar oben links (nicht erst nach Scroll).
-        .toolbarTitleDisplayMode(.inline)
-        // Leading und Trailing getrennt — sonst kann SwiftUI den Picker in die rechte Gruppe ziehen.
-        .toolbar {
-          LibraryNavbarPickerToolbar()
-        }
+        .navigationTitle(model.mediaCatalogKind.rawValue)
+        .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
           if model.booksBrowseSection != .search {
             BooksLibraryToolbarContent(toolbarState: toolbarState)
@@ -631,8 +626,8 @@ struct PodcastCatalogTabShell<Catalog: View>: View {
     return NavigationStack(path: $navigationPath) {
       catalog()
         .abstandTabScreenChrome()
-        .navigationTitle(model.focusedLibrary?.name ?? model.mediaCatalogKind.rawValue)
-        .toolbarTitleDisplayMode(.inline)
+        .navigationTitle(model.mediaCatalogKind.rawValue)
+        .toolbarTitleDisplayMode(.inlineLarge)
         .navigationDestination(for: PodcastCatalogNavigation.self) { destination in
           switch destination {
           case .addPodcast:
@@ -642,102 +637,8 @@ struct PodcastCatalogTabShell<Catalog: View>: View {
           }
         }
         .toolbar {
-          LibraryNavbarPickerToolbar()
-        }
-        .toolbar {
           PodcastCatalogToolbarContent(toolbarState: toolbarState)
         }
-    }
-  }
-}
-
-/// Eigener Leading-Toolbar-Block — nicht mit Trailing-Sort/Filter mischen.
-struct LibraryNavbarPickerToolbar: ToolbarContent {
-  @EnvironmentObject private var model: AppModel
-
-  var body: some ToolbarContent {
-    ToolbarItem(placement: .topBarLeading) {
-      LibraryNavbarPickerMenu(
-        items: model.activeLibraries.map {
-          LibraryNavbarPickerItem(
-            id: $0.id,
-            name: $0.name,
-            isPodcast: $0.isPodcastLibrary
-          )
-        },
-        selectedId: model.focusedLibrary?.id
-          ?? model.activeLibraries.first?.id
-          ?? "",
-        onSelect: { id in
-          guard let lib = model.activeLibraries.first(where: { $0.id == id }) else { return }
-          model.focusLibrary(lib)
-        }
-      )
-      .equatable()
-    }
-  }
-}
-
-struct LibraryNavbarPickerItem: Equatable, Identifiable, Hashable {
-  let id: String
-  let name: String
-  let isPodcast: Bool
-
-  var systemImage: String {
-    isPodcast ? "mic.fill" : "books.vertical.fill"
-  }
-}
-
-/// Equatable: kein Re-Render bei unrelated `AppModel`-Updates (verhindert Menü-Flackern).
-struct LibraryNavbarPickerMenu: View, Equatable {
-  @Environment(\.themeAccent) private var themeAccent
-
-  let items: [LibraryNavbarPickerItem]
-  let selectedId: String
-  var onSelect: (String) -> Void
-
-  static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.items == rhs.items && lhs.selectedId == rhs.selectedId
-  }
-
-  private var selected: LibraryNavbarPickerItem? {
-    items.first(where: { $0.id == selectedId }) ?? items.first
-  }
-
-  var body: some View {
-    Group {
-      if items.count <= 1 {
-        Color.clear.frame(width: 0, height: 0)
-      } else {
-        Menu {
-          ForEach(items) { item in
-            Button {
-              guard item.id != selectedId else { return }
-              UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-              onSelect(item.id)
-            } label: {
-              Label {
-                Text(item.name)
-              } icon: {
-                Image(systemName: item.systemImage)
-              }
-            }
-          }
-        } label: {
-          HStack(spacing: 3) {
-            Image(systemName: selected?.systemImage ?? "books.vertical.fill")
-              .font(.body.weight(.semibold))
-            Image(systemName: "chevron.down")
-              .font(.caption2.weight(.bold))
-          }
-          .foregroundStyle(themeAccent)
-          .frame(minHeight: 28)
-          .contentShape(Rectangle())
-        }
-        .accessibilityLabel("Library")
-        .accessibilityValue(selected?.name ?? "")
-        .accessibilityHint("Chooses which library to browse")
-      }
     }
   }
 }

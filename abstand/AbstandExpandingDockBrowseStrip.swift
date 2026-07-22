@@ -50,7 +50,8 @@ struct AbstandPinnedBrowseStrip<Secondary: View>: View {
   @ViewBuilder var secondary: () -> Secondary
 
   var body: some View {
-    // Nur ein pinned item → Umschalter ausblenden, nur den sekundären Strip zeigen.
+    // Nur ein pinned item (z. B. nur Audiobooks, keine Podcast-Bibliothek) →
+    // Umschalter ausblenden, nur den sekundären Strip zeigen.
     if pinnedItems.count <= 1 {
       HStack(spacing: 0) {
         secondary()
