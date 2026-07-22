@@ -527,7 +527,7 @@ struct BooksLibraryTabShell<Catalog: View>: View {
     NavigationStack {
       catalog()
         .abstandTabScreenChrome()
-        .navigationTitle(model.focusedLibrary?.name ?? model.mediaCatalogKind.rawValue)
+        .navigationTitle(model.mediaCatalogKind.rawValue)
         // Inline: Leading-Picker bleibt sichtbar oben links (nicht erst nach Scroll).
         .toolbarTitleDisplayMode(.inline)
         // Leading und Trailing getrennt — sonst kann SwiftUI den Picker in die rechte Gruppe ziehen.
@@ -631,7 +631,7 @@ struct PodcastCatalogTabShell<Catalog: View>: View {
     return NavigationStack(path: $navigationPath) {
       catalog()
         .abstandTabScreenChrome()
-        .navigationTitle(model.focusedLibrary?.name ?? model.mediaCatalogKind.rawValue)
+        .navigationTitle(model.mediaCatalogKind.rawValue)
         .toolbarTitleDisplayMode(.inline)
         .navigationDestination(for: PodcastCatalogNavigation.self) { destination in
           switch destination {
@@ -660,7 +660,7 @@ struct LibraryNavbarPickerToolbar: ToolbarContent {
   }
 }
 
-/// Library-Auswahl oben links in der Navbar (nur Icon der aktiven Library).
+/// Library-Auswahl oben links in der Navbar.
 struct LibraryNavbarPicker: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
@@ -672,10 +672,6 @@ struct LibraryNavbarPicker: View {
       return focused
     }
     return libraries.first
-  }
-
-  private var selectedIcon: String {
-    selected?.isPodcastLibrary == true ? "mic.fill" : "books.vertical.fill"
   }
 
   var body: some View {
@@ -690,19 +686,25 @@ struct LibraryNavbarPicker: View {
               UIImpactFeedbackGenerator(style: .soft).impactOccurred()
               model.focusLibrary(lib)
             } label: {
-              Label {
+              HStack {
                 Text(lib.name)
-              } icon: {
-                Image(systemName: lib.isPodcastLibrary ? "mic.fill" : "books.vertical.fill")
+                if lib.id == selected?.id {
+                  Image(systemName: "checkmark")
+                }
               }
             }
           }
         } label: {
-          Image(systemName: selectedIcon)
-            .font(.body.weight(.semibold))
-            .foregroundStyle(themeAccent)
-            .frame(minWidth: 28, minHeight: 28)
-            .contentShape(Rectangle())
+          HStack(spacing: 4) {
+            Image(systemName: selected?.isPodcastLibrary == true ? "mic.fill" : "books.vertical")
+              .font(.body.weight(.semibold))
+            Text(selected?.name ?? "Library")
+              .font(.body.weight(.semibold))
+              .lineLimit(1)
+            Image(systemName: "chevron.down")
+              .font(.caption2.weight(.bold))
+          }
+          .foregroundStyle(themeAccent)
         }
         .accessibilityLabel("Library")
         .accessibilityValue(selected?.name ?? "")
