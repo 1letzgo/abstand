@@ -448,7 +448,8 @@ private enum SettingsHubSection: String, CaseIterable, Identifiable, Hashable {
   }
 
   static func stripOrder(isServerRoot: Bool, offlineHome: Bool) -> [SettingsHubSection] {
-    var sections: [SettingsHubSection] = [.account, .stats, .appearance, .playback]
+    // Stats zuerst in der Leiste; Startseite bleibt `.account` (`hubSection`-Default).
+    var sections: [SettingsHubSection] = [.stats, .account, .appearance, .playback]
     if !offlineHome { sections.append(.downloads) }
     if isServerRoot { sections.append(.server) }
     sections.append(.debug)
