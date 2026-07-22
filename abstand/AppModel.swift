@@ -2111,11 +2111,11 @@ final class AppModel: ObservableObject {
   func moveLibraryActivation(fromOffsets source: IndexSet, toOffset destination: Int) {
     var ordered = libraryActivations.sorted { $0.sortOrder < $1.sortOrder }
     ordered.move(fromOffsets: source, toOffset: destination)
-    for (i, pref) in ordered.enumerated() {
-      if let idx = libraryActivations.firstIndex(where: { $0.libraryId == pref.libraryId }) {
-        libraryActivations[idx].sortOrder = i
-      }
+    for i in ordered.indices {
+      ordered[i].sortOrder = i
     }
+    // Array-Reihenfolge = Sortierung — sonst überschreibt `reconcileLibraryActivations` die Order.
+    libraryActivations = ordered
     persistLibraryActivations()
   }
 
@@ -2170,9 +2170,12 @@ final class AppModel: ObservableObject {
       )
       persistLibraryActivations()
     } else {
-      var next = libraryActivations.filter { serverIds.contains($0.libraryId) }
+      // Bestehende Order über `sortOrder` halten (nicht über Array-Index).
+      var next = libraryActivations
+        .filter { serverIds.contains($0.libraryId) }
+        .sorted { $0.sortOrder < $1.sortOrder }
       let known = Set(next.map(\.libraryId))
-      var order = (next.map(\.sortOrder).max() ?? -1) + 1
+      var order = next.count
       let newcomers = serverLibraries.sorted {
         if $0.displayOrderOrZero != $1.displayOrderOrZero {
           return $0.displayOrderOrZero < $1.displayOrderOrZero
