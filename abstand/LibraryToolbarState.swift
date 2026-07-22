@@ -527,7 +527,7 @@ struct BooksLibraryTabShell<Catalog: View>: View {
     NavigationStack {
       catalog()
         .abstandTabScreenChrome()
-        .navigationTitle(model.focusedLibrary?.name ?? model.mediaCatalogKind.rawValue)
+        .navigationTitle(model.mediaCatalogKind.rawValue)
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
           ToolbarItem(placement: .topBarLeading) {
