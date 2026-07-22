@@ -257,6 +257,16 @@ struct MainRootView: View {
     }
   }
 
+  private var libraryPickerStripItems: [AbstandBrowseStripItem] {
+    model.activeLibraries.map { lib in
+      AbstandBrowseStripItem(
+        id: lib.id,
+        label: lib.name,
+        systemImage: lib.isPodcastLibrary ? "mic.fill" : "books.vertical"
+      )
+    }
+  }
+
   private func mediaBrowseStrip<Secondary: View>(
     @ViewBuilder secondary: @escaping () -> Secondary
   ) -> some View {
@@ -266,6 +276,14 @@ struct MainRootView: View {
       onSelectPinned: { id in
         guard let kind = AppModel.MediaCatalogKind(rawValue: id) else { return }
         model.mediaCatalogKind = kind
+      },
+      libraryPickerItems: libraryPickerStripItems,
+      libraryPickerSelectionID: model.focusedLibrary?.id
+        ?? model.activeLibraries.first?.id
+        ?? "",
+      onSelectLibrary: { id in
+        guard let lib = model.activeLibraries.first(where: { $0.id == id }) else { return }
+        model.focusLibrary(lib)
       },
       secondary: secondary
     )
@@ -279,7 +297,7 @@ struct MainRootView: View {
         },
         selectionID: model.booksBrowseSection.rawValue,
         // Leading-Padding nur wenn der Strip alleine steht (kein Pinned-Bereich davor).
-        appliesLeadingPadding: model.visibleMediaCatalogKinds.count <= 1,
+        appliesLeadingPadding: model.activeLibraries.count <= 1,
         onSelect: { id in
           if let section = BooksBrowseSection(rawValue: id) {
             model.selectBooksBrowseSection(section)
@@ -715,7 +733,7 @@ struct MainRootView: View {
       AbstandBrowseStripIconMenu(
         items: podcastDockStripItems,
         selectionID: podcastCatalogScrollSelection,
-        appliesLeadingPadding: model.visibleMediaCatalogKinds.count <= 1,
+        appliesLeadingPadding: model.activeLibraries.count <= 1,
         onSelect: { id in
           if id == Self.podcastCatalogNewSectionId {
             model.podcastCatalogStripSectionId = id

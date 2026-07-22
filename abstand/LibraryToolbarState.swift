@@ -527,7 +527,7 @@ struct BooksLibraryTabShell<Catalog: View>: View {
     NavigationStack {
       catalog()
         .abstandTabScreenChrome()
-        .navigationTitle(model.mediaCatalogKind.rawValue)
+        .navigationTitle(model.focusedLibrary?.name ?? model.mediaCatalogKind.rawValue)
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
           if model.booksBrowseSection != .search {
@@ -626,7 +626,7 @@ struct PodcastCatalogTabShell<Catalog: View>: View {
     return NavigationStack(path: $navigationPath) {
       catalog()
         .abstandTabScreenChrome()
-        .navigationTitle(model.mediaCatalogKind.rawValue)
+        .navigationTitle(model.focusedLibrary?.name ?? model.mediaCatalogKind.rawValue)
         .toolbarTitleDisplayMode(.inlineLarge)
         .navigationDestination(for: PodcastCatalogNavigation.self) { destination in
           switch destination {

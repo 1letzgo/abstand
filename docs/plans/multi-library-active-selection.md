@@ -1,5 +1,7 @@
 # Plan: Mehrere aktive Libraries (Settings, Library-Dropdown, Continue Listening)
 
+> Status: **implementiert** auf Branch `cursor/multi-library-plan-c089` (Phasen 0–4).
+
 ## Ziel
 
 Heute gibt es zwei feste Slots: eine Books-Library und eine Podcasts-Library. Die Library-Ansicht schaltet zwischen den Medientypen um; Continue Listening und Home filtern auf genau diese beiden IDs.
