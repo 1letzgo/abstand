@@ -96,7 +96,7 @@ struct StartDashboardView: View {
   private var startDashboardOnlineLayout: some View {
     let isRestoringContinue = model.isHomeContinueRestoreInProgress
     let continueID = ABSStartShelfLocalization.homeBrowseContinueSectionID
-    // Kein Browse-Menü mehr — Stats ist eigener Tab; Home zeigt nur Dashboard-Inhalte.
+    // Kein Browse-Menü mehr — Stats liegt in Settings; Home zeigt nur Dashboard-Inhalte.
     return AbstandFixedBrowseStripSectionsLayout(
       showsStrip: false,
       bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
