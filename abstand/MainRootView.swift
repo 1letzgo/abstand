@@ -255,40 +255,14 @@ struct MainRootView: View {
 
   private var browseStripAccent: Color { model.appearanceAccentColor }
 
-  private var mediaKindStripItems: [AbstandBrowseStripItem] {
-    model.visibleMediaCatalogKinds.map {
-      AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
-    }
-  }
-
-  private var libraryPickerStripItems: [AbstandBrowseStripItem] {
-    model.activeLibraries.map { lib in
-      AbstandBrowseStripItem(
-        id: lib.id,
-        label: lib.name,
-        systemImage: lib.isPodcastLibrary ? "mic.fill" : "books.vertical"
-      )
-    }
-  }
-
   private func mediaBrowseStrip<Secondary: View>(
     @ViewBuilder secondary: @escaping () -> Secondary
   ) -> some View {
+    // Library-Auswahl liegt in der Navbar — Browse-Strip ohne Media-Umschalter.
     AbstandPinnedBrowseStrip(
-      pinnedItems: mediaKindStripItems,
-      pinnedSelectionID: model.mediaCatalogKind.rawValue,
-      onSelectPinned: { id in
-        guard let kind = AppModel.MediaCatalogKind(rawValue: id) else { return }
-        model.mediaCatalogKind = kind
-      },
-      libraryPickerItems: libraryPickerStripItems,
-      libraryPickerSelectionID: model.focusedLibrary?.id
-        ?? model.activeLibraries.first?.id
-        ?? "",
-      onSelectLibrary: { id in
-        guard let lib = model.activeLibraries.first(where: { $0.id == id }) else { return }
-        model.focusLibrary(lib)
-      },
+      pinnedItems: [],
+      pinnedSelectionID: "",
+      onSelectPinned: { _ in },
       secondary: secondary
     )
   }
@@ -300,8 +274,7 @@ struct MainRootView: View {
           AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
         },
         selectionID: model.booksBrowseSection.rawValue,
-        // Leading-Padding nur wenn der Strip alleine steht (kein Pinned-Bereich davor).
-        appliesLeadingPadding: model.activeLibraries.count <= 1,
+        appliesLeadingPadding: true,
         onSelect: { id in
           if let section = BooksBrowseSection(rawValue: id) {
             model.selectBooksBrowseSection(section)
@@ -737,7 +710,7 @@ struct MainRootView: View {
       AbstandBrowseStripIconMenu(
         items: podcastDockStripItems,
         selectionID: podcastCatalogScrollSelection,
-        appliesLeadingPadding: model.activeLibraries.count <= 1,
+        appliesLeadingPadding: true,
         onSelect: { id in
           if id == Self.podcastCatalogNewSectionId {
             model.podcastCatalogStripSectionId = id
