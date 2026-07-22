@@ -698,15 +698,11 @@ struct LibraryNavbarPicker: View {
             }
           }
         } label: {
-          HStack(spacing: 3) {
-            Image(systemName: selectedIcon)
-              .font(.body.weight(.semibold))
-            Image(systemName: "chevron.down")
-              .font(.caption2.weight(.bold))
-          }
-          .foregroundStyle(themeAccent)
-          .frame(minHeight: 28)
-          .contentShape(Rectangle())
+          Image(systemName: selectedIcon)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(themeAccent)
+            .frame(minWidth: 28, minHeight: 28)
+            .contentShape(Rectangle())
         }
         .accessibilityLabel("Library")
         .accessibilityValue(selected?.name ?? "")
