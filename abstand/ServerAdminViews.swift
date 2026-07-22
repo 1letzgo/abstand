@@ -429,6 +429,7 @@ private enum SettingsHubSection: String, CaseIterable, Identifiable, Hashable {
   case playback = "Playback"
   case downloads = "Downloads"
   case account = "Account"
+  case stats = "Stats"
   case server = "Server"
   case debug = "Debug"
 
@@ -440,13 +441,14 @@ private enum SettingsHubSection: String, CaseIterable, Identifiable, Hashable {
     case .playback: return "play.circle"
     case .downloads: return "arrow.down.circle"
     case .account: return "person.crop.circle"
+    case .stats: return "chart.bar.fill"
     case .server: return "server.rack"
     case .debug: return "ladybug"
     }
   }
 
   static func stripOrder(isServerRoot: Bool, offlineHome: Bool) -> [SettingsHubSection] {
-    var sections: [SettingsHubSection] = [.account, .appearance, .playback]
+    var sections: [SettingsHubSection] = [.account, .stats, .appearance, .playback]
     if !offlineHome { sections.append(.downloads) }
     if isServerRoot { sections.append(.server) }
     sections.append(.debug)
@@ -509,6 +511,8 @@ struct SettingsHubRootView: View {
         switch hubSection {
         case .account:
           await model.reloadSettingsTab(reloadCatalogs: false)
+        case .stats:
+          await model.loadListeningStats()
         default:
           break
         }
@@ -528,6 +532,9 @@ struct SettingsHubRootView: View {
       switch hubSection {
       case .account, .downloads:
         await model.reloadSettingsTab(reloadCatalogs: false)
+      case .stats:
+        model.prepareListeningAchievementsForStatsTab()
+        await model.loadListeningStats()
       default:
         break
       }
@@ -648,6 +655,8 @@ struct SettingsHubRootView: View {
         }
       case .account:
         SettingsAccountView()
+      case .stats:
+        SettingsStatsSectionView()
       case .server:
         serverSettingsMenuSections
       case .debug:
@@ -706,9 +715,10 @@ struct SettingsHubRootView: View {
   }
 }
 
-// MARK: - Home stats
+// MARK: - Settings stats
 
-struct HomeListeningStatsSectionView: View {
+/// Eine Stats-Übersicht in Settings: Level + Timeline, Top 10 und Sessions als Unterviews.
+struct SettingsStatsSectionView: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -727,6 +737,12 @@ struct HomeListeningStatsSectionView: View {
 
   var body: some View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+      if let fetched = model.listeningStatsFetchedAt, model.listeningStats != nil,
+        !model.isNetworkReachable
+      {
+        StatsOfflineCacheBanner(fetchedAt: fetched)
+      }
+
       StatsLevelSectionView()
       StatsTimelineHubSectionView()
 
@@ -763,6 +779,9 @@ struct HomeListeningStatsSectionView: View {
     .buttonStyle(.plain)
   }
 }
+
+/// Legacy-Alias — gleiche Übersicht wie Settings-Stats.
+typealias HomeListeningStatsSectionView = SettingsStatsSectionView
 
 // MARK: - Account
 

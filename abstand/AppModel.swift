@@ -56,7 +56,8 @@ private enum Keys {
   static let browseTagsSortDescending = "abstand_browse_tags_sort_desc"
   /// Podcast-Tab in der Tab-Leiste (gecacht; unabhängig vom Bootstrap-Fetch).
   static let showPodcastsTab = "abstand_show_podcasts_tab"
-  /// eBooks/Supplementary als eigener Tab statt Einträge im Books-Tab.
+  /// Audiobooks-Tab in der Tab-Leiste (gecacht; unabhängig vom Bootstrap-Fetch).
+  static let showAudiobooksTab = "abstand_show_audiobooks_tab"
   /// Akzentfarbe als „r,g,b“ (0…1) in sRGB.
   static let appearanceAccentRGB = "abstand_appearance_accent_rgb"
   static let appearanceAccentRGBDark = "abstand_appearance_accent_rgb_dark"
@@ -223,7 +224,7 @@ enum PodcastCatalogSortField: String, CaseIterable, Identifiable, Hashable {
   }
 }
 
-/// Unterbereiche im Library-Tab (horizontale Leiste wie Podcast-„Shows“).
+/// Unterbereiche im Audiobooks-Tab (horizontale Leiste wie Podcast-„Shows“).
 enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
   case books = "Books"
   case search = "Search"
@@ -682,6 +683,20 @@ final class AppModel: ObservableObject {
   @Published var showPodcastsTab: Bool = AppModel.loadShowPodcastsTabCached() {
     didSet {
       UserDefaults.standard.set(showPodcastsTab, forKey: Keys.showPodcastsTab)
+      if !showPodcastsTab, mainTab == .podcasts {
+        mainTab = preferredFallbackMediaTab(excluding: .podcasts)
+      }
+      clampMediaCatalogKindIfNeeded()
+    }
+  }
+
+  /// Audiobooks-Tab in der Tab-Leiste — aus Settings-Präferenz (nicht erst nach `libraries`-Fetch).
+  @Published var showAudiobooksTab: Bool = AppModel.loadShowAudiobooksTabCached() {
+    didSet {
+      UserDefaults.standard.set(showAudiobooksTab, forKey: Keys.showAudiobooksTab)
+      if !showAudiobooksTab, mainTab == .library {
+        mainTab = preferredFallbackMediaTab(excluding: .library)
+      }
       clampMediaCatalogKindIfNeeded()
     }
   }
@@ -1071,7 +1086,7 @@ final class AppModel: ObservableObject {
 
   var visibleMediaCatalogKinds: [MediaCatalogKind] {
     var kinds: [MediaCatalogKind] = []
-    if selectedBooksLibrary != nil {
+    if showAudiobooksTab, selectedBooksLibrary != nil {
       kinds.append(.audiobooks)
     }
     if showPodcastsTab, selectedPodcastLibrary != nil {
@@ -1081,24 +1096,46 @@ final class AppModel: ObservableObject {
   }
 
   func clampMediaCatalogKindIfNeeded() {
+    if mainTab == .library, !showAudiobooksTab {
+      mainTab = preferredFallbackMediaTab(excluding: .library)
+      return
+    }
+    if mainTab == .podcasts, !showPodcastsTab {
+      mainTab = preferredFallbackMediaTab(excluding: .podcasts)
+      return
+    }
     let visibleKinds = visibleMediaCatalogKinds
     guard !visibleKinds.contains(mediaCatalogKind) else { return }
     mediaCatalogKind = visibleKinds.first ?? .audiobooks
-    if visibleKinds.isEmpty, mainTab == .library {
+    if visibleKinds.isEmpty, mainTab == .library || mainTab == .podcasts {
       mainTab = .start
     }
+  }
+
+  private func preferredFallbackMediaTab(excluding tab: MainTab) -> MainTab {
+    if tab != .library, showAudiobooksTab {
+      mediaCatalogKind = .audiobooks
+      return .library
+    }
+    if tab != .podcasts, showPodcastsTab {
+      mediaCatalogKind = .podcasts
+      return .podcasts
+    }
+    return .start
   }
 
   func navigateToMedia(_ kind: MediaCatalogKind) {
     guard visibleMediaCatalogKinds.contains(kind) else {
       clampMediaCatalogKindIfNeeded()
-      if !visibleMediaCatalogKinds.isEmpty {
-        mainTab = .library
-      }
       return
     }
     mediaCatalogKind = kind
-    mainTab = .library
+    switch kind {
+    case .audiobooks:
+      mainTab = .library
+    case .podcasts:
+      mainTab = .podcasts
+    }
   }
 
   func probeServerConnectionIfNeeded() async {
@@ -1288,8 +1325,8 @@ final class AppModel: ObservableObject {
   enum MainTab: String, CaseIterable, Hashable {
     case start = "Home"
     case search = "Search"
-    case library = "Library"
-    case stats = "Stats"
+    case library = "Audiobooks"
+    case podcasts = "Podcasts"
     case settings = "Settings"
   }
 
@@ -1678,8 +1715,8 @@ final class AppModel: ObservableObject {
   }
 
   func booksForDisplay() -> [ABSBook] {
-    switch (mainTab, mediaCatalogKind) {
-    case (.library, .audiobooks):
+    switch mainTab {
+    case .library:
       if offlineHomeUIActive || libraryCatalogQuickFilter == .downloaded {
         // Offline bzw. Downloads-Filter: volle Katalog-Metadaten statt schlanker Manifest-Stubs.
         let libId = selectedBooksLibrary?.id
@@ -2036,6 +2073,16 @@ final class AppModel: ObservableObject {
     return podKey != Keys.librarySelectionNone
   }
 
+  private static func loadShowAudiobooksTabCached() -> Bool {
+    if let cached = UserDefaults.standard.object(forKey: Keys.showAudiobooksTab) as? Bool {
+      return cached
+    }
+    let booksKey =
+      UserDefaults.standard.string(forKey: Keys.booksLibrary)?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return booksKey != Keys.librarySelectionNone
+  }
+
   private func setShowPodcastsTab(_ visible: Bool) {
     if isAppBootstrapInProgress { return }
     if showPodcastsTab != visible {
@@ -2043,8 +2090,16 @@ final class AppModel: ObservableObject {
     }
   }
 
+  private func setShowAudiobooksTab(_ visible: Bool) {
+    if isAppBootstrapInProgress { return }
+    if showAudiobooksTab != visible {
+      showAudiobooksTab = visible
+    }
+  }
+
   /// Tab-Bar-Struktur erst nach Bootstrap aktualisieren (Offline-Button auf Home bleibt sichtbar).
   private func flushTabVisibilityAfterBootstrap() {
+    syncAudiobooksTabVisibilityFromLibraries()
     syncPodcastsTabVisibilityFromLibraries()
   }
 
@@ -2055,6 +2110,15 @@ final class AppModel: ObservableObject {
       setShowPodcastsTab(false)
     } else {
       setShowPodcastsTab(!sortedPodcastLibraries.isEmpty)
+    }
+  }
+
+  private func syncAudiobooksTabVisibilityFromLibraries() {
+    if isAppBootstrapInProgress { return }
+    if booksLibraryPreferenceIsNone {
+      setShowAudiobooksTab(false)
+    } else {
+      setShowAudiobooksTab(!sortedBookLibraries.isEmpty)
     }
   }
 
@@ -2255,6 +2319,7 @@ final class AppModel: ObservableObject {
         books = []
         libraryPage = 0
         libraryTotal = 0
+        setShowAudiobooksTab(false)
       } else if let sel = selectedBooksLibrary, !sortedBookLibraries.contains(where: { $0.id == sel.id }) {
         if let first = sortedBookLibraries.first {
           selectBooksLibrary(first, navigateToCatalog: false)
@@ -2263,9 +2328,13 @@ final class AppModel: ObservableObject {
           books = []
           libraryPage = 0
           libraryTotal = 0
+          UserDefaults.standard.set(Keys.librarySelectionNone, forKey: Keys.booksLibrary)
+          setShowAudiobooksTab(false)
         }
       } else if selectedBooksLibrary == nil, !booksLibraryPreferenceIsNone, let first = sortedBookLibraries.first {
         selectBooksLibrary(first, navigateToCatalog: false)
+      } else {
+        syncAudiobooksTabVisibilityFromLibraries()
       }
 
       guard reloadCatalogs else { return true }
@@ -2434,7 +2503,7 @@ final class AppModel: ObservableObject {
     !startDisabledCategories.contains(Self.normalizedStartSettingsCategory(category))
   }
 
-  /// Home-Browse-Leiste: nur Dashboard (alle Regale). Stats ist eigener Tab.
+  /// Home-Browse-Leiste: nur Dashboard (alle Regale). Stats liegt in Settings.
   /// Offline: nur Dashboard (Continue aus Downloads).
   var homeBrowseStripRows: [(category: String, label: String)] {
     if offlineHomeUIActive {
@@ -3563,6 +3632,7 @@ final class AppModel: ObservableObject {
       books = []
       libraryPage = 0
       libraryTotal = 0
+      setShowAudiobooksTab(false)
     } else if !booksKey.isEmpty,
       let lib = libraries.first(where: { $0.id == booksKey && $0.isBookLibrary })
     {
@@ -3578,7 +3648,10 @@ final class AppModel: ObservableObject {
       books = []
       libraryPage = 0
       libraryTotal = 0
+      UserDefaults.standard.set(Keys.librarySelectionNone, forKey: Keys.booksLibrary)
+      setShowAudiobooksTab(false)
     }
+    syncAudiobooksTabVisibilityFromLibraries()
 
     let podKey = normalizedLibraryPreferenceKey(Keys.podcastsLibrary)
     if podKey == Keys.librarySelectionNone {
@@ -4387,6 +4460,10 @@ final class AppModel: ObservableObject {
   private func applyLibraryPreferencesFromStoredAccount(_ account: ABSStoredAccount) {
     applyStoredLibraryPreference(account.booksLibraryId, key: Keys.booksLibrary)
     applyStoredLibraryPreference(account.podcastsLibraryId, key: Keys.podcastsLibrary)
+    let booksPref = account.booksLibraryId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let podcastsPref = account.podcastsLibraryId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    showAudiobooksTab = booksPref != Keys.librarySelectionNone
+    showPodcastsTab = podcastsPref != Keys.librarySelectionNone
   }
 
   private func applyStoredLibraryPreference(_ value: String?, key: String) {
@@ -4536,6 +4613,7 @@ final class AppModel: ObservableObject {
         restoreBooksCatalogAndHomeFromLocalStore(libraryIdOverride: lib.id)
         restoreAllBrowseListsFromLocalStore()
       }
+      setShowAudiobooksTab(true)
       if navigateToCatalog { navigateToMedia(.audiobooks) }
       return
     }
@@ -4547,6 +4625,7 @@ final class AppModel: ObservableObject {
     selectedBooksLibrary = lib
     UserDefaults.standard.set(lib.id, forKey: Keys.booksLibrary)
     syncStoredAccountFromSession()
+    setShowAudiobooksTab(true)
     if navigateToCatalog { navigateToMedia(.audiobooks) }
     restoreBooksCatalogAndHomeFromLocalStore(libraryIdOverride: lib.id)
     restoreAllBrowseListsFromLocalStore()
@@ -4586,10 +4665,7 @@ final class AppModel: ObservableObject {
     libraryTotal = 0
     UserDefaults.standard.set(Keys.librarySelectionNone, forKey: Keys.booksLibrary)
     syncStoredAccountFromSession()
-    if mainTab == .library, mediaCatalogKind == .audiobooks {
-      clampMediaCatalogKindIfNeeded()
-      if visibleMediaCatalogKinds.isEmpty { mainTab = .start }
-    }
+    setShowAudiobooksTab(false)
     Task { await loadStartDashboard() }
   }
 
@@ -5763,7 +5839,7 @@ final class AppModel: ObservableObject {
   }
 
   func loadMoreIfNeeded(currentItemId: String?) async {
-    guard mainTab == .library, mediaCatalogKind == .audiobooks,
+    guard mainTab == .library,
       booksBrowseSection == .books, libraryCatalogQuickFilter != .downloaded,
       !offlineHomeUIActive
     else {
@@ -5827,7 +5903,7 @@ final class AppModel: ObservableObject {
   }
 
   func loadMorePodcastsIfNeeded(currentItemId: String?) async {
-    guard mainTab == .library, mediaCatalogKind == .podcasts, !offlineHomeUIActive else { return }
+    guard mainTab == .podcasts, !offlineHomeUIActive else { return }
     guard podcastSelectedShowId == nil else { return }
     guard podcastEpisodesPagingFromRecentAPI else { return }
     // Gleicher Race wie bei `loadMoreIfNeeded` (Bücher): synchroner Guard, bevor mehrere
@@ -7893,7 +7969,7 @@ final class AppModel: ObservableObject {
     case .library:
       mediaCatalogKind = .audiobooks
       libraryEntityDetailNav = nav
-    case .settings, .stats:
+    case .podcasts, .settings:
       break
     case .search:
       mediaCatalogKind = .audiobooks
@@ -9439,7 +9515,7 @@ final class AppModel: ObservableObject {
       patchCatalog: { },
       reloadLibraryIfNeeded: { [weak self] in
         guard let self else { return }
-        if self.mainTab == .library, self.mediaCatalogKind == .podcasts {
+        if self.mainTab == .podcasts {
           await self.reloadPodcastLibrary(reset: true)
         }
       }
