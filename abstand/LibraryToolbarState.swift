@@ -629,7 +629,7 @@ struct PodcastCatalogTabShell<Catalog: View>: View {
     return NavigationStack(path: $navigationPath) {
       catalog()
         .abstandTabScreenChrome()
-        .navigationTitle(model.focusedLibrary?.name ?? model.mediaCatalogKind.rawValue)
+        .navigationTitle(model.mediaCatalogKind.rawValue)
         .toolbarTitleDisplayMode(.inlineLarge)
         .navigationDestination(for: PodcastCatalogNavigation.self) { destination in
           switch destination {
