@@ -34,9 +34,13 @@ struct LoginView: View {
           }
 
           VStack(spacing: 14) {
-            AbstandLabeledTextField(title: "Server URL", text: $server)
-            AbstandLabeledTextField(title: "Username", text: $username)
-            AbstandLabeledTextField(title: "Password", text: $password, isSecure: true)
+            AbstandLabeledTextField(
+              title: "Server URL", text: $server, textContentType: .URL, submitLabel: .next)
+            AbstandLabeledTextField(
+              title: "Username", text: $username, textContentType: .username, submitLabel: .next)
+            AbstandLabeledTextField(
+              title: "Password", text: $password, isSecure: true, textContentType: .password,
+              submitLabel: .go)
           }
           .onAppear {
             if addAccountMode {

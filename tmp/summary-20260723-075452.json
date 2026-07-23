@@ -1,0 +1,4 @@
+{
+  "summary": "Floating-Player-Chrome aus MiniPlayerView.swift in neue Datei abstand/FloatingPlayerChrome.swift extrahiert: TabAccessoryMiniPlayerSnapshot, FloatingAccessoryGate, FloatingPlayerChromeController (+ Extension), FloatingAccessoryLayer, TabAccessoryMiniPlayer, FloatingBarCoverEquatable sowie private Helfer PlayerChromeLayout, playerDashTitleLine, floatingBarPrimaryLine, floatingBarRemainingSubtitle. MiniPlayerView behält NowPlayingDetailView und Vollplayer-UI (2613 Zeilen, vorher 3084). Ungenutztes import Combine aus MiniPlayerView entfernt. Build: FloatingPlayerChrome.swift kompiliert; Gesamtbuild scheitert an vorbestehenden CatalogBrowseTypes-Duplikaten.",
+  "current_status": "Refactor Floating-Player-Chrome abgeschlossen. Offene unabhängige Build-Probleme in CatalogBrowseTypes/CatalogSortTypes (Typ-Duplikate)."
+}

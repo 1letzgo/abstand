@@ -59,6 +59,14 @@ actor ABSAPIClient {
     token
   }
 
+  /// Bricht laufende Tasks der Download-Session ab (ergänzt Swift-`Task.cancel`).
+  func cancelInFlightDownloads() async {
+    let tasks = await downloadURLSession.allTasks
+    for task in tasks {
+      task.cancel()
+    }
+  }
+
   func publicStreamURL(sessionId: String, trackIndex: Int) throws -> URL {
     try buildURL(path: "public/session/\(sessionId)/track/\(trackIndex)", query: [:])
   }
@@ -133,7 +141,7 @@ actor ABSAPIClient {
     var req = URLRequest(url: url)
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.httpBody = try JSONEncoder().encode(ABSLoginRequest(username: username, password: password))
+    req.httpBody = try ABSJSON.encoder().encode(ABSLoginRequest(username: username, password: password))
     let (data, resp) = try await loginSession.data(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     guard (200 ..< 300).contains(http.statusCode) else {

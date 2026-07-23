@@ -1,0 +1,4 @@
+{
+  "summary": "Views aus MainRootView.swift in vier neue Dateien extrahiert (exakter Code-Move): SearchTabViews.swift, ContinueListeningHeroViews.swift, LibraryCardViews.swift, BooksEntityDetailViews.swift. MainRootView.swift behält nur Tab-Orchestrierung (792 Zeilen). private bei dateiübergreifend referenzierten Typen zu internal geändert. Build der extrahierten Dateien ok; Gesamtbuild blockiert durch unabhängiges CatalogSortTypes-Duplikat.",
+  "current_status": "MainRootView-Refactoring abgeschlossen. Vier neue View-Dateien im flachen abstand/-Ordner; PBXFileSystemSynchronizedRootGroup bindet sie automatisch ein."
+}

@@ -1,0 +1,4 @@
+{
+  "summary": "Alle vier Wellen des Codequalitäts-Plans umgesetzt: Welle 1 A11y/HIG/ABSJSON; Welle 2 Typen-Auslagerung, MainRootView/MiniPlayer-Split, AppearanceStore; Welle 3 Download-Cancel/Disk-off-Main, Playback ohne GCD, Teleprompter-Batching, AbstandHTTPSession; Welle 4 @Observable Row-Live-States, BookDetail sheet(item:), typisierte Home-Navigation. xcodebuild iPhone 17: BUILD SUCCEEDED.",
+  "current_status": "Codequalitäts-Plan vollständig implementiert, Simulator-Build grün. Design unverändert."
+}

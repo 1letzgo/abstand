@@ -246,6 +246,9 @@ enum AppTheme {
     /// laufen Textfelder/Buttons über die volle Breite oder hängen links im leeren Raum.
     static let readableFormMaxWidth: CGFloat = 480
 
+    /// Platzhalterhöhe für Home-Browse, bis Continue-Regale atomar vorliegen.
+    static let homeBrowseBootstrapMinHeight: CGFloat = 220
+
     /// Facet-Kacheln (Narrators/Collections/Genres/Tags): adaptive statt starrer 2 Spalten —
     /// auf iPad passen so automatisch mehr Kacheln pro Zeile.
     static let facetTileGridColumns: [GridItem] = [
@@ -884,12 +887,15 @@ struct AbstandLabeledTextField: View {
   let title: String
   @Binding var text: String
   var isSecure = false
+  var textContentType: UITextContentType? = nil
+  var submitLabel: SubmitLabel = .done
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       Text(title)
         .font(.caption.weight(.medium))
         .foregroundStyle(model.appearancePalette.textSecondary)
+        .accessibilityHidden(true)
       Group {
         if isSecure {
           SecureField("", text: $text)
@@ -897,6 +903,9 @@ struct AbstandLabeledTextField: View {
           TextField("", text: $text)
         }
       }
+      .textContentType(textContentType)
+      .submitLabel(submitLabel)
+      .accessibilityLabel(title)
       .textInputAutocapitalization(.never)
       .autocorrectionDisabled()
       .padding(12)

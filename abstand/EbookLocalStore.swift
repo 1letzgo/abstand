@@ -119,7 +119,7 @@ extension EbookLocalStore {
     knownFormatsLoadedForSessionKey = sessionKey
     let url = knownFormatsFileURL(account: account, userId: userId)
     guard let data = try? Data(contentsOf: url),
-      let dict = try? JSONDecoder().decode([String: String].self, from: data)
+      let dict = try? ABSJSON.decoder().decode([String: String].self, from: data)
     else {
       knownFormatsByItemId = [:]
       return
@@ -129,7 +129,7 @@ extension EbookLocalStore {
 
   private static func persistKnownFormats(account: URL, userId: String) {
     let url = knownFormatsFileURL(account: account, userId: userId)
-    guard let data = try? JSONEncoder().encode(knownFormatsByItemId) else { return }
+    guard let data = try? ABSJSON.encoder().encode(knownFormatsByItemId) else { return }
     try? data.write(to: url, options: .atomic)
   }
 

@@ -129,12 +129,12 @@ struct ABSDownloadManifest: Codable {
   static func load(from downloadRoot: URL) -> ABSDownloadManifest? {
     let url = downloadRoot.appendingPathComponent(filename)
     guard let data = try? Data(contentsOf: url) else { return nil }
-    return try? JSONDecoder().decode(ABSDownloadManifest.self, from: data)
+    return try? ABSJSON.decoder().decode(ABSDownloadManifest.self, from: data)
   }
 
   func write(to downloadRoot: URL) throws {
     let url = downloadRoot.appendingPathComponent(Self.filename)
-    let enc = JSONEncoder()
+    let enc = ABSJSON.encoder()
     enc.outputFormatting = [.sortedKeys]
     let data = try enc.encode(self)
     try data.write(to: url, options: .atomic)

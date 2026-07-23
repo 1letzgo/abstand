@@ -197,6 +197,7 @@ struct DetailToolbarDownloadItem: View {
         ProgressView(value: model.downloads.progress)
           .progressViewStyle(.circular)
           .tint(themeAccent)
+          .accessibilityLabel(String(localized: "Downloading", comment: "Accessibility"))
       } else if model.downloads.queuedItemIds.contains(storageId) {
         // Wartet in der Queue — kein Cancel-Button (nur über „Remove offline copy" nach Aktivierung).
         Image(systemName: "circle.dashed")
@@ -875,6 +876,7 @@ struct DetailMetaTextBlock: View {
 struct DetailMetaExpandableTextBlock: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let text: String
   @Binding var isExpanded: Bool
   var collapsedLineLimit: Int = DetailMetaLayoutMetrics.descriptionCollapsedLineLimit
@@ -906,7 +908,7 @@ struct DetailMetaExpandableTextBlock: View {
       HStack {
         Spacer(minLength: 0)
         Button(isExpanded ? "Less" : "More") {
-          withAnimation(.easeInOut(duration: 0.2)) {
+          withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
             isExpanded.toggle()
           }
         }

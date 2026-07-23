@@ -1,0 +1,4 @@
+{
+  "summary": "User hat gestoppt: Typen-Extraktion aus AppModel.swift ist bereits manuell erledigt (AppModelKeys.swift, AppModelSupportTypes.swift, CatalogBrowseTypes.swift). Keine weiteren Dateiänderungen durch den Agenten.",
+  "current_status": "AppModel-Refactoring abgeschlossen; Keys und Support-/Browse-/Sort-Typen liegen in separaten Dateien im abstand/-Ordner."
+}

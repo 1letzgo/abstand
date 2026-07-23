@@ -1,4 +1,5 @@
 import Combine
+import Observation
 import SwiftUI
 
 // MARK: - Fortschritt / Download pro Karte (ohne `@EnvironmentObject` → kein Katalog-Rebuild)
@@ -45,20 +46,21 @@ enum LibraryRowLiveState {
 
 /// Hörbuch-Zeile: nur `progressByItemId[bookId]` + Download-Status für diese ID.
 @MainActor
-final class LibraryBookRowLiveState: ObservableObject {
-  @Published private(set) var progress: ABSUserMediaProgress?
-  @Published private(set) var isDownloaded = false
-  @Published private(set) var isDownloading = false
-  @Published private(set) var isQueued = false
-  @Published private(set) var downloadProgress: Double = 0
-  @Published private(set) var isPreparingEbook = false
-  @Published private(set) var ebookProgressFraction: Double?
+@Observable
+final class LibraryBookRowLiveState {
+  private(set) var progress: ABSUserMediaProgress?
+  private(set) var isDownloaded = false
+  private(set) var isDownloading = false
+  private(set) var isQueued = false
+  private(set) var downloadProgress: Double = 0
+  private(set) var isPreparingEbook = false
+  private(set) var ebookProgressFraction: Double?
 
   private let bookId: String
   private let observesProgress: Bool
   private let observesDownload: Bool
   private let observesEbookProgress: Bool
-  private var cancellables = Set<AnyCancellable>()
+  @ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
   init(
     bookId: String,
@@ -163,16 +165,17 @@ final class LibraryBookRowLiveState: ObservableObject {
 
 /// Podcast-Folge: Fortschritt über `progressLookupKey`, Offline-ID separat.
 @MainActor
-final class LibraryPodcastEpisodeRowLiveState: ObservableObject {
-  @Published private(set) var progress: ABSUserMediaProgress?
-  @Published private(set) var isDownloaded = false
-  @Published private(set) var isDownloading = false
-  @Published private(set) var isQueued = false
-  @Published private(set) var downloadProgress: Double = 0
+@Observable
+final class LibraryPodcastEpisodeRowLiveState {
+  private(set) var progress: ABSUserMediaProgress?
+  private(set) var isDownloaded = false
+  private(set) var isDownloading = false
+  private(set) var isQueued = false
+  private(set) var downloadProgress: Double = 0
 
   private let progressLookupKey: String
   private let offlineStorageId: String
-  private var cancellables = Set<AnyCancellable>()
+  @ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
   init(progressLookupKey: String, offlineStorageId: String, model: AppModel) {
     self.progressLookupKey = progressLookupKey

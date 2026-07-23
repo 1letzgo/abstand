@@ -3,6 +3,7 @@ import UIKit
 
 /// Inaktive Kategorien als Kreis-Icons, aktive als wachsende Kapsel (Expanding Dock).
 struct AbstandExpandingDockBrowseStrip: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let items: [AbstandBrowseStripItem]
   let selectionID: String
   /// `false`: kein Leading-Padding (z. B. als Sekundär-Strip in `AbstandPinnedBrowseStrip`,
@@ -20,7 +21,7 @@ struct AbstandExpandingDockBrowseStrip: View {
             onSelect: {
               guard item.id != selectionID else { return }
               UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-              withAnimation(AppTheme.ExpandingDock.selectionAnimation) {
+              withAnimation(reduceMotion ? nil : AppTheme.ExpandingDock.selectionAnimation) {
                 onSelect(item.id)
               }
             }
@@ -34,7 +35,7 @@ struct AbstandExpandingDockBrowseStrip: View {
       .padding(.trailing, AppTheme.ExpandingDock.horizontalPadding)
       .padding(.vertical, AppTheme.ExpandingDock.verticalPadding)
       .frame(maxWidth: items.count < AppTheme.ExpandingDock.centerWhenFewThreshold ? .infinity : nil)
-      .animation(AppTheme.ExpandingDock.selectionAnimation, value: selectionID)
+      .animation(reduceMotion ? nil : AppTheme.ExpandingDock.selectionAnimation, value: selectionID)
     }
     .scrollContentBackground(.hidden)
     .abstandHorizontalScrollRow()
@@ -83,6 +84,7 @@ struct AbstandExpandingDockBinarySwitch: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   let items: [AbstandBrowseStripItem]
   let selectionID: String
@@ -134,7 +136,7 @@ struct AbstandExpandingDockBinarySwitch: View {
       }
       select(items[nextIndex].id)
     }
-    .animation(AppTheme.ExpandingDock.selectionAnimation, value: selectionID)
+    .animation(reduceMotion ? nil : AppTheme.ExpandingDock.selectionAnimation, value: selectionID)
     .abstandThemeRefresh()
   }
 
@@ -169,7 +171,7 @@ struct AbstandExpandingDockBinarySwitch: View {
   private func select(_ id: String) {
     guard id != selectionID else { return }
     UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-    withAnimation(AppTheme.ExpandingDock.selectionAnimation) {
+    withAnimation(reduceMotion ? nil : AppTheme.ExpandingDock.selectionAnimation) {
       onSelect(id)
     }
   }

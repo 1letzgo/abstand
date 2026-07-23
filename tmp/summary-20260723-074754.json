@@ -1,0 +1,4 @@
+{
+  "summary": "Vollständiger Architektur- und Codequalitäts-Review für abstand: AppModel.swift (12.392 Zeilen, ~100 @Published) und MainRootView.swift (4.670 Zeilen) als God-Object-/Mega-View-Risiken identifiziert; projektweit kein @Observable, stattdessen ObservableObject + @EnvironmentObject (~130 Stellen). Positiv: FloatingPlayerChromeController, LibraryRowLiveState, globalPosition ohne @Published, MainTabShellView-Entkopplung. Top-10-Befunde und 5-stufige Refactor-Reihenfolge ohne UX-Änderung geliefert.",
+  "current_status": "Review abgeschlossen, keine Code-Änderungen. Nächster sinnvoller Schritt wäre schrittweise Extraktion von Domain-Typen und AppModel-Teilbereichen, danach @Observable-Migration ab Blatt-Stores."
+}

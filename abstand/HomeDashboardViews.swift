@@ -71,17 +71,17 @@ struct StartDashboardView: View {
   var body: some View {
     startDashboardOnlineLayout
       .abstandScrollScreenBackground()
-      .onAppear {
+      .task(
+        id: "\(model.offlineHomeUIActive)-\(model.sessionUserId)-\(model.isAppBootstrapInProgress)-\(model.hasCachedBootstrapContent)"
+      ) {
         guard model.startShelves.isEmpty,
           !model.isAppBootstrapInProgress,
           !model.hasCachedBootstrapContent
         else { return }
-        Task {
-          if model.offlineHomeUIActive {
-            await model.loadStartDashboard(force: true)
-          } else {
-            await model.loadStartDashboard()
-          }
+        if model.offlineHomeUIActive {
+          await model.loadStartDashboard(force: true)
+        } else {
+          await model.loadStartDashboard()
         }
       }
       .onChange(of: model.offlineHomeUIActive) { _, _ in
@@ -135,7 +135,7 @@ struct StartDashboardView: View {
   /// Hält den Home-Inhalt kurz leer, bis alle lokal rekonstruierten Continue-Regale atomar vorliegen.
   private var homeBrowseContentBootstrapPlaceholder: some View {
     Color.clear
-      .frame(maxWidth: .infinity, minHeight: 220)
+      .frame(maxWidth: .infinity, minHeight: AppTheme.Layout.homeBrowseBootstrapMinHeight)
       .accessibilityHidden(true)
   }
 
@@ -450,7 +450,7 @@ private struct HomeCoverOnlyPodcastEpisodeCard: View {
   @EnvironmentObject private var model: AppModel
   let episode: ABSPodcastEpisodeListItem
   let cardWidth: CGFloat
-  @State private var showDetail = false
+  @State private var detailEpisode: ABSPodcastEpisodeListItem?
 
   var body: some View {
     let clip = RoundedRectangle(
@@ -460,7 +460,7 @@ private struct HomeCoverOnlyPodcastEpisodeCard: View {
     let itemId = episode.libraryItemId
 
     Button {
-      showDetail = true
+      detailEpisode = episode
     } label: {
       SquareCoverImageView(
         url: model.coverURL(for: itemId),
@@ -475,8 +475,8 @@ private struct HomeCoverOnlyPodcastEpisodeCard: View {
       .contentShape(clip)
     }
     .buttonStyle(.plain)
-    .navigationDestination(isPresented: $showDetail) {
-      PodcastEpisodeDetailView(episode: episode)
+    .navigationDestination(item: $detailEpisode) { ep in
+      PodcastEpisodeDetailView(episode: ep)
     }
     .accessibilityLabel(episode.episodeTitle)
     .accessibilityHint("Opens episode details.")

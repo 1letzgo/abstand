@@ -223,7 +223,7 @@ struct CoverImageView: View {
       req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     }
     do {
-      let (data, resp) = try await URLSession.shared.data(for: req)
+      let (data, resp) = try await AbstandHTTPSession.coverAndCache.data(for: req)
       try Task.checkCancellation()
       guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
         let ui = UIImage(data: data)

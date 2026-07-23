@@ -1,0 +1,4 @@
+{
+  "summary": "Accessibility-Review der Fokus-Views (MiniPlayerView, BookDetailView, HomeDashboardViews, LoginView, MainTabShellView) abgeschlossen. Hauptlücken: Vollplayer Play/Pause ohne Label, Utility-Bar (EQ/Tempo/Sleep/AirPlay), Sleep-Stepper, Admin-Menü, Login-Felder, kein Reduce Motion im gesamten Projekt. Abdeckung: 18/60 Swift-Dateien mit accessibilityLabel (~30%), Player-Bereich teils gut (Scrubber, Cover-Overlays, Mini-Player).",
+  "current_status": "Review-only — keine Code-Änderungen. Priorisierte Fix-Liste mit 6 Schritten ohne Design-Änderung dokumentiert."
+}

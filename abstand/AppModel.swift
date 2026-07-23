@@ -7,503 +7,10 @@ import SwiftData
 import SwiftUI
 import UIKit
 
-private enum Keys {
-  static let server = "abstand_server_url"
-  static let token = "abstand_token"
-  /// Letzter `authorize`-User — für Readium/eBook-Fortschritt vor erneutem `/authorize`.
-  static let sessionUserId = "abstand_session_user_id"
-  /// Server-Standardbibliothek aus letztem `/authorize` (Lazy-Bootstrap ohne erneutes Authorize).
-  static let userDefaultLibraryId = "abstand_user_default_library_id"
-  /// Legacy; wird nach `booksLibrary` migriert.
-  static let library = "abstand_library_id"
-  static let booksLibrary = "abstand_books_library_id"
-  static let ebooksLibrary = "abstand_ebooks_library_id"
-  static let podcastsLibrary = "abstand_podcasts_library_id"
-  /// Bewusst keine Bibliothek gewählt (Tabs ausblenden, kein Auto-Pick).
-  static let librarySelectionNone = "__abstand_no_library__"
-  static let downloads = "abstand_downloaded_ids"
-  static let lastPlayedItemId = "abstand_last_played_library_item_id"
-  static let startDisabledCategories = "abstand_start_disabled_categories"
-  static let homeBrowseCategory = "abstand_home_browse_category"
-  static let catalogSortField = "abstand_catalog_sort_field"
-  static let catalogSortDescending = "abstand_catalog_sort_descending"
-  /// Sortierung nur Podcast-Bibliothek (Shows-Leiste + Fallback `libraryItems` für Folgen).
-  static let podcastCatalogSortField = "abstand_podcast_catalog_sort_field"
-  static let podcastCatalogSortDescending = "abstand_podcast_catalog_sort_descending"
-  /// Früher: kombinierter `CatalogItemsSort`-RawValue (Migration einmalig).
-  static let legacyCatalogItemsSort = "abstand_catalog_items_sort"
-  static let smartDlAutoWifi = "abstand_smart_dl_auto_wifi"
-  static let smartDlRemoveWhenFinished = "abstand_smart_dl_remove_when_finished"
-  /// Nur Home mit „Heruntergeladen“; andere Tabs ausgeblendet.
-  static let offlineHomeMode = "abstand_offline_home_mode"
-  /// Vollplayer-Sheet beim Start der Wiedergabe (nicht im Offline-Home).
-  static let openPlayerWhenStartPlaying = "abstand_open_player_when_start_playing"
-  /// Kumulierte Hörsekunden ohne Play-Session (lokale Downloads), später per Session-Flush (Absorb).
-  static let pendingOfflineListeningSeconds = "abstand_pending_offline_listening_seconds"
-  /// Fortschrittsschlüssel, die offline/lokal als fertig markiert wurden (bis Server bestätigt).
-  static let localFinishedProgressKeys = "abstand_local_finished_progress_keys"
-  static let browseAuthorsSortField = "abstand_browse_authors_sort_field"
-  static let browseAuthorsSortDescending = "abstand_browse_authors_sort_desc"
-  static let browseNarratorsSortField = "abstand_browse_narrators_sort_field"
-  static let browseNarratorsSortDescending = "abstand_browse_narrators_sort_desc"
-  static let browseSeriesSortField = "abstand_browse_series_sort_field"
-  static let browseSeriesSortDescending = "abstand_browse_series_sort_desc"
-  static let browseCollectionsSortField = "abstand_browse_collections_sort_field"
-  static let browseCollectionsSortDescending = "abstand_browse_collections_sort_desc"
-  static let browseGenresSortField = "abstand_browse_genres_sort_field"
-  static let browseGenresSortDescending = "abstand_browse_genres_sort_desc"
-  static let browseTagsSortField = "abstand_browse_tags_sort_field"
-  static let browseTagsSortDescending = "abstand_browse_tags_sort_desc"
-  /// Podcast-Tab in der Tab-Leiste (gecacht; unabhängig vom Bootstrap-Fetch).
-  static let showPodcastsTab = "abstand_show_podcasts_tab"
-  /// Audiobooks-Tab in der Tab-Leiste (gecacht; unabhängig vom Bootstrap-Fetch).
-  static let showAudiobooksTab = "abstand_show_audiobooks_tab"
-  /// Akzentfarbe als „r,g,b“ (0…1) in sRGB.
-  static let appearanceAccentRGB = "abstand_appearance_accent_rgb"
-  static let appearanceAccentRGBDark = "abstand_appearance_accent_rgb_dark"
-  static let appearanceAccentRGBLight = "abstand_appearance_accent_rgb_light"
-  static let appearanceMode = "abstand_appearance_mode"
-  static let libraryBookCardStyle = "abstand_library_book_card_style"
-  static let libraryPodcastCardStyle = "abstand_library_podcast_card_style"
-  static let translationTargetLanguageCode = "abstand_translation_target_language"
-}
-
-/// Ergebnis eines Online-Continue-Refreshs (Lazy-Bootstrap / Fallback-Entscheidung).
-struct ContinueRefreshAttemptResult {
-  var appliedOnline = false
-  var error: Error?
-  /// `true`, sobald `loadStartDashboard` tatsächlich einen Request gestartet hat
-  /// (nicht nur früh per Cache/Guard zurückgekehrt ist). Wird gebraucht, um
-  /// Server-Erreichbarkeit nicht ungeprüft aus einem übersprungenen Refresh abzuleiten.
-  var attemptedNetwork = false
-}
-
-/// Abgebrochene Requests/Tasks nicht als Fehlerdialog anzeigen.
-enum AbstandErrorFilter {
-  static func isBenignCancellationMessage(_ message: String) -> Bool {
-    let desc = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    guard !desc.isEmpty else { return false }
-    if desc == "cancelled" || desc == "canceled" { return true }
-    if desc.contains("cancelled") || desc.contains("canceled") { return true }
-    if desc.contains("error -999") { return true }
-    return false
-  }
-
-  static func isBenignCancellation(_ error: Error) -> Bool {
-    if error is CancellationError { return true }
-    if let url = error as? URLError, url.code == .cancelled { return true }
-    let ns = error as NSError
-    if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return true }
-    if ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError { return true }
-    if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error,
-      isBenignCancellation(underlying)
-    {
-      return true
-    }
-    if isBenignCancellationMessage(error.localizedDescription) { return true }
-    return false
-  }
-
-  /// Timeouts/Netz-Hiccups beim Kaltstart mit Cache — kein Fehlerdialog.
-  static func isTransientNetworkError(_ error: Error) -> Bool {
-    if let url = error as? URLError {
-      switch url.code {
-      case .timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost,
-        .cannotFindHost, .dnsLookupFailed:
-        return true
-      default:
-        break
-      }
-    }
-    let ns = error as NSError
-    if ns.domain == NSURLErrorDomain,
-      [NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost, NSURLErrorNotConnectedToInternet,
-       NSURLErrorCannotConnectToHost]
-        .contains(ns.code)
-    {
-      return true
-    }
-    let desc = error.localizedDescription.lowercased()
-    return desc.contains("timed out") || desc.contains("timeout")
-  }
-}
-
-/// Sortierfeld für `GET /api/libraries/:id/items` (`sort`) bei **Bücher**-Bibliotheken.
-enum CatalogSortField: String, CaseIterable, Identifiable, Hashable {
-  case title
-  case authorName
-  case authorNameLF
-  case addedAt
-  case publishedYear
-  case duration
-  case size
-  case birthtimeMs
-  case mtimeMs
-  case progress
-  case progressCreatedAt
-  case progressFinishedAt
-  case random
-
-  var id: String { rawValue }
-
-  var menuTitle: String {
-    switch self {
-    case .title: return "Title"
-    case .authorName: return "Author (first name first)"
-    case .authorNameLF: return "Author (last name first)"
-    case .addedAt: return "Date added"
-    case .publishedYear: return "Published year"
-    case .duration: return "Duration"
-    case .size: return "File size"
-    case .birthtimeMs: return "File created"
-    case .mtimeMs: return "File modified"
-    case .progress: return "Last progress update"
-    case .progressCreatedAt: return "Progress started"
-    case .progressFinishedAt: return "Finished"
-    case .random: return "Random"
-    }
-  }
-
-  var apiSortParameter: String {
-    switch self {
-    case .title: return "media.metadata.title"
-    case .authorName: return "media.metadata.authorName"
-    case .authorNameLF: return "media.metadata.authorNameLF"
-    case .addedAt: return "addedAt"
-    case .publishedYear: return "media.metadata.publishedYear"
-    case .duration: return "media.duration"
-    case .size: return "size"
-    case .birthtimeMs: return "birthtimeMs"
-    case .mtimeMs: return "mtimeMs"
-    case .progress: return "progress"
-    case .progressCreatedAt: return "progress.createdAt"
-    case .progressFinishedAt: return "progress.finishedAt"
-    case .random: return "random"
-    }
-  }
-}
-
-/// Sortierung Podcast-Shows (`GET …/libraries/:id/items`, `mediaType=podcast`).
-/// Server: `libraryItemsPodcastFilters.getOrder` — nicht dieselben Felder wie bei Büchern.
-enum PodcastCatalogSortField: String, CaseIterable, Identifiable, Hashable {
-  case title
-  case author
-  case numEpisodes
-  case addedAt
-  case size
-  case birthtimeMs
-  case mtimeMs
-  case random
-
-  var id: String { rawValue }
-
-  var menuTitle: String {
-    switch self {
-    case .title: return "Title"
-    case .author: return "Author"
-    case .numEpisodes: return "Number of episodes"
-    case .addedAt: return "Date added"
-    case .size: return "Total size"
-    case .birthtimeMs: return "File created"
-    case .mtimeMs: return "File modified"
-    case .random: return "Random"
-    }
-  }
-
-  var apiSortParameter: String {
-    switch self {
-    case .title: return "media.metadata.title"
-    case .author: return "media.metadata.author"
-    case .numEpisodes: return "media.numTracks"
-    case .addedAt: return "addedAt"
-    case .size: return "size"
-    case .birthtimeMs: return "birthtimeMs"
-    case .mtimeMs: return "mtimeMs"
-    case .random: return "random"
-    }
-  }
-}
-
-/// Unterbereiche im Audiobooks-Tab (horizontale Leiste wie Podcast-„Shows“).
-enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
-  case books = "Books"
-  case search = "Search"
-  case series = "Series"
-  case collections = "Collections"
-  case genres = "Genres"
-  case tags = "Tags"
-  case author = "Authors"
-  case narrators = "Narrators"
-  case ebooks = "eBooks"
-  case ebooksSupplementary = "Supplementary"
-
-  var id: String { rawValue }
-
-  /// Unterbereiche im Audiobook-Bereich des gemeinsamen Medien-Tabs.
-  /// eBooks/Supplementary sind als Katalog-Filter verfügbar (nicht als eigener Strip-Abschnitt).
-  static let audiobookStripOrder: [BooksBrowseSection] = [
-    .books, .series, .author, .collections, .genres, .narrators, .tags,
-  ]
-
-  var systemImage: String {
-    switch self {
-    case .books: return "books.vertical"
-    case .search: return "magnifyingglass"
-    case .series: return "rectangle.stack"
-    case .collections: return "folder"
-    case .genres: return "sparkles"
-    case .tags: return "tag"
-    case .author: return "person.text.rectangle"
-    case .narrators: return "waveform"
-    case .ebooks: return "book.closed"
-    case .ebooksSupplementary: return "books.vertical.fill"
-    }
-  }
-}
-
-/// Podcast-Tab-Streifen: Search / New / Show-`libraryItemId`.
-enum PodcastCatalogStripSection {
-  static let search = "__search__"
-  static let newEpisodes = "__new__"
-}
-
-/// Schnellfilter im Bücher-Katalog (Toolbar neben Sort).
-enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
-  case inProgress
-  case finished
-  case notStarted
-  case downloaded
-  case ebooks
-  case ebooksSupplementary
-
-  var id: String { rawValue }
-
-  var menuTitle: String {
-    switch self {
-    case .inProgress: return "In progress"
-    case .finished: return "Finished"
-    case .notStarted: return "Not started"
-    case .downloaded: return "Downloaded"
-    case .ebooks: return "eBooks"
-    case .ebooksSupplementary: return "Supplementary eBooks"
-    }
-  }
-
-  var menuSystemImage: String {
-    switch self {
-    case .inProgress: return "play.circle"
-    case .finished: return "checkmark.circle"
-    case .notStarted: return "circle"
-    case .downloaded: return "arrow.down.circle"
-    case .ebooks: return "book.closed"
-    case .ebooksSupplementary: return "books.vertical.fill"
-    }
-  }
-
-  var isLocalDownloadedOnly: Bool { self == .downloaded }
-
-  var serverFilterKey: String? {
-    func key(group: String, value: String) -> String {
-      let b64 = Data(value.utf8).base64EncodedString()
-      return "\(group).\(b64)"
-    }
-    switch self {
-    case .downloaded: return nil
-    case .inProgress: return key(group: "progress", value: "in-progress")
-    case .finished: return key(group: "progress", value: "finished")
-    case .notStarted: return key(group: "progress", value: "not-started")
-    case .ebooks: return key(group: "ebooks", value: "ebook")
-    case .ebooksSupplementary: return key(group: "ebooks", value: "supplementary")
-    }
-  }
-
-  var summaryPrefix: String {
-    switch self {
-    case .inProgress, .finished, .notStarted: return "Progress"
-    case .downloaded: return "Downloaded"
-    case .ebooks: return "eBooks"
-    case .ebooksSupplementary: return "Supplementary"
-    }
-  }
-
-  var summaryDetail: String? {
-    switch self {
-    case .inProgress: return "In progress"
-    case .finished: return "Finished"
-    case .notStarted: return "Not started"
-    case .downloaded: return nil
-    case .ebooks: return nil
-    case .ebooksSupplementary: return nil
-    }
-  }
-}
-
-/// Navigation zu Autor-, Serien- oder Sprecher-Detail (eigene Liste, nicht Hauptkatalog filtern).
-struct BooksEntityDetailNav: Hashable, Identifiable {
-  enum Kind: String, Hashable {
-    case author
-    case series
-    case narrator
-    case collection
-    case genre
-    case tag
-  }
-
-  let kind: Kind
-  let entityId: String
-  let title: String
-  let numBooks: Int?
-  /// Bibliothek des Quell-Titels (eBooks vs. Hörbücher) — Entity-API/Filter sonst falsche Library.
-  var libraryId: String? = nil
-
-  var id: String {
-    if let lib = libraryId?.trimmingCharacters(in: .whitespacesAndNewlines), !lib.isEmpty {
-      return "\(kind.rawValue):\(lib):\(entityId)"
-    }
-    return "\(kind.rawValue):\(entityId)"
-  }
-
-  var libraryFilter: String {
-    let b64 = Data(entityId.utf8).base64EncodedString()
-    switch kind {
-    case .author: return "authors.\(b64)"
-    case .series: return "series.\(b64)"
-    case .narrator: return "narrators.\(b64)"
-    case .collection: return "collections.\(b64)"
-    case .genre: return "genres.\(b64)"
-    case .tag: return "tags.\(b64)"
-    }
-  }
-
-  var filterSummaryPrefix: String {
-    switch kind {
-    case .author: return "Author"
-    case .series: return "Series"
-    case .narrator: return "Narrator"
-    case .collection: return "Collection"
-    case .genre: return "Genre"
-    case .tag: return "Tag"
-    }
-  }
-}
-
-/// Sortierung Autorenliste (`GET …/authors`, Query `sort`).
-enum BooksBrowseAuthorsSortField: String, CaseIterable, Identifiable, Hashable {
-  case name
-  case lastFirst
-  case numBooks
-  case addedAt
-  case updatedAt
-
-  var id: String { rawValue }
-
-  var menuTitle: String {
-    switch self {
-    case .name: return "Name (first name first)"
-    case .lastFirst: return "Name (last name first)"
-    case .numBooks: return "Number of books"
-    case .addedAt: return "Date added"
-    case .updatedAt: return "Date updated"
-    }
-  }
-
-  var apiSortParameter: String { rawValue }
-}
-
-/// Sortierung Sprecherliste (lokal, Server liefert unsortierte Namensliste).
-enum BooksBrowseNarratorsSortField: String, CaseIterable, Identifiable, Hashable {
-  case name
-  case numBooks
-
-  var id: String { rawValue }
-
-  var menuTitle: String {
-    switch self {
-    case .name: return "Name"
-    case .numBooks: return "Number of books"
-    }
-  }
-}
-
-/// Sortierung Serienliste (`GET …/series`, Query `sort`).
-enum BooksBrowseSeriesSortField: String, CaseIterable, Identifiable, Hashable {
-  case name
-  case numBooks
-  case totalDuration
-  case addedAt
-  case lastBookAdded
-  case lastBookUpdated
-  case random
-
-  var id: String { rawValue }
-
-  var menuTitle: String {
-    switch self {
-    case .name: return "Series name"
-    case .numBooks: return "Number of books"
-    case .totalDuration: return "Total duration"
-    case .addedAt: return "Date added"
-    case .lastBookAdded: return "Last book added"
-    case .lastBookUpdated: return "Last book updated"
-    case .random: return "Random"
-    }
-  }
-
-  var apiSortParameter: String { rawValue }
-}
-
-/// Sortierung Genres/Tags (lokal, nach vollständiger Liste).
-enum BooksBrowseFacetSortField: String, CaseIterable, Identifiable, Hashable {
-  case name
-  case bookCount
-
-  var id: String { rawValue }
-
-  var menuTitle: String {
-    switch self {
-    case .name: return "Name"
-    case .bookCount: return "Number of books"
-    }
-  }
-}
-
-/// Sortierung Sammlungen (lokal nach vollständigem Abruf `limit=0`).
-enum BooksBrowseCollectionsSortField: String, CaseIterable, Identifiable, Hashable {
-  case name
-  case createdAt
-  case lastUpdate
-  case bookCount
-
-  var id: String { rawValue }
-
-  var menuTitle: String {
-    switch self {
-    case .name: return "Name"
-    case .createdAt: return "Date created"
-    case .lastUpdate: return "Last update"
-    case .bookCount: return "Number of books"
-    }
-  }
-}
-
-extension CatalogSortField: AbstandSortMenuField {
-  var suppressesSortOrderPicker: Bool { self == .random }
-}
-
-extension PodcastCatalogSortField: AbstandSortMenuField {
-  var suppressesSortOrderPicker: Bool { self == .random }
-}
-
-extension BooksBrowseAuthorsSortField: AbstandSortMenuField {}
-extension BooksBrowseNarratorsSortField: AbstandSortMenuField {}
-extension BooksBrowseSeriesSortField: AbstandSortMenuField {
-  var suppressesSortOrderPicker: Bool { self == .random }
-}
-extension BooksBrowseFacetSortField: AbstandSortMenuField {}
-extension BooksBrowseCollectionsSortField: AbstandSortMenuField {}
-
 @MainActor
 final class AppModel: ObservableObject {
+  // MARK: - Published state
+
   @Published var serverURL: String = UserDefaults.standard.string(forKey: Keys.server) ?? ""
 
   private static let initialCatalogSort: (field: CatalogSortField, descending: Bool) = loadCatalogSortState()
@@ -824,11 +331,11 @@ final class AppModel: ObservableObject {
       AppTheme.applyAccent(color)
       return
     }
-    guard !Self.appearanceAccentColorsEqual(color, appearanceAccentColor) else { return }
+    guard !AppearanceStore.accentColorsEqual(color, appearanceAccentColor) else { return }
     appearanceAccentColor = color
-    Self.persistAppearanceAccentColor(
+    AppearanceStore.persistAccentColor(
       color,
-      slot: Self.currentAppearanceAccentSlot(
+      slot: AppearanceStore.currentAccentSlot(
         mode: appearanceMode, system: lastSystemColorScheme))
     AppTheme.applyAccent(color)
     applyResolvedPalette()
@@ -886,9 +393,9 @@ final class AppModel: ObservableObject {
   private var suppressAppearanceAccentSideEffects = false
 
   var appearanceAccentMatchesDefault: Bool {
-    let slot = Self.currentAppearanceAccentSlot(
+    let slot = AppearanceStore.currentAccentSlot(
       mode: appearanceMode, system: lastSystemColorScheme)
-    return Self.appearanceAccentColorsEqual(appearanceAccentColor, slot.defaultAccent)
+    return AppearanceStore.accentColorsEqual(appearanceAccentColor, slot.defaultAccent)
   }
 
   /// Für `.preferredColorScheme` am Root; bei `.system` → `nil`.
@@ -910,7 +417,7 @@ final class AppModel: ObservableObject {
   }
 
   func resetAppearanceAccentToDefault() {
-    let slot = Self.currentAppearanceAccentSlot(
+    let slot = AppearanceStore.currentAccentSlot(
       mode: appearanceMode, system: lastSystemColorScheme)
     setAppearanceAccentColor(slot.defaultAccent)
   }
@@ -918,13 +425,13 @@ final class AppModel: ObservableObject {
   /// Palette, Akzent pro Slot und UIKit-Chrome — ein Einstieg statt verstreuter Listener.
   func reapplyAppearance(systemColorScheme: ColorScheme, previousMode: AppearanceMode? = nil) {
     if let previousMode {
-      let slot = Self.currentAppearanceAccentSlot(mode: previousMode, system: lastSystemColorScheme)
-      Self.persistAppearanceAccentColor(appearanceAccentColor, slot: slot)
+      let slot = AppearanceStore.currentAccentSlot(mode: previousMode, system: lastSystemColorScheme)
+      AppearanceStore.persistAccentColor(appearanceAccentColor, slot: slot)
     } else if appearanceMode == .system {
-      let oldSlot = Self.currentAppearanceAccentSlot(mode: .system, system: lastSystemColorScheme)
-      let newSlot = Self.currentAppearanceAccentSlot(mode: .system, system: systemColorScheme)
+      let oldSlot = AppearanceStore.currentAccentSlot(mode: .system, system: lastSystemColorScheme)
+      let newSlot = AppearanceStore.currentAccentSlot(mode: .system, system: systemColorScheme)
       if oldSlot != newSlot {
-        Self.persistAppearanceAccentColor(appearanceAccentColor, slot: oldSlot)
+        AppearanceStore.persistAccentColor(appearanceAccentColor, slot: oldSlot)
       }
     }
 
@@ -950,21 +457,15 @@ final class AppModel: ObservableObject {
   }
 
   private func applyAppearanceAccentForCurrentSlot() {
-    let slot = Self.currentAppearanceAccentSlot(
+    let slot = AppearanceStore.currentAccentSlot(
       mode: appearanceMode, system: lastSystemColorScheme)
-    let loaded = Self.loadAppearanceAccentColor(slot: slot)
+    let loaded = AppearanceStore.loadAccentColor(slot: slot)
     suppressAppearanceAccentSideEffects = true
     appearanceAccentColor = loaded
     suppressAppearanceAccentSideEffects = false
     AppTheme.applyAccent(loaded)
   }
 
-  private static func currentAppearanceAccentSlot(
-    mode: AppearanceMode,
-    system: ColorScheme
-  ) -> AppearanceAccentSlot {
-    AppearanceAccentSlot.slot(for: mode, system: system)
-  }
   @Published var smartDownloadOnWiFi: Bool = AppModel.initialSmartDownloadOnWiFi() {
     didSet { UserDefaults.standard.set(smartDownloadOnWiFi, forKey: Keys.smartDlAutoWifi) }
   }
@@ -1351,7 +852,7 @@ final class AppModel: ObservableObject {
     let sp = AppLog.launchSignposter.beginInterval("appModelInit")
     defer { AppLog.launchSignposter.endInterval("appModelInit", sp) }
     Self.migrateLibraryKeysIfNeeded()
-    Self.migrateAppearanceAccentKeysIfNeeded()
+    AppearanceStore.migrateAccentKeysIfNeeded()
     migrateStartDisabledCategoriesIfNeeded()
     loadLocalFinishedProgressKeys()
     reapplyAppearance(systemColorScheme: .dark)
@@ -1985,57 +1486,6 @@ final class AppModel: ObservableObject {
     return d.bool(forKey: Keys.openPlayerWhenStartPlaying)
   }
 
-  /// Legacy `abstand_appearance_accent_rgb` → Dark; Light startet mit Sepia-Braun.
-  private static func migrateAppearanceAccentKeysIfNeeded() {
-    let d = UserDefaults.standard
-    if d.string(forKey: Keys.appearanceAccentRGBDark) == nil,
-      let legacy = d.string(forKey: Keys.appearanceAccentRGB),
-      color(fromAccentRGBString: legacy) != nil
-    {
-      d.set(legacy, forKey: Keys.appearanceAccentRGBDark)
-    }
-    if d.string(forKey: Keys.appearanceAccentRGBLight) == nil {
-      persistAppearanceAccentColor(AppTheme.defaultLightAccent, slot: .light)
-    }
-  }
-
-  private static func loadAppearanceAccentColor(slot: AppearanceAccentSlot) -> Color {
-    let d = UserDefaults.standard
-    if let raw = d.string(forKey: slot.userDefaultsKey),
-      let color = color(fromAccentRGBString: raw)
-    {
-      return color
-    }
-    return slot.defaultAccent
-  }
-
-  private static func persistAppearanceAccentColor(_ color: Color, slot: AppearanceAccentSlot) {
-    guard let rgb = rgbComponents(from: color) else { return }
-    let raw = String(format: "%.4f,%.4f,%.4f", rgb.r, rgb.g, rgb.b)
-    UserDefaults.standard.set(raw, forKey: slot.userDefaultsKey)
-  }
-
-  private static func color(fromAccentRGBString raw: String) -> Color? {
-    let parts = raw.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
-    guard parts.count == 3 else { return nil }
-    return Color(red: parts[0], green: parts[1], blue: parts[2])
-  }
-
-  private static func rgbComponents(from color: Color) -> (r: Double, g: Double, b: Double)? {
-    let ui = UIColor(color)
-    var r: CGFloat = 0
-    var g: CGFloat = 0
-    var b: CGFloat = 0
-    var a: CGFloat = 0
-    guard ui.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
-    return (Double(r), Double(g), Double(b))
-  }
-
-  private static func appearanceAccentColorsEqual(_ lhs: Color, _ rhs: Color) -> Bool {
-    guard let a = rgbComponents(from: lhs), let b = rgbComponents(from: rhs) else { return false }
-    let eps = 0.002
-    return abs(a.r - b.r) < eps && abs(a.g - b.g) < eps && abs(a.b - b.b) < eps
-  }
 
   var sortedBookLibraries: [ABSLibrary] {
     libraries.filter(\.isBookLibrary).sorted {
@@ -3673,747 +3123,6 @@ final class AppModel: ObservableObject {
     syncPodcastsTabVisibilityFromLibraries()
   }
 
-  func bootstrapFromStoredCredentials() async {
-    if Task.isCancelled { return }
-    let sp = AppLog.launchSignposter.beginInterval("bootstrap")
-    defer { AppLog.launchSignposter.endInterval("bootstrap", sp) }
-    guard ABSAPIClient.normalizeServerURL(serverURL) != nil, !token.isEmpty else { return }
-    bootstrapSupersededByOffline = false
-
-    // SwiftData-Store für den aktiven Account öffnen/wechseln (noch ohne Domänen-Daten, siehe Migrationsplan).
-    if let localStore = currentLocalLibraryStore() {
-      Task.detached(priority: .utility) {
-        await localStore.markOpened()
-      }
-    }
-
-    if offlineHomeMode {
-      isAppBootstrapInProgress = false
-      scheduleFinishDeferredLaunchLocalRestore()
-      await bootstrapLocalSessionOnly()
-      scheduleDeferredWorkAfterConnect()
-      return
-    }
-
-    // Nur Downloads-Manifest früh — Katalog/Prewarm erst nach Connect + Home/Player.
-    scheduleFinishDeferredLaunchLocalRestore()
-
-    // `restoreHomeLaunchStateFromLocalStore()` in init — Home/Katalog sofort aus Cache.
-    let hadCachedBootstrap = hasCachedBootstrapContent
-    if !hadCachedBootstrap {
-      isAppBootstrapInProgress = true
-    }
-    defer {
-      if !bootstrapSupersededByOffline {
-        isAppBootstrapInProgress = false
-        flushTabVisibilityAfterBootstrap()
-      }
-      bootstrapSupersededByOffline = false
-    }
-    restoreServerClientIfNeeded()
-
-    if hadCachedBootstrap {
-      // LocalStore: Netzwerk parallel; Overlay bleibt bis Floating Bar bereit.
-      deferredBootstrapNetworkTask?.cancel()
-      deferredBootstrapNetworkTask = Task(priority: .utility) { @MainActor in
-        await self.performDeferredBootstrapNetworkRefresh()
-      }
-      await finishLaunchPresentationAfterBootstrap()
-      return
-    }
-
-    // Ohne Cache: Overlay bis Continue online (ggf. nach Authorize-Fallback).
-    await performDeferredBootstrapNetworkRefresh()
-    guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
-    await finishLaunchPresentationAfterBootstrap()
-  }
-
-  /// Home-Refresh und Mini-Player nach Bootstrap — blockiert Kaltstart nur ohne Cache.
-  private func finishLaunchPresentationAfterBootstrap() async {
-    guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
-    let hadCachedHome = !startShelves.isEmpty
-    async let home = loadStartDashboard(
-      skipAuthorizeRefresh: true,
-      force: !hadCachedHome
-    )
-    async let player: Void = restoreLastPlayedOnLaunch()
-    _ = await (home, player)
-    await waitForLaunchFloatingPlayerReady()
-    floatingChrome.syncChrome()
-    if hadCachedHome {
-      // Server-Abgleich im Hintergrund — local-first: kein Continue-Replace, Continue reading bleibt.
-      Task(priority: .utility) { @MainActor in
-        try? await Task.sleep(nanoseconds: 400_000_000)
-        guard !self.offlineHomeUIActive, !self.bootstrapSupersededByOffline else { return }
-        await self.loadStartDashboard(skipAuthorizeRefresh: true, force: true)
-      }
-    }
-    scheduleDeferredWorkAfterConnect()
-  }
-
-  /// Katalog-Caches, Tab-Prewarm und Server-Reload — erst nach Connect, Home und Player.
-  private func scheduleDeferredWorkAfterConnect() {
-    guard !suppressDeferredWorkAfterBootstrap else { return }
-    scheduleDeferredCatalogLocalRestoreAfterBootstrap()
-    scheduleSecondaryTabPrewarm()
-    scheduleDeferredCatalogReloadAfterBootstrap()
-  }
-
-  /// Laufende Bootstrap-/Katalog-Tasks abbrechen (Account-Wechsel, Logout, Offline während Bootstrap).
-  private func cancelDeferredBootstrapWork() {
-    bootstrapCatalogReloadTask?.cancel()
-    bootstrapCatalogReloadTask = nil
-    deferredCatalogLocalRestoreTask?.cancel()
-    deferredCatalogLocalRestoreTask = nil
-    launchLocalRestoreTask?.cancel()
-    launchLocalRestoreTask = nil
-    homeLaunchLocalRestoreTask?.cancel()
-    homeLaunchLocalRestoreTask = nil
-    deferredBootstrapNetworkTask?.cancel()
-    deferredBootstrapNetworkTask = nil
-    deferredBootstrapAuthorizeTask?.cancel()
-    deferredBootstrapAuthorizeTask = nil
-    deferredLibrariesFetchTask?.cancel()
-    deferredLibrariesFetchTask = nil
-    storedCredentialsBootstrapTask?.cancel()
-    storedCredentialsBootstrapTask = nil
-    startDashboardPostProcessingTask?.cancel()
-    startDashboardPostProcessingTask = nil
-    booksToolbarSortReloadTask?.cancel()
-    booksToolbarSortReloadTask = nil
-    podcastCatalogSortReloadTask?.cancel()
-    podcastCatalogSortReloadTask = nil
-    searchTask?.cancel()
-    searchTask = nil
-    podcastSearchTask?.cancel()
-    podcastSearchTask = nil
-    podcastDirectorySearchTask?.cancel()
-    podcastDirectorySearchTask = nil
-    podcastLibrarySearchTask?.cancel()
-    podcastLibrarySearchTask = nil
-    deferredBooksCatalogLocalRestoreScheduled = false
-    deferredBrowseListsLocalRestoreScheduled = false
-    shouldPrewarmSecondaryTabs = false
-  }
-
-  /// Nach Account-Wechsel: LocalStore + Server-Kataloge für alle Tabs neu aufbauen.
-  private func reloadAllViewsAfterAccountSwitch() async {
-    guard !offlineHomeUIActive else { return }
-    cancelDeferredBootstrapWork()
-    await finishDeferredLaunchLocalRestore()
-    async let settings: Bool = reloadSettingsTab(reloadCatalogs: true)
-    async let home = loadStartDashboard(skipAuthorizeRefresh: true, force: true)
-    _ = await (settings, home)
-    scheduleSecondaryTabPrewarm()
-  }
-
-  /// Floating Bar: kurz stabilisieren bis Titel/Controls sichtbar (oder kein Resume).
-  private func waitForLaunchFloatingPlayerReady() async {
-    guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
-    var stableReadyStreak = 0
-    for _ in 0..<120 {
-      if bootstrapSupersededByOffline || offlineHomeUIActive { return }
-      floatingChrome.syncChrome()
-      if isLaunchFloatingPlayerReadyForInteraction() {
-        stableReadyStreak += 1
-        if stableReadyStreak >= 3 {
-          try? await Task.sleep(nanoseconds: 150_000_000)
-          floatingChrome.syncChrome()
-          return
-        }
-      } else {
-        stableReadyStreak = 0
-      }
-      // Kein Resume — Restore abgeschlossen, Floating Bar entfällt.
-      if !isRestoringLaunchPlayback, !isPreparingPlayback, player.activeBook == nil {
-        return
-      }
-      try? await Task.sleep(nanoseconds: 50_000_000)
-    }
-  }
-
-  private func isLaunchFloatingPlayerReadyForInteraction() -> Bool {
-    guard !isRestoringLaunchPlayback, !isPreparingPlayback else { return false }
-    guard player.activeBook != nil else { return true }
-    guard player.isPlaybackControlsReady else { return false }
-    let snap = TabAccessoryMiniPlayerSnapshot.make(model: self)
-    guard snap.activeBookId != nil, snap.canTogglePlayback, !snap.showsConnectionLoading else { return false }
-    let title = snap.primaryLine.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !title.isEmpty, title != "Loading…" else { return false }
-    return floatingChrome.gate.chromeVisible
-  }
-
-  /// Lazy-Bootstrap: Continue ohne `/authorize`; Authorize nur bei fehlgeschlagenem Continue-Refresh.
-  /// URLSession mit `waitsForConnectivity = true` queued Requests automatisch — kein `NWPathMonitor`-Polling nötig.
-  /// Nach erfolgreichem Continue: `/authorize` deferred nachladen für User-Type/Admin-Status.
-  private func performDeferredBootstrapNetworkRefresh() async {
-    let sp = AppLog.launchSignposter.beginInterval("refreshBootstrap")
-    defer { AppLog.launchSignposter.endInterval("refreshBootstrap", sp) }
-    isDeferredBootstrapNetworkRefreshInProgress = true
-    defer { isDeferredBootstrapNetworkRefreshInProgress = false }
-
-    if bootstrapSupersededByOffline || offlineHomeMode { return }
-
-    guard ABSAPIClient.normalizeServerURL(serverURL) != nil, !token.isEmpty else { return }
-    restoreServerClientIfNeeded()
-    guard client != nil else { return }
-    offlineHomeModeAuto = false
-
-    let forceContinue = !hasCachedBootstrapContent
-    var result = await loadStartDashboard(skipAuthorizeRefresh: true, force: forceContinue)
-    if needsAuthorizeFallbackForContinue(result, attemptedOnline: result.attemptedNetwork) {
-      await refreshProgressFromServer()
-      guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
-      result = await loadStartDashboard(skipAuthorizeRefresh: true, force: true)
-      if !result.appliedOnline, let error = result.error, !hasCachedBootstrapContent {
-        isRestoringLaunchPlayback = false
-        player.setMiniPlayerPlaceholder(false)
-        publishErrorUnlessBenignCancellation(error)
-        if !isAuthHTTPStatus(error) {
-          isServerReachable = false
-          offlineHomeModeAuto = true
-          mainTab = .start
-          await prepareForOfflineHomeMode()
-          await bootstrapLocalSessionOnly()
-          await reloadLibraryViewsForModeTransition()
-        }
-        return
-      }
-    }
-
-    guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
-
-    if !result.attemptedNetwork {
-      // Cache bereits vorhanden → `loadStartDashboard` hat früh zurückgegeben, ohne
-      // tatsächlich einen Request zu starten. Erreichbarkeit darf dann nicht einfach
-      // angenommen werden — echter Probe-Call statt Blindvertrauen.
-      await probeServerConnection()
-      guard isServerReachable else { return }
-      // Bereits per `probeServerConnection()` autorisiert — kein zweiter `/authorize`-Call nötig,
-      // aber Bibliotheksliste im Hintergrund trotzdem wie im Normalpfad nachziehen.
-      scheduleDeferredLibrariesFetchFromServer()
-      return
-    }
-
-    isServerReachable = true
-    // `/authorize` deferred: User-Type (admin/root), Media-Progress, Bookmarks.
-    // Nicht blockierend für Home — läuft parallel zum Libraries-Fetch.
-    deferredBootstrapAuthorizeTask?.cancel()
-    deferredBootstrapAuthorizeTask = Task(priority: .utility) { @MainActor [weak self] in
-      guard let self, let c = self.client else { return }
-      do {
-        let auth = try await c.authorize()
-        guard !Task.isCancelled, !self.bootstrapSupersededByOffline else { return }
-        self.applyAuthorizeSession(auth)
-      } catch {
-        if !AbstandErrorFilter.isBenignCancellation(error) {
-          AppLog.bootstrap.warning("Deferred authorize failed: \(error.localizedDescription, privacy: .public)")
-        }
-      }
-    }
-    scheduleDeferredLibrariesFetchFromServer()
-  }
-
-  private func isAuthHTTPStatus(_ error: Error?) -> Bool {
-    guard let error else { return false }
-    guard case ABSAPIError.httpStatus(let code, _) = error else { return false }
-    return code == 401 || code == 403
-  }
-
-  private func hasCachedContinueInLocalStore() -> Bool {
-    guard let context = currentLocalLibraryMainContext() else { return false }
-    var progressDescriptor = FetchDescriptor<LocalProgress>()
-    progressDescriptor.fetchLimit = 1
-    if !((try? context.fetch(progressDescriptor)) ?? []).isEmpty { return true }
-    guard let libId = selectedBooksLibrary?.id.trimmingCharacters(in: .whitespacesAndNewlines),
-      !libId.isEmpty
-    else { return false }
-    if let cached = LocalLibraryQueries.homeShelves(context: context, libraryId: libId) {
-      return cached.contains { isHomeContinueCategory($0.category) && ($0.hasBooks || $0.hasPodcastEpisodes) }
-    }
-    return false
-  }
-
-  /// Gewählte Podcast-Bibliothek oder gespeicherter Stub (Kaltstart vor Katalog-Restore).
-  private func resolvedPodcastLibraryId() -> String? {
-    if let id = selectedPodcastLibrary?.id.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty {
-      return id
-    }
-    let stored =
-      UserDefaults.standard.string(forKey: Keys.podcastsLibrary)?
-      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    if stored.isEmpty || stored == Keys.librarySelectionNone { return nil }
-    return stored
-  }
-
-  private func hasOpenProgressExpectingContinue() -> Bool {
-    progressByItemId.values.contains {
-      !$0.isFinished && $0.currentTime > Self.continueListeningMinPositionSeconds
-    }
-  }
-
-  private func continueShelfHasVisibleItems() -> Bool {
-    guard let idx = preferredHomeContinueShelfIndex() else { return false }
-    let shelf = startShelves[idx]
-    return !shelf.books.isEmpty || !shelf.podcastEpisodes.isEmpty
-  }
-
-  /// Entscheidet, ob nach fehlgeschlagenem Token-Continue ein `/authorize` nötig ist.
-  private func needsAuthorizeFallbackForContinue(
-    _ result: ContinueRefreshAttemptResult,
-    attemptedOnline: Bool
-  ) -> Bool {
-    if isAuthHTTPStatus(result.error) { return true }
-    guard attemptedOnline else { return false }
-    if !result.appliedOnline {
-      if hasCachedContinueInLocalStore() || hasCachedBootstrapContent { return false }
-      return true
-    }
-    repairContinueListeningShelfFromLocalProgressOnly()
-    syncContinueListeningShelvesWithProgress()
-    if hasOpenProgressExpectingContinue(), !continueShelfHasVisibleItems() {
-      return true
-    }
-    return false
-  }
-
-  /// Bibliotheksliste nach Lazy-Bootstrap — nicht blockierend für Home/Overlay.
-  private func scheduleDeferredLibrariesFetchFromServer() {
-    deferredLibrariesFetchTask?.cancel()
-    deferredLibrariesFetchTask = Task(priority: .utility) { @MainActor [weak self] in
-      await self?.refreshLibrariesFromServerInBackground()
-    }
-  }
-
-  private func refreshLibrariesFromServerInBackground() async {
-    guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
-    guard mayUseServerNetwork, isNetworkReachable else { return }
-    restoreServerClientIfNeeded()
-    guard let c = client else { return }
-    do {
-      applyLibrariesFromServer(try await c.libraries())
-      if bootstrapSupersededByOffline || offlineHomeUIActive { return }
-      let defaultLibId = UserDefaults.standard.string(forKey: Keys.userDefaultLibraryId)?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      await resolveLibrariesAfterServerFetch(
-        userDefaultLibraryId: (defaultLibId?.isEmpty == false) ? defaultLibId : nil
-      )
-    } catch {}
-  }
-
-  var hasCachedBootstrapContent: Bool {
-    if !startShelves.isEmpty || !books.isEmpty || !podcastEpisodes.isEmpty { return true }
-    return hasCachedLaunchArtifactsInLocalStore()
-  }
-
-  /// LocalStore-Artefakte für schnellen Kaltstart (auch wenn Regale im Speicher noch leer sind).
-  private func hasCachedLaunchArtifactsInLocalStore() -> Bool {
-    guard cacheAccountURL() != nil else { return false }
-    if hasCachedContinueInLocalStore() { return true }
-    guard let context = currentLocalLibraryMainContext() else { return false }
-    var descriptor = FetchDescriptor<LocalProgress>()
-    descriptor.fetchLimit = 1
-    return ((try? context.fetch(descriptor)) ?? []).isEmpty == false
-  }
-
-  /// Bootstrap direkt nach init — `.task` auf der Root-View kommt oft erst Sekunden später.
-  private func scheduleBootstrapFromStoredCredentials() {
-    storedCredentialsBootstrapTask?.cancel()
-    storedCredentialsBootstrapTask = Task(priority: .userInitiated) { @MainActor [weak self] in
-      await self?.bootstrapFromStoredCredentials()
-    }
-  }
-
-  /// Katalog-Caches aus LocalStore — gestaffelt nach Bootstrap, nicht beim Tab-Wechsel.
-  private func scheduleDeferredCatalogLocalRestoreAfterBootstrap() {
-    guard !deferredBooksCatalogLocalRestoreScheduled else { return }
-    deferredBooksCatalogLocalRestoreScheduled = true
-    deferredCatalogLocalRestoreTask?.cancel()
-    deferredCatalogLocalRestoreTask = Task(priority: .utility) { @MainActor [weak self] in
-      // Ein Yield statt fixem Sleep — Home-Frame hat Vorrang, LocalStore-Restore folgt sofort danach.
-      await Task.yield()
-      try? await Task.sleep(nanoseconds: 500_000_000)
-      await Task.yield()
-      guard let self, !Task.isCancelled, !self.offlineHomeUIActive, !self.bootstrapSupersededByOffline else { return }
-      if self.books.isEmpty {
-        await self.restoreBooksCatalogPagesFromLocalStoreAsync()
-      }
-      await Task.yield()
-      guard !Task.isCancelled else { return }
-      if !self.deferredBrowseListsLocalRestoreScheduled {
-        self.deferredBrowseListsLocalRestoreScheduled = true
-        self.restoreAllBrowseListsFromLocalStore()
-      }
-      await Task.yield()
-      guard !Task.isCancelled else { return }
-      if self.podcastEpisodes.isEmpty, self.podcastShows.isEmpty {
-        self.restorePodcastCatalogFromLocalStore()
-      }
-      await Task.yield()
-      guard !Task.isCancelled else { return }
-      guard let account = self.cacheAccountURL() else { return }
-      // Ganz am Ende der Idle-Kette, außerhalb des MainActor-Takts: alte/verwaiste Cover
-      // (nach Revision-Wechsel) begrenzen, ohne den Start zu belasten.
-      Task.detached(priority: .background) {
-        CoverImageCache.pruneStaleEntries(account: account)
-      }
-    }
-  }
-
-  /// Tab-Views nach kurzer Idle-Phase vorbauen — Wechsel ohne Erst-Mount-Ruckler.
-  private func scheduleSecondaryTabPrewarm() {
-    Task { @MainActor [weak self] in
-      await Task.yield()
-      try? await Task.sleep(nanoseconds: 500_000_000)
-      self?.shouldPrewarmSecondaryTabs = true
-    }
-  }
-
-  /// Bibliotheks-Kataloge nach Bootstrap — niedrige Priorität, Home bleibt bedienbar.
-  private func scheduleDeferredCatalogReloadAfterBootstrap() {
-    bootstrapCatalogReloadTask?.cancel()
-    bootstrapCatalogReloadTask = Task(priority: .utility) { @MainActor [weak self] in
-      // Statt eines geschätzten Fix-Delays: auf den LocalStore-Restore warten (der eigentliche
-      // Vorlauf, den wir abpuffern wollen) und danach nur noch eine kurze Sicherheitsspanne.
-      await self?.deferredCatalogLocalRestoreTask?.value
-      try? await Task.sleep(nanoseconds: 1_500_000_000)
-      await Task.yield()
-      guard let self, !Task.isCancelled, !self.offlineHomeUIActive, !self.bootstrapSupersededByOffline else { return }
-      // Bücher- und Podcast-Katalog sind unabhängig — parallel laden.
-      // `preserveOtherCachedPages`: stiller Hintergrund-Refresh mit unverändertem Sort/Filter —
-      // Folgeseiten im LocalStore nicht wegen der frischen Seite 0 wegwerfen.
-      async let books: Void = self.reloadLibrary(reset: true, preserveOtherCachedPages: true)
-      async let podcasts: Void = self.reloadPodcastLibrary(reset: true)
-      _ = await (books, podcasts)
-    }
-  }
-
-  /// App-Start / Auto-Offline: nur LocalStore und Downloads, kein Netzwerk.
-  private func bootstrapLocalSessionOnly() async {
-    ensureLocalProgressLoaded()
-    await loadStartDashboard()
-    isRestoringLaunchPlayback = false
-    player.setMiniPlayerPlaceholder(false)
-  }
-
-  /// Vor Offline-Modus: aktuelle Position lokal + Play-Session an den Server, dann Netzwerk trennen.
-  private func prepareForOfflineHomeMode() async {
-    recordActivePlaybackProgressLocally(markPendingServerSync: true)
-    if let c = client {
-      await player.flushPendingPlaySessionSync()
-      if player.isRemotePlaySessionActive, let book = player.activeBook {
-        let dur = player.totalDuration
-        if dur > 0 {
-          let pos = player.globalPosition
-          let prog = min(1, max(0, pos / dur))
-          try? await c.patchProgress(
-            libraryItemId: book.id,
-            episodeId: player.activePlaybackEpisodeId,
-            patch: ABSProgressPatch(
-              currentTime: pos, duration: dur, progress: prog, isFinished: nil
-            )
-          )
-        }
-      }
-    }
-    await adaptActivePlaybackForOfflineHomeMode()
-    isServerReachable = false
-    player.suspendServerNetworkingForOfflineMode()
-    client = nil
-  }
-
-  /// Stream-Wiedergabe ohne Download beenden; bei lokalem Download auf Dateien umschalten.
-  private func adaptActivePlaybackForOfflineHomeMode() async {
-    guard player.activeBook != nil else { return }
-    if player.isUsingLocalTrackFiles { return }
-
-    let position = player.globalPosition
-    let wasPlaying = player.isPlaying
-
-    if let episode = podcastEpisodeForActivePlayback() {
-      let storageKey = podcastEpisodeOfflineStorageId(episode)
-      if localDownloadRoot(for: storageKey) != nil {
-        player.tearDownPlayer()
-        await playPodcastEpisode(episode, autoPlay: wasPlaying, resumeAtOverride: position)
-        floatingChrome.syncChrome()
-        return
-      }
-    } else if let book = player.activeBook, resolvedLocalDownloadForPlayback(book: book) != nil {
-      player.tearDownPlayer()
-      await play(book: book, resumeAtOverride: position, autoPlay: wasPlaying)
-      floatingChrome.syncChrome()
-      return
-    }
-
-    await dismissPlayer(idlePlaceholder: false)
-    floatingChrome.syncChrome()
-  }
-
-  private func restoreServerClientIfNeeded() {
-    guard client == nil,
-      let url = ABSAPIClient.normalizeServerURL(serverURL),
-      !token.isEmpty
-    else { return }
-    client = ABSAPIClient(baseURL: url, token: token)
-  }
-
-  /// Client nur für lokale Wiedergabe (kein Authorize); entsteht nach `suspendServerClientForOfflineHome`.
-  private func clientForOfflineLocalPlayback() -> ABSAPIClient? {
-    if let c = client { return c }
-    guard let url = ABSAPIClient.normalizeServerURL(serverURL), !token.isEmpty else { return nil }
-    return ABSAPIClient(baseURL: url, token: token)
-  }
-
-  func login(server: String, username: String, password: String) async {
-    errorMessage = nil
-    guard let url = ABSAPIClient.normalizeServerURL(server) else {
-      errorMessage = "Please enter a valid server URL."
-      return
-    }
-    if isLoggedIn {
-      syncStoredAccountFromSession()
-    }
-    defer { refreshDownloadedShelfFromManifests() }
-    bootstrapSupersededByOffline = false
-    isAppBootstrapInProgress = true
-    defer {
-      if !bootstrapSupersededByOffline {
-        isAppBootstrapInProgress = false
-        flushTabVisibilityAfterBootstrap()
-      }
-      bootstrapSupersededByOffline = false
-    }
-    offlineHomeModeAuto = false
-    var serverSessionEstablished = false
-    do {
-      let res = try await ABSAPIClient.login(server: url, username: username, password: password)
-      if bootstrapSupersededByOffline || offlineHomeMode { return }
-      token = res.user.token
-      serverURL = server.trimmingCharacters(in: .whitespacesAndNewlines)
-      UserDefaults.standard.set(serverURL, forKey: Keys.server)
-      UserDefaults.standard.set(token, forKey: Keys.token)
-      let c = ABSAPIClient(baseURL: url, token: token)
-      client = c
-      serverSessionEstablished = true
-      applyAuthorizeSession(res)
-      syncStoredAccountFromSession()
-      loadDownloadedItemIdsForActiveAccount()
-      isServerReachable = true
-      applyLibrariesFromServer(try await c.libraries())
-      if bootstrapSupersededByOffline || offlineHomeMode { return }
-      await resolveLibrariesAfterServerFetch(userDefaultLibraryId: res.userDefaultLibraryId)
-      if bootstrapSupersededByOffline || offlineHomeMode { return }
-      mainTab = .start
-      await finishLaunchPresentationAfterBootstrap()
-    } catch {
-      if bootstrapSupersededByOffline || offlineHomeMode { return }
-      isRestoringLaunchPlayback = false
-      player.setMiniPlayerPlaceholder(false)
-      publishErrorUnlessBenignCancellation(error)
-      if serverSessionEstablished {
-        isServerReachable = true
-        mainTab = .start
-        await finishLaunchPresentationAfterBootstrap()
-        return
-      }
-      isServerReachable = false
-    }
-  }
-
-  /// Entfernt den aktiven Account und wechselt zum nächsten gespeicherten — oder zeigt Login.
-  func logout() {
-    guard let key = activeAccountKey ?? resolvedStoredAccountKey() else {
-      clearInMemorySessionState(clearCredentials: true)
-      return
-    }
-    removeStoredAccount(accountKey: key)
-  }
-
-  /// Account aus der Liste entfernen; bei aktivem Account wie `logout()` zum nächsten wechseln.
-  func removeStoredAccount(accountKey: String) {
-    let key = accountKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !key.isEmpty else { return }
-    let removingActive = key == activeAccountKey
-    if removingActive { syncStoredAccountFromSession() }
-    storedAccounts.removeAll { $0.accountKey == key }
-    persistStoredAccounts()
-    guard removingActive else { return }
-    if let next = storedAccounts.first {
-      Task { await switchToAccount(next.accountKey) }
-      return
-    }
-    activeAccountKey = nil
-    ABSStoredAccountsPersistence.saveActiveAccountKey(nil)
-    clearInMemorySessionState(clearCredentials: true)
-  }
-
-  func isActiveStoredAccount(_ account: ABSStoredAccount) -> Bool {
-    account.accountKey == activeAccountKey
-  }
-
-  func switchToAccount(_ accountKey: String) async {
-    guard !isSwitchingAccount else { return }
-    guard accountKey != activeAccountKey,
-      let account = storedAccounts.first(where: { $0.accountKey == accountKey })
-    else { return }
-    isSwitchingAccount = true
-    defer { isSwitchingAccount = false }
-    syncStoredAccountFromSession()
-    persistDownloads(skipRefresh: true)
-    CoverImageCache.evictMemory()
-    coverImageCacheRevision &+= 1
-    clearInMemorySessionState(clearCredentials: false)
-    serverURL = account.serverURL
-    token = account.token
-    UserDefaults.standard.set(serverURL, forKey: Keys.server)
-    UserDefaults.standard.set(token, forKey: Keys.token)
-    activeAccountKey = accountKey
-    ABSStoredAccountsPersistence.saveActiveAccountKey(accountKey)
-    // Vor Authorize: UserId setzen, damit LocalStore und Home sofort zum richtigen Account zeigen.
-    let switchedUserId = account.userId.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !switchedUserId.isEmpty {
-      sessionUserId = switchedUserId
-      UserDefaults.standard.set(switchedUserId, forKey: Keys.sessionUserId)
-    }
-    sessionUsername = account.username
-    sessionUserType = account.userType ?? "user"
-    applyLibraryPreferencesFromStoredAccount(account)
-    loadDownloadedItemIdsForActiveAccount()
-    if let cacheRoot = cacheAccountURL() {
-      EbookLocalStore.updateActiveSession(account: cacheRoot, userId: switchedUserId.isEmpty ? nil : switchedUserId)
-    }
-    restoreHomeLaunchStateFromLocalStore(libraryIdOverride: account.booksLibraryId)
-    isAppBootstrapInProgress = true
-    storedCredentialsBootstrapTask?.cancel()
-    storedCredentialsBootstrapTask = nil
-    suppressDeferredWorkAfterBootstrap = true
-    defer { suppressDeferredWorkAfterBootstrap = false }
-    await bootstrapFromStoredCredentials()
-    accountSessionEpoch &+= 1
-    await reloadAllViewsAfterAccountSwitch()
-  }
-
-  private static func bootstrapStoredAccountsState() -> (accounts: [ABSStoredAccount], activeKey: String?) {
-    var accounts = ABSStoredAccountsPersistence.loadAccounts()
-    if accounts.isEmpty {
-      accounts = migrateLegacySingleAccountIntoStore()
-    }
-    var activeKey = ABSStoredAccountsPersistence.loadActiveAccountKey()
-    if activeKey == nil, let first = accounts.first {
-      activeKey = first.accountKey
-      ABSStoredAccountsPersistence.saveActiveAccountKey(activeKey)
-    }
-    if let currentKey = activeKey, !accounts.contains(where: { $0.accountKey == currentKey }),
-      let fallback = accounts.first
-    {
-      activeKey = fallback.accountKey
-      ABSStoredAccountsPersistence.saveActiveAccountKey(activeKey)
-    }
-    return (accounts, activeKey)
-  }
-
-  private static func migrateLegacySingleAccountIntoStore() -> [ABSStoredAccount] {
-    let server = UserDefaults.standard.string(forKey: Keys.server)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    let token = UserDefaults.standard.string(forKey: Keys.token)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    let userId = UserDefaults.standard.string(forKey: Keys.sessionUserId)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    guard ABSAPIClient.normalizeServerURL(server) != nil, !token.isEmpty, !userId.isEmpty else { return [] }
-    let account = ABSStoredAccount(
-      accountKey: ABSStoredAccount.makeKey(serverURL: server, userId: userId),
-      serverURL: server,
-      token: token,
-      userId: userId,
-      username: "",
-      userType: nil,
-      booksLibraryId: UserDefaults.standard.string(forKey: Keys.booksLibrary),
-      podcastsLibraryId: UserDefaults.standard.string(forKey: Keys.podcastsLibrary),
-      ebooksLibraryId: UserDefaults.standard.string(forKey: Keys.booksLibrary),
-      lastUsedAt: Date()
-    )
-    ABSStoredAccountsPersistence.saveAccounts([account])
-    ABSStoredAccountsPersistence.saveActiveAccountKey(account.accountKey)
-    return [account]
-  }
-
-  func syncStoredAccountFromSession() {
-    syncStoredAccountFromSession(markActive: true)
-  }
-
-  private func syncStoredAccountFromSession(markActive: Bool) {
-    guard ABSAPIClient.normalizeServerURL(serverURL) != nil, !token.isEmpty else { return }
-    let userId = sessionUserId.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !userId.isEmpty else { return }
-    let key = ABSStoredAccount.makeKey(serverURL: serverURL, userId: userId)
-    let booksLib = UserDefaults.standard.string(forKey: Keys.booksLibrary)
-    let podcastsLib = UserDefaults.standard.string(forKey: Keys.podcastsLibrary)
-    if let idx = storedAccounts.firstIndex(where: { $0.accountKey == key }) {
-      storedAccounts[idx].token = token
-      storedAccounts[idx].serverURL = serverURL
-      storedAccounts[idx].userId = userId
-      storedAccounts[idx].username = sessionUsername
-      storedAccounts[idx].userType = sessionUserType.isEmpty ? nil : sessionUserType
-      storedAccounts[idx].booksLibraryId = booksLib
-      storedAccounts[idx].podcastsLibraryId = podcastsLib
-      storedAccounts[idx].ebooksLibraryId = booksLib
-    } else if let legacyIdx = activeAccountKey.flatMap({ key in storedAccounts.firstIndex(where: { $0.accountKey == key }) }),
-      storedAccounts[legacyIdx].userId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    {
-      // Migration: userId war beim ersten Speichern noch leer — Eintrag umbenennen.
-      storedAccounts[legacyIdx].accountKey = key
-      storedAccounts[legacyIdx].token = token
-      storedAccounts[legacyIdx].serverURL = serverURL
-      storedAccounts[legacyIdx].userId = userId
-      storedAccounts[legacyIdx].username = sessionUsername
-      storedAccounts[legacyIdx].userType = sessionUserType.isEmpty ? nil : sessionUserType
-      storedAccounts[legacyIdx].booksLibraryId = booksLib
-      storedAccounts[legacyIdx].podcastsLibraryId = podcastsLib
-      storedAccounts[legacyIdx].ebooksLibraryId = booksLib
-    } else {
-      storedAccounts.append(
-        ABSStoredAccount(
-          accountKey: key,
-          serverURL: serverURL,
-          token: token,
-          userId: userId,
-          username: sessionUsername,
-          userType: sessionUserType.isEmpty ? nil : sessionUserType,
-          booksLibraryId: booksLib,
-          podcastsLibraryId: podcastsLib,
-          ebooksLibraryId: booksLib,
-          lastUsedAt: Date()
-        ))
-    }
-    if markActive {
-      activeAccountKey = key
-      ABSStoredAccountsPersistence.saveActiveAccountKey(key)
-    }
-    persistStoredAccounts()
-  }
-
-  /// Neuen Account speichern, ohne die aktuelle Session zu wechseln.
-  func addStoredAccount(server: String, username: String, password: String) async -> Bool {
-    errorMessage = nil
-    guard let url = ABSAPIClient.normalizeServerURL(server) else {
-      errorMessage = "Please enter a valid server URL."
-      return false
-    }
-    syncStoredAccountFromSession()
-    let preserveActiveKey = activeAccountKey
-    do {
-      let res = try await ABSAPIClient.login(server: url, username: username, password: password)
-      upsertStoredAccountFromUser(
-        res.user,
-        serverURL: server.trimmingCharacters(in: .whitespacesAndNewlines),
-        markActive: false
-      )
-      activeAccountKey = preserveActiveKey
-      ABSStoredAccountsPersistence.saveActiveAccountKey(preserveActiveKey)
-      persistStoredAccounts()
-      return true
-    } catch {
-      publishErrorUnlessBenignCancellation(error)
-      return false
-    }
-  }
 
   private func upsertStoredAccountFromUser(_ user: ABSUser, serverURL: String, markActive: Bool) {
     let userId = user.id.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5153,108 +3862,6 @@ final class AppModel: ObservableObject {
   /// ein voller Wipe würde bei großen Bibliotheken bereits gecachte Folgeseiten bis zum nächsten Scroll
   /// verlieren. Bei echtem Sort-/Filter-/Bibliothekswechsel bleibt der destruktive Wipe (Default) korrekt,
   /// weil alte Seiten dort ohnehin nicht mehr zur neuen Reihenfolge passen.
-  func reloadLibrary(reset: Bool, preserveOtherCachedPages: Bool = false) async {
-    guard let lib = selectedBooksLibrary else {
-      await loadStartDashboard()
-      return
-    }
-    // Lokale DB nur für die SOFORT-Anzeige, bevor der Server antwortet — und nur wenn der
-    // Cache-Slug (Sort/Filter) exakt passt. Online kein Superset-Fallback: der würde kurz die
-    // ganze lokale Lib in Client-Sortierung zeigen und gleich durch Server-Seite 0 ersetzt
-    // (Flash beim Sort-/Filterwechsel). Offline: Superset erlaubt.
-    // Ein echter Reset holt unten IMMER Seite 0 frisch vom Server — die Antwort ist verbindlich.
-    var didWarmFromExactLocalCatalog = false
-    if reset {
-      didWarmFromExactLocalCatalog = loadLibraryFromLocalStore(
-        allowSupersetFallback: !isNetworkReachable
-      )
-    }
-    guard let c = client else {
-      if reset, !didWarmFromExactLocalCatalog {
-        _ = loadLibraryFromLocalStore(allowSupersetFallback: true)
-      }
-      if startShelves.isEmpty { await loadStartDashboard() }
-      return
-    }
-    if !isNetworkReachable {
-      if reset, !didWarmFromExactLocalCatalog {
-        _ = loadLibraryFromLocalStore(allowSupersetFallback: true)
-      }
-      refreshDownloadedShelfFromManifests()
-      applyCachedStartDashboard()
-      return
-    }
-    isLoadingLibrary = true
-    defer { isLoadingLibrary = false }
-    // Kein passender Sort/Filter-Cache: alte Liste nicht stehen lassen und keinen Superset
-    // blenden — Spinner bis Server-Seite 0 da ist. Stille Background-Refreshes behalten die Liste.
-    if reset, !preserveOtherCachedPages, !didWarmFromExactLocalCatalog {
-      var transaction = Transaction()
-      transaction.disablesAnimations = true
-      withTransaction(transaction) {
-        books = []
-        libraryTotal = 0
-        libraryPage = 0
-      }
-    }
-    let ascending = catalogSortField == .random ? true : !catalogSortDescending
-    let sortKey = catalogSortField.apiSortParameter
-    do {
-      if reset {
-        libraryPage = 0
-      }
-      let pageIndex = libraryPage
-      let (page, _) = try await c.libraryItems(
-        libraryId: lib.id,
-        page: pageIndex,
-        limit: Self.libraryCatalogPageLimit,
-        sort: sortKey,
-        ascending: ascending,
-        minified: true,
-        filter: activeLibraryFilter
-      )
-      let pageBooks = page.results.filter(\.isUsableLibraryCatalogRow)
-      if let store = currentLocalLibraryStore() {
-        if reset, preserveOtherCachedPages {
-          try? await store.refreshCatalogFirstPagePreservingRest(
-            libraryId: lib.id, sortField: sortKey, ascending: ascending, filterKey: activeLibraryFilter,
-            total: page.total, items: pageBooks)
-        } else if reset {
-          try? await store.replaceCatalogFirstPage(
-            libraryId: lib.id, sortField: sortKey, ascending: ascending, filterKey: activeLibraryFilter,
-            total: page.total, items: pageBooks)
-        } else {
-          try? await store.appendCatalogPage(libraryId: lib.id, total: page.total, items: pageBooks)
-        }
-      }
-      if reset, preserveOtherCachedPages {
-        // Stiller Hintergrund-Refresh (z. B. nach Bootstrap): nur die ersten `pageBooks.count`
-        // Positionen mit der frischen Server-Reihenfolge ersetzen, bereits gescrollte Folgeseiten
-        // bleiben unangetastet — sonst würde die Liste während eines unbeauftragten Refreshs
-        // sichtbar auf Seite 0 zurückschrumpfen.
-        mergeServerFirstPageIntoLocalBooksPreservingRest(pageBooks, total: page.total)
-      } else if reset {
-        // Echter Reset (Pull-to-Refresh, Sort-/Filterwechsel): Server-Seite 0 ist verbindlich.
-        let unchanged =
-          pageBooks.count == books.count
-          && zip(pageBooks, books).allSatisfy { $0.id == $1.id && $0.updatedAt == $1.updatedAt }
-        if !unchanged { books = pageBooks }
-        libraryTotal = page.total
-      } else {
-        books.append(contentsOf: pageBooks)
-        libraryTotal = page.total
-      }
-      libraryPage = page.page + 1
-      if reset {
-        lastBooksCatalogServerSyncAt = Date()
-      }
-    } catch {
-      publishErrorUnlessBenignCancellation(error)
-    }
-    if startShelves.isEmpty {
-      await loadStartDashboard()
-    }
-  }
 
   /// Kataloge gelten nach dieser Spanne als veraltet — Vordergrund-Wechsel stößt dann einen
   /// stillen Server-Refresh an, der auch die lokale DB fortschreibt (Listen bleiben cache-first).
@@ -5890,7 +4497,7 @@ final class AppModel: ObservableObject {
         if !authToken.isEmpty {
           req.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
         }
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+        guard let (data, resp) = try? await AbstandHTTPSession.coverAndCache.data(for: req),
           let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
           let ui = UIImage(data: data)
         else { return }
@@ -8808,118 +7415,6 @@ final class AppModel: ObservableObject {
   }
 
   /// Hör-Sitzungen zu **einer Podcast-Folge** (`libraryItemId` = Sendung, `episodeId` = Folge).
-  func loadPodcastEpisodeListeningSessions(
-    _ episode: ABSPodcastEpisodeListItem,
-    showMediaId: String? = nil,
-    maxPages: Int = 20
-  ) async -> [ABSListeningSession] {
-    let bid = episode.libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
-    let eid = episode.episodeId.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !bid.isEmpty, !eid.isEmpty else { return [] }
-    let cached = cachedListeningSessions(libraryItemId: bid, episodeId: eid)
-    guard let c = client, isNetworkReachable, mayUseServerNetwork else {
-      return cached ?? []
-    }
-    let mediaKey = showMediaId
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .flatMap { $0.isEmpty ? nil : $0 }
-
-    func collectPaged(_ load: (Int) async throws -> ABSListeningSessionsPayload) async throws
-      -> [ABSListeningSession]
-    {
-      var collected: [ABSListeningSession] = []
-      collected.reserveCapacity(16)
-      var page = 0
-      while page < maxPages {
-        let res = try await load(page)
-        collected.append(contentsOf: res.sessions)
-        page += 1
-        if page >= res.numPages || res.sessions.isEmpty { break }
-      }
-      return collected
-    }
-
-    func legacy() async -> [ABSListeningSession] {
-      await loadPodcastEpisodeListeningSessionsLegacyFiltered(
-        client: c,
-        libraryItemId: bid,
-        episodeId: eid,
-        showMediaId: mediaKey,
-        maxPages: maxPages)
-    }
-
-    do {
-      let rows = try await collectPaged { p in
-        try await c.listeningSessionsForLibraryItem(
-          libraryItemId: bid, episodeId: eid, itemsPerPage: 100, page: p)
-      }
-      let sorted: [ABSListeningSession]
-      if !rows.isEmpty {
-        sorted = rows.sorted { $0.startedAt > $1.startedAt }
-      } else {
-        sorted = await legacy()
-      }
-      persistListeningSessions(libraryItemId: bid, episodeId: eid, sessions: sorted)
-      return sorted
-    } catch {
-      let legacyRows = await legacy()
-      if !legacyRows.isEmpty {
-        persistListeningSessions(libraryItemId: bid, episodeId: eid, sessions: legacyRows)
-        return legacyRows
-      }
-      return cached ?? []
-    }
-  }
-
-  private func loadPodcastEpisodeListeningSessionsLegacyFiltered(
-    client: ABSAPIClient,
-    libraryItemId bid: String,
-    episodeId eid: String,
-    showMediaId: String?,
-    maxPages: Int
-  ) async -> [ABSListeningSession] {
-    var collected: [ABSListeningSession] = []
-    collected.reserveCapacity(16)
-    var page = 0
-    let mid = showMediaId
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .flatMap { $0.isEmpty ? nil : $0 }
-    let eidLower = eid.lowercased()
-    while page < maxPages {
-      do {
-        let res = try await client.listeningSessionsMe(itemsPerPage: 100, page: page)
-        let filtered = res.sessions.filter { s in
-          let sEp = s.episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-          guard !sEp.isEmpty, sEp.lowercased() == eidLower else { return false }
-          if s.libraryItemId == bid { return true }
-          if let mid, let raw = s.bookId {
-            let b = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !b.isEmpty, b == mid { return true }
-          }
-          return false
-        }
-        collected.append(contentsOf: filtered)
-        page += 1
-        if page >= res.numPages { break }
-      } catch {
-        break
-      }
-    }
-    return collected.sorted { $0.startedAt > $1.startedAt }
-  }
-
-  func loadPodcastEpisodeDetail(_ episode: ABSPodcastEpisodeListItem) async -> ABSPodcastEpisodeExpandedDetail? {
-    guard let c = client, isNetworkReachable else {
-      return cachedPodcastEpisodeDetail(episode) ?? Self.emptyPodcastEpisodeDetail(episode)
-    }
-    do {
-      let show = try await c.item(id: episode.libraryItemId, expanded: true)
-      persistBookDetail(show)
-      return Self.makePodcastEpisodeDetail(episode: episode, show: show)
-    } catch {
-      return cachedPodcastEpisodeDetail(episode) ?? Self.emptyPodcastEpisodeDetail(episode)
-    }
-  }
 
   /// Sofort verfügbare Episoden-/Show-Beschreibung aus der zuletzt gecachten Show-Detail-Antwort (`LocalBook.detailBlob`)
   /// — lässt `PodcastEpisodeDetailView` beim Öffnen direkt mit voller Beschreibung starten.
@@ -10252,7 +8747,7 @@ final class AppModel: ObservableObject {
 
   private static func loadPendingOfflineListeningSecondsMap() -> [String: Int] {
     guard let data = UserDefaults.standard.data(forKey: Keys.pendingOfflineListeningSeconds),
-      let map = try? JSONDecoder().decode([String: Int].self, from: data)
+      let map = try? ABSJSON.decoder().decode([String: Int].self, from: data)
     else { return [:] }
     return map
   }
@@ -10262,7 +8757,7 @@ final class AppModel: ObservableObject {
       UserDefaults.standard.removeObject(forKey: Keys.pendingOfflineListeningSeconds)
       return
     }
-    if let data = try? JSONEncoder().encode(map) {
+    if let data = try? ABSJSON.encoder().encode(map) {
       UserDefaults.standard.set(data, forKey: Keys.pendingOfflineListeningSeconds)
     }
   }
@@ -12389,4 +10884,975 @@ final class AppModel: ObservableObject {
 extension AppModel {
   /// SwiftUI-`Picker`/`tag` für „keine Bibliothek“ (persistiert als `Keys.librarySelectionNone`).
   static var libraryPickerNoneTag: String { Keys.librarySelectionNone }
+
+  // MARK: - Session / Auth
+
+  // MARK: - Session / Auth
+
+  func bootstrapFromStoredCredentials() async {
+    if Task.isCancelled { return }
+    let sp = AppLog.launchSignposter.beginInterval("bootstrap")
+    defer { AppLog.launchSignposter.endInterval("bootstrap", sp) }
+    guard ABSAPIClient.normalizeServerURL(serverURL) != nil, !token.isEmpty else { return }
+    bootstrapSupersededByOffline = false
+
+    // SwiftData-Store für den aktiven Account öffnen/wechseln (noch ohne Domänen-Daten, siehe Migrationsplan).
+    if let localStore = currentLocalLibraryStore() {
+      Task.detached(priority: .utility) {
+        await localStore.markOpened()
+      }
+    }
+
+    if offlineHomeMode {
+      isAppBootstrapInProgress = false
+      scheduleFinishDeferredLaunchLocalRestore()
+      await bootstrapLocalSessionOnly()
+      scheduleDeferredWorkAfterConnect()
+      return
+    }
+
+    // Nur Downloads-Manifest früh — Katalog/Prewarm erst nach Connect + Home/Player.
+    scheduleFinishDeferredLaunchLocalRestore()
+
+    // `restoreHomeLaunchStateFromLocalStore()` in init — Home/Katalog sofort aus Cache.
+    let hadCachedBootstrap = hasCachedBootstrapContent
+    if !hadCachedBootstrap {
+      isAppBootstrapInProgress = true
+    }
+    defer {
+      if !bootstrapSupersededByOffline {
+        isAppBootstrapInProgress = false
+        flushTabVisibilityAfterBootstrap()
+      }
+      bootstrapSupersededByOffline = false
+    }
+    restoreServerClientIfNeeded()
+
+    if hadCachedBootstrap {
+      // LocalStore: Netzwerk parallel; Overlay bleibt bis Floating Bar bereit.
+      deferredBootstrapNetworkTask?.cancel()
+      deferredBootstrapNetworkTask = Task(priority: .utility) { @MainActor in
+        await self.performDeferredBootstrapNetworkRefresh()
+      }
+      await finishLaunchPresentationAfterBootstrap()
+      return
+    }
+
+    // Ohne Cache: Overlay bis Continue online (ggf. nach Authorize-Fallback).
+    await performDeferredBootstrapNetworkRefresh()
+    guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
+    await finishLaunchPresentationAfterBootstrap()
+  }
+
+  /// Home-Refresh und Mini-Player nach Bootstrap — blockiert Kaltstart nur ohne Cache.
+  private func finishLaunchPresentationAfterBootstrap() async {
+    guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
+    let hadCachedHome = !startShelves.isEmpty
+    async let home = loadStartDashboard(
+      skipAuthorizeRefresh: true,
+      force: !hadCachedHome
+    )
+    async let player: Void = restoreLastPlayedOnLaunch()
+    _ = await (home, player)
+    await waitForLaunchFloatingPlayerReady()
+    floatingChrome.syncChrome()
+    if hadCachedHome {
+      // Server-Abgleich im Hintergrund — local-first: kein Continue-Replace, Continue reading bleibt.
+      Task(priority: .utility) { @MainActor in
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        guard !self.offlineHomeUIActive, !self.bootstrapSupersededByOffline else { return }
+        await self.loadStartDashboard(skipAuthorizeRefresh: true, force: true)
+      }
+    }
+    scheduleDeferredWorkAfterConnect()
+  }
+
+  /// Katalog-Caches, Tab-Prewarm und Server-Reload — erst nach Connect, Home und Player.
+  private func scheduleDeferredWorkAfterConnect() {
+    guard !suppressDeferredWorkAfterBootstrap else { return }
+    scheduleDeferredCatalogLocalRestoreAfterBootstrap()
+    scheduleSecondaryTabPrewarm()
+    scheduleDeferredCatalogReloadAfterBootstrap()
+  }
+
+  /// Laufende Bootstrap-/Katalog-Tasks abbrechen (Account-Wechsel, Logout, Offline während Bootstrap).
+  private func cancelDeferredBootstrapWork() {
+    bootstrapCatalogReloadTask?.cancel()
+    bootstrapCatalogReloadTask = nil
+    deferredCatalogLocalRestoreTask?.cancel()
+    deferredCatalogLocalRestoreTask = nil
+    launchLocalRestoreTask?.cancel()
+    launchLocalRestoreTask = nil
+    homeLaunchLocalRestoreTask?.cancel()
+    homeLaunchLocalRestoreTask = nil
+    deferredBootstrapNetworkTask?.cancel()
+    deferredBootstrapNetworkTask = nil
+    deferredBootstrapAuthorizeTask?.cancel()
+    deferredBootstrapAuthorizeTask = nil
+    deferredLibrariesFetchTask?.cancel()
+    deferredLibrariesFetchTask = nil
+    storedCredentialsBootstrapTask?.cancel()
+    storedCredentialsBootstrapTask = nil
+    startDashboardPostProcessingTask?.cancel()
+    startDashboardPostProcessingTask = nil
+    booksToolbarSortReloadTask?.cancel()
+    booksToolbarSortReloadTask = nil
+    podcastCatalogSortReloadTask?.cancel()
+    podcastCatalogSortReloadTask = nil
+    searchTask?.cancel()
+    searchTask = nil
+    podcastSearchTask?.cancel()
+    podcastSearchTask = nil
+    podcastDirectorySearchTask?.cancel()
+    podcastDirectorySearchTask = nil
+    podcastLibrarySearchTask?.cancel()
+    podcastLibrarySearchTask = nil
+    deferredBooksCatalogLocalRestoreScheduled = false
+    deferredBrowseListsLocalRestoreScheduled = false
+    shouldPrewarmSecondaryTabs = false
+  }
+
+  /// Nach Account-Wechsel: LocalStore + Server-Kataloge für alle Tabs neu aufbauen.
+  private func reloadAllViewsAfterAccountSwitch() async {
+    guard !offlineHomeUIActive else { return }
+    cancelDeferredBootstrapWork()
+    await finishDeferredLaunchLocalRestore()
+    async let settings: Bool = reloadSettingsTab(reloadCatalogs: true)
+    async let home = loadStartDashboard(skipAuthorizeRefresh: true, force: true)
+    _ = await (settings, home)
+    scheduleSecondaryTabPrewarm()
+  }
+
+  /// Floating Bar: kurz stabilisieren bis Titel/Controls sichtbar (oder kein Resume).
+  private func waitForLaunchFloatingPlayerReady() async {
+    guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
+    var stableReadyStreak = 0
+    for _ in 0..<120 {
+      if bootstrapSupersededByOffline || offlineHomeUIActive { return }
+      floatingChrome.syncChrome()
+      if isLaunchFloatingPlayerReadyForInteraction() {
+        stableReadyStreak += 1
+        if stableReadyStreak >= 3 {
+          try? await Task.sleep(nanoseconds: 150_000_000)
+          floatingChrome.syncChrome()
+          return
+        }
+      } else {
+        stableReadyStreak = 0
+      }
+      // Kein Resume — Restore abgeschlossen, Floating Bar entfällt.
+      if !isRestoringLaunchPlayback, !isPreparingPlayback, player.activeBook == nil {
+        return
+      }
+      try? await Task.sleep(nanoseconds: 50_000_000)
+    }
+  }
+
+  private func isLaunchFloatingPlayerReadyForInteraction() -> Bool {
+    guard !isRestoringLaunchPlayback, !isPreparingPlayback else { return false }
+    guard player.activeBook != nil else { return true }
+    guard player.isPlaybackControlsReady else { return false }
+    let snap = TabAccessoryMiniPlayerSnapshot.make(model: self)
+    guard snap.activeBookId != nil, snap.canTogglePlayback, !snap.showsConnectionLoading else { return false }
+    let title = snap.primaryLine.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !title.isEmpty, title != "Loading…" else { return false }
+    return floatingChrome.gate.chromeVisible
+  }
+
+  /// Lazy-Bootstrap: Continue ohne `/authorize`; Authorize nur bei fehlgeschlagenem Continue-Refresh.
+  /// URLSession mit `waitsForConnectivity = true` queued Requests automatisch — kein `NWPathMonitor`-Polling nötig.
+  /// Nach erfolgreichem Continue: `/authorize` deferred nachladen für User-Type/Admin-Status.
+  private func performDeferredBootstrapNetworkRefresh() async {
+    let sp = AppLog.launchSignposter.beginInterval("refreshBootstrap")
+    defer { AppLog.launchSignposter.endInterval("refreshBootstrap", sp) }
+    isDeferredBootstrapNetworkRefreshInProgress = true
+    defer { isDeferredBootstrapNetworkRefreshInProgress = false }
+
+    if bootstrapSupersededByOffline || offlineHomeMode { return }
+
+    guard ABSAPIClient.normalizeServerURL(serverURL) != nil, !token.isEmpty else { return }
+    restoreServerClientIfNeeded()
+    guard client != nil else { return }
+    offlineHomeModeAuto = false
+
+    let forceContinue = !hasCachedBootstrapContent
+    var result = await loadStartDashboard(skipAuthorizeRefresh: true, force: forceContinue)
+    if needsAuthorizeFallbackForContinue(result, attemptedOnline: result.attemptedNetwork) {
+      await refreshProgressFromServer()
+      guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
+      result = await loadStartDashboard(skipAuthorizeRefresh: true, force: true)
+      if !result.appliedOnline, let error = result.error, !hasCachedBootstrapContent {
+        isRestoringLaunchPlayback = false
+        player.setMiniPlayerPlaceholder(false)
+        publishErrorUnlessBenignCancellation(error)
+        if !isAuthHTTPStatus(error) {
+          isServerReachable = false
+          offlineHomeModeAuto = true
+          mainTab = .start
+          await prepareForOfflineHomeMode()
+          await bootstrapLocalSessionOnly()
+          await reloadLibraryViewsForModeTransition()
+        }
+        return
+      }
+    }
+
+    guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
+
+    if !result.attemptedNetwork {
+      // Cache bereits vorhanden → `loadStartDashboard` hat früh zurückgegeben, ohne
+      // tatsächlich einen Request zu starten. Erreichbarkeit darf dann nicht einfach
+      // angenommen werden — echter Probe-Call statt Blindvertrauen.
+      await probeServerConnection()
+      guard isServerReachable else { return }
+      // Bereits per `probeServerConnection()` autorisiert — kein zweiter `/authorize`-Call nötig,
+      // aber Bibliotheksliste im Hintergrund trotzdem wie im Normalpfad nachziehen.
+      scheduleDeferredLibrariesFetchFromServer()
+      return
+    }
+
+    isServerReachable = true
+    // `/authorize` deferred: User-Type (admin/root), Media-Progress, Bookmarks.
+    // Nicht blockierend für Home — läuft parallel zum Libraries-Fetch.
+    deferredBootstrapAuthorizeTask?.cancel()
+    deferredBootstrapAuthorizeTask = Task(priority: .utility) { @MainActor [weak self] in
+      guard let self, let c = self.client else { return }
+      do {
+        let auth = try await c.authorize()
+        guard !Task.isCancelled, !self.bootstrapSupersededByOffline else { return }
+        self.applyAuthorizeSession(auth)
+      } catch {
+        if !AbstandErrorFilter.isBenignCancellation(error) {
+          AppLog.bootstrap.warning("Deferred authorize failed: \(error.localizedDescription, privacy: .public)")
+        }
+      }
+    }
+    scheduleDeferredLibrariesFetchFromServer()
+  }
+
+  private func isAuthHTTPStatus(_ error: Error?) -> Bool {
+    guard let error else { return false }
+    guard case ABSAPIError.httpStatus(let code, _) = error else { return false }
+    return code == 401 || code == 403
+  }
+
+  private func hasCachedContinueInLocalStore() -> Bool {
+    guard let context = currentLocalLibraryMainContext() else { return false }
+    var progressDescriptor = FetchDescriptor<LocalProgress>()
+    progressDescriptor.fetchLimit = 1
+    if !((try? context.fetch(progressDescriptor)) ?? []).isEmpty { return true }
+    guard let libId = selectedBooksLibrary?.id.trimmingCharacters(in: .whitespacesAndNewlines),
+      !libId.isEmpty
+    else { return false }
+    if let cached = LocalLibraryQueries.homeShelves(context: context, libraryId: libId) {
+      return cached.contains { isHomeContinueCategory($0.category) && ($0.hasBooks || $0.hasPodcastEpisodes) }
+    }
+    return false
+  }
+
+  /// Gewählte Podcast-Bibliothek oder gespeicherter Stub (Kaltstart vor Katalog-Restore).
+  private func resolvedPodcastLibraryId() -> String? {
+    if let id = selectedPodcastLibrary?.id.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty {
+      return id
+    }
+    let stored =
+      UserDefaults.standard.string(forKey: Keys.podcastsLibrary)?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if stored.isEmpty || stored == Keys.librarySelectionNone { return nil }
+    return stored
+  }
+
+  private func hasOpenProgressExpectingContinue() -> Bool {
+    progressByItemId.values.contains {
+      !$0.isFinished && $0.currentTime > Self.continueListeningMinPositionSeconds
+    }
+  }
+
+  private func continueShelfHasVisibleItems() -> Bool {
+    guard let idx = preferredHomeContinueShelfIndex() else { return false }
+    let shelf = startShelves[idx]
+    return !shelf.books.isEmpty || !shelf.podcastEpisodes.isEmpty
+  }
+
+  /// Entscheidet, ob nach fehlgeschlagenem Token-Continue ein `/authorize` nötig ist.
+  private func needsAuthorizeFallbackForContinue(
+    _ result: ContinueRefreshAttemptResult,
+    attemptedOnline: Bool
+  ) -> Bool {
+    if isAuthHTTPStatus(result.error) { return true }
+    guard attemptedOnline else { return false }
+    if !result.appliedOnline {
+      if hasCachedContinueInLocalStore() || hasCachedBootstrapContent { return false }
+      return true
+    }
+    repairContinueListeningShelfFromLocalProgressOnly()
+    syncContinueListeningShelvesWithProgress()
+    if hasOpenProgressExpectingContinue(), !continueShelfHasVisibleItems() {
+      return true
+    }
+    return false
+  }
+
+  /// Bibliotheksliste nach Lazy-Bootstrap — nicht blockierend für Home/Overlay.
+  private func scheduleDeferredLibrariesFetchFromServer() {
+    deferredLibrariesFetchTask?.cancel()
+    deferredLibrariesFetchTask = Task(priority: .utility) { @MainActor [weak self] in
+      await self?.refreshLibrariesFromServerInBackground()
+    }
+  }
+
+  private func refreshLibrariesFromServerInBackground() async {
+    guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
+    guard mayUseServerNetwork, isNetworkReachable else { return }
+    restoreServerClientIfNeeded()
+    guard let c = client else { return }
+    do {
+      applyLibrariesFromServer(try await c.libraries())
+      if bootstrapSupersededByOffline || offlineHomeUIActive { return }
+      let defaultLibId = UserDefaults.standard.string(forKey: Keys.userDefaultLibraryId)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      await resolveLibrariesAfterServerFetch(
+        userDefaultLibraryId: (defaultLibId?.isEmpty == false) ? defaultLibId : nil
+      )
+    } catch {}
+  }
+
+  var hasCachedBootstrapContent: Bool {
+    if !startShelves.isEmpty || !books.isEmpty || !podcastEpisodes.isEmpty { return true }
+    return hasCachedLaunchArtifactsInLocalStore()
+  }
+
+  /// LocalStore-Artefakte für schnellen Kaltstart (auch wenn Regale im Speicher noch leer sind).
+  private func hasCachedLaunchArtifactsInLocalStore() -> Bool {
+    guard cacheAccountURL() != nil else { return false }
+    if hasCachedContinueInLocalStore() { return true }
+    guard let context = currentLocalLibraryMainContext() else { return false }
+    var descriptor = FetchDescriptor<LocalProgress>()
+    descriptor.fetchLimit = 1
+    return ((try? context.fetch(descriptor)) ?? []).isEmpty == false
+  }
+
+  /// Bootstrap direkt nach init — `.task` auf der Root-View kommt oft erst Sekunden später.
+  private func scheduleBootstrapFromStoredCredentials() {
+    storedCredentialsBootstrapTask?.cancel()
+    storedCredentialsBootstrapTask = Task(priority: .userInitiated) { @MainActor [weak self] in
+      await self?.bootstrapFromStoredCredentials()
+    }
+  }
+
+  /// Katalog-Caches aus LocalStore — gestaffelt nach Bootstrap, nicht beim Tab-Wechsel.
+  private func scheduleDeferredCatalogLocalRestoreAfterBootstrap() {
+    guard !deferredBooksCatalogLocalRestoreScheduled else { return }
+    deferredBooksCatalogLocalRestoreScheduled = true
+    deferredCatalogLocalRestoreTask?.cancel()
+    deferredCatalogLocalRestoreTask = Task(priority: .utility) { @MainActor [weak self] in
+      // Ein Yield statt fixem Sleep — Home-Frame hat Vorrang, LocalStore-Restore folgt sofort danach.
+      await Task.yield()
+      try? await Task.sleep(nanoseconds: 500_000_000)
+      await Task.yield()
+      guard let self, !Task.isCancelled, !self.offlineHomeUIActive, !self.bootstrapSupersededByOffline else { return }
+      if self.books.isEmpty {
+        await self.restoreBooksCatalogPagesFromLocalStoreAsync()
+      }
+      await Task.yield()
+      guard !Task.isCancelled else { return }
+      if !self.deferredBrowseListsLocalRestoreScheduled {
+        self.deferredBrowseListsLocalRestoreScheduled = true
+        self.restoreAllBrowseListsFromLocalStore()
+      }
+      await Task.yield()
+      guard !Task.isCancelled else { return }
+      if self.podcastEpisodes.isEmpty, self.podcastShows.isEmpty {
+        self.restorePodcastCatalogFromLocalStore()
+      }
+      await Task.yield()
+      guard !Task.isCancelled else { return }
+      guard let account = self.cacheAccountURL() else { return }
+      // Ganz am Ende der Idle-Kette, außerhalb des MainActor-Takts: alte/verwaiste Cover
+      // (nach Revision-Wechsel) begrenzen, ohne den Start zu belasten.
+      Task.detached(priority: .background) {
+        CoverImageCache.pruneStaleEntries(account: account)
+      }
+    }
+  }
+
+  /// Tab-Views nach kurzer Idle-Phase vorbauen — Wechsel ohne Erst-Mount-Ruckler.
+  private func scheduleSecondaryTabPrewarm() {
+    Task { @MainActor [weak self] in
+      await Task.yield()
+      try? await Task.sleep(nanoseconds: 500_000_000)
+      self?.shouldPrewarmSecondaryTabs = true
+    }
+  }
+
+  /// Bibliotheks-Kataloge nach Bootstrap — niedrige Priorität, Home bleibt bedienbar.
+  private func scheduleDeferredCatalogReloadAfterBootstrap() {
+    bootstrapCatalogReloadTask?.cancel()
+    bootstrapCatalogReloadTask = Task(priority: .utility) { @MainActor [weak self] in
+      // Statt eines geschätzten Fix-Delays: auf den LocalStore-Restore warten (der eigentliche
+      // Vorlauf, den wir abpuffern wollen) und danach nur noch eine kurze Sicherheitsspanne.
+      await self?.deferredCatalogLocalRestoreTask?.value
+      try? await Task.sleep(nanoseconds: 1_500_000_000)
+      await Task.yield()
+      guard let self, !Task.isCancelled, !self.offlineHomeUIActive, !self.bootstrapSupersededByOffline else { return }
+      // Bücher- und Podcast-Katalog sind unabhängig — parallel laden.
+      // `preserveOtherCachedPages`: stiller Hintergrund-Refresh mit unverändertem Sort/Filter —
+      // Folgeseiten im LocalStore nicht wegen der frischen Seite 0 wegwerfen.
+      async let books: Void = self.reloadLibrary(reset: true, preserveOtherCachedPages: true)
+      async let podcasts: Void = self.reloadPodcastLibrary(reset: true)
+      _ = await (books, podcasts)
+    }
+  }
+
+  /// App-Start / Auto-Offline: nur LocalStore und Downloads, kein Netzwerk.
+  private func bootstrapLocalSessionOnly() async {
+    ensureLocalProgressLoaded()
+    await loadStartDashboard()
+    isRestoringLaunchPlayback = false
+    player.setMiniPlayerPlaceholder(false)
+  }
+
+  /// Vor Offline-Modus: aktuelle Position lokal + Play-Session an den Server, dann Netzwerk trennen.
+  private func prepareForOfflineHomeMode() async {
+    recordActivePlaybackProgressLocally(markPendingServerSync: true)
+    if let c = client {
+      await player.flushPendingPlaySessionSync()
+      if player.isRemotePlaySessionActive, let book = player.activeBook {
+        let dur = player.totalDuration
+        if dur > 0 {
+          let pos = player.globalPosition
+          let prog = min(1, max(0, pos / dur))
+          try? await c.patchProgress(
+            libraryItemId: book.id,
+            episodeId: player.activePlaybackEpisodeId,
+            patch: ABSProgressPatch(
+              currentTime: pos, duration: dur, progress: prog, isFinished: nil
+            )
+          )
+        }
+      }
+    }
+    await adaptActivePlaybackForOfflineHomeMode()
+    isServerReachable = false
+    player.suspendServerNetworkingForOfflineMode()
+    client = nil
+  }
+
+  /// Stream-Wiedergabe ohne Download beenden; bei lokalem Download auf Dateien umschalten.
+  private func adaptActivePlaybackForOfflineHomeMode() async {
+    guard player.activeBook != nil else { return }
+    if player.isUsingLocalTrackFiles { return }
+
+    let position = player.globalPosition
+    let wasPlaying = player.isPlaying
+
+    if let episode = podcastEpisodeForActivePlayback() {
+      let storageKey = podcastEpisodeOfflineStorageId(episode)
+      if localDownloadRoot(for: storageKey) != nil {
+        player.tearDownPlayer()
+        await playPodcastEpisode(episode, autoPlay: wasPlaying, resumeAtOverride: position)
+        floatingChrome.syncChrome()
+        return
+      }
+    } else if let book = player.activeBook, resolvedLocalDownloadForPlayback(book: book) != nil {
+      player.tearDownPlayer()
+      await play(book: book, resumeAtOverride: position, autoPlay: wasPlaying)
+      floatingChrome.syncChrome()
+      return
+    }
+
+    await dismissPlayer(idlePlaceholder: false)
+    floatingChrome.syncChrome()
+  }
+
+  private func restoreServerClientIfNeeded() {
+    guard client == nil,
+      let url = ABSAPIClient.normalizeServerURL(serverURL),
+      !token.isEmpty
+    else { return }
+    client = ABSAPIClient(baseURL: url, token: token)
+  }
+
+  /// Client nur für lokale Wiedergabe (kein Authorize); entsteht nach `suspendServerClientForOfflineHome`.
+  private func clientForOfflineLocalPlayback() -> ABSAPIClient? {
+    if let c = client { return c }
+    guard let url = ABSAPIClient.normalizeServerURL(serverURL), !token.isEmpty else { return nil }
+    return ABSAPIClient(baseURL: url, token: token)
+  }
+
+  func login(server: String, username: String, password: String) async {
+    errorMessage = nil
+    guard let url = ABSAPIClient.normalizeServerURL(server) else {
+      errorMessage = "Please enter a valid server URL."
+      return
+    }
+    if isLoggedIn {
+      syncStoredAccountFromSession()
+    }
+    defer { refreshDownloadedShelfFromManifests() }
+    bootstrapSupersededByOffline = false
+    isAppBootstrapInProgress = true
+    defer {
+      if !bootstrapSupersededByOffline {
+        isAppBootstrapInProgress = false
+        flushTabVisibilityAfterBootstrap()
+      }
+      bootstrapSupersededByOffline = false
+    }
+    offlineHomeModeAuto = false
+    var serverSessionEstablished = false
+    do {
+      let res = try await ABSAPIClient.login(server: url, username: username, password: password)
+      if bootstrapSupersededByOffline || offlineHomeMode { return }
+      token = res.user.token
+      serverURL = server.trimmingCharacters(in: .whitespacesAndNewlines)
+      UserDefaults.standard.set(serverURL, forKey: Keys.server)
+      UserDefaults.standard.set(token, forKey: Keys.token)
+      let c = ABSAPIClient(baseURL: url, token: token)
+      client = c
+      serverSessionEstablished = true
+      applyAuthorizeSession(res)
+      syncStoredAccountFromSession()
+      loadDownloadedItemIdsForActiveAccount()
+      isServerReachable = true
+      applyLibrariesFromServer(try await c.libraries())
+      if bootstrapSupersededByOffline || offlineHomeMode { return }
+      await resolveLibrariesAfterServerFetch(userDefaultLibraryId: res.userDefaultLibraryId)
+      if bootstrapSupersededByOffline || offlineHomeMode { return }
+      mainTab = .start
+      await finishLaunchPresentationAfterBootstrap()
+    } catch {
+      if bootstrapSupersededByOffline || offlineHomeMode { return }
+      isRestoringLaunchPlayback = false
+      player.setMiniPlayerPlaceholder(false)
+      publishErrorUnlessBenignCancellation(error)
+      if serverSessionEstablished {
+        isServerReachable = true
+        mainTab = .start
+        await finishLaunchPresentationAfterBootstrap()
+        return
+      }
+      isServerReachable = false
+    }
+  }
+
+  /// Entfernt den aktiven Account und wechselt zum nächsten gespeicherten — oder zeigt Login.
+  func logout() {
+    guard let key = activeAccountKey ?? resolvedStoredAccountKey() else {
+      clearInMemorySessionState(clearCredentials: true)
+      return
+    }
+    removeStoredAccount(accountKey: key)
+  }
+
+  /// Account aus der Liste entfernen; bei aktivem Account wie `logout()` zum nächsten wechseln.
+  func removeStoredAccount(accountKey: String) {
+    let key = accountKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !key.isEmpty else { return }
+    let removingActive = key == activeAccountKey
+    if removingActive { syncStoredAccountFromSession() }
+    storedAccounts.removeAll { $0.accountKey == key }
+    persistStoredAccounts()
+    guard removingActive else { return }
+    if let next = storedAccounts.first {
+      Task { await switchToAccount(next.accountKey) }
+      return
+    }
+    activeAccountKey = nil
+    ABSStoredAccountsPersistence.saveActiveAccountKey(nil)
+    clearInMemorySessionState(clearCredentials: true)
+  }
+
+  func isActiveStoredAccount(_ account: ABSStoredAccount) -> Bool {
+    account.accountKey == activeAccountKey
+  }
+
+  func switchToAccount(_ accountKey: String) async {
+    guard !isSwitchingAccount else { return }
+    guard accountKey != activeAccountKey,
+      let account = storedAccounts.first(where: { $0.accountKey == accountKey })
+    else { return }
+    isSwitchingAccount = true
+    defer { isSwitchingAccount = false }
+    syncStoredAccountFromSession()
+    persistDownloads(skipRefresh: true)
+    CoverImageCache.evictMemory()
+    coverImageCacheRevision &+= 1
+    clearInMemorySessionState(clearCredentials: false)
+    serverURL = account.serverURL
+    token = account.token
+    UserDefaults.standard.set(serverURL, forKey: Keys.server)
+    UserDefaults.standard.set(token, forKey: Keys.token)
+    activeAccountKey = accountKey
+    ABSStoredAccountsPersistence.saveActiveAccountKey(accountKey)
+    // Vor Authorize: UserId setzen, damit LocalStore und Home sofort zum richtigen Account zeigen.
+    let switchedUserId = account.userId.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !switchedUserId.isEmpty {
+      sessionUserId = switchedUserId
+      UserDefaults.standard.set(switchedUserId, forKey: Keys.sessionUserId)
+    }
+    sessionUsername = account.username
+    sessionUserType = account.userType ?? "user"
+    applyLibraryPreferencesFromStoredAccount(account)
+    loadDownloadedItemIdsForActiveAccount()
+    if let cacheRoot = cacheAccountURL() {
+      EbookLocalStore.updateActiveSession(account: cacheRoot, userId: switchedUserId.isEmpty ? nil : switchedUserId)
+    }
+    restoreHomeLaunchStateFromLocalStore(libraryIdOverride: account.booksLibraryId)
+    isAppBootstrapInProgress = true
+    storedCredentialsBootstrapTask?.cancel()
+    storedCredentialsBootstrapTask = nil
+    suppressDeferredWorkAfterBootstrap = true
+    defer { suppressDeferredWorkAfterBootstrap = false }
+    await bootstrapFromStoredCredentials()
+    accountSessionEpoch &+= 1
+    await reloadAllViewsAfterAccountSwitch()
+  }
+
+  private static func bootstrapStoredAccountsState() -> (accounts: [ABSStoredAccount], activeKey: String?) {
+    var accounts = ABSStoredAccountsPersistence.loadAccounts()
+    if accounts.isEmpty {
+      accounts = migrateLegacySingleAccountIntoStore()
+    }
+    var activeKey = ABSStoredAccountsPersistence.loadActiveAccountKey()
+    if activeKey == nil, let first = accounts.first {
+      activeKey = first.accountKey
+      ABSStoredAccountsPersistence.saveActiveAccountKey(activeKey)
+    }
+    if let currentKey = activeKey, !accounts.contains(where: { $0.accountKey == currentKey }),
+      let fallback = accounts.first
+    {
+      activeKey = fallback.accountKey
+      ABSStoredAccountsPersistence.saveActiveAccountKey(activeKey)
+    }
+    return (accounts, activeKey)
+  }
+
+  private static func migrateLegacySingleAccountIntoStore() -> [ABSStoredAccount] {
+    let server = UserDefaults.standard.string(forKey: Keys.server)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let token = UserDefaults.standard.string(forKey: Keys.token)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let userId = UserDefaults.standard.string(forKey: Keys.sessionUserId)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard ABSAPIClient.normalizeServerURL(server) != nil, !token.isEmpty, !userId.isEmpty else { return [] }
+    let account = ABSStoredAccount(
+      accountKey: ABSStoredAccount.makeKey(serverURL: server, userId: userId),
+      serverURL: server,
+      token: token,
+      userId: userId,
+      username: "",
+      userType: nil,
+      booksLibraryId: UserDefaults.standard.string(forKey: Keys.booksLibrary),
+      podcastsLibraryId: UserDefaults.standard.string(forKey: Keys.podcastsLibrary),
+      ebooksLibraryId: UserDefaults.standard.string(forKey: Keys.booksLibrary),
+      lastUsedAt: Date()
+    )
+    ABSStoredAccountsPersistence.saveAccounts([account])
+    ABSStoredAccountsPersistence.saveActiveAccountKey(account.accountKey)
+    return [account]
+  }
+
+  func syncStoredAccountFromSession() {
+    syncStoredAccountFromSession(markActive: true)
+  }
+
+  private func syncStoredAccountFromSession(markActive: Bool) {
+    guard ABSAPIClient.normalizeServerURL(serverURL) != nil, !token.isEmpty else { return }
+    let userId = sessionUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !userId.isEmpty else { return }
+    let key = ABSStoredAccount.makeKey(serverURL: serverURL, userId: userId)
+    let booksLib = UserDefaults.standard.string(forKey: Keys.booksLibrary)
+    let podcastsLib = UserDefaults.standard.string(forKey: Keys.podcastsLibrary)
+    if let idx = storedAccounts.firstIndex(where: { $0.accountKey == key }) {
+      storedAccounts[idx].token = token
+      storedAccounts[idx].serverURL = serverURL
+      storedAccounts[idx].userId = userId
+      storedAccounts[idx].username = sessionUsername
+      storedAccounts[idx].userType = sessionUserType.isEmpty ? nil : sessionUserType
+      storedAccounts[idx].booksLibraryId = booksLib
+      storedAccounts[idx].podcastsLibraryId = podcastsLib
+      storedAccounts[idx].ebooksLibraryId = booksLib
+    } else if let legacyIdx = activeAccountKey.flatMap({ key in storedAccounts.firstIndex(where: { $0.accountKey == key }) }),
+      storedAccounts[legacyIdx].userId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      // Migration: userId war beim ersten Speichern noch leer — Eintrag umbenennen.
+      storedAccounts[legacyIdx].accountKey = key
+      storedAccounts[legacyIdx].token = token
+      storedAccounts[legacyIdx].serverURL = serverURL
+      storedAccounts[legacyIdx].userId = userId
+      storedAccounts[legacyIdx].username = sessionUsername
+      storedAccounts[legacyIdx].userType = sessionUserType.isEmpty ? nil : sessionUserType
+      storedAccounts[legacyIdx].booksLibraryId = booksLib
+      storedAccounts[legacyIdx].podcastsLibraryId = podcastsLib
+      storedAccounts[legacyIdx].ebooksLibraryId = booksLib
+    } else {
+      storedAccounts.append(
+        ABSStoredAccount(
+          accountKey: key,
+          serverURL: serverURL,
+          token: token,
+          userId: userId,
+          username: sessionUsername,
+          userType: sessionUserType.isEmpty ? nil : sessionUserType,
+          booksLibraryId: booksLib,
+          podcastsLibraryId: podcastsLib,
+          ebooksLibraryId: booksLib,
+          lastUsedAt: Date()
+        ))
+    }
+    if markActive {
+      activeAccountKey = key
+      ABSStoredAccountsPersistence.saveActiveAccountKey(key)
+    }
+    persistStoredAccounts()
+  }
+
+  /// Neuen Account speichern, ohne die aktuelle Session zu wechseln.
+  func addStoredAccount(server: String, username: String, password: String) async -> Bool {
+    errorMessage = nil
+    guard let url = ABSAPIClient.normalizeServerURL(server) else {
+      errorMessage = "Please enter a valid server URL."
+      return false
+    }
+    syncStoredAccountFromSession()
+    let preserveActiveKey = activeAccountKey
+    do {
+      let res = try await ABSAPIClient.login(server: url, username: username, password: password)
+      upsertStoredAccountFromUser(
+        res.user,
+        serverURL: server.trimmingCharacters(in: .whitespacesAndNewlines),
+        markActive: false
+      )
+      activeAccountKey = preserveActiveKey
+      ABSStoredAccountsPersistence.saveActiveAccountKey(preserveActiveKey)
+      persistStoredAccounts()
+      return true
+    } catch {
+      publishErrorUnlessBenignCancellation(error)
+      return false
+    }
+  }
+
+  // MARK: - Catalog
+
+  // MARK: - Catalog
+
+  func reloadLibrary(reset: Bool, preserveOtherCachedPages: Bool = false) async {
+    guard let lib = selectedBooksLibrary else {
+      await loadStartDashboard()
+      return
+    }
+    // Lokale DB nur für die SOFORT-Anzeige, bevor der Server antwortet — und nur wenn der
+    // Cache-Slug (Sort/Filter) exakt passt. Online kein Superset-Fallback: der würde kurz die
+    // ganze lokale Lib in Client-Sortierung zeigen und gleich durch Server-Seite 0 ersetzt
+    // (Flash beim Sort-/Filterwechsel). Offline: Superset erlaubt.
+    // Ein echter Reset holt unten IMMER Seite 0 frisch vom Server — die Antwort ist verbindlich.
+    var didWarmFromExactLocalCatalog = false
+    if reset {
+      didWarmFromExactLocalCatalog = loadLibraryFromLocalStore(
+        allowSupersetFallback: !isNetworkReachable
+      )
+    }
+    guard let c = client else {
+      if reset, !didWarmFromExactLocalCatalog {
+        _ = loadLibraryFromLocalStore(allowSupersetFallback: true)
+      }
+      if startShelves.isEmpty { await loadStartDashboard() }
+      return
+    }
+    if !isNetworkReachable {
+      if reset, !didWarmFromExactLocalCatalog {
+        _ = loadLibraryFromLocalStore(allowSupersetFallback: true)
+      }
+      refreshDownloadedShelfFromManifests()
+      applyCachedStartDashboard()
+      return
+    }
+    isLoadingLibrary = true
+    defer { isLoadingLibrary = false }
+    // Kein passender Sort/Filter-Cache: alte Liste nicht stehen lassen und keinen Superset
+    // blenden — Spinner bis Server-Seite 0 da ist. Stille Background-Refreshes behalten die Liste.
+    if reset, !preserveOtherCachedPages, !didWarmFromExactLocalCatalog {
+      var transaction = Transaction()
+      transaction.disablesAnimations = true
+      withTransaction(transaction) {
+        books = []
+        libraryTotal = 0
+        libraryPage = 0
+      }
+    }
+    let ascending = catalogSortField == .random ? true : !catalogSortDescending
+    let sortKey = catalogSortField.apiSortParameter
+    do {
+      if reset {
+        libraryPage = 0
+      }
+      let pageIndex = libraryPage
+      let (page, _) = try await c.libraryItems(
+        libraryId: lib.id,
+        page: pageIndex,
+        limit: Self.libraryCatalogPageLimit,
+        sort: sortKey,
+        ascending: ascending,
+        minified: true,
+        filter: activeLibraryFilter
+      )
+      let pageBooks = page.results.filter(\.isUsableLibraryCatalogRow)
+      if let store = currentLocalLibraryStore() {
+        if reset, preserveOtherCachedPages {
+          try? await store.refreshCatalogFirstPagePreservingRest(
+            libraryId: lib.id, sortField: sortKey, ascending: ascending, filterKey: activeLibraryFilter,
+            total: page.total, items: pageBooks)
+        } else if reset {
+          try? await store.replaceCatalogFirstPage(
+            libraryId: lib.id, sortField: sortKey, ascending: ascending, filterKey: activeLibraryFilter,
+            total: page.total, items: pageBooks)
+        } else {
+          try? await store.appendCatalogPage(libraryId: lib.id, total: page.total, items: pageBooks)
+        }
+      }
+      if reset, preserveOtherCachedPages {
+        // Stiller Hintergrund-Refresh (z. B. nach Bootstrap): nur die ersten `pageBooks.count`
+        // Positionen mit der frischen Server-Reihenfolge ersetzen, bereits gescrollte Folgeseiten
+        // bleiben unangetastet — sonst würde die Liste während eines unbeauftragten Refreshs
+        // sichtbar auf Seite 0 zurückschrumpfen.
+        mergeServerFirstPageIntoLocalBooksPreservingRest(pageBooks, total: page.total)
+      } else if reset {
+        // Echter Reset (Pull-to-Refresh, Sort-/Filterwechsel): Server-Seite 0 ist verbindlich.
+        let unchanged =
+          pageBooks.count == books.count
+          && zip(pageBooks, books).allSatisfy { $0.id == $1.id && $0.updatedAt == $1.updatedAt }
+        if !unchanged { books = pageBooks }
+        libraryTotal = page.total
+      } else {
+        books.append(contentsOf: pageBooks)
+        libraryTotal = page.total
+      }
+      libraryPage = page.page + 1
+      if reset {
+        lastBooksCatalogServerSyncAt = Date()
+      }
+    } catch {
+      publishErrorUnlessBenignCancellation(error)
+    }
+    if startShelves.isEmpty {
+      await loadStartDashboard()
+    }
+  }
+
+  // MARK: - Podcasts
+
+  // MARK: - Podcasts
+
+  func loadPodcastEpisodeListeningSessions(
+    _ episode: ABSPodcastEpisodeListItem,
+    showMediaId: String? = nil,
+    maxPages: Int = 20
+  ) async -> [ABSListeningSession] {
+    let bid = episode.libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    let eid = episode.episodeId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !bid.isEmpty, !eid.isEmpty else { return [] }
+    let cached = cachedListeningSessions(libraryItemId: bid, episodeId: eid)
+    guard let c = client, isNetworkReachable, mayUseServerNetwork else {
+      return cached ?? []
+    }
+    let mediaKey = showMediaId
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .flatMap { $0.isEmpty ? nil : $0 }
+
+    func collectPaged(_ load: (Int) async throws -> ABSListeningSessionsPayload) async throws
+      -> [ABSListeningSession]
+    {
+      var collected: [ABSListeningSession] = []
+      collected.reserveCapacity(16)
+      var page = 0
+      while page < maxPages {
+        let res = try await load(page)
+        collected.append(contentsOf: res.sessions)
+        page += 1
+        if page >= res.numPages || res.sessions.isEmpty { break }
+      }
+      return collected
+    }
+
+    func legacy() async -> [ABSListeningSession] {
+      await loadPodcastEpisodeListeningSessionsLegacyFiltered(
+        client: c,
+        libraryItemId: bid,
+        episodeId: eid,
+        showMediaId: mediaKey,
+        maxPages: maxPages)
+    }
+
+    do {
+      let rows = try await collectPaged { p in
+        try await c.listeningSessionsForLibraryItem(
+          libraryItemId: bid, episodeId: eid, itemsPerPage: 100, page: p)
+      }
+      let sorted: [ABSListeningSession]
+      if !rows.isEmpty {
+        sorted = rows.sorted { $0.startedAt > $1.startedAt }
+      } else {
+        sorted = await legacy()
+      }
+      persistListeningSessions(libraryItemId: bid, episodeId: eid, sessions: sorted)
+      return sorted
+    } catch {
+      let legacyRows = await legacy()
+      if !legacyRows.isEmpty {
+        persistListeningSessions(libraryItemId: bid, episodeId: eid, sessions: legacyRows)
+        return legacyRows
+      }
+      return cached ?? []
+    }
+  }
+
+  private func loadPodcastEpisodeListeningSessionsLegacyFiltered(
+    client: ABSAPIClient,
+    libraryItemId bid: String,
+    episodeId eid: String,
+    showMediaId: String?,
+    maxPages: Int
+  ) async -> [ABSListeningSession] {
+    var collected: [ABSListeningSession] = []
+    collected.reserveCapacity(16)
+    var page = 0
+    let mid = showMediaId
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .flatMap { $0.isEmpty ? nil : $0 }
+    let eidLower = eid.lowercased()
+    while page < maxPages {
+      do {
+        let res = try await client.listeningSessionsMe(itemsPerPage: 100, page: page)
+        let filtered = res.sessions.filter { s in
+          let sEp = s.episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+          guard !sEp.isEmpty, sEp.lowercased() == eidLower else { return false }
+          if s.libraryItemId == bid { return true }
+          if let mid, let raw = s.bookId {
+            let b = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !b.isEmpty, b == mid { return true }
+          }
+          return false
+        }
+        collected.append(contentsOf: filtered)
+        page += 1
+        if page >= res.numPages { break }
+      } catch {
+        break
+      }
+    }
+    return collected.sorted { $0.startedAt > $1.startedAt }
+  }
+
+  func loadPodcastEpisodeDetail(_ episode: ABSPodcastEpisodeListItem) async -> ABSPodcastEpisodeExpandedDetail? {
+    guard let c = client, isNetworkReachable else {
+      return cachedPodcastEpisodeDetail(episode) ?? Self.emptyPodcastEpisodeDetail(episode)
+    }
+    do {
+      let show = try await c.item(id: episode.libraryItemId, expanded: true)
+      persistBookDetail(show)
+      return Self.makePodcastEpisodeDetail(episode: episode, show: show)
+    } catch {
+      return cachedPodcastEpisodeDetail(episode) ?? Self.emptyPodcastEpisodeDetail(episode)
+    }
+  }
+
 }

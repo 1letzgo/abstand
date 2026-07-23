@@ -80,10 +80,7 @@ struct PodcastEpisodeDetailView: View {
     .onChange(of: model.appearanceThemeRevision) { _, _ in
       applyCoverTintFromStoredImage()
     }
-    .onAppear {
-      seedEpisodeCoverTintFromCacheIfNeeded()
-    }
-    .task {
+    .task(id: episode.progressLookupKey) {
       seedEpisodeCoverTintFromCacheIfNeeded()
       // Sofort mit zuletzt gecachter Show-Detail-Antwort starten (Beschreibung bleibt sichtbar) —
       // kein Leerzustand mehr, nur ein stiller Refresh im Hintergrund.

@@ -48,13 +48,21 @@ final class DownloadManager: ObservableObject {
   /// Interne FIFO-Queue mit allen Parametern für verzögerten Start.
   private var downloadQueue: [QueuedDownload] = []
 
+  /// Client des aktuell laufenden Downloads — für URLSession-Task-Cancel.
+  private var activeClient: ABSAPIClient?
+
   /// Bricht nur den aktuell laufenden Download ab (falls vorhanden). Für gezieltes Abbrechen
   /// eines bestimmten Items `cancel(itemId:)` verwenden — sonst bleibt die Queue unberührt.
   func cancel() {
     task?.cancel()
     task = nil
+    let client = activeClient
+    activeClient = nil
     activeItemId = nil
     progress = 0
+    if let client {
+      Task { await client.cancelInFlightDownloads() }
+    }
   }
 
   /// Bricht den Download für `itemId` gezielt ab: entweder aus der Queue entfernen (wartet noch)
@@ -69,8 +77,13 @@ final class DownloadManager: ObservableObject {
     guard activeItemId == itemId else { return }
     task?.cancel()
     task = nil
+    let client = activeClient
+    activeClient = nil
     activeItemId = nil
     progress = 0
+    if let client {
+      Task { await client.cancelInFlightDownloads() }
+    }
     startNextQueuedDownload()
   }
 
@@ -313,29 +326,55 @@ final class DownloadManager: ObservableObject {
       return r
     }()
 
+    activeClient = client
     task = Task { @MainActor in
       var ownsPlaySession = false
       var streamSessionId = ""
+      defer {
+        if runId == downloadRunId { activeClient = nil }
+      }
       do {
         let folder: URL
         var resumeCompleted = Set<Int>()
         do {
-          let root = try downloadsRootURL()
-          try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-          setExcludedFromBackup(root)
-          let itemDir = root.appendingPathComponent(id, isDirectory: true)
-          if FileManager.default.fileExists(atPath: itemDir.path),
-            ABSDownloadManifest.load(from: itemDir) == nil,
-            let wip = loadWIP(folder: itemDir, storageId: id, episodeId: resolvedEp),
-            !wip.completedTrackIndexes.isEmpty
-          {
-            resumeCompleted = Set(wip.completedTrackIndexes)
-          } else if FileManager.default.fileExists(atPath: itemDir.path) {
-            try FileManager.default.removeItem(at: itemDir)
-          }
-          try FileManager.default.createDirectory(at: itemDir, withIntermediateDirectories: true)
-          setExcludedFromBackup(itemDir)
-          folder = itemDir
+          // Disk-I/O off-Main — nur Ergebnis zurück auf MainActor.
+          let prepared = try await Task.detached(priority: .utility) { [id, resolvedEp] in
+            let fm = FileManager.default
+            let base = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let root = base.appendingPathComponent("Downloads", isDirectory: true)
+            try fm.createDirectory(at: root, withIntermediateDirectories: true)
+            var rootURL = root
+            var rootValues = URLResourceValues()
+            rootValues.isExcludedFromBackup = true
+            try? rootURL.setResourceValues(rootValues)
+            let itemDir = root.appendingPathComponent(id, isDirectory: true)
+            var resume = Set<Int>()
+            if fm.fileExists(atPath: itemDir.path),
+              ABSDownloadManifest.load(from: itemDir) == nil
+            {
+              let wipURL = itemDir.appendingPathComponent(DownloadManager.wipFilename)
+              if let data = try? Data(contentsOf: wipURL),
+                let wip = try? ABSJSON.decoder().decode(DownloadWIP.self, from: data),
+                wip.storageItemId == id,
+                (wip.episodeId ?? "") == (resolvedEp ?? ""),
+                !wip.completedTrackIndexes.isEmpty
+              {
+                resume = Set(wip.completedTrackIndexes)
+              } else {
+                try fm.removeItem(at: itemDir)
+              }
+            } else if fm.fileExists(atPath: itemDir.path) {
+              try fm.removeItem(at: itemDir)
+            }
+            try fm.createDirectory(at: itemDir, withIntermediateDirectories: true)
+            var itemURL = itemDir
+            var itemValues = URLResourceValues()
+            itemValues.isExcludedFromBackup = true
+            try? itemURL.setResourceValues(itemValues)
+            return (itemDir, resume)
+          }.value
+          folder = prepared.0
+          resumeCompleted = prepared.1
         } catch {
           guard runId == downloadRunId else { return }
           activeItemId = nil

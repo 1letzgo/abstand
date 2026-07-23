@@ -84,7 +84,7 @@ enum CoverImageCache {
     var req = URLRequest(url: coverURL)
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     do {
-      let (data, resp) = try await URLSession.shared.data(for: req)
+      let (data, resp) = try await AbstandHTTPSession.coverAndCache.data(for: req)
       guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
         let image = UIImage(data: data)
       else { return nil }

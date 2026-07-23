@@ -44,7 +44,7 @@ enum ContinueHeroTintCache {
     let u = fileURL(account: account, itemId: cacheKey(itemId: itemId, revision: revision))
     guard fm.fileExists(atPath: u.path),
       let data = try? Data(contentsOf: u),
-      let p = try? JSONDecoder().decode(Payload.self, from: data)
+      let p = try? ABSJSON.decoder().decode(Payload.self, from: data)
     else { return nil }
     return (p.r, p.g, p.b)
   }
@@ -60,7 +60,7 @@ enum ContinueHeroTintCache {
 
   static func save(account: URL, itemId: String, revision: Int = 0, red: Double, green: Double, blue: Double) {
     let p = Payload(r: red, g: green, b: blue)
-    guard let data = try? JSONEncoder().encode(p) else { return }
+    guard let data = try? ABSJSON.encoder().encode(p) else { return }
     let u = fileURL(account: account, itemId: cacheKey(itemId: itemId, revision: revision))
     try? data.write(to: u, options: .atomic)
   }
@@ -103,7 +103,7 @@ enum DetailCoverAverageRGBCache {
     let u = fileURL(account: account, itemId: itemId)
     guard fm.fileExists(atPath: u.path),
       let data = try? Data(contentsOf: u),
-      let p = try? JSONDecoder().decode(Payload.self, from: data)
+      let p = try? ABSJSON.decoder().decode(Payload.self, from: data)
     else { return nil }
     return (p.r, p.g, p.b)
   }
@@ -111,7 +111,7 @@ enum DetailCoverAverageRGBCache {
   static func save(account: URL?, itemId: String, red: Double, green: Double, blue: Double) {
     guard let account else { return }
     let p = Payload(r: red, g: green, b: blue)
-    guard let data = try? JSONEncoder().encode(p) else { return }
+    guard let data = try? ABSJSON.encoder().encode(p) else { return }
     let u = fileURL(account: account, itemId: itemId)
     try? data.write(to: u, options: .atomic)
   }
@@ -254,7 +254,7 @@ enum CoverDerivedTintLoader {
       req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     }
     do {
-      let (data, resp) = try await URLSession.shared.data(for: req)
+      let (data, resp) = try await AbstandHTTPSession.coverAndCache.data(for: req)
       guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
         let image = UIImage(data: data),
         let avg = coverAverageRGB(from: image)

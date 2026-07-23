@@ -308,6 +308,9 @@ final class PlaybackController: NSObject, ObservableObject {
 
   deinit {
     sleepWakeTask?.cancel()
+    playResumeTask?.cancel()
+    syncTask?.cancel()
+    coverLoadTask?.cancel()
     if let interruptionObserver {
       NotificationCenter.default.removeObserver(interruptionObserver)
     }
@@ -1009,9 +1012,8 @@ final class PlaybackController: NSObject, ObservableObject {
     let resumeSnapshot = resumeAt
     player?.seek(to: CMTime(seconds: offsetInTrack, preferredTimescale: 600)) { [weak self] _ in
       guard let self else { return }
-      DispatchQueue.main.async { [weak self] in
+      Task { @MainActor [weak self] in
         guard let self else { return }
-        MainActor.assumeIsolated {
           self.globalPosition = resumeSnapshot
           self.updateChapterUI(global: resumeSnapshot)
           self.updateNowPlaying()
@@ -1023,7 +1025,6 @@ final class PlaybackController: NSObject, ObservableObject {
             self.isPlaying = false
           }
           self.lastListenTick = Date()
-        }
       }
     }
   }
@@ -1081,9 +1082,8 @@ final class PlaybackController: NSObject, ObservableObject {
     let resumeSnapshot = safeResume
     player?.seek(to: CMTime(seconds: offsetInTrack, preferredTimescale: 600)) { [weak self] _ in
       guard let self else { return }
-      DispatchQueue.main.async { [weak self] in
+      Task { @MainActor [weak self] in
         guard let self else { return }
-        MainActor.assumeIsolated {
           self.globalPosition = resumeSnapshot
           self.updateChapterUI(global: resumeSnapshot)
           self.updateNowPlaying()
@@ -1095,7 +1095,6 @@ final class PlaybackController: NSObject, ObservableObject {
             self.isPlaying = false
           }
           self.lastListenTick = Date()
-        }
       }
     }
   }
@@ -1141,11 +1140,9 @@ final class PlaybackController: NSObject, ObservableObject {
     }
 
     statusObserver = p.currentItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
-      DispatchQueue.main.async { [weak self] in
+      Task { @MainActor [weak self] in
         guard let self else { return }
-        MainActor.assumeIsolated {
           self.updateBufferingState(for: item)
-        }
       }
     }
 
@@ -1302,9 +1299,8 @@ final class PlaybackController: NSObject, ObservableObject {
     player?.seek(to: CMTime(seconds: localOffset, preferredTimescale: 600)) { [weak self] _ in
       guard let self else { return }
       let shouldPlay = play
-      DispatchQueue.main.async { [weak self] in
+      Task { @MainActor [weak self] in
         guard let self else { return }
-        MainActor.assumeIsolated {
           let g = self.globalTime(trackIndex: self.currentTrackIndex, localSeconds: offsetSnapshot)
           self.globalPosition = g
           self.updateChapterUI(global: g)
@@ -1313,7 +1309,6 @@ final class PlaybackController: NSObject, ObservableObject {
             self.applyPlayingRate()
             self.isPlaying = true
           }
-        }
       }
     }
   }
@@ -1641,13 +1636,11 @@ final class PlaybackController: NSObject, ObservableObject {
       let position = g
       player?.seek(to: CMTime(seconds: offset, preferredTimescale: 600)) { [weak self] _ in
         guard let self else { return }
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
           guard let self else { return }
-          MainActor.assumeIsolated {
-            self.globalPosition = position
-            self.updateChapterUI(global: position)
-            self.updateNowPlaying()
-          }
+          self.globalPosition = position
+          self.updateChapterUI(global: position)
+          self.updateNowPlaying()
         }
       }
     }

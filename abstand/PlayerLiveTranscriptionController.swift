@@ -1031,12 +1031,29 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   private func consumeResults(from transcriber: SpeechTranscriber, generation: UInt) async {
     do {
+      // Volatile Results batchen — Finals sofort; vermeidet MainActor-Hop pro Token.
+      var lastVolatile: SpeechTranscriber.Result?
+      let clock = ContinuousClock()
+      var lastFlush = clock.now
+      let volatileMinInterval: Duration = .milliseconds(100)
       for try await result in transcriber.results {
         let stillCurrent = await MainActor.run { self.sessionIsCurrent(generation) }
         guard stillCurrent else { return }
-        await MainActor.run {
-          self.applyTranscriptionResult(result)
+        if result.isFinal {
+          lastVolatile = nil
+          await MainActor.run { self.applyTranscriptionResult(result) }
+          lastFlush = clock.now
+        } else {
+          lastVolatile = result
+          if clock.now - lastFlush >= volatileMinInterval {
+            lastVolatile = nil
+            await MainActor.run { self.applyTranscriptionResult(result) }
+            lastFlush = clock.now
+          }
         }
+      }
+      if let lastVolatile {
+        await MainActor.run { self.applyTranscriptionResult(lastVolatile) }
       }
     } catch {
       guard !AbstandErrorFilter.isBenignCancellation(error) else { return }

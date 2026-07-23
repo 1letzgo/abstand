@@ -27,12 +27,15 @@ struct BookDetailView: View {
   @State private var isDeletingBook = false
   /// Autor/Serie/Genre/Sprecher oberhalb des Buch-Details — nicht `libraryEntityDetailNav` (würde Detail poppen).
   @State private var linkedEntityDetailNav: BooksEntityDetailNav?
-  /// Match-Metadaten-Sheet (Admin/Root) — absorb-style Online-Match.
-  @State private var showMatchSheet = false
-  /// Kapitel-Editor-Sheet (Admin/Root) — Audible-Kapitel über Audnexus übernehmen.
-  @State private var showChaptersSheet = false
-  /// Metadaten-Editor-Sheet (Admin/Root) — manuelle Bearbeitung + Cover-Online-Suche.
-  @State private var showEditSheet = false
+  /// Admin-Sheets (Match / Kapitel / Metadaten) — ein Item statt drei Bools.
+  @State private var presentedAdminSheet: BookDetailAdminSheet?
+
+  private enum BookDetailAdminSheet: String, Identifiable {
+    case match
+    case chapters
+    case edit
+    var id: String { rawValue }
+  }
 
   private var book: ABSBook {
     detail
@@ -180,30 +183,29 @@ struct BookDetailView: View {
     .navigationDestination(item: $linkedEntityDetailNav) { nav in
       BooksEntityDetailView(nav: nav)
     }
-    .sheet(isPresented: $showMatchSheet, onDismiss: reloadDetailAfterEdit) {
-      MatchMetadataSheet(
-        itemId: bookId,
-        currentTitle: (detail ?? book).media.metadata.title,
-        currentAuthor: (detail ?? book).media.metadata.authorName
-      )
-      .environmentObject(model)
-      .themeAccentFromAppModel(model)
-    }
-    .sheet(isPresented: $showChaptersSheet, onDismiss: reloadDetailAfterEdit) {
-      ChaptersEditorSheet(
-        itemId: bookId,
-        currentASIN: (detail ?? book).media.metadata.asin,
-        mediaDuration: (detail ?? book).media.duration
-      )
-      .environmentObject(model)
-      .themeAccentFromAppModel(model)
-    }
-    .sheet(isPresented: $showEditSheet, onDismiss: reloadDetailAfterEdit) {
-      EditMetadataSheet(
-        itemId: bookId,
-        metadata: (detail ?? book).media.metadata,
-        tags: (detail ?? book).media.tags
-      )
+    .sheet(item: $presentedAdminSheet, onDismiss: reloadDetailAfterEdit) { sheet in
+      Group {
+        switch sheet {
+        case .match:
+          MatchMetadataSheet(
+            itemId: bookId,
+            currentTitle: (detail ?? book).media.metadata.title,
+            currentAuthor: (detail ?? book).media.metadata.authorName
+          )
+        case .chapters:
+          ChaptersEditorSheet(
+            itemId: bookId,
+            currentASIN: (detail ?? book).media.metadata.asin,
+            mediaDuration: (detail ?? book).media.duration
+          )
+        case .edit:
+          EditMetadataSheet(
+            itemId: bookId,
+            metadata: (detail ?? book).media.metadata,
+            tags: (detail ?? book).media.tags
+          )
+        }
+      }
       .environmentObject(model)
       .themeAccentFromAppModel(model)
     }
@@ -355,17 +357,17 @@ struct BookDetailView: View {
     if model.isServerAdmin || model.isServerRoot {
       Menu {
         Button {
-          showEditSheet = true
+          presentedAdminSheet = .edit
         } label: {
           Label("Edit Metadata", systemImage: "pencil")
         }
         Button {
-          showMatchSheet = true
+          presentedAdminSheet = .match
         } label: {
           Label("Match Metadata", systemImage: "magnifyingglass")
         }
         Button {
-          showChaptersSheet = true
+          presentedAdminSheet = .chapters
         } label: {
           Label("Edit Chapters", systemImage: "list.bullet.below.rectangle")
         }
@@ -381,6 +383,7 @@ struct BookDetailView: View {
         Image(systemName: "ellipsis.circle")
           .foregroundStyle(AppTheme.textPrimary)
       }
+      .accessibilityLabel(String(localized: "More actions", comment: "Accessibility"))
       .disabled(!model.isNetworkReachable)
     }
   }

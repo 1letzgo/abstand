@@ -137,7 +137,7 @@ enum ABSPodcastCharts {
     guard let url = chartFeedURL(country: country, genreId: genreId, limit: limit) else { return [] }
     var req = URLRequest(url: url, timeoutInterval: 30)
     req.setValue("application/json", forHTTPHeaderField: "Accept")
-    let (data, resp) = try await URLSession.shared.data(for: req)
+    let (data, resp) = try await AbstandHTTPSession.coverAndCache.data(for: req)
     guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
       throw ABSAPIError.httpStatus((resp as? HTTPURLResponse)?.statusCode ?? -1, nil)
     }
@@ -363,7 +363,7 @@ enum ABSPodcastCharts {
     let idList = ids.joined(separator: ",")
     guard let url = URL(string: "https://itunes.apple.com/lookup?id=\(idList)&entity=podcast") else { return [:] }
     let req = URLRequest(url: url, timeoutInterval: 30)
-    let (data, resp) = try await URLSession.shared.data(for: req)
+    let (data, resp) = try await AbstandHTTPSession.coverAndCache.data(for: req)
     guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
       throw ABSAPIError.httpStatus((resp as? HTTPURLResponse)?.statusCode ?? -1, nil)
     }
