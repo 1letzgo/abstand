@@ -1,0 +1,4 @@
+{
+  "summary": "Multi-Library pro Kategorie ist implementiert: Active-ID-Sets und Session-Fokus getrennt von Primary, Migration (nur Primary aktiv), Settings mit Primary-Picker + Active-Toggles, Nav-Dropdown nur bei active.count>1 (setzt nur Fokus), Katalog/Browse über booksCatalogLibrary/podcastCatalogLibrary, Home Continue/personalized/purge über alle Active-IDs, activeLibraryIdSet korrigiert. xcodebuild iPhone 17: BUILD SUCCEEDED.",
+  "current_status": "Feature Multi-Library pro Kategorie fertig und grün gebaut; manuelle Sim-Prüfung (2+ aktive Books, Fokus vs Primary, Continue-Merge) steht beim Nutzer an."
+}

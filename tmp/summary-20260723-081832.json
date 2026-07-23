@@ -1,0 +1,4 @@
+{
+  "summary": "Library-Umschalter aus der Navbar entfernt und als erste fixierte Pill im horizontalen Browse-Strip (AbstandPinnedBrowseStrip + AbstandLibraryPickerMenu) für Books und Podcasts eingebaut — nur bei active.count>1 sichtbar. Navbar wieder Large Title. Build grün. Extrakt von [Extract multi-lib AppModel hunks](6228ff37-ef99-4d2d-bab7-1f238974cf5e) bestätigt dieses Strip-Muster; kein weiterer Nachzug nötig.",
+  "current_status": "Multi-Library: Fokus-Umschalter als gepinnte Pill im Kategorie-Strip; Primary bleibt in Settings fest."
+}

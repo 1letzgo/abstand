@@ -1,0 +1,4 @@
+{
+  "summary": "Read-only Recherche zur Bibliotheksauswahl: aktuell genau zwei aktive Slots (selectedBooksLibrary / selectedPodcastLibrary), persistiert in UserDefaults Keys.booksLibrary / podcastsLibrary plus ABSStoredAccount; kein Primary-Konzept außer userDefaultLibraryId als Fallback. UI-Picker nur in SettingsAccountView (ServerAdminViews). Home loadStartDashboard nutzt eine Books-Library für /personalized und filtert items-in-progress auf die beiden gewählten IDs. Verworfenes Multi-Library-Feature: Branch cursor/multi-library-plan-c089, PR #102–#107, Revert PR #109 (e3e17a6) mit LibraryActivationPreference, focusedLibrary, Navbar-Dropdown und Continue über alle aktiven Libraries.",
+  "current_status": "Main ist auf Single-/Dual-Slot-Bibliotheksmodell zurück; Multi-Library-Plan und LibraryActivationPreference.swift existieren nur noch in Git-Historie (2f7368a), nicht im Working Tree."
+}

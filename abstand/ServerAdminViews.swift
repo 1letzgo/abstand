@@ -921,11 +921,25 @@ struct SettingsAccountView: View {
           } else {
             SettingsCardPickerRow(
               icon: "books.vertical.fill",
-              title: "Books library",
+              title: "Primary books library",
               selection: booksLibraryPickerSelection,
               options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
                 + model.sortedBookLibraries.map { (id: $0.id, label: $0.name) }
             )
+            if !model.booksLibraryPreferenceIsNone {
+              SettingsCardDivider()
+              ForEach(Array(model.sortedBookLibraries.enumerated()), id: \.element.id) { index, lib in
+                if index > 0 { SettingsCardDivider() }
+                SettingsCardToggleRow(
+                  icon: "books.vertical",
+                  title: lib.name,
+                  isOn: Binding(
+                    get: { model.isBooksLibraryActive(lib.id) },
+                    set: { model.setBooksLibraryActive(lib.id, enabled: $0) }
+                  )
+                )
+              }
+            }
           }
         }
 
@@ -938,11 +952,25 @@ struct SettingsAccountView: View {
           } else {
             SettingsCardPickerRow(
               icon: "mic.fill",
-              title: "Podcasts library",
+              title: "Primary podcasts library",
               selection: podcastsLibraryPickerSelection,
               options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
                 + model.sortedPodcastLibraries.map { (id: $0.id, label: $0.name) }
             )
+            if !model.podcastsLibraryPreferenceIsNone {
+              SettingsCardDivider()
+              ForEach(Array(model.sortedPodcastLibraries.enumerated()), id: \.element.id) { index, lib in
+                if index > 0 { SettingsCardDivider() }
+                SettingsCardToggleRow(
+                  icon: "mic",
+                  title: lib.name,
+                  isOn: Binding(
+                    get: { model.isPodcastLibraryActive(lib.id) },
+                    set: { model.setPodcastLibraryActive(lib.id, enabled: $0) }
+                  )
+                )
+              }
+            }
           }
         }
 

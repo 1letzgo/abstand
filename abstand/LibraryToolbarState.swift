@@ -1,5 +1,6 @@
 import Combine
 import SwiftUI
+import UIKit
 
 // MARK: - Bücher-Tab: Toolbar nur bei Sort/Filter-Änderungen (nicht bei Playback-Ticks)
 
@@ -236,6 +237,7 @@ final class PodcastCatalogToolbarState: ObservableObject {
       model.$isServerRoot.map { _ in () }.eraseToAnyPublisher(),
       model.$isNetworkReachable.map { _ in () }.eraseToAnyPublisher(),
       model.$selectedPodcastLibrary.map { _ in () }.eraseToAnyPublisher(),
+      model.$focusedPodcastLibrary.map { _ in () }.eraseToAnyPublisher(),
       model.$podcastSelectedShowId.map { _ in () }.eraseToAnyPublisher(),
       model.$podcastShows.map { _ in () }.eraseToAnyPublisher()
     )
@@ -271,7 +273,7 @@ final class PodcastCatalogToolbarState: ObservableObject {
     }
     if isServerRoot != model.isServerRoot { isServerRoot = model.isServerRoot }
     if isNetworkReachable != model.isNetworkReachable { isNetworkReachable = model.isNetworkReachable }
-    let hasLib = model.selectedPodcastLibrary != nil
+    let hasLib = model.podcastCatalogLibrary != nil
     if hasPodcastLibrary != hasLib { hasPodcastLibrary = hasLib }
     let sid = model.podcastSelectedShowId
     if selectedShowId != sid { selectedShowId = sid }

@@ -54,9 +54,19 @@ struct MainRootView: View {
       case .library:
         libraryRelayoutEpoch += 1
         model.mediaCatalogKind = .audiobooks
+        let previousFocus = model.focusedBooksLibrary?.id
+        model.resetFocusedBooksLibraryToPrimaryOrFirstActive()
+        if model.focusedBooksLibrary?.id != previousFocus {
+          Task { await model.reloadLibrary(reset: true) }
+        }
       case .podcasts:
         podcastsRelayoutEpoch += 1
         model.mediaCatalogKind = .podcasts
+        let previousFocus = model.focusedPodcastLibrary?.id
+        model.resetFocusedPodcastLibraryToPrimaryOrFirstActive()
+        if model.focusedPodcastLibrary?.id != previousFocus {
+          Task { await model.reloadPodcastLibrary(reset: true) }
+        }
       default:
         break
       }
@@ -250,17 +260,38 @@ struct MainRootView: View {
   }
 
   private var booksBrowseSectionStrip: some View {
-    AbstandBrowseStripIconMenu(
-      items: BooksBrowseSection.audiobookStripOrder.map {
-        AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
-      },
-      selectionID: model.booksBrowseSection.rawValue,
-      onSelect: { id in
-        if let section = BooksBrowseSection(rawValue: id) {
-          model.selectBooksBrowseSection(section)
-        }
+    let libraryItems = model.activeBookLibraries.map {
+      AbstandBrowseStripItem(id: $0.id, label: $0.name, systemImage: "books.vertical.fill")
+    }
+    let librarySelectionID =
+      model.focusedBooksLibrary?.id
+      ?? model.selectedBooksLibrary?.id
+      ?? libraryItems.first?.id
+      ?? ""
+    return AbstandPinnedBrowseStrip(
+      pinnedItems: [],
+      pinnedSelectionID: "",
+      onSelectPinned: { _ in },
+      libraryPickerItems: libraryItems,
+      libraryPickerSelectionID: librarySelectionID,
+      onSelectLibrary: { id in
+        guard let lib = model.activeBookLibraries.first(where: { $0.id == id }) else { return }
+        model.focusBooksLibrary(lib)
       }
-    )
+    ) {
+      AbstandBrowseStripIconMenu(
+        items: BooksBrowseSection.audiobookStripOrder.map {
+          AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
+        },
+        selectionID: model.booksBrowseSection.rawValue,
+        appliesLeadingPadding: libraryItems.count <= 1,
+        onSelect: { id in
+          if let section = BooksBrowseSection(rawValue: id) {
+            model.selectBooksBrowseSection(section)
+          }
+        }
+      )
+    }
   }
 
   @ViewBuilder
@@ -298,8 +329,9 @@ struct MainRootView: View {
   private var booksCatalogBookListBody: some View {
     let rows = model.booksForDisplay()
     return LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      if let lib = model.selectedBooksLibrary {
-        TabContentSectionTitle(title:lib.name)
+      // Bei mehreren Aktiven steht der Name in der fixierten Picker-Pill.
+      if model.activeBookLibraries.count <= 1, let lib = model.booksCatalogLibrary {
+        TabContentSectionTitle(title: lib.name)
       }
       if model.isLibraryCatalogFiltered {
         catalogFilterBanner
@@ -685,20 +717,41 @@ struct MainRootView: View {
 
   private var podcastShowsDockStrip: some View {
     let _ = model.appearanceThemeRevision
-    return AbstandBrowseStripIconMenu(
-      items: podcastDockStripItems,
-      selectionID: podcastCatalogScrollSelection,
-      onSelect: { id in
-        if id == Self.podcastCatalogNewSectionId {
-          model.podcastCatalogStripSectionId = id
-          Task { await model.selectPodcastShowFilter(nil) }
-        } else {
-          model.podcastCatalogStripSectionId = id
-          model.applyPodcastShowFilterSelection(id)
-          Task { await model.loadPodcastEpisodesForShowLibraryItem(id) }
-        }
+    let libraryItems = model.activePodcastLibraries.map {
+      AbstandBrowseStripItem(id: $0.id, label: $0.name, systemImage: "mic.fill")
+    }
+    let librarySelectionID =
+      model.focusedPodcastLibrary?.id
+      ?? model.selectedPodcastLibrary?.id
+      ?? libraryItems.first?.id
+      ?? ""
+    return AbstandPinnedBrowseStrip(
+      pinnedItems: [],
+      pinnedSelectionID: "",
+      onSelectPinned: { _ in },
+      libraryPickerItems: libraryItems,
+      libraryPickerSelectionID: librarySelectionID,
+      onSelectLibrary: { id in
+        guard let lib = model.activePodcastLibraries.first(where: { $0.id == id }) else { return }
+        model.focusPodcastLibrary(lib)
       }
-    )
+    ) {
+      AbstandBrowseStripIconMenu(
+        items: podcastDockStripItems,
+        selectionID: podcastCatalogScrollSelection,
+        appliesLeadingPadding: libraryItems.count <= 1,
+        onSelect: { id in
+          if id == Self.podcastCatalogNewSectionId {
+            model.podcastCatalogStripSectionId = id
+            Task { await model.selectPodcastShowFilter(nil) }
+          } else {
+            model.podcastCatalogStripSectionId = id
+            model.applyPodcastShowFilterSelection(id)
+            Task { await model.loadPodcastEpisodesForShowLibraryItem(id) }
+          }
+        }
+      )
+    }
   }
 
   @ViewBuilder

@@ -15,6 +15,10 @@ extension AppModel {
   static let podcastsLibrary = "abstand_podcasts_library_id"
   /// Bewusst keine Bibliothek gewählt (Tabs ausblenden, kein Auto-Pick).
   static let librarySelectionNone = "__abstand_no_library__"
+  /// Zusätzlich zur Primary aktivierte Books-Libraries (JSON `[String]`), account-gebunden.
+  static let activeBooksLibraryIds = "abstand_active_books_library_ids"
+  /// Zusätzlich zur Primary aktivierte Podcast-Libraries (JSON `[String]`), account-gebunden.
+  static let activePodcastLibraryIds = "abstand_active_podcast_library_ids"
   static let downloads = "abstand_downloaded_ids"
   static let lastPlayedItemId = "abstand_last_played_library_item_id"
   static let startDisabledCategories = "abstand_start_disabled_categories"

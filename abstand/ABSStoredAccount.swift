@@ -11,6 +11,10 @@ struct ABSStoredAccount: Codable, Identifiable, Equatable {
   var booksLibraryId: String?
   var podcastsLibraryId: String?
   var ebooksLibraryId: String?
+  /// Aktive Books-Library-IDs (inkl. Primary); `nil` = noch nicht migriert.
+  var activeBooksLibraryIds: [String]? = nil
+  /// Aktive Podcast-Library-IDs (inkl. Primary); `nil` = noch nicht migriert.
+  var activePodcastLibraryIds: [String]? = nil
   var lastUsedAt: Date
 
   var id: String { accountKey }

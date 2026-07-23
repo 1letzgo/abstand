@@ -1,0 +1,4 @@
+{
+  "summary": "Read-only Extraktion aus Commit 2f7368a: LibraryActivationPreference, activeLibraries/ID-Sets, Settings-Aktivierung (Toggle/Reorder), focusedLibrary-Persistenz/Reconcile, Continue-Listening-Filter nach aktiven Library-IDs, sowie Library-Picker als SwiftUI Menu im AbstandPinnedBrowseStrip (MainRootView mediaBrowseStrip). Kein Navbar-Menu in diesem Commit.",
+  "current_status": "Analyse abgeschlossen; konkrete Swift-Signaturen und kurze Bodies für AppModel-Multi-Library-Muster dokumentiert, bereit zur Adaption ohne unified-library-Modell."
+}
