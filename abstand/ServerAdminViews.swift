@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Shared layout
 
@@ -668,39 +669,6 @@ struct SettingsHubRootView: View {
 
   @ViewBuilder
   private var serverSettingsMenuSections: some View {
-    if model.podcastCanManageShowsOnServer {
-      ServerAdminSection(title: "Podcasts") {
-        NavigationLink {
-          PodcastAddFromSearchView()
-            .navigationTitle("Add podcast")
-            .toolbarTitleDisplayMode(.inline)
-        } label: {
-          AbstandGroupedCard {
-            ServerAdminNavRow(
-              icon: "plus.circle.fill",
-              title: "Add podcast",
-              subtitle: "Search or browse iTunes Top Charts"
-            )
-          }
-        }
-        .buttonStyle(.plain)
-        .disabled(model.selectedPodcastLibrary == nil || !model.isNetworkReachable)
-
-        NavigationLink {
-          ServerAdminPodcastShowsListView()
-        } label: {
-          AbstandGroupedCard {
-            ServerAdminNavRow(
-              icon: "list.bullet",
-              title: "Manage shows",
-              subtitle: "RSS feed, auto-download, unsubscribe"
-            )
-          }
-        }
-        .buttonStyle(.plain)
-      }
-    }
-
     ServerAdminSection(title: "Users") {
       NavigationLink {
         ServerUsersListView()
@@ -1267,27 +1235,21 @@ struct SettingsAppearanceView: View {
 
 struct SettingsAppearanceHomeView: View {
   @EnvironmentObject private var model: AppModel
+  @State private var draggingCategory: String?
 
   var body: some View {
     ServerAdminScrollScreen {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         ServerAdminSection(title: "Home") {
-          AbstandGroupedCard {
-            VStack(alignment: .leading, spacing: 12) {
-              ForEach(Array(model.startSettingsCategoryList.enumerated()), id: \.element.category) {
-                index, row in
-                if index > 0 {
-                  Divider().overlay(model.appearancePalette.textSecondary.opacity(0.25))
-                }
-                SettingsCardToggleRow(
-                  icon: startShelfSettingsIcon(category: row.category),
-                  title: row.label,
-                  isOn: Binding(
-                    get: { model.isStartCategoryEnabled(row.category) },
-                    set: { model.setStartCategoryEnabled(row.category, enabled: $0) }
-                  )
-                )
-              }
+          // Kein nested List — Skill: LazyVStack im Parent-ScrollView, sonst wird die letzte Card abgeschnitten.
+          LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
+            ForEach(model.startSettingsCategoryList, id: \.category) { row in
+              SettingsHomeShelfCard(
+                category: row.category,
+                title: row.label,
+                isContinueListening: row.category == "recentlyListened",
+                draggingCategory: $draggingCategory
+              )
             }
           }
         }
@@ -1298,6 +1260,94 @@ struct SettingsAppearanceHomeView: View {
     .abstandThemeRefresh()
     .toolbarTitleDisplayMode(.inlineLarge)
     .tint(model.appearanceAccentColor)
+    .onAppear {
+      model.refreshStartSettingsCategoryListLabels()
+    }
+  }
+}
+
+/// Einzelne Home-Regal-Card inkl. Drag-Handle in der Card (nicht List-EditMode außen).
+private struct SettingsHomeShelfCard: View {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+
+  let category: String
+  let title: String
+  let isContinueListening: Bool
+  @Binding var draggingCategory: String?
+
+  private var isOn: Binding<Bool> {
+    Binding(
+      get: { model.isStartCategoryEnabled(category) },
+      set: { model.setStartCategoryEnabled(category, enabled: $0) }
+    )
+  }
+
+  var body: some View {
+    AbstandGroupedCard {
+      HStack(spacing: 12) {
+        SettingsCardIcon(systemName: startShelfSettingsIcon(category: category))
+        Toggle(isOn: isOn) {
+          Text(title)
+            .font(.body)
+            .foregroundStyle(model.appearancePalette.textPrimary)
+        }
+        .tint(themeAccent)
+
+        if !isContinueListening {
+          Image(systemName: "line.3.horizontal")
+            .font(.body.weight(.semibold))
+            .foregroundStyle(model.appearancePalette.textSecondary)
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+            .accessibilityLabel("Reorder")
+            .accessibilityHint("Drag to change home shelf order")
+            // Handle in der Card: Drag startet nur hier, Toggle bleibt bedienbar.
+            .onDrag {
+              draggingCategory = category
+              return NSItemProvider(object: category as NSString)
+            }
+        }
+      }
+      .settingsCardRowFrame()
+    }
+    .opacity(draggingCategory == category ? 0.72 : 1)
+    .onDrop(
+      of: [.plainText],
+      delegate: SettingsHomeShelfReorderDropDelegate(
+        targetCategory: category,
+        model: model,
+        draggingCategory: $draggingCategory
+      )
+    )
+  }
+}
+
+private struct SettingsHomeShelfReorderDropDelegate: DropDelegate {
+  let targetCategory: String
+  let model: AppModel
+  @Binding var draggingCategory: String?
+
+  func dropEntered(info: DropInfo) {
+    guard let from = draggingCategory,
+      from != targetCategory,
+      from != "recentlyListened",
+      targetCategory != "recentlyListened"
+    else { return }
+    model.moveStartSettingsCategory(dragging: from, onto: targetCategory)
+  }
+
+  func dropUpdated(info: DropInfo) -> DropProposal? {
+    DropProposal(operation: .move)
+  }
+
+  func performDrop(info: DropInfo) -> Bool {
+    draggingCategory = nil
+    return true
+  }
+
+  func dropEnded(info: DropInfo) {
+    draggingCategory = nil
   }
 }
 

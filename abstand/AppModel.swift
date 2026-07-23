@@ -130,6 +130,10 @@ final class AppModel: ObservableObject {
   @Published var startDisabledCategories: Set<String> = Set(
     UserDefaults.standard.stringArray(forKey: Keys.startDisabledCategories) ?? []
   )
+  /// Nutzer-Reihenfolge der Home-Regale (Continue listening ist immer Index 0).
+  @Published private(set) var startCategoryOrder: [String] = ActiveLibraryIdsStore.decode(
+    UserDefaults.standard.data(forKey: AppModel.Keys.startCategoryOrder)
+  )
   /// Aktives Regal in der Home-Browse-Leiste (Kategorie-Key aus Appearance → Home).
   @Published var homeBrowseCategory: String = {
     let saved = UserDefaults.standard.string(forKey: Keys.homeBrowseCategory) ?? ""
@@ -828,6 +832,9 @@ final class AppModel: ObservableObject {
   private var pendingLocalProgressSyncKeys: Set<String> = []
   /// „Fertig“ lokal gesetzt — schützt vor veraltetem `mediaProgress` nach Offline-Sync.
   private var localFinishedProgressKeys: Set<String> = []
+  /// eBook Mark-as-read / Reset: lokal gewünschter `ebookProgress`, bis der Server nachzieht
+  /// (sonst überschreibt `max(local, server)` aus `authorize` den Reset wieder mit 100 %).
+  private var pendingEbookProgressOverrideByItemId: [String: Double] = [:]
   /// Nach Fortschritt-Reset: kurz blockieren, damit veraltetes `authorize` / Cache nicht wieder in „Continue listening“ landet.
   private var suppressedContinueListeningKeys: Set<String> = []
   private var lastPeriodicPlaybackProgressSaveAt: Date?
@@ -857,6 +864,7 @@ final class AppModel: ObservableObject {
 
   /// Einziges Home-Regal für „Continue listening“ (kein separates Fallback-Regal).
   private static let homeContinueCategory = "recentlyListened"
+  private static let newestEpisodesCategory = "newestEpisodes"
 
   init() {
     let sp = AppLog.launchSignposter.beginInterval("appModelInit")
@@ -1052,9 +1060,13 @@ final class AppModel: ObservableObject {
         discovered.insert(id)
       }
     }
-    guard discovered != downloadedItemIds else { return }
+    // Immer zuweisen: auch bei gleicher Menge `@Published` feuern, damit Download-Badges
+    // nach Manifest-/Index-Rebuild (Pull-to-Refresh) neu evaluieren.
+    let changed = discovered != downloadedItemIds
     downloadedItemIds = discovered
-    persistDownloads(skipRefresh: true)
+    if changed {
+      persistDownloads(skipRefresh: true)
+    }
   }
 
   /// Disk → `downloadedItemIds` + `downloadedShelfBooks` + Lookup-Index (ohne Continue-Regal-Mutation).
@@ -2257,6 +2269,9 @@ final class AppModel: ObservableObject {
       await Task.yield()
       guard !Task.isCancelled else { return }
       self.refreshEbookContinueReadingShelf()
+      await Task.yield()
+      guard !Task.isCancelled else { return }
+      await self.refreshNewestEpisodesShelf()
     }
   }
 
@@ -2372,16 +2387,85 @@ final class AppModel: ObservableObject {
     Task { await loadStartDashboard(force: true) }
   }
 
-  /// Schalter-Reihenfolge inkl. optionalem eBook-„Continue reading“ direkt nach „Continue listening“.
-  private func effectiveStartSettingsCategoryOrder() -> [String] {
-    var order = ABSStartShelfLocalization.settingsCategoryOrder
-    guard !order.contains("continueEbooks") else { return order }
-    if let idx = order.firstIndex(of: "recentlyListened") {
-      order.insert("continueEbooks", at: idx + 1)
+  /// Home-Settings: Zeilen umsortieren — Continue listening bleibt immer erste Zeile.
+  func moveStartSettingsCategory(fromOffsets source: IndexSet, toOffset destination: Int) {
+    var cats = startSettingsCategoryList.map(\.category)
+    guard !cats.isEmpty else { return }
+    if source.contains(0) { return }
+    var dest = destination
+    if dest == 0 { dest = 1 }
+    cats.move(fromOffsets: source, toOffset: dest)
+    applyStartCategoryOrderKeepingContinueFirst(cats)
+  }
+
+  /// Drag-and-Drop innerhalb der Settings-Cards: `from` vor `onto` schieben.
+  func moveStartSettingsCategory(dragging fromId: String, onto toId: String) {
+    var cats = startSettingsCategoryList.map(\.category)
+    guard fromId != Self.homeContinueCategory,
+      toId != Self.homeContinueCategory,
+      let from = cats.firstIndex(of: fromId),
+      let to = cats.firstIndex(of: toId),
+      from != to
+    else { return }
+    cats.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+    applyStartCategoryOrderKeepingContinueFirst(cats)
+  }
+
+  private func applyStartCategoryOrderKeepingContinueFirst(_ order: [String]) {
+    var cats = order.filter { $0 != Self.homeContinueCategory }
+    cats.insert(Self.homeContinueCategory, at: 0)
+    persistStartCategoryOrder(cats)
+    refreshStartSettingsCategoryListLabels()
+  }
+
+  private func persistStartCategoryOrder(_ order: [String]) {
+    startCategoryOrder = order
+    if let data = ActiveLibraryIdsStore.encode(order) {
+      UserDefaults.standard.set(data, forKey: Keys.startCategoryOrder)
     } else {
-      order.insert("continueEbooks", at: 0)
+      UserDefaults.standard.removeObject(forKey: Keys.startCategoryOrder)
     }
-    return order
+  }
+
+  /// Schalter-Reihenfolge: Continue listening zuerst, dann Nutzer-Order, Podcast-„New episodes“ nur mit Primary.
+  private func effectiveStartSettingsCategoryOrder() -> [String] {
+    var available = ABSStartShelfLocalization.settingsCategoryOrder
+    if !available.contains("continueEbooks") {
+      if let idx = available.firstIndex(of: Self.homeContinueCategory) {
+        available.insert("continueEbooks", at: idx + 1)
+      } else {
+        available.insert("continueEbooks", at: 0)
+      }
+    }
+    let showNewestEpisodes =
+      selectedPodcastLibrary != nil
+      && !podcastsLibraryPreferenceIsNone
+    if showNewestEpisodes {
+      if !available.contains(Self.newestEpisodesCategory) {
+        if let idx = available.firstIndex(of: "continueEbooks") {
+          available.insert(Self.newestEpisodesCategory, at: idx + 1)
+        } else if let idx = available.firstIndex(of: Self.homeContinueCategory) {
+          available.insert(Self.newestEpisodesCategory, at: idx + 1)
+        } else {
+          available.append(Self.newestEpisodesCategory)
+        }
+      }
+    } else {
+      available.removeAll { $0 == Self.newestEpisodesCategory }
+    }
+
+    let savedTail = startCategoryOrder.filter {
+      $0 != Self.homeContinueCategory && available.contains($0)
+    }
+    var remaining = available.filter { $0 != Self.homeContinueCategory }
+    var result = [Self.homeContinueCategory]
+    for id in savedTail {
+      guard remaining.contains(id) else { continue }
+      result.append(id)
+      remaining.removeAll { $0 == id }
+    }
+    result.append(contentsOf: remaining)
+    return result
   }
 
   private func updateStartSettingsCategoryList(parsed: [ABSStartShelfSection]) {
@@ -2395,6 +2479,18 @@ final class AppModel: ObservableObject {
         serverLabel: fromServer[cat] ?? ""
       )
       return (category: cat, label: label)
+    }
+    clampHomeBrowseSectionIfNeeded()
+  }
+
+  func refreshStartSettingsCategoryListLabels() {
+    let labels = Dictionary(uniqueKeysWithValues: startSettingsCategoryList.map { ($0.category, $0.label) })
+    startSettingsCategoryList = effectiveStartSettingsCategoryOrder().map { cat in
+      (
+        category: cat,
+        label: labels[cat]
+          ?? ABSStartShelfLocalization.displayTitle(category: cat, serverLabel: "")
+      )
     }
     clampHomeBrowseSectionIfNeeded()
   }
@@ -2471,18 +2567,13 @@ final class AppModel: ObservableObject {
     if let existing = startShelves.first(where: { $0.category == "continueEbooks" }),
       existing.books.map(\.id) == books.map(\.id)
     { return }
-    var shelves = stripContinueEbooks(from: startShelves)
     let section = ABSStartShelfSection(
       id: "continue-ebooks-local",
       category: "continueEbooks",
       displayTitle: ABSStartShelfLocalization.displayTitle(category: "continueEbooks", serverLabel: ""),
       books: books
     )
-    if let idx = shelves.firstIndex(where: { isHomeContinueCategory($0.category) }) {
-      shelves.insert(section, at: idx + 1)
-    } else {
-      shelves.insert(section, at: 0)
-    }
+    let shelves = upsertLocalOnlyHomeShelf(section, into: startShelves)
     startShelves = shelves
     recomputeStartBooksUnion(from: shelves)
     // Wenn Continue Reading das erste lokal rekonstruierte Regal ist, existiert noch kein
@@ -2511,6 +2602,83 @@ final class AppModel: ObservableObject {
       return
     }
     applyEbookContinueReadingInjection(books)
+  }
+
+  /// Home-Regal „New episodes“ aus `recent-episodes` (Primary Podcast-Library).
+  func refreshNewestEpisodesShelf() async {
+    guard !offlineHomeUIActive else { return }
+    refreshStartSettingsCategoryListLabels()
+    guard selectedPodcastLibrary != nil, isStartCategoryEnabled(Self.newestEpisodesCategory) else {
+      removeNewestEpisodesShelfIfNeeded()
+      return
+    }
+    let episodes = await loadNewestEpisodesForHomeShelf()
+    guard !episodes.isEmpty else {
+      removeNewestEpisodesShelfIfNeeded()
+      return
+    }
+    applyNewestEpisodesInjection(episodes)
+  }
+
+  private func removeNewestEpisodesShelfIfNeeded() {
+    guard startShelves.contains(where: { $0.category == Self.newestEpisodesCategory }) else { return }
+    let shelves = stripNewestEpisodes(from: startShelves)
+    startShelves = shelves
+    recomputeStartBooksUnion(from: shelves)
+    persistHomeShelvesToLocalStore()
+  }
+
+  private func applyNewestEpisodesInjection(_ episodes: [ABSPodcastEpisodeListItem]) {
+    guard selectedPodcastLibrary != nil, isStartCategoryEnabled(Self.newestEpisodesCategory),
+      !episodes.isEmpty
+    else { return }
+    if let existing = startShelves.first(where: { $0.category == Self.newestEpisodesCategory }),
+      existing.podcastEpisodes.map(\.id) == episodes.map(\.id)
+    { return }
+    let section = ABSStartShelfSection(
+      id: "newest-episodes-local",
+      category: Self.newestEpisodesCategory,
+      displayTitle: ABSStartShelfLocalization.displayTitle(
+        category: Self.newestEpisodesCategory, serverLabel: ""),
+      podcastEpisodes: episodes
+    )
+    let shelves = upsertLocalOnlyHomeShelf(section, into: startShelves)
+    startShelves = shelves
+    recomputeStartBooksUnion(from: shelves)
+    updateStartSettingsCategoryList(parsed: shelves)
+    persistHomeShelvesToLocalStore()
+  }
+
+  private func loadNewestEpisodesForHomeShelf() async -> [ABSPodcastEpisodeListItem] {
+    guard let lib = selectedPodcastLibrary else { return [] }
+    if mayUseServerNetwork, isNetworkReachable, let c = client {
+      do {
+        let (res, _) = try await c.recentPodcastEpisodes(libraryId: lib.id, page: 0, limit: 14)
+        let rows = res.episodes.compactMap {
+          ABSPodcastEpisodeListItem.fromDTO($0, libraryId: lib.id)
+        }
+        let deduped = ABSPodcastEpisodeListItem.dedupeRows(rows)
+        if !deduped.isEmpty { return Array(deduped.prefix(14)) }
+      } catch {
+        // Offline-/Fehler-Fallback unten.
+      }
+    }
+    return localNewestEpisodeCandidates(libraryId: lib.id)
+  }
+
+  private func localNewestEpisodeCandidates(libraryId: String) -> [ABSPodcastEpisodeListItem] {
+    var pool = continuePodcastEpisodeMetadataPool()
+    if !podcastEpisodes.isEmpty {
+      pool.append(contentsOf: podcastEpisodes)
+    }
+    let libId = libraryId.trimmingCharacters(in: .whitespacesAndNewlines)
+    var rows = pool.filter { ep in
+      guard let rowLib = Self.normalizedLibraryId(ep.libraryId) else { return true }
+      return rowLib == libId
+    }
+    rows = ABSPodcastEpisodeListItem.dedupeRows(rows)
+    rows.sort { ($0.publishedAt ?? 0) > ($1.publishedAt ?? 0) }
+    return Array(rows.prefix(14))
   }
 
   /// eBooks mit Lesefortschritt — IDs aus Progress/LocalStore, Metadaten gezielt nachladen.
@@ -2695,14 +2863,14 @@ final class AppModel: ObservableObject {
 
   /// Nur lokal gebaut — nicht in `/personalized`, beim Server-Merge erhalten.
   private func isLocalOnlyHomeShelfCategory(_ category: String) -> Bool {
-    category == "continueEbooks"
+    category == "continueEbooks" || category == Self.newestEpisodesCategory
   }
 
   private func serverLayoutHomeShelves(from shelves: [ABSStartShelfSection]) -> [ABSStartShelfSection] {
     shelves.filter { !isLocalOnlyHomeShelfCategory($0.category) }
   }
 
-  /// Server-Layout übernehmen, lokal-only Regale (Continue reading) an der Continue-Position behalten.
+  /// Server-Layout übernehmen, lokal-only Regale (Continue reading / New episodes) behalten.
   private func mergingPreservedLocalOnlyHomeShelves(
     into next: [ABSStartShelfSection],
     prior: [ABSStartShelfSection]
@@ -2710,14 +2878,47 @@ final class AppModel: ObservableObject {
     let preserved = prior.filter {
       isLocalOnlyHomeShelfCategory($0.category) && isStartCategoryEnabled($0.category)
     }
-    var result = stripContinueEbooks(from: next)
+    var result = stripLocalOnlyHomeShelves(from: next)
     guard !preserved.isEmpty else { return result }
     for section in preserved {
-      if let idx = result.firstIndex(where: { isHomeContinueCategory($0.category) }) {
-        result.insert(section, at: idx + 1)
-      } else {
-        result.insert(section, at: 0)
+      result = upsertLocalOnlyHomeShelf(section, into: result)
+    }
+    return result
+  }
+
+  private func stripLocalOnlyHomeShelves(from shelves: [ABSStartShelfSection]) -> [ABSStartShelfSection] {
+    shelves.filter { !isLocalOnlyHomeShelfCategory($0.category) }
+  }
+
+  private func stripNewestEpisodes(from shelves: [ABSStartShelfSection]) -> [ABSStartShelfSection] {
+    shelves.filter { $0.category != Self.newestEpisodesCategory }
+  }
+
+  /// Lokal-only Regal an der Settings-Reihenfolge-Position einfügen (Fallback: nach Continue).
+  private func upsertLocalOnlyHomeShelf(
+    _ section: ABSStartShelfSection,
+    into shelves: [ABSStartShelfSection]
+  ) -> [ABSStartShelfSection] {
+    var result = shelves.filter { $0.category != section.category }
+    let order = effectiveStartSettingsCategoryOrder()
+    if let wantIndex = order.firstIndex(of: section.category) {
+      var insertAt = result.count
+      for existing in result {
+        guard let existingOrder = order.firstIndex(of: existing.category) else { continue }
+        if existingOrder > wantIndex {
+          if let idx = result.firstIndex(where: { $0.category == existing.category }) {
+            insertAt = idx
+            break
+          }
+        }
       }
+      result.insert(section, at: insertAt)
+      return result
+    }
+    if let idx = result.firstIndex(where: { isHomeContinueCategory($0.category) }) {
+      result.insert(section, at: idx + 1)
+    } else {
+      result.insert(section, at: 0)
     }
     return result
   }
@@ -3457,6 +3658,8 @@ final class AppModel: ObservableObject {
     }
     syncPodcastsTabVisibilityFromLibraries()
     reconcileActiveLibraryIdsWithServerLibraries()
+    refreshStartSettingsCategoryListLabels()
+    Task { await refreshNewestEpisodesShelf() }
   }
 
 
@@ -3556,6 +3759,7 @@ final class AppModel: ObservableObject {
     pendingPostOfflineModeProgressSync = false
     pendingPostOfflineModeCatalogReload = false
     pendingLocalProgressSyncKeys = []
+    pendingEbookProgressOverrideByItemId = [:]
     UserDefaults.standard.removeObject(forKey: Keys.pendingOfflineListeningSeconds)
     suppressOfflineModeSideEffects = false
     if clearCredentials {
@@ -3613,6 +3817,7 @@ final class AppModel: ObservableObject {
     syncPodcastDirectoryEffectiveCountry()
     progressByItemId = [:]
     pendingLocalProgressSyncKeys = []
+    pendingEbookProgressOverrideByItemId = [:]
     localFinishedProgressKeys = []
     suppressedContinueListeningKeys = []
     persistLocalFinishedProgressKeys()
@@ -3745,6 +3950,8 @@ final class AppModel: ObservableObject {
     setShowPodcastsTab(true)
     if navigateToCatalog, showPodcastsTab { navigateToMedia(.podcasts) }
     restorePodcastCatalogFromLocalStore(libraryIdOverride: lib.id)
+    refreshStartSettingsCategoryListLabels()
+    Task { await refreshNewestEpisodesShelf() }
   }
 
   func clearBooksLibrarySelection() {
@@ -3770,6 +3977,8 @@ final class AppModel: ObservableObject {
     UserDefaults.standard.set(Keys.librarySelectionNone, forKey: Keys.podcastsLibrary)
     syncStoredAccountFromSession()
     setShowPodcastsTab(false)
+    refreshStartSettingsCategoryListLabels()
+    removeNewestEpisodesShelfIfNeeded()
     Task { await loadStartDashboard() }
   }
 
@@ -4914,6 +5123,7 @@ final class AppModel: ObservableObject {
   /// Pull-to-Refresh: Library-Katalog (Server-Fortschritt + erste Seite neu).
   func refreshBooksCatalog() async {
     await performPullToRefresh { [self] in
+      refreshDownloadedShelfFromManifests()
       await refreshProgressFromServer()
       await reloadLibrary(reset: true)
       await refreshBooksBrowseSectionLists()
@@ -5853,6 +6063,7 @@ final class AppModel: ObservableObject {
         await refreshPodcastLibrarySearchResults()
         return
       }
+      refreshDownloadedShelfFromManifests()
       await refreshProgressFromServer()
       await reloadPodcastShowsCatalog()
       if let showId = podcastSelectedShowId {
@@ -7676,6 +7887,7 @@ final class AppModel: ObservableObject {
   }
 
   /// Kapitel speichern (`POST /api/items/:id/chapters`) und Detail anschließend aktualisieren.
+  /// Ist das Buch im Player geladen, werden dessen Kapitel sofort mitgezogen (Mini-/Vollplayer).
   @discardableResult
   func applyItemChapters(itemId: String, chapters: [ABSItemChaptersPayload.Chapter]) async -> Bool {
     guard let c = client else { return false }
@@ -7686,6 +7898,10 @@ final class AppModel: ObservableObject {
     do {
       try await c.updateItemChapters(itemId: itemId, chapters: chapters)
       _ = await loadBookDetail(id: itemId)
+      let absChapters = chapters.map {
+        ABSChapter(id: $0.id, start: $0.start, end: $0.end, title: $0.title)
+      }
+      player.refreshActiveBookChapters(libraryItemId: itemId, chapters: absChapters)
       errorMessage = nil
       return true
     } catch {
@@ -8360,6 +8576,7 @@ final class AppModel: ObservableObject {
       let auth = try await c.authorize()
       applyAuthorizeUser(auth.user)
       clearLocallyFinishedProgressKey(bookId)
+      pendingLocalProgressSyncKeys.remove(bookId)
       reconcileProgressAfterMarkFinished(libraryItemId: bookId, episodeId: nil)
       syncContinueListeningShelvesWithProgress()
       persistHomeShelvesSnapshot()
@@ -8441,6 +8658,7 @@ final class AppModel: ObservableObject {
       patchCatalog()
       let auth = try await c.authorize()
       applyAuthorizeSession(auth)
+      pendingLocalProgressSyncKeys.remove(key)
       syncContinueListeningShelvesWithProgress()
       await reloadLibraryIfNeeded()
       await refreshStartDashboardIfNeeded()
@@ -8560,6 +8778,7 @@ final class AppModel: ObservableObject {
       let auth = try await c.authorize()
       applyAuthorizeUser(auth.user)
       clearLocallyFinishedProgressKey(episode.progressLookupKey)
+      pendingLocalProgressSyncKeys.remove(episode.progressLookupKey)
       reconcileProgressAfterMarkFinished(
         libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
       syncContinueListeningShelvesWithProgress()
@@ -10112,8 +10331,14 @@ final class AppModel: ObservableObject {
   /// Anzeige: Server/`authorize`-Cache plus On-Device-Hilfs-Fortschritt (Maximum).
   func ebookDisplayProgressFraction(libraryItemId: String, format: ABSEbookFormat? = nil) -> Double? {
     _ = format
-    let serverF = progressByItemId[libraryItemId]?.ebookProgress
-    let localF = EbookLocalStore.loadProgressFraction(libraryItemId: libraryItemId)
+    let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let pending = pendingEbookProgressOverrideByItemId[id] {
+      let clamped = min(1, max(0, pending))
+      if clamped >= 0.995 { return 1.0 }
+      return clamped > 0.005 ? clamped : nil
+    }
+    let serverF = progressByItemId[id]?.ebookProgress
+    let localF = EbookLocalStore.loadProgressFraction(libraryItemId: id)
     let f = [serverF, localF].compactMap { $0 }.max()
     guard let f, f > 0.005 else { return nil }
     let clamped = min(1, max(0, f))
@@ -10194,11 +10419,22 @@ final class AppModel: ObservableObject {
 
   private func syncEbookFractionCacheFromAuthorizeRow(_ progress: ABSUserMediaProgress) {
     guard progress.episodeId == nil, let f = progress.ebookProgress, f > 0.001 else { return }
-    if let localF = EbookLocalStore.loadProgressFraction(libraryItemId: progress.libraryItemId),
+    let id = progress.libraryItemId
+    // Pending Mark-as-read / Reset nicht durch veralteten authorize-Stand überschreiben.
+    if let pending = pendingEbookProgressOverrideByItemId[id] {
+      if abs(pending - f) <= 0.01 || (pending >= 0.995 && f >= 0.995)
+        || (pending <= 0.005 && f <= 0.005)
+      {
+        pendingEbookProgressOverrideByItemId.removeValue(forKey: id)
+      } else {
+        return
+      }
+    }
+    if let localF = EbookLocalStore.loadProgressFraction(libraryItemId: id),
       localF >= 0.995, f < 0.995
     { return }
-    EbookLocalStore.saveProgressFraction(f, libraryItemId: progress.libraryItemId)
-    lastSyncedEbookFractionByItemId[progress.libraryItemId] = f
+    EbookLocalStore.saveProgressFraction(f, libraryItemId: id)
+    lastSyncedEbookFractionByItemId[id] = f
   }
 
   /// eBook als gelesen markieren (100 %), Reader schließen, aus Continue Reading entfernen.
@@ -10209,6 +10445,7 @@ final class AppModel: ObservableObject {
     ebookProgressSyncTask = nil
     pendingEbookProgressSync = nil
     let fraction = 1.0
+    pendingEbookProgressOverrideByItemId[id] = fraction
     EbookLocalStore.clearReadiumLocator(libraryItemId: id, format: format)
     EbookLocalStore.saveProgressFraction(fraction, libraryItemId: id)
     lastSyncedEbookFractionByItemId[id] = fraction
@@ -10222,6 +10459,12 @@ final class AppModel: ObservableObject {
     guard let patch = patchPreservingAudiobookFields(libraryItemId: id, ebookProgress: fraction) else { return }
     do {
       try await c.patchProgress(libraryItemId: id, patch: patch)
+      let auth = try await c.authorize()
+      applyAuthorizeUser(auth.user)
+      // Nach erfolgreichem Sync Override freigeben, falls authorize schon mitzieht.
+      if let serverF = progressByItemId[id]?.ebookProgress, serverF >= 0.995 {
+        pendingEbookProgressOverrideByItemId.removeValue(forKey: id)
+      }
       refreshEbookContinueReadingShelf()
     } catch {}
   }
@@ -10233,6 +10476,7 @@ final class AppModel: ObservableObject {
     ebookProgressSyncTask?.cancel()
     ebookProgressSyncTask = nil
     pendingEbookProgressSync = nil
+    pendingEbookProgressOverrideByItemId[id] = 0
     lastSyncedEbookFractionByItemId.removeValue(forKey: id)
     EbookLocalStore.clearReadiumLocator(libraryItemId: id, format: format)
     EbookLocalStore.clearProgressFraction(libraryItemId: id)
@@ -10242,6 +10486,16 @@ final class AppModel: ObservableObject {
     guard let patch = patchPreservingAudiobookFields(libraryItemId: id, ebookProgress: 0) else { return }
     do {
       try await c.patchProgress(libraryItemId: id, patch: patch)
+      let auth = try await c.authorize()
+      applyAuthorizeUser(auth.user)
+      if let serverF = progressByItemId[id]?.ebookProgress, serverF <= 0.005 {
+        pendingEbookProgressOverrideByItemId.removeValue(forKey: id)
+      } else if progressByItemId[id]?.ebookProgress == nil {
+        pendingEbookProgressOverrideByItemId.removeValue(forKey: id)
+      }
+      // authorize kann noch 100 % liefern — Override hält Display/Merge auf 0, bis Server nachzieht.
+      mergeEbookProgressIntoRow(libraryItemId: id, fraction: 0)
+      EbookLocalStore.clearProgressFraction(libraryItemId: id)
       refreshEbookContinueReadingShelf()
     } catch {}
   }
@@ -10429,6 +10683,12 @@ final class AppModel: ObservableObject {
     rowFraction: Double?,
     serverFraction: Double?
   ) -> Double? {
+    // Mark-as-read / Reset: Override gewinnt gegen `max(...)`, sonst holt authorize den alten Stand zurück.
+    if let pending = pendingEbookProgressOverrideByItemId[libraryItemId] {
+      let clamped = min(1, max(0, pending))
+      if clamped >= 0.995 { return 1.0 }
+      return clamped > 0.001 ? clamped : nil
+    }
     let localF = EbookLocalStore.loadProgressFraction(libraryItemId: libraryItemId)
     guard let f = [rowFraction, serverFraction, localF].compactMap({ $0 }).max() else { return nil }
     let clamped = min(1, max(0, f))
@@ -10730,20 +10990,34 @@ final class AppModel: ObservableObject {
     // Sonst überschreibt der nächste `applyUserProgress`-Merge (nach `authorize()`) das
     // „nicht fertig" wieder mit „fertig", weil der Key noch als lokal-finished markiert ist.
     clearLocallyFinishedProgressKey(key)
-    guard let existing = progressByItemId[key] else { return }
     let now = Int64(Date().timeIntervalSince1970 * 1000)
-    progressByItemId[key] = ABSUserMediaProgress(
-      mediaProgressServerId: existing.mediaProgressServerId,
-      libraryItemId: existing.libraryItemId,
-      episodeId: existing.episodeId,
-      duration: existing.duration,
-      progress: existing.progress,
-      currentTime: existing.currentTime,
-      isFinished: false,
-      lastUpdate: max(now, (existing.lastUpdate ?? 0) + 1),
-      ebookProgress: existing.ebookProgress,
-      ebookLocation: existing.ebookLocation
-    )
+    let ep = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if let existing = progressByItemId[key] {
+      progressByItemId[key] = ABSUserMediaProgress(
+        mediaProgressServerId: existing.mediaProgressServerId,
+        libraryItemId: existing.libraryItemId,
+        episodeId: existing.episodeId,
+        duration: existing.duration,
+        progress: existing.progress,
+        currentTime: existing.currentTime,
+        isFinished: false,
+        lastUpdate: max(now, (existing.lastUpdate ?? 0) + 1),
+        ebookProgress: existing.ebookProgress,
+        ebookLocation: existing.ebookLocation
+      )
+    } else {
+      // Ohne bestehende Zeile trotzdem Stub — sonst bleibt lokal „fertig“ über
+      // `localFinishedProgressKeys`/UI und der nächste authorize spielt finished wieder ein.
+      progressByItemId[key] = ABSUserMediaProgress(
+        libraryItemId: libraryItemId,
+        episodeId: ep.isEmpty ? nil : ep,
+        duration: 0,
+        progress: 0,
+        currentTime: 0,
+        isFinished: false,
+        lastUpdate: now
+      )
+    }
     persistProgressToLocalStore()
   }
 

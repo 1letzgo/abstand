@@ -1,0 +1,4 @@
+{
+  "summary": "Settings → Server: Podcasts-Kategorie (Add podcast / Manage shows) entfernt. Server-Bereich zeigt nur noch Users + Libraries; Podcast-Verwaltung bleibt über die Podcast-View.",
+  "current_status": "Settings/Server auf Serververwaltung fokussiert. Build prüfen."
+}

@@ -237,9 +237,10 @@ private struct ContinueCarouselViewportWidthKey: PreferenceKey {
 }
 
 /// Feste Reihenfolge solange sich Regal-Inhalt nicht ändert (kein Neu-Sortieren bei Fortschritt-Ticks).
-/// Kartenbreite so, dass 1½ Karten pro Viewport sichtbar sind.
+/// Kartenbreite adaptiv über `horizontalSizeClass` (Compact 1½, Regular +2, mit Max-Breite).
 struct ContinueListeningHeroCarousel: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let shelf: ABSStartShelfSection
 
   @State private var rows: [ABSStartShelfMergedRow] = []
@@ -252,7 +253,10 @@ struct ContinueListeningHeroCarousel: View {
   }
 
   private var cardWidth: CGFloat {
-    AppTheme.Layout.continueHeroCardWidth(forViewportWidth: viewportWidth)
+    AppTheme.Layout.continueHeroCardWidth(
+      forViewportWidth: viewportWidth,
+      horizontalSizeClass: horizontalSizeClass
+    )
   }
 
   private var cardTotalHeight: CGFloat {

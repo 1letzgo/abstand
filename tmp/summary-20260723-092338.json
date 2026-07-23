@@ -1,0 +1,4 @@
+{
+  "summary": "Podcast-Cover-Card (LibraryHeroPodcastEpisodeCard) zeigt Dauer jetzt als Continue-Listening-Play-Pille mit Restlaufzeit und startet per Tap playPodcastEpisode; gilt für Home New Episodes und Podcast Cover-Card-Ansicht.",
+  "current_status": "Podcast Cover Cards haben Play-Pille wie Continue Listening. Kein Skill lokal (.agent). Build iPhone 17 ok."
+}

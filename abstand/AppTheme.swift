@@ -147,39 +147,133 @@ enum AppTheme {
 
     /// „Continue listening“-Karten (horizontal scrollbar, einheitliche Höhe).
     static let continueHeroCardCornerRadius: CGFloat = 16
-    /// Fallback-Breite, bis die Viewport-Messung steht; Ziel: 1½ Karten sichtbar.
+    /// Fallback-Breite, bis die Viewport-Messung steht.
     static let continueHeroCardWidth: CGFloat = 176
-    /// Sichtbare Karten pro Reihe im Continue-Listening-Carousel (1 volle + ½ nächste).
-    static let continueHeroVisibleCardsPerRow: CGFloat = 1.5
+    /// Compact (iPhone): 1½ Karten sichtbar (1 volle + Peek).
+    static let continueHeroVisibleCardsCompact: CGFloat = 1.5
+    /// Regular (iPad): wie Library-Hero — Basis + 2 zusätzliche sichtbare Karten.
+    static let homeCarouselRegularVisibleCardsBonus: CGFloat = 2
     /// Minimale Kartenbreite (schmale iPhones / Split View).
     static let continueHeroCardMinWidth: CGFloat = 140
+    /// Obere Grenze — verhindert Riesenkarten im iPad-Querformat.
+    static let continueHeroCardMaxWidth: CGFloat = 220
     /// Fallback-Coverhöhe (1:1 zur Fallback-Breite); dynamisch = Kartenbreite.
     static let continueHeroCoverMaxHeight: CGFloat = 176
 
-    /// Kartenbreite für genau `continueHeroVisibleCardsPerRow` im verfügbaren Viewport.
-    static func continueHeroCardWidth(forViewportWidth viewport: CGFloat) -> CGFloat {
-      let spacing = withinSectionSpacing
-      guard viewport > 0 else { return continueHeroCardWidth }
-      return max(continueHeroCardMinWidth, (viewport - spacing) / continueHeroVisibleCardsPerRow)
+    /// Sichtbare Continue-Karten: Compact 1½, Regular (+2) wie `LibraryHeroMultiColumnRows`.
+    static func continueHeroVisibleCards(
+      horizontalSizeClass: UserInterfaceSizeClass?
+    ) -> CGFloat {
+      homeCarouselVisibleCards(
+        compact: continueHeroVisibleCardsCompact,
+        horizontalSizeClass: horizontalSizeClass
+      )
+    }
+
+    /// Kartenbreite aus Viewport + Size Class (mit Min/Max-Kappe).
+    static func continueHeroCardWidth(
+      forViewportWidth viewport: CGFloat,
+      horizontalSizeClass: UserInterfaceSizeClass? = nil
+    ) -> CGFloat {
+      homeCarouselCardWidth(
+        viewport: viewport,
+        visibleCards: continueHeroVisibleCards(horizontalSizeClass: horizontalSizeClass),
+        minWidth: continueHeroCardMinWidth,
+        maxWidth: continueHeroCardMaxWidth,
+        fallback: continueHeroCardWidth,
+        horizontalSizeClass: horizontalSizeClass
+      )
     }
 
     static func continueHeroCardTotalHeight(forCardWidth width: CGFloat) -> CGFloat {
       width + continueHeroMetadataBlockHeight
     }
 
-    /// Home-Continue: sekundäre Regale als Cover-only-Scroll (≈3 sichtbar, wie Library „Cover only“).
-    static let homeShelfCoverVisibleCardsPerRow: CGFloat = 3
+    /// Home sekundäre Regale: Cover-only (Compact 3½, Regular +2).
+    static let homeShelfCoverVisibleCardsCompact: CGFloat = 3.5
     static let homeShelfCoverCardMinWidth: CGFloat = 96
+    static let homeShelfCoverCardMaxWidth: CGFloat = 140
     static let homeShelfCoverCardFallbackWidth: CGFloat = 110
 
-    static func homeShelfCoverCardWidth(forViewportWidth viewport: CGFloat) -> CGFloat {
-      let spacing = withinSectionSpacing
-      let gaps = homeShelfCoverVisibleCardsPerRow - 1
-      guard viewport > 0 else { return homeShelfCoverCardFallbackWidth }
-      return max(
-        homeShelfCoverCardMinWidth,
-        (viewport - spacing * gaps) / homeShelfCoverVisibleCardsPerRow
+    static func homeShelfCoverVisibleCards(
+      horizontalSizeClass: UserInterfaceSizeClass?
+    ) -> CGFloat {
+      homeCarouselVisibleCards(
+        compact: homeShelfCoverVisibleCardsCompact,
+        horizontalSizeClass: horizontalSizeClass
       )
+    }
+
+    static func homeShelfCoverCardWidth(
+      forViewportWidth viewport: CGFloat,
+      horizontalSizeClass: UserInterfaceSizeClass? = nil
+    ) -> CGFloat {
+      homeCarouselCardWidth(
+        viewport: viewport,
+        visibleCards: homeShelfCoverVisibleCards(horizontalSizeClass: horizontalSizeClass),
+        minWidth: homeShelfCoverCardMinWidth,
+        maxWidth: homeShelfCoverCardMaxWidth,
+        fallback: homeShelfCoverCardFallbackWidth,
+        horizontalSizeClass: horizontalSizeClass
+      )
+    }
+
+    /// Home „New episodes“: Compact 2¼, Regular +2.
+    static let homeNewestEpisodesVisibleCardsCompact: CGFloat = 2.25
+    static let homeNewestEpisodesCardMinWidth: CGFloat = 120
+    static let homeNewestEpisodesCardMaxWidth: CGFloat = 220
+    static let homeNewestEpisodesCardFallbackWidth: CGFloat = 160
+
+    static func homeNewestEpisodesVisibleCards(
+      horizontalSizeClass: UserInterfaceSizeClass?
+    ) -> CGFloat {
+      homeCarouselVisibleCards(
+        compact: homeNewestEpisodesVisibleCardsCompact,
+        horizontalSizeClass: horizontalSizeClass
+      )
+    }
+
+    static func homeNewestEpisodesCardWidth(
+      forViewportWidth viewport: CGFloat,
+      horizontalSizeClass: UserInterfaceSizeClass? = nil
+    ) -> CGFloat {
+      homeCarouselCardWidth(
+        viewport: viewport,
+        visibleCards: homeNewestEpisodesVisibleCards(horizontalSizeClass: horizontalSizeClass),
+        minWidth: homeNewestEpisodesCardMinWidth,
+        maxWidth: homeNewestEpisodesCardMaxWidth,
+        fallback: homeNewestEpisodesCardFallbackWidth,
+        horizontalSizeClass: horizontalSizeClass
+      )
+    }
+
+    /// Compact-Basis, auf Regular (+2) wie Library-Hero-Raster.
+    private static func homeCarouselVisibleCards(
+      compact: CGFloat,
+      horizontalSizeClass: UserInterfaceSizeClass?
+    ) -> CGFloat {
+      horizontalSizeClass == .regular
+        ? compact + homeCarouselRegularVisibleCardsBonus
+        : compact
+    }
+
+    /// `(Viewport − Gaps×Spacing) / sichtbare Karten`.
+    /// Max-Breite nur auf Regular (iPad) — sonst würde sie auf großen iPhones die 1½-Zielanzahl brechen.
+    private static func homeCarouselCardWidth(
+      viewport: CGFloat,
+      visibleCards: CGFloat,
+      minWidth: CGFloat,
+      maxWidth: CGFloat,
+      fallback: CGFloat,
+      horizontalSizeClass: UserInterfaceSizeClass?
+    ) -> CGFloat {
+      let spacing = withinSectionSpacing
+      let cards = max(1, visibleCards)
+      guard viewport > 0 else { return fallback }
+      let gaps = max(0, ceil(cards) - 1)
+      let ideal = max(minWidth, (viewport - spacing * gaps) / cards)
+      guard horizontalSizeClass == .regular else { return ideal }
+      return min(maxWidth, ideal)
     }
     /// Abstand Titel ↔ Autor/Show (wie `BookRowCard` metadata `spacing: 2`).
     static let continueHeroMetadataTitleDetailSpacing: CGFloat = 2

@@ -629,9 +629,13 @@ struct LibraryPodcastListCard: View {
   var opensDetailOnTap = true
   /// Offline-Downloadliste: immer kompakte Zeilen, unabhängig von Settings.
   var forceCompactListStyle = false
+  /// Home-Regale u. Ä.: Style unabhängig von Library-Settings erzwingen.
+  var styleOverride: LibraryPodcastCardStyle? = nil
 
   private var usesHeroCoverStyle: Bool {
-    !forceCompactListStyle && model.libraryPodcastCardStyle == .heroCover
+    if forceCompactListStyle { return false }
+    let style = styleOverride ?? model.libraryPodcastCardStyle
+    return style == .heroCover
   }
 
   var body: some View {
@@ -658,7 +662,6 @@ private struct LibraryHeroPodcastEpisodeCard: View {
   var opensDetailOnTap = true
 
   @State private var live: LibraryPodcastEpisodeRowLiveState
-  @State private var tint: Color = AppTheme.card
   @State private var showDetail = false
 
   init(
@@ -691,6 +694,26 @@ private struct LibraryHeroPodcastEpisodeCard: View {
     return s.isEmpty ? "—" : s
   }
 
+  /// Anzeige in der Play-Pille: Restlaufzeit (ohne Fortschritt = volle Dauer).
+  private var playPillRemainingCaption: String {
+    let total = max(0, resolvedTotalDurationSeconds)
+    guard total > 0 else { return formatPlaybackDurationShortHuman(0) }
+    guard let p = prog else { return formatPlaybackDurationShortHuman(total) }
+    if p.isFinished { return formatPlaybackDurationShortHuman(0) }
+    let elapsed: Double
+    if p.currentTime > 0 {
+      elapsed = min(total, p.currentTime)
+    } else {
+      let basis = max(p.duration, total)
+      if basis > 0, p.progress > 0, p.progress <= 1 {
+        elapsed = min(total, p.progress * basis)
+      } else {
+        elapsed = 0
+      }
+    }
+    return formatPlaybackDurationShortHuman(max(0, total - elapsed))
+  }
+
   private var heroProgress01: Double? {
     guard let p = prog, !p.isFinished else { return nil }
     let total = max(p.duration, resolvedTotalDurationSeconds)
@@ -702,8 +725,6 @@ private struct LibraryHeroPodcastEpisodeCard: View {
     if g > 0, g <= 1 { return min(1, max(0, g)) }
     return nil
   }
-
-  private var isFinished: Bool { prog?.isFinished == true }
 
   var body: some View {
     let palette = model.appearancePalette
@@ -728,20 +749,6 @@ private struct LibraryHeroPodcastEpisodeCard: View {
         cardBody(palette: palette, coverInset: coverInset, coverClip: coverClip, barH: barH)
       }
     }
-    .task(id: episode.progressLookupKey) {
-      let account = model.coverImageCacheAccountDirectory()
-      let itemId = episode.libraryItemId
-      let revision = model.coverImageCacheRevision(forBookId: itemId)
-      if let c = await CoverDerivedTintLoader.loadColor(
-        account: account,
-        itemId: itemId,
-        revision: revision,
-        coverURL: model.coverURL(for: itemId),
-        token: model.token
-      ) {
-        tint = c
-      }
-    }
   }
 
   @ViewBuilder
@@ -752,19 +759,15 @@ private struct LibraryHeroPodcastEpisodeCard: View {
     barH: CGFloat
   ) -> some View {
     VStack(alignment: .leading, spacing: 0) {
+      // Cover wie Books-Hero: volle Kartenbreite (1:1, SquareCoverImageView).
       ZStack(alignment: .bottom) {
-        tint
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-        CoverImageView(
+        SquareCoverImageView(
           url: model.coverURL(for: episode.libraryItemId),
           token: model.token,
           itemId: episode.libraryItemId,
           cacheAccount: model.coverImageCacheAccountDirectory(),
-          cacheRevision: model.coverImageCacheRevision(forBookId: episode.libraryItemId),
-          contentMode: .fit
+          cacheRevision: model.coverImageCacheRevision(forBookId: episode.libraryItemId)
         )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipShape(coverClip)
         .contentShape(coverClip)
         .onTapGesture {
@@ -806,40 +809,21 @@ private struct LibraryHeroPodcastEpisodeCard: View {
       }
       .clipped()
 
-      VStack(alignment: .leading, spacing: 0) {
-        ContinueListeningHeroMetadataBlock(
-          title: episode.episodeTitle,
-          detailLabel: "Show",
-          detailValue: showLine,
-          horizontalInset: coverInset,
-          onTitleTap: { if opensDetailOnTap { showDetail = true } },
-          includesBottomPadding: false,
-          blockHeight: AppTheme.Layout.libraryHeroMetadataBlockHeight
-            - AppTheme.Layout.continueHeroMetadataExtraBottomPadding
-        )
-        LibraryHeroCardMetadataFooter(
-          durationLabel: formatPlaybackTime(resolvedTotalDurationSeconds),
-          showsDownload: true,
-          isDownloaded: live.isDownloaded,
-          isDownloading: live.isDownloading,
-          downloadProgress: live.downloadProgress,
-          isFinished: isFinished,
-          horizontalInset: coverInset,
-          onRemoveDownload: {
-            model.removeLocalDownload(bookId: model.podcastEpisodeOfflineStorageId(episode))
-          },
-          onToggleFinished: model.isNetworkReachable
-            ? {
-              Task {
-                if isFinished {
-                  await model.markPodcastEpisodeUnfinished(episode)
-                } else {
-                  await model.markPodcastEpisodeFinished(episode)
-                }
-              }
-            }
-            : nil
-        )
+      // Wie Continue Listening: Dauer als Play-Pille → startet Wiedergabe.
+      ContinueListeningHeroTextBlock(
+        title: episode.episodeTitle,
+        detailLabel: "Show",
+        detailValue: showLine,
+        horizontalInset: coverInset,
+        onTitleTap: { if opensDetailOnTap { showDetail = true } }
+      ) {
+        continueHeroPlayPill(
+          accent: model.appearanceAccentColor,
+          palette: palette,
+          caption: playPillRemainingCaption
+        ) {
+          Task { await model.playPodcastEpisode(episode) }
+        }
       }
       .background(palette.card)
     }
@@ -2135,6 +2119,23 @@ private struct LibraryHeroBookRowCard: View {
     max(book.media.duration ?? 0, prog?.duration ?? 0)
   }
 
+  /// Anzeige in der Play-Pille: Restlaufzeit (ohne Fortschritt = volle Dauer).
+  private var playPillRemainingCaption: String {
+    let total = max(0, resolvedTotalDurationSeconds)
+    guard total > 0 else { return formatPlaybackDurationShortHuman(0) }
+    guard let p = prog else { return formatPlaybackDurationShortHuman(total) }
+    if p.isFinished { return formatPlaybackDurationShortHuman(0) }
+    let elapsed: Double
+    if p.currentTime > 0 {
+      elapsed = min(total, p.currentTime)
+    } else if p.duration > 0, p.progress > 0, p.progress <= 1 {
+      elapsed = min(total, p.progress * p.duration)
+    } else {
+      elapsed = 0
+    }
+    return formatPlaybackDurationShortHuman(max(0, total - elapsed))
+  }
+
   private var heroDurationLabel: String {
     if usesEbookMetrics {
       return LibraryRowLiveState.ebookProgressLabel(for: live.ebookProgressFraction)
@@ -2193,8 +2194,9 @@ private struct LibraryHeroBookRowCard: View {
     return VStack(alignment: .leading, spacing: 0) {
       coverStack(clip: heroCoverClip, showsProgressChrome: true, barH: barH)
 
-      VStack(alignment: .leading, spacing: 0) {
-        ContinueListeningHeroMetadataBlock(
+      if book.isPlayableAudiobook {
+        // Wie Continue Listening / Podcast-Cover: Dauer als Play-Pille → startet Wiedergabe.
+        ContinueListeningHeroTextBlock(
           title: book.displayTitle,
           detailLabel: "Author",
           detailValue: authorLine,
@@ -2203,34 +2205,48 @@ private struct LibraryHeroBookRowCard: View {
             if opensDetailOnTap {
               showDetail = true
             }
-          },
-          includesBottomPadding: false,
-          blockHeight: AppTheme.Layout.libraryHeroMetadataBlockHeight
-            - AppTheme.Layout.continueHeroMetadataExtraBottomPadding
-        )
-        LibraryHeroCardMetadataFooter(
-          durationLabel: heroDurationLabel,
-          showsDownload: showsDownloadStatus,
-          isDownloaded: live.isDownloaded,
-          isDownloading: live.isDownloading,
-          downloadProgress: live.downloadProgress,
-          isFinished: isFinished,
-          horizontalInset: coverInset,
-          onRemoveDownload: { model.removeLocalDownload(bookId: book.id) },
-          onToggleFinished: usesEbookMetrics || !model.isNetworkReachable
-            ? nil
-            : {
-              Task {
-                if isFinished {
-                  await model.markUnfinished(bookId: book.id)
-                } else {
-                  await model.markFinished(bookId: book.id)
-                }
+          }
+        ) {
+          continueHeroPlayPill(
+            accent: model.appearanceAccentColor,
+            palette: palette,
+            caption: playPillRemainingCaption
+          ) {
+            Task { await model.play(book: book) }
+          }
+        }
+        .background(palette.card)
+      } else {
+        // eBook / nicht abspielbar: bisheriger Footer mit Lesefortschritt.
+        VStack(alignment: .leading, spacing: 0) {
+          ContinueListeningHeroMetadataBlock(
+            title: book.displayTitle,
+            detailLabel: "Author",
+            detailValue: authorLine,
+            horizontalInset: coverInset,
+            onTitleTap: {
+              if opensDetailOnTap {
+                showDetail = true
               }
-            }
-        )
+            },
+            includesBottomPadding: false,
+            blockHeight: AppTheme.Layout.libraryHeroMetadataBlockHeight
+              - AppTheme.Layout.continueHeroMetadataExtraBottomPadding
+          )
+          LibraryHeroCardMetadataFooter(
+            durationLabel: heroDurationLabel,
+            showsDownload: showsDownloadStatus,
+            isDownloaded: live.isDownloaded,
+            isDownloading: live.isDownloading,
+            downloadProgress: live.downloadProgress,
+            isFinished: isFinished,
+            horizontalInset: coverInset,
+            onRemoveDownload: { model.removeLocalDownload(bookId: book.id) },
+            onToggleFinished: nil
+          )
+        }
+        .background(palette.card)
       }
-      .background(palette.card)
     }
   }
 

@@ -22,6 +22,8 @@ extension AppModel {
   static let downloads = "abstand_downloaded_ids"
   static let lastPlayedItemId = "abstand_last_played_library_item_id"
   static let startDisabledCategories = "abstand_start_disabled_categories"
+  /// Nutzer-Reihenfolge der Home-Regale (JSON `[String]`); Continue listening bleibt immer zuerst.
+  static let startCategoryOrder = "abstand_start_category_order"
   static let homeBrowseCategory = "abstand_home_browse_category"
   static let catalogSortField = "abstand_catalog_sort_field"
   static let catalogSortDescending = "abstand_catalog_sort_descending"

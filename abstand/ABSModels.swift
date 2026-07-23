@@ -2269,6 +2269,7 @@ enum ABSStartShelfLocalization {
     "recentlyListened": "Continue listening",
     "continueEbooks": "Continue reading",
     "continueSeries": "Continue series",
+    "newestEpisodes": "New episodes",
     "newestItems": "Recently added",
     "newestSeries": "Recent series",
     "recommended": "Recommended",
@@ -2284,8 +2285,9 @@ enum ABSStartShelfLocalization {
   }
 
   /// Bekannte Server-`category`-Keys für die Schalter „Regal anzeigen“ (kein separates Fallback; gehört zu „Continue listening“).
+  /// `newestEpisodes` wird in Settings nur bei Primary-Podcast-Library eingeblendet.
   static let settingsCategoryOrder: [String] = [
-    "recentlyListened", "continueSeries", "newestItems", "newestSeries",
+    "recentlyListened", "continueSeries", "newestEpisodes", "newestItems", "newestSeries",
     "recommended", "recentlyFinished", "newestAuthors",
   ]
 
@@ -2295,6 +2297,7 @@ enum ABSStartShelfLocalization {
     case homeBrowseContinueSectionID, "recentlyListened": return "play.circle.fill"
     case "continueEbooks": return "book.closed.fill"
     case "continueSeries": return "rectangle.stack.fill"
+    case "newestEpisodes": return "mic.fill"
     case homeBrowseRecentSectionID, "newestItems": return "sparkles"
     case homeBrowseStatsSectionID: return "chart.bar.fill"
     case "newestSeries": return "books.vertical.fill"
@@ -2309,8 +2312,8 @@ enum ABSStartShelfLocalization {
 extension ABSStartShelfLocalization {
   /// `/personalized` liefert oft `id` wie `continue-listening`; die Schalter nutzen camelCase-Keys wie `recentlyListened`.
   static func normalizedSettingsCategory(shelfId: String, apiCategory: String?) -> String {
-    if let c = apiCategory, settingsCategoryOrder.contains(c) { return c }
-    if settingsCategoryOrder.contains(shelfId) { return shelfId }
+    if let c = apiCategory, settingsCategoryOrder.contains(c) || c == "continueEbooks" { return c }
+    if settingsCategoryOrder.contains(shelfId) || shelfId == "continueEbooks" { return shelfId }
     let kebabToSettings: [String: String] = [
       "continue-listening": "recentlyListened",
       "continue-reading": "recentlyListened",
@@ -2321,7 +2324,7 @@ extension ABSStartShelfLocalization {
       "listen-again": "recentlyFinished",
       "read-again": "recentlyFinished",
       "newest-authors": "newestAuthors",
-      "newest-episodes": "newestItems",
+      "newest-episodes": "newestEpisodes",
     ]
     return kebabToSettings[shelfId] ?? shelfId
   }

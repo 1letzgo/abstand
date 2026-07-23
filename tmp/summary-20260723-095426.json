@@ -1,0 +1,4 @@
+{
+  "summary": "Read-only investigation of library pull-to-refresh vs downloaded badges. Found that refreshBooksCatalog/refreshPodcastsTab only refresh server progress+catalog and never call refreshDownloadedShelfFromManifests (unlike Start-tab refresh and offline reloadLibrary). Live row state observes only $downloadedItemIds, so without a disk reconcile badges stay stale. Recommended minimal fix: call refreshDownloadedShelfFromManifests() inside both library PTR handlers.",
+  "current_status": "Bug root cause identified; no code changes made. Fix recommendation ready for implementation."
+}

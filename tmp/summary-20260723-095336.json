@@ -1,0 +1,4 @@
+{
+  "summary": "Read-only investigation of mark-finished/unfinished and reset-progress sync. Mapped AppModel mark/discard APIs, ABSAPIClient PATCH/DELETE, progressByItemId merge (pendingLocalProgressSyncKeys + localFinishedProgressKeys), LiveState observation, and pull-to-refresh via refreshProgressFromServer→authorize. Primary hypotheses: pendingLocalProgressSyncKeys never cleared after online mark success (stale optimistic wins on refresh), play-session sync before markFinished can race server isFinished, dual podcast keys (- vs /ep/), and applyUserProgress never removes server-deleted rows (mitigated only in discard).",
+  "current_status": "No code changes. Investigation report ready with file/function map, root-cause hypotheses with evidence, and minimal fix recommendations for parent agent/user."
+}

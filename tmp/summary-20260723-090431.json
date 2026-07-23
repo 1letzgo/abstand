@@ -1,0 +1,4 @@
+{
+  "summary": "Settings Appearance/Home: jeder Home-Regal-Eintrag jetzt als eigene AbstandGroupedCard statt einer kombinierten Liste; Drag-Reorder und Continue-fix bleiben. Build grün.",
+  "current_status": "Home-Settings zeigen Einträge als Einzel-Cards; Multi-Library und New-Episodes unverändert."
+}

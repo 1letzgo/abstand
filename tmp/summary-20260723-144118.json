@@ -1,0 +1,4 @@
+{
+  "summary": "Home-Carousels (Continue, Cover-only, New episodes) nutzen jetzt horizontalSizeClass: Compact behält 1.5/3/2, Regular +2 wie Library-Hero; Max-Breiten verhindern Riesenkarten im iPad-Querformat. Skills swiftui-patterns + layout-components befolgt.",
+  "current_status": "Home-Layout iPad/Querformat adaptiv. Build iPhone 17 ok; manueller iPad-Landscape-Check empfohlen."
+}

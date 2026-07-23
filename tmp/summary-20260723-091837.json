@@ -1,0 +1,4 @@
+{
+  "summary": "New Episodes zeigt jetzt exakt 2 Cover-Karten (homeNewestEpisodesCardWidth); LibraryHeroPodcastEpisodeCard nutzt SquareCoverImageView wie Books/Podcast-Cover-Cards für volle Kartenbreite. Build iPhone 17 ok.",
+  "current_status": "Home New Episodes aligned mit Podcast Cover-Card (2 Spalten, volles Cover). Continue Listening bleibt bei 1,5 Karten."
+}

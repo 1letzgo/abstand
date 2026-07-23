@@ -1,0 +1,4 @@
+{
+  "summary": "Seitenränder am New-Episodes-Cover kamen von zu kleiner fester Carousel-Höhe (aspectRatio.fit). Höhe entfernt + fixedSize vertical — gleiche intrinsische Card-Layout wie Podcast-View.",
+  "current_status": "Home New Episodes nutzt unveränderte LibraryPodcastListCard; Layout-Zwang, der Cover verzerrte, ist behoben. Build ok."
+}

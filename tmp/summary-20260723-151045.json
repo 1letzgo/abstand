@@ -1,0 +1,4 @@
+{
+  "summary": "Nach Edit-Chapters-Apply aktualisiert applyItemChapters den Player via refreshActiveBookChapters, wenn dasselbe Hörbuch aktiv ist (Kapitel/Titel/Ordinal ohne Wiedergabe-Neustart).",
+  "current_status": "Edit Chapters synced Miniplayer chapters. Build prüfen."
+}

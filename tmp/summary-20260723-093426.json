@@ -1,0 +1,4 @@
+{
+  "summary": "Hörbuch-Cover-Card (LibraryHeroBookRowCard) zeigt bei abspielbaren Büchern jetzt dieselbe Play-Pille mit Restlaufzeit und startet model.play; eBook-Karten behalten den bisherigen Footer.",
+  "current_status": "Podcast- und Hörbuch-Cover-Cards haben Continue-Listening-Play-Pille. Build iPhone 17 ok."
+}

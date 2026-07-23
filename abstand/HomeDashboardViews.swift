@@ -190,7 +190,12 @@ struct StartDashboardView: View {
           HomeCoverOnlyAuthorsCarousel(authors: shelf.authors)
         }
         if shelf.hasPodcastEpisodes {
-          HomeCoverOnlyPodcastEpisodesCarousel(episodes: shelf.podcastEpisodes)
+          if shelf.category == "newestEpisodes" {
+            // New episodes: Cover card (wie Library „Cover card“), nicht Cover-only.
+            HomeNewestEpisodesCoverCardCarousel(episodes: shelf.podcastEpisodes)
+          } else {
+            HomeCoverOnlyPodcastEpisodesCarousel(episodes: shelf.podcastEpisodes)
+          }
         }
       }
     }
@@ -264,13 +269,17 @@ private struct HomeShelfCoverViewportWidthKey: PreferenceKey {
   }
 }
 
-/// Gemeinsame Viewport-Messung für Cover-only-Home-Regale (≈3 sichtbar).
+/// Gemeinsame Viewport-Messung für Cover-only-Home-Regale (Size-Class-adaptiv).
 private struct HomeCoverOnlyShelfScrollRow<Content: View>: View {
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var viewportWidth: CGFloat = 0
   @ViewBuilder var content: (_ cardWidth: CGFloat) -> Content
 
   private var cardWidth: CGFloat {
-    AppTheme.Layout.homeShelfCoverCardWidth(forViewportWidth: viewportWidth)
+    AppTheme.Layout.homeShelfCoverCardWidth(
+      forViewportWidth: viewportWidth,
+      horizontalSizeClass: horizontalSizeClass
+    )
   }
 
   var body: some View {
@@ -430,6 +439,48 @@ private struct HomeCoverOnlyAuthorCard: View {
     .buttonStyle(.plain)
     .accessibilityLabel(author.name)
     .accessibilityHint("Opens author details.")
+  }
+}
+
+/// Home „New episodes“: gleiche Cover-Card wie Podcast-Tab.
+/// Compact 2¼ sichtbar, Regular +2; Max-Breite nur auf Regular gegen iPad-Riesenkarten.
+/// Keine feste Zeilenhöhe — sonst wird das 1:1-Cover gestaucht (`aspectRatio(.fit)`).
+private struct HomeNewestEpisodesCoverCardCarousel: View {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  let episodes: [ABSPodcastEpisodeListItem]
+  @State private var viewportWidth: CGFloat = 0
+
+  private var cardWidth: CGFloat {
+    AppTheme.Layout.homeNewestEpisodesCardWidth(
+      forViewportWidth: viewportWidth,
+      horizontalSizeClass: horizontalSizeClass
+    )
+  }
+
+  var body: some View {
+    AbstandHorizontalBrowseStripScroll(
+      appliesHorizontalContentInset: false,
+      verticalContentPadding: 0
+    ) {
+      HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
+        ForEach(episodes) { episode in
+          LibraryPodcastListCard(
+            episode: episode,
+            model: model,
+            styleOverride: .heroCover
+          )
+          .frame(width: cardWidth)
+          .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+    }
+    .background {
+      GeometryReader { geo in
+        Color.clear.preference(key: HomeShelfCoverViewportWidthKey.self, value: geo.size.width)
+      }
+    }
+    .onPreferenceChange(HomeShelfCoverViewportWidthKey.self) { viewportWidth = $0 }
   }
 }
 

@@ -1,0 +1,4 @@
+{
+  "summary": "Home-Settings neu: nested List/EditMode entfernt (Abschneiden der letzten Card), LazyVStack im Parent-ScrollView, Drag-Handle (line.3.horizontal) in der Card selbst mit onDrag/onDrop. Continue listening ohne Handle. Build grün.",
+  "current_status": "Settings Appearance/Home: Einzel-Cards mit In-Card-Reorder; Clipping-Fix über LazyVStack statt nested List."
+}

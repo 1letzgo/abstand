@@ -1649,6 +1649,22 @@ final class PlaybackController: NSObject, ObservableObject {
     updateNowPlaying()
   }
 
+  /// Nach „Edit Chapters“: Kapitel der aktiven Hörbuch-Wiedergabe ohne Neu-Start aktualisieren.
+  func refreshActiveBookChapters(libraryItemId: String, chapters: [ABSChapter]) {
+    guard activeBook?.id == libraryItemId else { return }
+    let ep = activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard ep.isEmpty else { return }
+
+    if !chapters.isEmpty, let book = activeBook {
+      activeBook = book.withChapters(chapters)
+    }
+    guard let book = activeBook else { return }
+    applyChapters(
+      from: book,
+      sessionChapters: chapters.isEmpty ? nil : chapters
+    )
+  }
+
   private func applyChapters(
     from book: ABSBook,
     sessionChapters: [ABSChapter]?,

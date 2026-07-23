@@ -1,0 +1,4 @@
+{
+  "summary": "Zwei Sync-Bugs behoben: (1) Library-PTR ruft jetzt refreshDownloadedShelfFromManifests auf und republisht downloadedItemIds auch bei gleicher Menge; (2) pendingLocalProgressSyncKeys wird nach erfolgreichem Mark finished/unfinished geleert, Unfinished legt Stub an, eBook Mark-as-read/Reset nutzt pendingEbookProgressOverride gegen max()-Overwrite durch authorize. Build ok.",
+  "current_status": "Download-Badges und Progress Mark/Reset Sync gefixt. Manueller Test: Library PTR Downloads, Mark finished/unfinished, eBook Mark as read / Reset progress empfohlen."
+}

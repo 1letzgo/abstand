@@ -1,0 +1,4 @@
+{
+  "summary": "Max-Kartenbreite greift nur noch bei Regular (iPad). Auf iPhone (Compact) wieder exakt 1½ Continue-Karten ohne Cap, der zuvor ~1¾ erzwungen hat.",
+  "current_status": "iPhone Continue wieder 1.5; iPad behält Max-Breite + mehr sichtbare Karten. Build ok."
+}

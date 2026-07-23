@@ -1,0 +1,4 @@
+{
+  "summary": "Home „New episodes“ ergänzt: bei Primary-Podcast-Library aus recent-episodes geladen und als lokal-only Regal injiziert; Settings Appearance/Home zeigt den Toggle nur dann und erlaubt Drag-Reorder der Rows, Continue listening bleibt fix erste Zeile. Build grün.",
+  "current_status": "Multi-Library + Home New-Episodes mit sortierbaren Home-Settings sind implementiert; manueller Sim-Check sinnvoll."
+}

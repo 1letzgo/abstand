@@ -1,0 +1,4 @@
+{
+  "summary": "Home „New episodes“ nutzt jetzt Cover Cards (LibraryPodcastListCard mit styleOverride .heroCover) statt der Cover-only-Quadrat-Carousel; LibraryPodcastListCard hat dafür ein styleOverride analog zu Books. Build iPhone 17 erfolgreich.",
+  "current_status": "Multi-Library + Home New-Episodes-Regal fertig; New Episodes zeigt Cover Cards mit Metadaten (~2 sichtbar). Bereit für manuellen Sim-Test."
+}
