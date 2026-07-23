@@ -1,6 +1,5 @@
 import Combine
 import SwiftUI
-import UIKit
 
 // MARK: - Bücher-Tab: Toolbar nur bei Sort/Filter-Änderungen (nicht bei Playback-Ticks)
 

@@ -43,66 +43,71 @@ struct AbstandExpandingDockBrowseStrip: View {
   }
 }
 
-/// Feste Primär-Auswahl links; nur der vom Aufrufer gelieferte Sekundär-Strip scrollt.
-struct AbstandPinnedBrowseStrip<Secondary: View>: View {
-  let pinnedItems: [AbstandBrowseStripItem]
-  let pinnedSelectionID: String
-  let onSelectPinned: (String) -> Void
-  /// Wenn gesetzt und `count > 1`: Library-Dropdown als erste fixierte Pill.
+/// Bei mehreren Libraries: zwei fixierte Dropdown-Pills (50/50). Sonst: scrollbarer Expanding-Dock-Strip.
+struct AbstandPinnedBrowseStrip: View {
+  /// Wenn `count > 1`: Library-Dropdown links.
   var libraryPickerItems: [AbstandBrowseStripItem] = []
   var libraryPickerSelectionID: String = ""
   var onSelectLibrary: ((String) -> Void)? = nil
-  @ViewBuilder var secondary: () -> Secondary
+
+  let secondaryItems: [AbstandBrowseStripItem]
+  let secondarySelectionID: String
+  let onSelectSecondary: (String) -> Void
+  var secondaryAccessibilityLabel: String = "Browse"
+  var secondaryAccessibilityHint: String = "Chooses which section to browse"
+
+  private var showsLibraryPicker: Bool {
+    onSelectLibrary != nil && libraryPickerItems.count > 1
+  }
 
   var body: some View {
-    let showsLibraryPicker = onSelectLibrary != nil && libraryPickerItems.count > 1
-    let showsBinarySwitch = !showsLibraryPicker && pinnedItems.count > 1
+    if showsLibraryPicker, let onSelectLibrary {
+      HStack(spacing: AppTheme.ExpandingDock.itemSpacing) {
+        AbstandBrowseStripDropdownPill(
+          items: libraryPickerItems,
+          selectionID: libraryPickerSelectionID,
+          fallbackSystemImage: "books.vertical.fill",
+          accessibilityLabel: "Library",
+          accessibilityHint: "Chooses which library to browse",
+          onSelect: onSelectLibrary
+        )
+        .frame(maxWidth: .infinity)
 
-    if !showsLibraryPicker && !showsBinarySwitch {
-      // Kein fixierter Umschalter → nur den sekundären Strip zeigen.
-      HStack(spacing: 0) {
-        secondary()
-          .frame(maxWidth: .infinity)
-          .layoutPriority(1)
+        AbstandBrowseStripDropdownPill(
+          items: secondaryItems,
+          selectionID: secondarySelectionID,
+          fallbackSystemImage: "square.grid.2x2",
+          accessibilityLabel: secondaryAccessibilityLabel,
+          accessibilityHint: secondaryAccessibilityHint,
+          onSelect: onSelectSecondary
+        )
+        .frame(maxWidth: .infinity)
       }
+      .padding(.horizontal, AppTheme.ExpandingDock.horizontalPadding)
+      .padding(.vertical, AppTheme.ExpandingDock.verticalPadding)
       .abstandThemeRefresh()
     } else {
-      HStack(spacing: AppTheme.ExpandingDock.itemSpacing) {
-        if showsLibraryPicker, let onSelectLibrary {
-          AbstandLibraryPickerMenu(
-            items: libraryPickerItems,
-            selectionID: libraryPickerSelectionID,
-            onSelect: onSelectLibrary
-          )
-          .padding(.leading, AppTheme.ExpandingDock.horizontalPadding)
-          .padding(.vertical, AppTheme.ExpandingDock.verticalPadding)
-        } else {
-          AbstandExpandingDockBinarySwitch(
-            items: pinnedItems,
-            selectionID: pinnedSelectionID,
-            onSelect: onSelectPinned
-          )
-          .padding(.leading, AppTheme.ExpandingDock.horizontalPadding)
-          .padding(.vertical, AppTheme.ExpandingDock.verticalPadding)
-        }
-
-        secondary()
-          .frame(maxWidth: .infinity)
-          .layoutPriority(1)
-      }
-      .abstandThemeRefresh()
+      AbstandExpandingDockBrowseStrip(
+        items: secondaryItems,
+        selectionID: secondarySelectionID,
+        appliesLeadingPadding: true,
+        onSelect: onSelectSecondary
+      )
     }
   }
 }
 
-/// Fixierte Pill: fokussierte Library wählen (nur sichtbar bei >1 Eintrag).
-struct AbstandLibraryPickerMenu: View {
+/// Fixierte Dropdown-Pill im Expanding-Dock-Stil (Library- oder Sektionswahl).
+struct AbstandBrowseStripDropdownPill: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
   let items: [AbstandBrowseStripItem]
   let selectionID: String
+  var fallbackSystemImage: String = "books.vertical.fill"
+  var accessibilityLabel: String = "Menu"
+  var accessibilityHint: String = ""
   let onSelect: (String) -> Void
 
   private var dockColors: AppTheme.ExpandingDock.Colors {
@@ -130,29 +135,38 @@ struct AbstandLibraryPickerMenu: View {
       }
     } label: {
       HStack(spacing: AppTheme.ExpandingDock.iconLabelSpacing) {
-        Image(systemName: selectedItem?.systemImage ?? "books.vertical.fill")
+        Image(systemName: selectedItem?.systemImage ?? fallbackSystemImage)
           .font(.system(size: AppTheme.ExpandingDock.iconSize, weight: .semibold))
-        Text(selectedItem?.label ?? "Library")
+          .layoutPriority(1)
+        Text(selectedItem?.label ?? accessibilityLabel)
           .font(.subheadline.weight(.semibold))
           .lineLimit(1)
+          .minimumScaleFactor(0.75)
+          .frame(maxWidth: .infinity, alignment: .leading)
         Image(systemName: "chevron.up.chevron.down")
           .font(.system(size: 10, weight: .bold))
+          .layoutPriority(1)
       }
       .foregroundStyle(dockColors.activeForeground)
       .padding(.horizontal, 14)
+      .frame(maxWidth: .infinity)
       .frame(height: AppTheme.ExpandingDock.activeHeight)
       .background {
         Capsule(style: .continuous)
           .fill(dockColors.activeBackground)
           .shadow(color: dockColors.activeShadow.opacity(0.35), radius: 6, x: 0, y: 3)
       }
+      .contentShape(Capsule(style: .continuous))
     }
     .tint(themeAccent)
-    .accessibilityLabel("Library")
+    .accessibilityLabel(accessibilityLabel)
     .accessibilityValue(selectedItem?.label ?? "")
-    .accessibilityHint("Chooses which library to browse")
+    .accessibilityHint(accessibilityHint)
   }
 }
+
+/// Legacy-Alias für den Library-Dropdown.
+typealias AbstandLibraryPickerMenu = AbstandBrowseStripDropdownPill
 
 /// Kompakter Zweiseiten-Umschalter (z. B. Audiobooks ↔ Podcasts) im Expanding-Dock-Stil.
 struct AbstandExpandingDockBinarySwitch: View {

@@ -268,30 +268,26 @@ struct MainRootView: View {
       ?? model.selectedBooksLibrary?.id
       ?? libraryItems.first?.id
       ?? ""
+    let sectionItems = BooksBrowseSection.audiobookStripOrder.map {
+      AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
+    }
     return AbstandPinnedBrowseStrip(
-      pinnedItems: [],
-      pinnedSelectionID: "",
-      onSelectPinned: { _ in },
       libraryPickerItems: libraryItems,
       libraryPickerSelectionID: librarySelectionID,
       onSelectLibrary: { id in
         guard let lib = model.activeBookLibraries.first(where: { $0.id == id }) else { return }
         model.focusBooksLibrary(lib)
-      }
-    ) {
-      AbstandBrowseStripIconMenu(
-        items: BooksBrowseSection.audiobookStripOrder.map {
-          AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
-        },
-        selectionID: model.booksBrowseSection.rawValue,
-        appliesLeadingPadding: libraryItems.count <= 1,
-        onSelect: { id in
-          if let section = BooksBrowseSection(rawValue: id) {
-            model.selectBooksBrowseSection(section)
-          }
+      },
+      secondaryItems: sectionItems,
+      secondarySelectionID: model.booksBrowseSection.rawValue,
+      onSelectSecondary: { id in
+        if let section = BooksBrowseSection(rawValue: id) {
+          model.selectBooksBrowseSection(section)
         }
-      )
-    }
+      },
+      secondaryAccessibilityLabel: "Browse",
+      secondaryAccessibilityHint: "Chooses which catalog section to browse"
+    )
   }
 
   @ViewBuilder
@@ -726,32 +722,27 @@ struct MainRootView: View {
       ?? libraryItems.first?.id
       ?? ""
     return AbstandPinnedBrowseStrip(
-      pinnedItems: [],
-      pinnedSelectionID: "",
-      onSelectPinned: { _ in },
       libraryPickerItems: libraryItems,
       libraryPickerSelectionID: librarySelectionID,
       onSelectLibrary: { id in
         guard let lib = model.activePodcastLibraries.first(where: { $0.id == id }) else { return }
         model.focusPodcastLibrary(lib)
-      }
-    ) {
-      AbstandBrowseStripIconMenu(
-        items: podcastDockStripItems,
-        selectionID: podcastCatalogScrollSelection,
-        appliesLeadingPadding: libraryItems.count <= 1,
-        onSelect: { id in
-          if id == Self.podcastCatalogNewSectionId {
-            model.podcastCatalogStripSectionId = id
-            Task { await model.selectPodcastShowFilter(nil) }
-          } else {
-            model.podcastCatalogStripSectionId = id
-            model.applyPodcastShowFilterSelection(id)
-            Task { await model.loadPodcastEpisodesForShowLibraryItem(id) }
-          }
+      },
+      secondaryItems: podcastDockStripItems,
+      secondarySelectionID: podcastCatalogScrollSelection,
+      onSelectSecondary: { id in
+        if id == Self.podcastCatalogNewSectionId {
+          model.podcastCatalogStripSectionId = id
+          Task { await model.selectPodcastShowFilter(nil) }
+        } else {
+          model.podcastCatalogStripSectionId = id
+          model.applyPodcastShowFilterSelection(id)
+          Task { await model.loadPodcastEpisodesForShowLibraryItem(id) }
         }
-      )
-    }
+      },
+      secondaryAccessibilityLabel: "Shows",
+      secondaryAccessibilityHint: "Chooses which podcast show to browse"
+    )
   }
 
   @ViewBuilder

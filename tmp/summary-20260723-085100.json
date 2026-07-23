@@ -1,0 +1,4 @@
+{
+  "summary": "Bei mehr als einer aktiven Library: zwei fixierte Dropdown-Pills à 50/50 — links Library mit Namen, rechts Browse-Sektion/Shows statt Pill-Strip. Bei einer Library bleibt der bisherige Expanding-Dock-Strip. Build grün.",
+  "current_status": "Multi-Library-UI: Dual-Dropdown im Browse-Strip bei active.count>1; Primary weiterhin fest in Settings."
+}
