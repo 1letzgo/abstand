@@ -42,6 +42,8 @@ extension AppModel {
   static let pendingOfflineListeningSeconds = "abstand_pending_offline_listening_seconds"
   /// Fortschrittsschlüssel, die offline/lokal als fertig markiert wurden (bis Server bestätigt).
   static let localFinishedProgressKeys = "abstand_local_finished_progress_keys"
+  /// Reset Progress: Keys, die lokal verworfen wurden und nicht aus Cache/`authorize` zurückkehren dürfen.
+  static let discardedProgressKeys = "abstand_discarded_progress_keys"
   static let browseAuthorsSortField = "abstand_browse_authors_sort_field"
   static let browseAuthorsSortDescending = "abstand_browse_authors_sort_desc"
   static let browseNarratorsSortField = "abstand_browse_narrators_sort_field"

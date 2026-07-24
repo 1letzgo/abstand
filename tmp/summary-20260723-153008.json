@@ -1,0 +1,4 @@
+{
+  "summary": "Reset Progress gehärtet: persistierte discardedProgressKeys blocken Cache/authorize-Reimport, Progress-Persist mit Generation + await nach Discard, kein zweites refreshProgressFromServer, Home-Snapshot sofort bereinigt. Neuer Play hebt Discard auf.",
+  "current_status": "Continue-Reset nach Neustart sollte stabil sein. Manuell: Buch starten → Reset → App killen → prüfen Continue leer."
+}

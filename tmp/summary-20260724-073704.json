@@ -1,0 +1,4 @@
+{
+  "summary": "Offline→Online: Bibliotheksliste wurde nach Server-Fetch oft durch einen veralteten LocalStore-Snapshot überschrieben (Race über selectBooksLibrary/Home-Restore), wodurch nur die Primary („Audiobook Main“) blieb; Active-Set-Reconcile konnte das dann persistieren. Fix: Local-Restore nur bei leerer In-Memory-Liste, Reconcile ohne Serverliste überspringen, reloadSettingsTab nutzt resolveLibrariesAfterServerFetch. Build grün.",
+  "current_status": "Multi-Library + Offline-Exit-Library-Restore-Fix sind im Code; manueller Sim-Check Offline→Online (Settings Libraries + Browse-Library-Picker) sinnvoll."
+}

@@ -832,6 +832,10 @@ final class AppModel: ObservableObject {
   private var pendingLocalProgressSyncKeys: Set<String> = []
   /// „Fertig“ lokal gesetzt — schützt vor veraltetem `mediaProgress` nach Offline-Sync.
   private var localFinishedProgressKeys: Set<String> = []
+  /// Reset Progress: Keys gegen Wiedereinspeisung aus SwiftData/`authorize` (persistiert bis Server leer).
+  private var discardedProgressKeys: Set<String> = []
+  /// Serialisiert asynchrone Progress-Persists — ältere `replaceAllProgress`-Tasks dürfen nicht gewinnen.
+  private var progressPersistGeneration: UInt64 = 0
   /// eBook Mark-as-read / Reset: lokal gewünschter `ebookProgress`, bis der Server nachzieht
   /// (sonst überschreibt `max(local, server)` aus `authorize` den Reset wieder mit 100 %).
   private var pendingEbookProgressOverrideByItemId: [String: Double] = [:]
@@ -873,6 +877,7 @@ final class AppModel: ObservableObject {
     AppearanceStore.migrateAccentKeysIfNeeded()
     migrateStartDisabledCategoriesIfNeeded()
     loadLocalFinishedProgressKeys()
+    loadDiscardedProgressKeys()
     reapplyAppearance(systemColorScheme: .dark)
     CarPlayCoordinator.shared.bind(appModel: self)
     // Player-Ticks nicht pauschal an `AppModel` — Floating-Bar hat `FloatingPlayerChromeController`.
@@ -1727,43 +1732,51 @@ final class AppModel: ObservableObject {
   private func reconcileActiveLibraryIdsWithServerLibraries() {
     loadActiveLibraryIdsFromUserDefaults()
 
+    // Ohne Serverliste nicht bereinigen — sonst filtert `valid*` alles weg und die Migration
+    // persistiert nur noch die Primary (typisch nach Offline→Online-Race mit leerem/stalem Cache).
+    guard !libraries.isEmpty else { return }
+
     let validBooks = Set(sortedBookLibraries.map(\.id))
-    var booksIds = activeBooksLibraryIds.filter { validBooks.contains($0) }
-    if booksLibraryPreferenceIsNone {
-      booksIds = []
-    } else if booksIds.isEmpty {
-      // Migration: nur Primary aktiv, alle übrigen default inaktiv.
-      if let primary = selectedBooksLibrary?.id, validBooks.contains(primary) {
-        booksIds = [primary]
+    if !validBooks.isEmpty {
+      var booksIds = activeBooksLibraryIds.filter { validBooks.contains($0) }
+      if booksLibraryPreferenceIsNone {
+        booksIds = []
+      } else if booksIds.isEmpty {
+        // Migration: nur Primary aktiv, alle übrigen default inaktiv.
+        if let primary = selectedBooksLibrary?.id, validBooks.contains(primary) {
+          booksIds = [primary]
+        }
+      } else if let primary = selectedBooksLibrary?.id, validBooks.contains(primary),
+        !booksIds.contains(primary)
+      {
+        booksIds.insert(primary, at: 0)
       }
-    } else if let primary = selectedBooksLibrary?.id, validBooks.contains(primary),
-      !booksIds.contains(primary)
-    {
-      booksIds.insert(primary, at: 0)
-    }
-    if booksIds != activeBooksLibraryIds {
-      applyActiveBooksLibraryIds(booksIds)
-    } else {
-      activeBooksLibraryIds = booksIds
+      if booksIds != activeBooksLibraryIds {
+        applyActiveBooksLibraryIds(booksIds)
+      } else {
+        activeBooksLibraryIds = booksIds
+      }
     }
 
     let validPods = Set(sortedPodcastLibraries.map(\.id))
-    var podIds = activePodcastLibraryIds.filter { validPods.contains($0) }
-    if podcastsLibraryPreferenceIsNone {
-      podIds = []
-    } else if podIds.isEmpty {
-      if let primary = selectedPodcastLibrary?.id, validPods.contains(primary) {
-        podIds = [primary]
+    if !validPods.isEmpty {
+      var podIds = activePodcastLibraryIds.filter { validPods.contains($0) }
+      if podcastsLibraryPreferenceIsNone {
+        podIds = []
+      } else if podIds.isEmpty {
+        if let primary = selectedPodcastLibrary?.id, validPods.contains(primary) {
+          podIds = [primary]
+        }
+      } else if let primary = selectedPodcastLibrary?.id, validPods.contains(primary),
+        !podIds.contains(primary)
+      {
+        podIds.insert(primary, at: 0)
       }
-    } else if let primary = selectedPodcastLibrary?.id, validPods.contains(primary),
-      !podIds.contains(primary)
-    {
-      podIds.insert(primary, at: 0)
-    }
-    if podIds != activePodcastLibraryIds {
-      applyActivePodcastLibraryIds(podIds)
-    } else {
-      activePodcastLibraryIds = podIds
+      if podIds != activePodcastLibraryIds {
+        applyActivePodcastLibraryIds(podIds)
+      } else {
+        activePodcastLibraryIds = podIds
+      }
     }
 
     resetFocusedBooksLibraryToPrimaryOrFirstActive()
@@ -2020,49 +2033,13 @@ final class AppModel: ObservableObject {
     guard let c = client else { return false }
     do {
       applyLibrariesFromServer(try await c.libraries())
-
-      if podcastsLibraryPreferenceIsNone {
-        clearPodcastLibraryStateWithoutPersistingNone()
-        setShowPodcastsTab(false)
-      } else if let sel = selectedPodcastLibrary, !sortedPodcastLibraries.contains(where: { $0.id == sel.id })
-      {
-        if let first = sortedPodcastLibraries.first {
-          selectPodcastLibrary(first, navigateToCatalog: false)
-        } else {
-          clearPodcastLibraryStateWithoutPersistingNone()
-          UserDefaults.standard.set(Keys.librarySelectionNone, forKey: Keys.podcastsLibrary)
-          setShowPodcastsTab(false)
-        }
-      } else if selectedPodcastLibrary == nil, !podcastsLibraryPreferenceIsNone,
-        let first = sortedPodcastLibraries.first
-      {
-        selectPodcastLibrary(first, navigateToCatalog: false)
-      } else {
-        syncPodcastsTabVisibilityFromLibraries()
-      }
-
-      if booksLibraryPreferenceIsNone {
-        selectedBooksLibrary = nil
-        books = []
-        libraryPage = 0
-        libraryTotal = 0
-        setShowAudiobooksTab(false)
-      } else if let sel = selectedBooksLibrary, !sortedBookLibraries.contains(where: { $0.id == sel.id }) {
-        if let first = sortedBookLibraries.first {
-          selectBooksLibrary(first, navigateToCatalog: false)
-        } else {
-          selectedBooksLibrary = nil
-          books = []
-          libraryPage = 0
-          libraryTotal = 0
-          UserDefaults.standard.set(Keys.librarySelectionNone, forKey: Keys.booksLibrary)
-          setShowAudiobooksTab(false)
-        }
-      } else if selectedBooksLibrary == nil, !booksLibraryPreferenceIsNone, let first = sortedBookLibraries.first {
-        selectBooksLibrary(first, navigateToCatalog: false)
-      } else {
-        syncAudiobooksTabVisibilityFromLibraries()
-      }
+      // Gleiche Auswahl-/Active-Set-Bindung wie nach Login/Bootstrap — sonst bleiben nach
+      // Offline→Online Fokus/Active-Sets auf einem veralteten Stand (nur Primary sichtbar).
+      let defaultLibId = UserDefaults.standard.string(forKey: Keys.userDefaultLibraryId)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      await resolveLibrariesAfterServerFetch(
+        userDefaultLibraryId: (defaultLibId?.isEmpty == false) ? defaultLibId : nil
+      )
 
       guard reloadCatalogs else { return true }
       async let pod: Void = reloadPodcastLibrary(reset: true)
@@ -3819,8 +3796,10 @@ final class AppModel: ObservableObject {
     pendingLocalProgressSyncKeys = []
     pendingEbookProgressOverrideByItemId = [:]
     localFinishedProgressKeys = []
+    discardedProgressKeys = []
     suppressedContinueListeningKeys = []
     persistLocalFinishedProgressKeys()
+    persistDiscardedProgressKeys()
     bookmarks = []
     ebookReaderSession = nil
     isPreparingEbook = false
@@ -8077,6 +8056,8 @@ final class AppModel: ObservableObject {
 
   /// Sofort „Continue listening“ mit lokalem Fortschritt füllen; `loadStartDashboard()` gleicht später mit dem Server ab.
   private func applyOptimisticProgressOnly(_ p: ABSUserMediaProgress) {
+    // Bewusst neu gestartet → Discard-Schutz aufheben.
+    clearDiscardedProgressKey(p.progressLookupKey)
     progressByItemId[p.progressLookupKey] = p
   }
 
@@ -8679,13 +8660,18 @@ final class AppModel: ObservableObject {
     }
     guard let row = progressByItemId[bookId] else { return }
     let playing = player.activeBook?.id == bookId && player.activePlaybackEpisodeId == nil
+    markProgressKeyDiscarded(bookId)
     suppressedContinueListeningKeys.insert(bookId)
     progressByItemId.removeValue(forKey: bookId)
     pendingLocalProgressSyncKeys.remove(bookId)
     clearLocallyFinishedProgressKey(bookId)
+    if UserDefaults.standard.string(forKey: Keys.lastPlayedItemId) == bookId {
+      UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
+    }
     removeAudiobookFromContinueListeningShelves(bookId: bookId)
-    persistProgressToLocalStore()
     syncContinueListeningShelvesWithProgress()
+    await persistProgressToLocalStoreNow()
+    persistHomeShelvesSnapshot()
     patchBooksCatalogAfterAudiobookProgressDiscard(bookId: bookId)
     do {
       if playing {
@@ -8700,21 +8686,24 @@ final class AppModel: ObservableObject {
       progressByItemId.removeValue(forKey: bookId)
       removeAudiobookFromContinueListeningShelves(bookId: bookId)
       syncContinueListeningShelvesWithProgress()
-      persistHomeShelvesSnapshot()
       let auth = try await c.authorize()
       applyAuthorizeSession(auth)
+      // Stale authorize darf den Key nicht zurückbringen — Discard-Set filtert in applyUserProgress.
       progressByItemId.removeValue(forKey: bookId)
       removeAudiobookFromContinueListeningShelves(bookId: bookId)
       syncContinueListeningShelvesWithProgress()
+      await persistProgressToLocalStoreNow()
+      persistHomeShelvesSnapshot()
       if needsFullLibraryReloadAfterAudiobookProgressDiscard(bookId: bookId) {
         await reloadLibrary(reset: true)
       }
-      await refreshProgressFromServer()
       await refreshStartDashboardIfNeeded()
-      suppressedContinueListeningKeys.remove(bookId)
-      // `refreshProgressFromServer` könnte eine Restspur re-mergen — lokal endgültig verwerfen.
+      // Discard-Key erst freigeben, wenn authorize den Eintrag nicht mehr liefert.
+      reconcileDiscardedProgressKeyAfterAuthorize(bookId, mediaProgress: auth.user.mediaProgress)
       progressByItemId.removeValue(forKey: bookId)
-      persistProgressToLocalStore()
+      await persistProgressToLocalStoreNow()
+      persistHomeShelvesSnapshot()
+      suppressedContinueListeningKeys.remove(bookId)
     } catch {
       suppressedContinueListeningKeys.remove(bookId)
       publishErrorUnlessBenignCancellation(error)
@@ -8805,11 +8794,14 @@ final class AppModel: ObservableObject {
     else { return }
     let playing =
       player.activeBook?.id == episode.libraryItemId && player.activePlaybackEpisodeId == episode.episodeId
+    markProgressKeyDiscarded(key)
+    markProgressKeyDiscarded("\(episode.libraryItemId)/ep/\(episode.episodeId)")
     suppressedContinueListeningKeys.insert(key)
     purgeLocalProgressForPodcastEpisode(episode)
     removePodcastEpisodeFromContinueListeningShelves(episode)
-    persistProgressToLocalStore()
     syncContinueListeningShelvesWithProgress()
+    await persistProgressToLocalStoreNow()
+    persistHomeShelvesSnapshot()
     do {
       if playing {
         // Wiedergabe VOR dem Löschen beenden: schließt die offene Play-Session — sonst
@@ -8824,18 +8816,19 @@ final class AppModel: ObservableObject {
       purgeLocalProgressForPodcastEpisode(episode)
       removePodcastEpisodeFromContinueListeningShelves(episode)
       syncContinueListeningShelvesWithProgress()
-      persistHomeShelvesSnapshot()
       let auth = try await c.authorize()
       applyAuthorizeSession(auth)
       purgeLocalProgressForPodcastEpisode(episode)
       removePodcastEpisodeFromContinueListeningShelves(episode)
       syncContinueListeningShelvesWithProgress()
-      await refreshProgressFromServer()
+      await persistProgressToLocalStoreNow()
+      persistHomeShelvesSnapshot()
       await refreshStartDashboardIfNeeded()
-      suppressedContinueListeningKeys.remove(key)
-      // `refreshProgressFromServer` könnte eine Restspur re-mergen — lokal endgültig verwerfen.
+      reconcileDiscardedProgressKeyAfterAuthorize(key, mediaProgress: auth.user.mediaProgress)
       purgeLocalProgressForPodcastEpisode(episode)
-      persistProgressToLocalStore()
+      await persistProgressToLocalStoreNow()
+      persistHomeShelvesSnapshot()
+      suppressedContinueListeningKeys.remove(key)
     } catch {
       suppressedContinueListeningKeys.remove(key)
       publishErrorUnlessBenignCancellation(error)
@@ -9281,6 +9274,7 @@ final class AppModel: ObservableObject {
       p = progressForOptimisticAudiobook(book, resumeAt: pos)
     }
     progressByItemId[p.progressLookupKey] = p
+    clearDiscardedProgressKey(p.progressLookupKey)
     if markPendingServerSync {
       pendingLocalProgressSyncKeys.insert(p.progressLookupKey)
     }
@@ -9702,8 +9696,12 @@ final class AppModel: ObservableObject {
   }
 
   /// Kaltstart: Bibliotheksliste aus der lokalen Server-Kopie, bevor der Netzwerk-Fetch läuft.
+  /// Nicht überschreiben, wenn bereits eine Liste im Speicher ist — sonst kann ein Catalog-Restore
+  /// (z. B. `selectBooksLibrary` → Home-Restore) direkt nach `applyLibrariesFromServer` einen
+  /// veralteten LocalStore-Snapshot zurückspielen (nur Primary / „Audiobook Main“).
   @discardableResult
   private func restoreLibrariesFromLocalStore() -> Bool {
+    guard libraries.isEmpty else { return true }
     guard let context = currentLocalLibraryMainContext(),
       let cached = LocalLibraryQueries.libraries(context: context), !cached.isEmpty
     else { return false }
@@ -10883,6 +10881,53 @@ final class AppModel: ObservableObject {
     )
   }
 
+  private func discardedProgressKeysStorageKey() -> String {
+    guard let u = ABSAPIClient.normalizeServerURL(serverURL)?.absoluteString, !u.isEmpty else {
+      return Keys.discardedProgressKeys
+    }
+    return "\(Keys.discardedProgressKeys).\(u)"
+  }
+
+  private func loadDiscardedProgressKeys() {
+    discardedProgressKeys = Set(
+      UserDefaults.standard.stringArray(forKey: discardedProgressKeysStorageKey()) ?? []
+    )
+  }
+
+  private func persistDiscardedProgressKeys() {
+    UserDefaults.standard.set(
+      Array(discardedProgressKeys),
+      forKey: discardedProgressKeysStorageKey()
+    )
+  }
+
+  private func markProgressKeyDiscarded(_ key: String) {
+    let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !k.isEmpty else { return }
+    discardedProgressKeys.insert(k)
+    persistDiscardedProgressKeys()
+  }
+
+  private func clearDiscardedProgressKey(_ key: String) {
+    let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !k.isEmpty else { return }
+    discardedProgressKeys.remove(k)
+    persistDiscardedProgressKeys()
+  }
+
+  /// Discard-Schutz aufheben, sobald `authorize` den Key nicht mehr in `mediaProgress` hat.
+  private func reconcileDiscardedProgressKeyAfterAuthorize(
+    _ key: String,
+    mediaProgress: [ABSUserMediaProgress]?
+  ) {
+    let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !k.isEmpty else { return }
+    let stillOnServer = (mediaProgress ?? []).contains { $0.progressLookupKey == k }
+    if !stillOnServer {
+      clearDiscardedProgressKey(k)
+    }
+  }
+
   private func markProgressKeyLocallyFinished(_ key: String) {
     let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !k.isEmpty else { return }
@@ -10901,6 +10946,7 @@ final class AppModel: ObservableObject {
     let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !k.isEmpty else { return false }
     if suppressedContinueListeningKeys.contains(k) { return true }
+    if discardedProgressKeys.contains(k) { return true }
     return isLocallyMarkedFinished(progressKey: k)
   }
 
@@ -11047,10 +11093,26 @@ final class AppModel: ObservableObject {
 
   private func persistProgressToLocalStore() {
     guard let store = currentLocalLibraryStore() else { return }
+    progressPersistGeneration &+= 1
+    let generation = progressPersistGeneration
     let list = Array(progressByItemId.values)
-    Task.detached(priority: .utility) {
+    Task.detached(priority: .utility) { [weak self] in
+      // Veraltete Writes verwerfen — sonst gewinnt ein früherer authorize-Merge gegen den Discard.
+      let stillCurrent = await MainActor.run { self?.progressPersistGeneration == generation }
+      guard stillCurrent == true else { return }
       try? await store.replaceAllProgress(list)
     }
+  }
+
+  /// Synchroner Persist für Reset — verhindert Race mit späteren async Writes beim App-Kill.
+  private func persistProgressToLocalStoreNow() async {
+    guard let store = currentLocalLibraryStore() else { return }
+    progressPersistGeneration &+= 1
+    let generation = progressPersistGeneration
+    let list = Array(progressByItemId.values)
+    try? await store.replaceAllProgress(list)
+    // Falls inzwischen ein neuerer Persist geplant wurde, dessen Generation behalten.
+    _ = generation
   }
 
   /// SwiftData-`LocalProgress` in `progressByItemId` mergen — z. B. Offline-Home ohne vorherigen `/authorize`.
@@ -11060,6 +11122,7 @@ final class AppModel: ObservableObject {
     guard !localProgressLoaded else { return }
     localProgressLoaded = true
     loadLocalFinishedProgressKeys()
+    loadDiscardedProgressKeys()
     guard let context = currentLocalLibraryMainContext() else { return }
     let list = (try? context.fetch(FetchDescriptor<LocalProgress>()))?.map { $0.toABSUserMediaProgress() } ?? []
     guard !list.isEmpty else { return }
@@ -11074,8 +11137,15 @@ final class AppModel: ObservableObject {
   }
 
   private func applyUserProgress(_ list: [ABSUserMediaProgress]?, persistToDisk: Bool = true) {
+    var strippedDiscarded = false
     for p in list ?? [] {
       let key = p.progressLookupKey
+      // Reset Progress: verworfene Keys nicht aus Cache/`authorize` wieder einspielen.
+      if discardedProgressKeys.contains(key) {
+        progressByItemId.removeValue(forKey: key)
+        strippedDiscarded = true
+        continue
+      }
       if p.isFinished {
         clearLocallyFinishedProgressKey(key)
       }
@@ -11086,7 +11156,8 @@ final class AppModel: ObservableObject {
     }
     syncLastPlayedPreferenceWithServerProgress()
     syncContinueListeningShelvesWithProgress()
-    guard persistToDisk else { return }
+    // Verworfene Keys aus dem Persist-Snapshot halten — sonst landet der Reset wieder in SwiftData.
+    guard persistToDisk || strippedDiscarded else { return }
     persistProgressToLocalStore()
   }
 
