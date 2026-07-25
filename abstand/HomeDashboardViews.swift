@@ -87,7 +87,7 @@ struct StartDashboardView: View {
       .onChange(of: model.offlineHomeUIActive) { _, _ in
         guard !model.isAppBootstrapInProgress else { return }
         model.clampHomeBrowseSectionIfNeeded()
-        Task { await model.loadStartDashboard(force: true) }
+        // Dashboard-Reload steuert allein die Mode-Transition im Model — kein paralleles force-Load.
       }
   }
 

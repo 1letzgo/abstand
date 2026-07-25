@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// Ergebnis eines Online-Continue-Refreshs (Lazy-Bootstrap / Fallback-Entscheidung).
@@ -57,6 +58,60 @@ enum AbstandErrorFilter {
     }
     let desc = error.localizedDescription.lowercased()
     return desc.contains("timed out") || desc.contains("timeout")
+  }
+}
+
+/// Laufende/abgeschlossene M4B-Encode-Jobs (Status selten; %-Fortschritt separat im ProgressStore).
+struct ServerM4BEncodeJob: Identifiable, Equatable, Codable {
+  enum Status: String, Codable, Equatable {
+    case running
+    case finished
+    case failed
+    case cancelled
+  }
+
+  var id: String
+  var title: String
+  var author: String
+  var startedAt: Date
+  var status: Status
+  var message: String?
+
+  var isActive: Bool { status == .running }
+}
+
+/// %-Updates für M4B-Encode — eigener ObservableObject, damit Book Detail nicht bei jedem Tick neu zeichnet.
+@MainActor
+final class M4BEncodeProgressStore: ObservableObject {
+  @Published private(set) var percentById: [String: Double] = [:]
+  private var lastPublishedWholePercent: [String: Int] = [:]
+
+  func setPercent(id: String, percent: Double) {
+    let whole = Int(min(100, max(0, percent)).rounded())
+    if lastPublishedWholePercent[id] == whole { return }
+    lastPublishedWholePercent[id] = whole
+    var next = percentById
+    next[id] = Double(whole)
+    percentById = next
+  }
+
+  func percentLabel(for id: String) -> String? {
+    guard let p = percentById[id] else { return nil }
+    return "\(Int(p.rounded()))%"
+  }
+
+  func clear(id: String) {
+    guard percentById[id] != nil || lastPublishedWholePercent[id] != nil else { return }
+    var next = percentById
+    next.removeValue(forKey: id)
+    percentById = next
+    lastPublishedWholePercent.removeValue(forKey: id)
+  }
+
+  func clearAll() {
+    guard !percentById.isEmpty || !lastPublishedWholePercent.isEmpty else { return }
+    percentById = [:]
+    lastPublishedWholePercent = [:]
   }
 }
 

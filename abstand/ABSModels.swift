@@ -209,7 +209,8 @@ struct ABSUserMediaProgress: Codable {
     return libraryItemId
   }
 
-  /// ABS `DELETE /api/me/progress/:id` — der Server prüft `MediaProgress.id`, nicht `libraryItemId`.
+  /// ABS `DELETE /api/me/progress/:id` — moderner Server erwartet die DB-UUID (`MediaProgress.id`).
+  /// Fallback auf Lookup-Key nur für Legacy; `deleteMediaProgressForLibraryItem` holt die UUID per GET nach.
   var idForMediaProgressDeleteRequest: String {
     if let s = mediaProgressServerId, !s.isEmpty { return s }
     return progressLookupKey
@@ -1617,6 +1618,41 @@ struct ABSBook: Codable, Identifiable {
   /// Enough metadata to play or show in lists.
   var isPlayableAudiobook: Bool {
     (media.numTracks ?? 0) > 0 || (media.duration ?? 0) > 0
+  }
+
+  /// Einzelnes M4B (kein Merge nötig) — anhand Track-Anzahl und Dateiendung.
+  var isSingleM4BAudiobook: Bool {
+    let trackCount = media.numTracks ?? media.tracks?.count ?? 0
+    guard trackCount == 1 else { return false }
+    if let tracks = media.tracks {
+      for t in tracks {
+        let name = (t.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if name.hasSuffix(".m4b") { return true }
+      }
+    }
+    if let files = libraryFiles {
+      let audioNames = files.compactMap { file -> String? in
+        let ft = (file.fileType ?? "").lowercased()
+        let ext = (file.metadata?.ext ?? "").lowercased()
+        let name = (file.metadata?.filename ?? "").lowercased()
+        if ft == "audio" || ext.contains("m4b") || name.hasSuffix(".m4b") || ext == ".m4b" || ext == "m4b" {
+          return name.isEmpty ? ext : name
+        }
+        return nil
+      }
+      if audioNames.count == 1 {
+        let n = audioNames[0]
+        if n.hasSuffix(".m4b") || n.contains(".m4b") || n == "m4b" || n == ".m4b" { return true }
+      }
+    }
+    return false
+  }
+
+  /// Kandidat für Server-Tool „Encode M4B“.
+  var isM4BConversionCandidate: Bool {
+    guard !isPureEbookLibraryItem else { return false }
+    guard isPlayableAudiobook else { return false }
+    return !isSingleM4BAudiobook
   }
 
   /// Listen-Katalog (`GET …/libraries/:id/items`, oft `minified=1`): Spuren/Dauer fehlen häufig — ohne Fallback
@@ -3608,6 +3644,120 @@ struct ABSAdminUserOnlineRow: Decodable {
   let id: String
 }
 
+/// Eintrag in `longestItems` aus `GET /api/libraries/:id/stats`.
+struct ABSLibraryItemDurationStat: Decodable, Hashable, Identifiable {
+  let id: String
+  let title: String
+  let duration: Double
+
+  enum CodingKeys: String, CodingKey {
+    case id, title, duration
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(String.self, forKey: .id)
+    title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+    if let d = try? c.decode(Double.self, forKey: .duration) {
+      duration = d
+    } else if let i = try? c.decode(Int.self, forKey: .duration) {
+      duration = Double(i)
+    } else {
+      duration = 0
+    }
+  }
+}
+
+/// Eintrag in `largestItems` aus `GET /api/libraries/:id/stats`.
+struct ABSLibraryItemSizeStat: Decodable, Hashable, Identifiable {
+  let id: String
+  let title: String
+  let size: Int64
+
+  enum CodingKeys: String, CodingKey {
+    case id, title, size
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(String.self, forKey: .id)
+    title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+    if let s = try? c.decode(Int64.self, forKey: .size) {
+      size = s
+    } else if let i = try? c.decode(Int.self, forKey: .size) {
+      size = Int64(i)
+    } else {
+      size = 0
+    }
+  }
+}
+
+/// Eintrag in `authorsWithCount` aus `GET /api/libraries/:id/stats`.
+struct ABSLibraryAuthorStat: Decodable, Hashable, Identifiable {
+  let id: String
+  let name: String
+  let count: Int
+
+  enum CodingKeys: String, CodingKey {
+    case id, name, count, numItems
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(String.self, forKey: .id)
+    name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+    if let n = try? c.decode(Int.self, forKey: .count) {
+      count = n
+    } else if let n = try? c.decode(Int.self, forKey: .numItems) {
+      count = n
+    } else {
+      count = 0
+    }
+  }
+}
+
+/// Admin-Detail einer Bibliothek aus `GET /api/libraries/:id?include=filterdata`.
+struct ABSLibraryAdminDetail: Decodable {
+  let id: String
+  let name: String
+  let mediaType: String?
+  let icon: String?
+  let provider: String?
+  let folders: [ABSLibraryFolderRow]?
+  let displayOrder: Int?
+}
+
+/// Envelope bei `include=filterdata`.
+struct ABSLibraryDetailEnvelope: Decodable {
+  let library: ABSLibraryAdminDetail
+  let issues: Int?
+  let numUserPlaylists: Int?
+}
+
+/// Podcast-Episode-Download aus `GET /api/libraries/:id/episode-downloads`.
+struct ABSPodcastEpisodeDownload: Decodable, Identifiable {
+  let id: String
+  let episodeDisplayTitle: String?
+  let podcastTitle: String?
+  let libraryItemId: String?
+  let isFinished: Bool?
+  let failed: Bool?
+  let createdAt: Double?
+}
+
+/// Payload für laufende/queued Podcast-Episode-Downloads.
+struct ABSLibraryEpisodeDownloadsPayload: Decodable {
+  let currentDownload: ABSPodcastEpisodeDownload?
+  let queue: [ABSPodcastEpisodeDownload]?
+
+  var allRows: [ABSPodcastEpisodeDownload] {
+    var rows: [ABSPodcastEpisodeDownload] = []
+    if let current = currentDownload { rows.append(current) }
+    if let queue { rows.append(contentsOf: queue) }
+    return rows
+  }
+}
+
 struct ABSLibraryStatsResponse: Decodable {
   let totalItems: Int
   let totalAuthors: Int
@@ -3616,10 +3766,13 @@ struct ABSLibraryStatsResponse: Decodable {
   let totalSize: Int64
   let numAudioTrack: Int
   let genresWithCount: [ABSLibraryGenreStat]
+  let authorsWithCount: [ABSLibraryAuthorStat]
+  let longestItems: [ABSLibraryItemDurationStat]
+  let largestItems: [ABSLibraryItemSizeStat]
 
   enum CodingKeys: String, CodingKey {
     case totalItems, totalAuthors, totalGenres, totalDuration, totalSize, numAudioTrack
-    case genresWithCount
+    case genresWithCount, authorsWithCount, longestItems, largestItems
   }
 
   init(from decoder: Decoder) throws {
@@ -3643,6 +3796,9 @@ struct ABSLibraryStatsResponse: Decodable {
     }
     numAudioTrack = try c.decodeIfPresent(Int.self, forKey: .numAudioTrack) ?? 0
     genresWithCount = Self.decodeGenresWithCount(c)
+    authorsWithCount = (try? c.decode([ABSLibraryAuthorStat].self, forKey: .authorsWithCount)) ?? []
+    longestItems = (try? c.decode([ABSLibraryItemDurationStat].self, forKey: .longestItems)) ?? []
+    largestItems = (try? c.decode([ABSLibraryItemSizeStat].self, forKey: .largestItems)) ?? []
   }
 
   private static func decodeGenresWithCount(_ c: KeyedDecodingContainer<CodingKeys>) -> [ABSLibraryGenreStat] {

@@ -371,6 +371,20 @@ struct BookDetailView: View {
         } label: {
           Label("Edit Chapters", systemImage: "list.bullet.below.rectangle")
         }
+        // M4B-Merge: Admin/Root, nur wenn noch kein einzelnes M4B — oberhalb von Delete.
+        if d.isM4BConversionCandidate {
+          let converting = model.m4bEncodeJobs.contains { $0.id == d.id && $0.isActive }
+          Divider()
+          Button {
+            Task { await model.startM4BEncode(book: d) }
+          } label: {
+            Label(
+              converting ? "Converting…" : "Convert",
+              systemImage: converting ? "hourglass" : "arrow.triangle.2.circlepath"
+            )
+          }
+          .disabled(converting || !model.isNetworkReachable)
+        }
         if model.isServerRoot {
           Divider()
           Button(role: .destructive) {

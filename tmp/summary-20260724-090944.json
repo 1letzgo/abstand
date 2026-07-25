@@ -1,0 +1,4 @@
+{
+  "summary": "Race-Condition-Fix-Paket umgesetzt: Mode-Transition serialisiert (Generation + Cancel + isLeavingOfflineMode), Leave Sync→Catalog sequenziell, View-Dedup, Progress-Persist TOCTOU + Discard-Keys bei Account-Switch, authorizeApplyGeneration/accountSessionEpoch, libraryReloadSerial, Libraries/Home/Bookmarks-Persist-Generation. Build grün.",
+  "current_status": "Alle Race-Condition-Todos erledigt; manueller Check Offline↔Online, Reset+Kill, Account-Switch sinnvoll."
+}

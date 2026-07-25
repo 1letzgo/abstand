@@ -1,0 +1,4 @@
+{
+  "summary": "ServerUserListRow nutzt jetzt settingsCardCompactRowFrame (AppTheme.Layout.listRowMinHeight) — gleiche Card-Mindesthöhe wie die übrigen Server-/Settings-Nav-Zeilen.",
+  "current_status": "Users-Unterview-Kartenhöhe an Standard-Listenzeilen angeglichen; kleine UI-Korrektur ohne Build-Zwang."
+}

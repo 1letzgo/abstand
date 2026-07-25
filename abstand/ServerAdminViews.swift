@@ -295,6 +295,37 @@ private struct SettingsMetricCard: View {
   }
 }
 
+/// Gleich hohe Admin-Metrik-Kachel (Wert + Label) für User-Summary und Library-Stats.
+private struct ServerAdminMetricTile: View {
+  @EnvironmentObject private var model: AppModel
+  let value: String
+  let label: String
+  var valueColor: Color?
+
+  var body: some View {
+    let palette = model.appearancePalette
+    VStack(spacing: 6) {
+      Text(value.isEmpty ? "—" : value)
+        .font(.title2.weight(.bold))
+        .foregroundStyle(valueColor ?? palette.textPrimary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+      Text(label)
+        .font(.caption)
+        .foregroundStyle(palette.textSecondary)
+        .multilineTextAlignment(.center)
+        .lineLimit(2)
+        .minimumScaleFactor(0.85)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    .padding(.vertical, 14)
+    .padding(.horizontal, 8)
+    .background(palette.card)
+    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
+    .abstandCardElevation(.standard)
+  }
+}
+
 /// Passwortzeile wie Picker-Zeilen: Titel links, Eingabe rechts (ohne doppeltes Label/Placeholder).
 private struct SettingsCardSecureFieldRow: View {
   @EnvironmentObject private var model: AppModel
@@ -550,7 +581,7 @@ struct SettingsHubRootView: View {
     }
     .onChange(of: model.offlineHomeUIActive) { _, offline in
       clampHubSectionIfNeeded()
-      if !offline {
+      if !offline, !model.isLeavingOfflineMode {
         Task { await model.reloadSettingsTab(reloadCatalogs: false) }
       }
     }
@@ -680,7 +711,35 @@ struct SettingsHubRootView: View {
       .buttonStyle(.plain)
     }
 
-    ServerAdminLibrariesSection()
+    ServerAdminSection(title: "Libraries") {
+      NavigationLink {
+        ServerLibrariesListView()
+      } label: {
+        AbstandGroupedCard {
+          ServerAdminNavRow(icon: "books.vertical.fill", title: "Libraries", subtitle: nil)
+        }
+      }
+      .buttonStyle(.plain)
+    }
+
+    ServerAdminSection(title: "Tools") {
+      NavigationLink {
+        ServerM4BProgressView()
+      } label: {
+        AbstandGroupedCard {
+          ServerAdminNavRow(
+            icon: "hourglass",
+            title: "M4B Progress",
+            subtitle: {
+              let activeCount = model.m4bEncodeJobs.filter(\.isActive).count
+              guard activeCount > 0 else { return nil }
+              return "\(activeCount) running"
+            }()
+          )
+        }
+      }
+      .buttonStyle(.plain)
+    }
   }
 }
 
@@ -1447,6 +1506,7 @@ private struct ServerUserListRow: View {
         .font(.caption.weight(.semibold))
         .foregroundStyle(model.appearancePalette.textSecondary)
     }
+    .settingsCardCompactRowFrame(alignment: .leading)
   }
 }
 
@@ -1525,27 +1585,30 @@ struct ServerUserDetailView: View {
   }
 
   private var summaryStrip: some View {
-    HStack(spacing: 10) {
-      summaryCard(value: "\(inProgressCount)", label: "In Progress", color: model.appearanceAccentColor)
-      summaryCard(value: "\(finishedCount)", label: "Finished", color: AppTheme.success)
-      summaryCard(value: "\(progressRows.count)", label: "Total", color: model.appearancePalette.textPrimary)
+    LazyVGrid(
+      columns: [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
+      ],
+      spacing: 10
+    ) {
+      ServerAdminMetricTile(
+        value: "\(inProgressCount)",
+        label: "In Progress",
+        valueColor: model.appearanceAccentColor
+      )
+      ServerAdminMetricTile(
+        value: "\(finishedCount)",
+        label: "Finished",
+        valueColor: AppTheme.success
+      )
+      ServerAdminMetricTile(
+        value: "\(progressRows.count)",
+        label: "Total",
+        valueColor: model.appearancePalette.textPrimary
+      )
     }
-  }
-
-  private func summaryCard(value: String, label: String, color: Color) -> some View {
-    VStack(spacing: 6) {
-      Text(value)
-        .font(.title2.weight(.bold))
-        .foregroundStyle(color)
-      Text(label)
-        .font(.caption)
-        .foregroundStyle(model.appearancePalette.textSecondary)
-    }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, 14)
-    .background(model.appearancePalette.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-    .abstandCardElevation(.standard)
   }
 
   private var recentSessionsButton: some View {
@@ -1664,8 +1727,7 @@ struct ServerUserListeningSessionsView: View {
 
 // MARK: - Libraries
 
-/// Bibliotheksliste direkt in Server Settings (ohne Zwischen-Navigation).
-private struct ServerAdminLibrariesSection: View {
+struct ServerLibrariesListView: View {
   @EnvironmentObject private var model: AppModel
   @State private var scanningId: String?
   @State private var scanMessage: String?
@@ -1675,60 +1737,59 @@ private struct ServerAdminLibrariesSection: View {
   }
 
   var body: some View {
-    ServerAdminSection(title: "Libraries") {
-      LazyVStack(spacing: 8) {
-        if let scanMessage {
-          Text(scanMessage)
-            .font(.caption)
-            .foregroundStyle(model.appearancePalette.textSecondary)
-        }
-        if sortedLibraries.isEmpty {
-          Text("No libraries on this server.")
-            .font(.subheadline)
-            .foregroundStyle(model.appearancePalette.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
-        } else {
-          ForEach(sortedLibraries) { lib in
-            NavigationLink {
-              ServerLibraryDetailView(library: lib)
-            } label: {
-              AbstandGroupedCard {
-                HStack(spacing: 12) {
-                  Image(systemName: "books.vertical.fill")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(model.appearanceAccentColor)
-                    .frame(width: 28, alignment: .center)
-                  VStack(alignment: .leading, spacing: 4) {
-                    Text(lib.name)
-                      .font(.body.weight(.medium))
-                      .foregroundStyle(model.appearancePalette.textPrimary)
-                    Text(lib.mediaType?.capitalized ?? "Library")
-                      .font(.caption)
-                      .foregroundStyle(model.appearancePalette.textSecondary)
+    Group {
+      if sortedLibraries.isEmpty {
+        ContentUnavailableView(
+          "No libraries",
+          systemImage: "books.vertical",
+          description: Text("No libraries on this server.")
+        )
+      } else {
+        ServerAdminScrollScreen {
+          LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+            if let scanMessage {
+              Text(scanMessage)
+                .font(.caption)
+                .foregroundStyle(model.appearancePalette.textSecondary)
+            }
+            ServerAdminSection(title: "Libraries") {
+              LazyVStack(spacing: 8) {
+                ForEach(sortedLibraries) { lib in
+                  NavigationLink {
+                    ServerLibraryDetailView(library: lib)
+                  } label: {
+                    AbstandGroupedCard {
+                      ServerLibraryListRow(
+                        library: lib,
+                        isScanning: scanningId == lib.id
+                      )
+                    }
                   }
-                  Spacer(minLength: 0)
-                  if scanningId == lib.id {
-                    ProgressView()
-                      .controlSize(.small)
-                  } else {
-                    Image(systemName: "chevron.right")
-                      .font(.caption.weight(.semibold))
-                      .foregroundStyle(model.appearancePalette.textSecondary)
+                  .buttonStyle(.plain)
+                  .contextMenu {
+                    Button {
+                      Task { await scanLibrary(lib) }
+                    } label: {
+                      Label("Scan", systemImage: "arrow.clockwise")
+                    }
                   }
                 }
               }
             }
-            .buttonStyle(.plain)
-            .contextMenu {
-              Button {
-                Task { await scanLibrary(lib) }
-              } label: {
-                Label("Scan", systemImage: "arrow.clockwise")
-              }
-            }
           }
         }
+      }
+    }
+    .background(model.appearancePalette.background.ignoresSafeArea())
+    .navigationTitle("Libraries")
+    .toolbarTitleDisplayMode(.inlineLarge)
+    .tint(model.appearanceAccentColor)
+    .refreshable {
+      await model.reloadSettingsTab()
+    }
+    .task {
+      if model.libraries.isEmpty {
+        await model.reloadSettingsTab()
       }
     }
   }
@@ -1745,28 +1806,111 @@ private struct ServerAdminLibrariesSection: View {
   }
 }
 
+private struct ServerLibraryListRow: View {
+  @EnvironmentObject private var model: AppModel
+  let library: ABSLibrary
+  let isScanning: Bool
+
+  @State private var stats: ABSLibraryStatsResponse?
+  @State private var statsFailed = false
+
+  private var iconName: String {
+    library.isPodcastLibrary ? "mic.fill" : "books.vertical.fill"
+  }
+
+  private var subtitle: String {
+    if let stats {
+      let itemsLabel = library.isPodcastLibrary ? "Shows" : "Items"
+      let tracksLabel = library.isPodcastLibrary ? "Audio files" : "Audio tracks"
+      let duration = formatPlaybackDurationShortHuman(stats.totalDuration)
+      return "\(stats.totalItems) \(itemsLabel) · \(duration) · \(stats.numAudioTrack) \(tracksLabel)"
+    }
+    if statsFailed {
+      return library.mediaType?.capitalized ?? "Library"
+    }
+    return library.mediaType?.capitalized ?? "Library"
+  }
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Image(systemName: iconName)
+        .font(.body.weight(.semibold))
+        .foregroundStyle(model.appearanceAccentColor)
+        .frame(width: 28, alignment: .center)
+      VStack(alignment: .leading, spacing: 4) {
+        Text(library.name)
+          .font(.body.weight(.medium))
+          .foregroundStyle(model.appearancePalette.textPrimary)
+        Text(subtitle)
+          .font(.caption)
+          .foregroundStyle(model.appearancePalette.textSecondary)
+          .lineLimit(2)
+          .minimumScaleFactor(0.85)
+      }
+      Spacer(minLength: 0)
+      if isScanning || (stats == nil && !statsFailed) {
+        ProgressView()
+          .controlSize(.small)
+      } else {
+        Image(systemName: "chevron.right")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(model.appearancePalette.textSecondary)
+      }
+    }
+    .task(id: library.id) {
+      guard stats == nil, !statsFailed else { return }
+      do {
+        stats = try await model.fetchServerLibraryStats(libraryId: library.id)
+        statsFailed = false
+      } catch {
+        statsFailed = true
+      }
+    }
+  }
+}
+
 struct ServerLibraryDetailView: View {
   @EnvironmentObject private var model: AppModel
   let library: ABSLibrary
 
   @State private var stats: ABSLibraryStatsResponse?
+  @State private var detail: ABSLibraryDetailEnvelope?
+  @State private var episodeDownloads: ABSLibraryEpisodeDownloadsPayload?
   @State private var loading = false
   @State private var loadError: String?
+  @State private var scanMessage: String?
+
+  private var isPodcast: Bool { library.isPodcastLibrary }
 
   var body: some View {
     ServerAdminScrollScreen {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-        if loading && stats == nil {
+        if let scanMessage {
+          Text(scanMessage)
+            .font(.caption)
+            .foregroundStyle(model.appearancePalette.textSecondary)
+        }
+        if loading && stats == nil && detail == nil {
           ProgressView()
             .tint(model.appearanceAccentColor)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 40)
-        } else if let loadError, stats == nil {
+        } else if let loadError, stats == nil && detail == nil {
           Text(loadError)
             .foregroundStyle(model.appearancePalette.textSecondary)
-        } else if let stats {
-          ServerAdminSection(title: "Overview") {
-            statGrid(stats)
+        } else {
+          if let stats {
+            ServerAdminSection(title: "Overview") {
+              overviewGrid(stats)
+            }
+            topGenresSection(stats)
+            topAuthorsSection(stats)
+            longestItemsSection(stats)
+            largestItemsSection(stats)
+          }
+          metaSection
+          if isPodcast {
+            episodeDownloadsSection
           }
         }
       }
@@ -1777,14 +1921,7 @@ struct ServerLibraryDetailView: View {
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
-          Task {
-            do {
-              try await model.scanServerLibrary(libraryId: library.id)
-              loadError = nil
-            } catch {
-              loadError = error.localizedDescription
-            }
-          }
+          Task { await scanLibrary() }
         } label: {
           Image(systemName: "arrow.clockwise")
         }
@@ -1795,34 +1932,227 @@ struct ServerLibraryDetailView: View {
     .refreshable { await reload() }
   }
 
-  private func statGrid(_ stats: ABSLibraryStatsResponse) -> some View {
+  private func overviewGrid(_ stats: ABSLibraryStatsResponse) -> some View {
+    let itemsLabel = isPodcast ? "Shows" : "Items"
+    let tracksLabel = isPodcast ? "Audio files" : "Audio tracks"
     let items: [(String, String)] = [
-      ("Items", "\(stats.totalItems)"),
+      (itemsLabel, "\(stats.totalItems)"),
       ("Authors", "\(stats.totalAuthors)"),
       ("Genres", "\(stats.totalGenres)"),
       ("Duration", formatPlaybackDurationShortHuman(stats.totalDuration)),
       ("Size", ByteCountFormatter.string(fromByteCount: stats.totalSize, countStyle: .file)),
-      ("Audio tracks", "\(stats.numAudioTrack)"),
+      (tracksLabel, "\(stats.numAudioTrack)"),
     ]
     return LazyVGrid(
-      columns: [GridItem(.flexible()), GridItem(.flexible())],
+      columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
       spacing: 10
     ) {
       ForEach(items, id: \.0) { row in
-        VStack(alignment: .leading, spacing: 4) {
-          Text(row.0)
-            .font(.caption)
-            .foregroundStyle(model.appearancePalette.textSecondary)
-          Text(row.1)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(model.appearancePalette.textPrimary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(model.appearancePalette.card)
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-        .abstandCardElevation(.standard)
+        ServerAdminMetricTile(value: row.1, label: row.0)
       }
+    }
+  }
+
+  @ViewBuilder
+  private func topGenresSection(_ stats: ABSLibraryStatsResponse) -> some View {
+    let top = Array(stats.genresWithCount.sorted { $0.count > $1.count }.prefix(8))
+    if !top.isEmpty {
+      ServerAdminSection(title: "Top Genres") {
+        AbstandGroupedCard {
+          VStack(spacing: 0) {
+            ForEach(Array(top.enumerated()), id: \.element.genre) { index, row in
+              if index > 0 { SettingsCardDivider() }
+              HStack {
+                Text(row.genre)
+                  .font(.body)
+                  .foregroundStyle(model.appearancePalette.textPrimary)
+                Spacer(minLength: 0)
+                Text("\(row.count)")
+                  .font(.subheadline.weight(.semibold))
+                  .foregroundStyle(model.appearancePalette.textSecondary)
+              }
+              .settingsCardCompactRowFrame(alignment: .leading)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func topAuthorsSection(_ stats: ABSLibraryStatsResponse) -> some View {
+    let top = Array(stats.authorsWithCount.sorted { $0.count > $1.count }.prefix(8))
+    if !top.isEmpty {
+      ServerAdminSection(title: "Top Authors") {
+        AbstandGroupedCard {
+          VStack(spacing: 0) {
+            ForEach(Array(top.enumerated()), id: \.element.id) { index, row in
+              if index > 0 { SettingsCardDivider() }
+              HStack {
+                Text(row.name)
+                  .font(.body)
+                  .foregroundStyle(model.appearancePalette.textPrimary)
+                  .lineLimit(1)
+                Spacer(minLength: 0)
+                Text("\(row.count)")
+                  .font(.subheadline.weight(.semibold))
+                  .foregroundStyle(model.appearancePalette.textSecondary)
+              }
+              .settingsCardCompactRowFrame(alignment: .leading)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func longestItemsSection(_ stats: ABSLibraryStatsResponse) -> some View {
+    let top = Array(stats.longestItems.prefix(5))
+    if !top.isEmpty {
+      ServerAdminSection(title: "Longest Items") {
+        AbstandGroupedCard {
+          VStack(spacing: 0) {
+            ForEach(Array(top.enumerated()), id: \.element.id) { index, row in
+              if index > 0 { SettingsCardDivider() }
+              HStack {
+                Text(row.title.isEmpty ? "Untitled" : row.title)
+                  .font(.body)
+                  .foregroundStyle(model.appearancePalette.textPrimary)
+                  .lineLimit(2)
+                Spacer(minLength: 8)
+                Text(formatPlaybackDurationShortHuman(row.duration))
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(model.appearancePalette.textSecondary)
+              }
+              .settingsCardCompactRowFrame(alignment: .leading)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func largestItemsSection(_ stats: ABSLibraryStatsResponse) -> some View {
+    let top = Array(stats.largestItems.prefix(5))
+    if !top.isEmpty {
+      ServerAdminSection(title: "Largest Items") {
+        AbstandGroupedCard {
+          VStack(spacing: 0) {
+            ForEach(Array(top.enumerated()), id: \.element.id) { index, row in
+              if index > 0 { SettingsCardDivider() }
+              HStack {
+                Text(row.title.isEmpty ? "Untitled" : row.title)
+                  .font(.body)
+                  .foregroundStyle(model.appearancePalette.textPrimary)
+                  .lineLimit(2)
+                Spacer(minLength: 8)
+                Text(ByteCountFormatter.string(fromByteCount: row.size, countStyle: .file))
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(model.appearancePalette.textSecondary)
+              }
+              .settingsCardCompactRowFrame(alignment: .leading)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var metaSection: some View {
+    let folders = detail?.library.folders ?? []
+    let provider = detail?.library.provider?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let issues = detail?.issues
+    let hasMeta = !folders.isEmpty || (provider?.isEmpty == false) || issues != nil
+    if hasMeta {
+      ServerAdminSection(title: "Library Info") {
+        AbstandGroupedCard {
+          VStack(spacing: 0) {
+            if let issues {
+              metaRow(title: "Issues", value: "\(issues)")
+            }
+            if let provider, !provider.isEmpty {
+              if issues != nil { SettingsCardDivider() }
+              metaRow(title: "Provider", value: provider)
+            }
+            ForEach(Array(folders.enumerated()), id: \.element.id) { index, folder in
+              if index > 0 || issues != nil || (provider?.isEmpty == false) {
+                SettingsCardDivider()
+              }
+              metaRow(title: "Folder", value: folder.fullPath)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private func metaRow(title: String, value: String) -> some View {
+    HStack(alignment: .top, spacing: 12) {
+      Text(title)
+        .font(.subheadline)
+        .foregroundStyle(model.appearancePalette.textSecondary)
+        .frame(width: 72, alignment: .leading)
+      Text(value)
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(model.appearancePalette.textPrimary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .settingsCardCompactRowFrame(alignment: .leading)
+  }
+
+  @ViewBuilder
+  private var episodeDownloadsSection: some View {
+    let rows = episodeDownloads?.allRows ?? []
+    if !rows.isEmpty {
+      ServerAdminSection(title: "Episode Downloads") {
+        AbstandGroupedCard {
+          VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+              if index > 0 { SettingsCardDivider() }
+              VStack(alignment: .leading, spacing: 2) {
+                Text(row.episodeDisplayTitle ?? "Episode")
+                  .font(.body.weight(.medium))
+                  .foregroundStyle(model.appearancePalette.textPrimary)
+                  .lineLimit(2)
+                HStack(spacing: 8) {
+                  if let podcast = row.podcastTitle, !podcast.isEmpty {
+                    Text(podcast)
+                      .font(.caption)
+                      .foregroundStyle(model.appearancePalette.textSecondary)
+                      .lineLimit(1)
+                  }
+                  Spacer(minLength: 0)
+                  Text(episodeDownloadStatus(row))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(model.appearancePalette.textSecondary)
+                }
+              }
+              .settingsCardCompactRowFrame(alignment: .leading)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private func episodeDownloadStatus(_ row: ABSPodcastEpisodeDownload) -> String {
+    if row.failed == true { return "Failed" }
+    if row.isFinished == true { return "Finished" }
+    if episodeDownloads?.currentDownload?.id == row.id { return "Downloading" }
+    return "Queued"
+  }
+
+  private func scanLibrary() async {
+    do {
+      try await model.scanServerLibrary(libraryId: library.id)
+      scanMessage = "Scan started."
+      loadError = nil
+    } catch {
+      scanMessage = nil
+      loadError = error.localizedDescription
     }
   }
 
@@ -1830,10 +2160,209 @@ struct ServerLibraryDetailView: View {
     loading = true
     defer { loading = false }
     do {
-      stats = try await model.fetchServerLibraryStats(libraryId: library.id)
+      async let statsTask = model.fetchServerLibraryStats(libraryId: library.id)
+      async let detailTask = model.fetchServerLibraryDetail(libraryId: library.id)
+      stats = try await statsTask
+      detail = try await detailTask
       loadError = nil
     } catch {
       loadError = error.localizedDescription
+    }
+    if isPodcast {
+      do {
+        episodeDownloads = try await model.fetchServerLibraryEpisodeDownloads(libraryId: library.id)
+      } catch {
+        // 404 oder nicht verfügbar — Section weglassen
+        episodeDownloads = nil
+      }
+    } else {
+      episodeDownloads = nil
+    }
+  }
+}
+
+// MARK: - M4B conversion progress
+
+/// Progress-Manager für laufende M4B-Encodes (Start über Book Detail → More → Convert).
+struct ServerM4BProgressView: View {
+  @EnvironmentObject private var model: AppModel
+  @State private var confirmPurgeCache = false
+  @State private var purgeBusy = false
+  @State private var purgeMessage: String?
+
+  var body: some View {
+    ServerM4BProgressContent(
+      jobs: model.m4bEncodeJobs,
+      progressStore: model.m4bEncodeProgressStore,
+      confirmPurgeCache: $confirmPurgeCache,
+      purgeBusy: $purgeBusy,
+      purgeMessage: $purgeMessage
+    )
+    .environmentObject(model)
+  }
+}
+
+private struct ServerM4BProgressContent: View {
+  @EnvironmentObject private var model: AppModel
+  let jobs: [ServerM4BEncodeJob]
+  @ObservedObject var progressStore: M4BEncodeProgressStore
+  @Binding var confirmPurgeCache: Bool
+  @Binding var purgeBusy: Bool
+  @Binding var purgeMessage: String?
+
+  private var activeJobs: [ServerM4BEncodeJob] {
+    jobs.filter(\.isActive)
+  }
+
+  private var recentJobs: [ServerM4BEncodeJob] {
+    jobs.filter { !$0.isActive }
+  }
+
+  var body: some View {
+    ServerAdminScrollScreen {
+      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+        if let purgeMessage {
+          Text(purgeMessage)
+            .font(.caption)
+            .foregroundStyle(model.appearancePalette.textSecondary)
+        }
+
+        ServerAdminSection(title: "Media Cache") {
+          Button {
+            confirmPurgeCache = true
+          } label: {
+            AbstandGroupedCard {
+              HStack(spacing: 12) {
+                Image(systemName: "trash")
+                  .font(.body.weight(.semibold))
+                  .foregroundStyle(AppTheme.danger)
+                  .frame(width: 28, alignment: .center)
+                VStack(alignment: .leading, spacing: 4) {
+                  Text("Delete media cache")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(model.appearancePalette.textPrimary)
+                  Text("Clears /metadata/cache/items (originals after M4B merge).")
+                    .font(.caption)
+                    .foregroundStyle(model.appearancePalette.textSecondary)
+                }
+                Spacer(minLength: 0)
+                if purgeBusy {
+                  ProgressView()
+                    .controlSize(.small)
+                }
+              }
+              .settingsCardCompactRowFrame(alignment: .leading)
+            }
+          }
+          .buttonStyle(.plain)
+          .disabled(purgeBusy || !model.isNetworkReachable)
+        }
+
+        ServerAdminSection(title: "Conversions") {
+          if activeJobs.isEmpty && recentJobs.isEmpty {
+            Text("No conversions yet. Start one from a book’s More menu.")
+              .font(.subheadline)
+              .foregroundStyle(model.appearancePalette.textSecondary)
+          } else {
+            LazyVStack(spacing: 8) {
+              ForEach(activeJobs) { job in
+                AbstandGroupedCard {
+                  m4bJobRow(job)
+                }
+              }
+              ForEach(recentJobs.prefix(12)) { job in
+                AbstandGroupedCard {
+                  m4bJobRow(job)
+                }
+              }
+              if !recentJobs.isEmpty {
+                Button("Clear finished") {
+                  model.clearFinishedM4BEncodeJobs()
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(model.appearanceAccentColor)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+              }
+            }
+          }
+        }
+      }
+    }
+    .navigationTitle("M4B Progress")
+    .toolbarTitleDisplayMode(.inlineLarge)
+    .tint(model.appearanceAccentColor)
+    .alert("Delete media cache?", isPresented: $confirmPurgeCache) {
+      Button("Cancel", role: .cancel) {}
+      Button("Delete", role: .destructive) {
+        Task { await purgeCache() }
+      }
+    } message: {
+      Text("This removes cached item files on the server (including backed-up originals after M4B conversion).")
+    }
+  }
+
+  private func m4bJobRow(_ job: ServerM4BEncodeJob) -> some View {
+    HStack(spacing: 12) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text(job.title)
+          .font(.body.weight(.medium))
+          .foregroundStyle(model.appearancePalette.textPrimary)
+          .lineLimit(2)
+        Text(job.author)
+          .font(.caption)
+          .foregroundStyle(model.appearancePalette.textSecondary)
+          .lineLimit(1)
+        HStack(spacing: 8) {
+          Text(jobStatusLabel(job))
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(jobStatusColor(job))
+            .monospacedDigit()
+          if !job.isActive, let message = job.message, !message.isEmpty, message != "Done" {
+            Text(message)
+              .font(.caption2)
+              .foregroundStyle(model.appearancePalette.textSecondary)
+          }
+        }
+      }
+      Spacer(minLength: 0)
+      if job.isActive {
+        Button("Cancel") {
+          Task { await model.cancelM4BEncode(libraryItemId: job.id) }
+        }
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(AppTheme.danger)
+      }
+    }
+    .settingsCardCompactRowFrame(alignment: .leading)
+  }
+
+  private func jobStatusLabel(_ job: ServerM4BEncodeJob) -> String {
+    switch job.status {
+    case .running:
+      if let pct = progressStore.percentLabel(for: job.id) {
+        return "Converting \(pct)"
+      }
+      return "Converting…"
+    case .finished: return "Finished"
+    case .failed: return "Failed"
+    case .cancelled: return "Cancelled"
+    }
+  }
+
+  private func jobStatusColor(_ job: ServerM4BEncodeJob) -> Color {
+    switch job.status {
+    case .running: return model.appearanceAccentColor
+    case .finished: return AppTheme.success
+    case .failed, .cancelled: return AppTheme.danger
+    }
+  }
+
+  private func purgeCache() async {
+    purgeBusy = true
+    defer { purgeBusy = false }
+    await model.purgeServerItemsMediaCache()
+    if model.errorMessage == nil {
+      purgeMessage = "Media cache purged."
     }
   }
 }

@@ -280,6 +280,53 @@ actor ABSAPIClient {
     try await sendData(req)
   }
 
+  /// M4B-Merge starten (`POST /api/tools/item/:id/encode-m4b`). Admin/Root.
+  func encodeLibraryItemM4B(
+    libraryItemId: String,
+    bitrate: String = "64k",
+    codec: String = "aac",
+    channels: Int = 2
+  ) async throws {
+    let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !id.isEmpty else { throw ABSAPIError.invalidURL }
+    let req = try authorizedRequest(
+      path: "api/tools/item/\(id)/encode-m4b",
+      method: "POST",
+      query: [
+        "bitrate": bitrate,
+        "codec": codec,
+        "channels": "\(channels)",
+      ],
+      timeout: 60
+    )
+    try await sendData(req)
+  }
+
+  /// Laufende M4B-Konvertierung abbrechen (`DELETE /api/tools/item/:id/encode-m4b`).
+  func cancelLibraryItemM4BEncode(libraryItemId: String) async throws {
+    let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !id.isEmpty else { throw ABSAPIError.invalidURL }
+    let req = try authorizedRequest(path: "api/tools/item/\(id)/encode-m4b", method: "DELETE")
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    if http.statusCode == 404 { return }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+  }
+
+  /// Items-Media-Cache leeren (`POST /api/cache/items/purge`) — Originale nach M4B-Merge liegen hier.
+  func purgeItemsMediaCache() async throws {
+    let req = try authorizedRequest(path: "api/cache/items/purge", method: "POST", timeout: 120)
+    try await sendData(req)
+  }
+
+  /// Gesamten Server-Cache leeren (`POST /api/cache/purge`).
+  func purgeAllServerCache() async throws {
+    let req = try authorizedRequest(path: "api/cache/purge", method: "POST", timeout: 120)
+    try await sendData(req)
+  }
+
   func libraries() async throws -> [ABSLibrary] {
     let req = try authorizedRequest(path: "api/libraries")
     let res: ABSLibrariesResponse = try await send(req)
@@ -909,7 +956,29 @@ actor ABSAPIClient {
     try await sendData(req)
   }
 
-  /// Entfernt den Media-Progress-Eintrag (`DELETE /api/me/progress/:id` mit `MediaProgress.id` aus `/authorize`).
+  /// Liest einen Progress-Eintrag (`GET /api/me/progress/:libraryItemId[/:episodeId]`).
+  /// `404` → `nil` (kein Eintrag).
+  func fetchMediaProgress(libraryItemId: String, episodeId: String? = nil) async throws -> ABSUserMediaProgress? {
+    let lid = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !lid.isEmpty else { throw ABSAPIError.invalidURL }
+    let path: String
+    if let eid = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines), !eid.isEmpty {
+      path = "api/me/progress/\(lid)/\(eid)"
+    } else {
+      path = "api/me/progress/\(lid)"
+    }
+    let req = try authorizedRequest(path: path)
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    if http.statusCode == 404 { return nil }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    return try decoder.decode(ABSUserMediaProgress.self, from: data)
+  }
+
+  /// Entfernt den Media-Progress-Eintrag (`DELETE /api/me/progress/:id` mit `MediaProgress.id` / UUID).
+  /// `404` wird als Fehler geworfen — Aufrufer können Fallback-IDs versuchen.
   func deleteMediaProgress(progressRowId: String) async throws {
     let id = progressRowId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !id.isEmpty else { throw ABSAPIError.invalidURL }
@@ -917,10 +986,62 @@ actor ABSAPIClient {
     let req = try authorizedRequest(path: path, method: "DELETE")
     let (data, resp) = try await urlSession.data(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
-    if http.statusCode == 404 { return }
     guard (200 ..< 300).contains(http.statusCode) else {
       throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
     }
+  }
+
+  /// Löscht Progress robust: frische UUID per GET, dann Kandidaten-IDs; Erfolg wenn Eintrag weg ist.
+  /// Modernes ABS erwartet die DB-UUID (`MediaProgress.id`), nicht `libraryItemId`.
+  func deleteMediaProgressForLibraryItem(
+    libraryItemId: String,
+    episodeId: String? = nil,
+    preferredRowIds: [String] = []
+  ) async throws {
+    let lid = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !lid.isEmpty else { throw ABSAPIError.invalidURL }
+    let eid = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let episodePart = (eid?.isEmpty == false) ? eid : nil
+
+    var candidates: [String] = []
+    func appendCandidate(_ raw: String?) {
+      guard let t = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return }
+      if !candidates.contains(t) { candidates.append(t) }
+    }
+    for id in preferredRowIds { appendCandidate(id) }
+    if let fresh = try? await fetchMediaProgress(libraryItemId: lid, episodeId: episodePart) {
+      appendCandidate(fresh.mediaProgressServerId)
+      appendCandidate(fresh.idForMediaProgressDeleteRequest)
+    }
+    appendCandidate(lid)
+    if let episodePart {
+      appendCandidate("\(lid)-\(episodePart)")
+    }
+
+    var lastError: Error?
+    for id in candidates {
+      do {
+        try await deleteMediaProgress(progressRowId: id)
+        return
+      } catch let ABSAPIError.httpStatus(code, _) where code == 404 {
+        lastError = ABSAPIError.httpStatus(404, "Media progress id not found: \(id)")
+        continue
+      } catch {
+        lastError = error
+        // Nicht-404: trotzdem weitere Kandidaten versuchen (falsche ID vs. echter Serverfehler).
+        if case ABSAPIError.httpStatus(let code, _) = error, (500 ..< 600).contains(code) {
+          throw error
+        }
+        continue
+      }
+    }
+
+    // Alle Deletes 404 / fehlgeschlagen — wenn GET leer ist, war der Eintrag schon weg.
+    if try await fetchMediaProgress(libraryItemId: lid, episodeId: episodePart) == nil {
+      return
+    }
+    throw lastError
+      ?? ABSAPIError.httpStatus(404, "Media progress still present after delete attempts")
   }
 
   /// Löscht eine Hör-Sitzung (`DELETE /api/sessions/:id` — Session-Owner oder Admin, wie ABS-Web).
@@ -1320,6 +1441,33 @@ actor ABSAPIClient {
     }
     let parsed = try decoder.decode(ABSLibraryDetailFoldersPayload.self, from: data)
     return parsed.folders ?? []
+  }
+
+  /// Bibliotheks-Detail inkl. Issues/Folders (`GET /api/libraries/:id?include=filterdata`).
+  func libraryDetail(id: String, includeFilterData: Bool = true) async throws -> ABSLibraryDetailEnvelope {
+    let query = includeFilterData ? ["include": "filterdata"] : [:]
+    let req = try authorizedRequest(path: "api/libraries/\(id)", query: query)
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    if includeFilterData {
+      return try decoder.decode(ABSLibraryDetailEnvelope.self, from: data)
+    }
+    let lib = try decoder.decode(ABSLibraryAdminDetail.self, from: data)
+    return ABSLibraryDetailEnvelope(library: lib, issues: nil, numUserPlaylists: nil)
+  }
+
+  /// Podcast-Episode-Downloads einer Bibliothek (`GET /api/libraries/:id/episode-downloads`).
+  func libraryEpisodeDownloads(libraryId: String) async throws -> ABSLibraryEpisodeDownloadsPayload {
+    let req = try authorizedRequest(path: "api/libraries/\(libraryId)/episode-downloads")
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ABSAPIError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+    }
+    return try decoder.decode(ABSLibraryEpisodeDownloadsPayload.self, from: data)
   }
 
   /// Neuen Podcast anlegen (`POST /api/podcasts`).

@@ -244,18 +244,41 @@ private func continueHeroAuthorSingleLine(for book: ABSBook) -> String {
   return line
 }
 
+/// Play↔Pause wie Detail-Hero: bei aktivem Medium Pause/Resume, sonst Start.
+@MainActor
+private func continueHeroPlayPillToggle(
+  model: AppModel,
+  libraryItemId: String,
+  episodeId: String?,
+  isFinished: Bool,
+  startPlayback: @escaping () async -> Void
+) {
+  let isCurrent = model.isActivelyPlayingMedia(
+    libraryItemId: libraryItemId,
+    episodeId: episodeId
+  )
+  if isCurrent && model.player.isPlaying {
+    model.player.pause()
+  } else if isCurrent && !isFinished {
+    model.player.play()
+  } else {
+    Task { await startPlayback() }
+  }
+}
+
 @ViewBuilder
 private func continueHeroPlayPill(
   accent: Color,
   palette: AppColorPalette,
   caption: String,
+  showsPause: Bool = false,
   action: @escaping () -> Void
 ) -> some View {
   let labelOnAccent = palette.foregroundOnAccent(accent)
   HStack {
     Button(action: action) {
       HStack(spacing: 6) {
-        Image(systemName: "play.fill")
+        Image(systemName: showsPause ? "pause.fill" : "play.fill")
           .font(.caption.weight(.bold))
         Text(caption)
           .font(.caption.weight(.semibold))
@@ -269,8 +292,8 @@ private func continueHeroPlayPill(
       .background(accent, in: Capsule())
     }
     .buttonStyle(.plain)
-    .accessibilityLabel("Wiedergabe")
-    .accessibilityValue("Noch \(caption)")
+    .accessibilityLabel(showsPause ? "Pause" : "Play")
+    .accessibilityValue(showsPause ? "Playing" : "Noch \(caption)")
     Spacer(minLength: 0)
   }
 }
@@ -809,7 +832,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
       }
       .clipped()
 
-      // Wie Continue Listening: Dauer als Play-Pille → startet Wiedergabe.
+      // Wie Continue Listening: Dauer als Play-Pille → Play↔Pause wie Detail.
       ContinueListeningHeroTextBlock(
         title: episode.episodeTitle,
         detailLabel: "Show",
@@ -817,12 +840,29 @@ private struct LibraryHeroPodcastEpisodeCard: View {
         horizontalInset: coverInset,
         onTitleTap: { if opensDetailOnTap { showDetail = true } }
       ) {
+        let isCurrent = model.isActivelyPlayingMedia(
+          libraryItemId: episode.libraryItemId,
+          episodeId: episode.episodeId
+        )
+        let showsPause = isCurrent && model.player.isPlaying
+        let isFinished = prog?.isFinished == true
         continueHeroPlayPill(
           accent: model.appearanceAccentColor,
           palette: palette,
-          caption: playPillRemainingCaption
+          caption: playPillRemainingCaption,
+          showsPause: showsPause
         ) {
-          Task { await model.playPodcastEpisode(episode) }
+          continueHeroPlayPillToggle(
+            model: model,
+            libraryItemId: episode.libraryItemId,
+            episodeId: episode.episodeId,
+            isFinished: isFinished
+          ) {
+            await model.playPodcastEpisode(
+              episode,
+              resumeAtOverride: isFinished ? 0 : nil
+            )
+          }
         }
       }
       .background(palette.card)
@@ -966,12 +1006,29 @@ struct ContinueListeningHeroBookCard: View {
         onTitleTap: { showDetail = true },
         cardTint: tint
       ) {
+        let isCurrent = model.isActivelyPlayingMedia(
+          libraryItemId: book.id,
+          episodeId: nil
+        )
+        let showsPause = isCurrent && model.player.isPlaying
+        let isFinished = prog?.isFinished == true
         continueHeroPlayPill(
           accent: model.appearanceAccentColor,
           palette: model.appearancePalette,
-          caption: playPillRemainingCaption
+          caption: playPillRemainingCaption,
+          showsPause: showsPause
         ) {
-          Task { await model.play(book: book) }
+          continueHeroPlayPillToggle(
+            model: model,
+            libraryItemId: book.id,
+            episodeId: nil,
+            isFinished: isFinished
+          ) {
+            await model.play(
+              book: book,
+              resumeAtOverride: isFinished ? 0 : nil
+            )
+          }
         }
       }
       .background(tint)
@@ -1156,12 +1213,29 @@ struct ContinueListeningHeroPodcastCard: View {
         onTitleTap: { showDetail = true },
         cardTint: tint
       ) {
+        let isCurrent = model.isActivelyPlayingMedia(
+          libraryItemId: episode.libraryItemId,
+          episodeId: episode.episodeId
+        )
+        let showsPause = isCurrent && model.player.isPlaying
+        let isFinished = prog?.isFinished == true
         continueHeroPlayPill(
           accent: model.appearanceAccentColor,
           palette: model.appearancePalette,
-          caption: playPillRemainingCaption
+          caption: playPillRemainingCaption,
+          showsPause: showsPause
         ) {
-          Task { await model.playPodcastEpisode(episode) }
+          continueHeroPlayPillToggle(
+            model: model,
+            libraryItemId: episode.libraryItemId,
+            episodeId: episode.episodeId,
+            isFinished: isFinished
+          ) {
+            await model.playPodcastEpisode(
+              episode,
+              resumeAtOverride: isFinished ? 0 : nil
+            )
+          }
         }
       }
       .background(tint)
@@ -2195,7 +2269,7 @@ private struct LibraryHeroBookRowCard: View {
       coverStack(clip: heroCoverClip, showsProgressChrome: true, barH: barH)
 
       if book.isPlayableAudiobook {
-        // Wie Continue Listening / Podcast-Cover: Dauer als Play-Pille → startet Wiedergabe.
+        // Wie Continue Listening / Podcast-Cover: Dauer als Play-Pille → Play↔Pause wie Detail.
         ContinueListeningHeroTextBlock(
           title: book.displayTitle,
           detailLabel: "Author",
@@ -2207,12 +2281,29 @@ private struct LibraryHeroBookRowCard: View {
             }
           }
         ) {
+          let isCurrent = model.isActivelyPlayingMedia(
+            libraryItemId: book.id,
+            episodeId: nil
+          )
+          let showsPause = isCurrent && model.player.isPlaying
+          let isFinished = prog?.isFinished == true
           continueHeroPlayPill(
             accent: model.appearanceAccentColor,
             palette: palette,
-            caption: playPillRemainingCaption
+            caption: playPillRemainingCaption,
+            showsPause: showsPause
           ) {
-            Task { await model.play(book: book) }
+            continueHeroPlayPillToggle(
+              model: model,
+              libraryItemId: book.id,
+              episodeId: nil,
+              isFinished: isFinished
+            ) {
+              await model.play(
+                book: book,
+                resumeAtOverride: isFinished ? 0 : nil
+              )
+            }
           }
         }
         .background(palette.card)

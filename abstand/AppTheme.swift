@@ -286,8 +286,8 @@ enum AppTheme {
     static let continueHeroMetadataPlayPillTopPadding: CGFloat = 8
     /// Höhe der Play-/Read-Pille (Capsule inkl. Innen-Padding).
     static let continueHeroMetadataPlayPillIntrinsicHeight: CGFloat = 34
-    /// Abstand unter der Play-/Read-Pille (Continue Listening + Library-Cover-Karten).
-    static let continueHeroMetadataExtraBottomPadding: CGFloat = 16
+    /// Abstand unter der Play-/Read-Pille — wie horizontaler Inset (`libraryRowCardInset`).
+    static let continueHeroMetadataExtraBottomPadding: CGFloat = 10
     /// Fester Textblock unter dem Cover — alle Continue-Hero-Karten gleich hoch.
     static let continueHeroMetadataBlockHeight: CGFloat =
       continueHeroMetadataVerticalPadding

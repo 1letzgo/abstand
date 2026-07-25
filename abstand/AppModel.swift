@@ -306,6 +306,13 @@ final class AppModel: ObservableObject {
   @Published private(set) var isServerAdmin = false
   @Published private(set) var isServerRoot = false
   @Published private(set) var serverSettings: ABSServerSettings?
+  /// Aktive/kürzliche M4B-Konvertierungen (Settings → Server → Convert to M4B).
+  @Published private(set) var m4bEncodeJobs: [ServerM4BEncodeJob] = []
+  /// Live-% nur hier — Book Detail beobachtet das nicht und flackert nicht.
+  let m4bEncodeProgressStore = M4BEncodeProgressStore()
+  private var m4bEncodePollTask: Task<Void, Never>?
+  private let m4bAdminSocket = ABSAdminSocketClient()
+  private var m4bSocketBound = false
   @Published private(set) var listeningStats: ABSListeningStatsResponse?
   @Published private(set) var listeningStatsFetchedAt: Date?
   @Published private(set) var listeningStatsLoading = false
@@ -498,21 +505,17 @@ final class AppModel: ObservableObject {
       guard oldValue != offlineHomeMode else { return }
       if offlineHomeMode {
         offlineHomeModeAuto = false
-        Task {
-          await prepareForOfflineHomeMode()
-          await loadStartDashboard(force: true)
-          await reloadLibraryViewsForModeTransition()
-        }
+        scheduleOfflineModeTransition(entering: true)
       } else {
         offlineHomeModeAuto = false
-        Task {
-          await finishLeavingOfflineHomeMode()
-        }
+        scheduleOfflineModeTransition(entering: false)
       }
     }
   }
   /// Nach fehlgeschlagenem Start-`bootstrap`: gleiche Oberfläche wie manueller Offline-Modus, ohne UserDefaults.
   @Published private(set) var offlineHomeModeAuto = false
+  /// Leave läuft — Settings/Home sollen keine parallelen Reloads starten.
+  @Published private(set) var isLeavingOfflineMode = false
 
   @Published var openPlayerWhenStartPlaying: Bool = AppModel.initialOpenPlayerWhenStartPlaying() {
     didSet {
@@ -581,9 +584,9 @@ final class AppModel: ObservableObject {
     isAppBootstrapInProgress = false
     isServerConnectionProbeInProgress = false
     cancelDeferredBootstrapWork()
-    offlineHomeMode = true
     isServerReachable = false
-    Task { await bootstrapLocalSessionOnly() }
+    // `offlineHomeMode = true` → `scheduleOfflineModeTransition(entering:)` (Cancel + Prepare + Home).
+    offlineHomeMode = true
   }
 
   /// Home-Toolbar: statischer Offline-/Online-Schalter.
@@ -680,8 +683,15 @@ final class AppModel: ObservableObject {
       isServerReachable = false
       return
     }
+    let epoch = accountSessionEpoch
+    authorizeApplyGeneration &+= 1
+    let authorizeGeneration = authorizeApplyGeneration
     do {
       let auth = try await c.authorize()
+      guard accountSessionEpoch == epoch,
+        authorizeApplyGeneration == authorizeGeneration,
+        mayUseServerNetwork
+      else { return }
       applyAuthorizeSession(auth)
       let t = auth.user.token
       if !t.isEmpty {
@@ -701,24 +711,61 @@ final class AppModel: ObservableObject {
       offlineHomeMode = false
     } else if offlineHomeModeAuto {
       offlineHomeModeAuto = false
-      Task { await finishLeavingOfflineHomeMode() }
+      scheduleOfflineModeTransition(entering: false)
+    }
+  }
+
+  /// Serialisiert Offline↔Online: eine laufende Transition, Generation nach jedem `await`.
+  private func scheduleOfflineModeTransition(entering: Bool) {
+    offlineModeGeneration &+= 1
+    let generation = offlineModeGeneration
+    modeTransitionTask?.cancel()
+    if entering {
+      cancelDeferredBootstrapWork()
+      isLeavingOfflineMode = false
+      shouldPrewarmSecondaryTabs = false
+      modeTransitionTask = Task { @MainActor [weak self] in
+        guard let self, !Task.isCancelled else { return }
+        await self.prepareForOfflineHomeMode()
+        guard self.offlineModeGeneration == generation, self.offlineHomeUIActive else { return }
+        await self.loadStartDashboard(force: true)
+        guard self.offlineModeGeneration == generation, self.offlineHomeUIActive else { return }
+        await self.reloadLibraryViewsForModeTransition()
+      }
+    } else {
+      isLeavingOfflineMode = true
+      modeTransitionTask = Task { @MainActor [weak self] in
+        defer {
+          if self?.offlineModeGeneration == generation {
+            self?.isLeavingOfflineMode = false
+          }
+        }
+        guard let self, !Task.isCancelled else { return }
+        await self.finishLeavingOfflineHomeMode(generation: generation)
+      }
     }
   }
 
   /// Nach Offline-Modus: Client, Fortschritt, Bibliotheken für Settings, Home.
-  private func finishLeavingOfflineHomeMode() async {
+  /// Sync und Katalog bewusst sequenziell — parallele Writes auf `books`/`progressByItemId` rasten sonst.
+  private func finishLeavingOfflineHomeMode(generation: UInt) async {
+    guard offlineModeGeneration == generation, !offlineHomeUIActive else { return }
     restoreServerClientIfNeeded()
     ensureLocalProgressLoaded()
     await probeServerConnection()
+    guard offlineModeGeneration == generation, !offlineHomeUIActive, mayUseServerNetwork else { return }
     persistHomeShelvesSnapshot()
-    // Fortschritts-Sync (viele einzelne PATCH-Requests) und Katalog-Reload sind unabhängig — parallel statt
-    // sequenziell, sonst bleiben Bücher/Episoden leer, bis der komplette Sync durchgelaufen ist.
-    async let progressSync: Bool = syncOfflineProgressToServer()
-    async let catalogReload: Bool = reloadSettingsTab(reloadCatalogs: true)
-    let (progressOk, catalogOk) = await (progressSync, catalogReload)
+
+    let progressOk = await syncOfflineProgressToServer()
+    guard offlineModeGeneration == generation, !offlineHomeUIActive else { return }
     if !progressOk { pendingPostOfflineModeProgressSync = true }
+
+    let catalogOk = await reloadSettingsTab(reloadCatalogs: true)
+    guard offlineModeGeneration == generation, !offlineHomeUIActive else { return }
     if !catalogOk { pendingPostOfflineModeCatalogReload = true }
+
     await loadStartDashboard(force: true)
+    guard offlineModeGeneration == generation, !offlineHomeUIActive else { return }
     await reloadLibraryViewsForModeTransition()
   }
 
@@ -810,6 +857,17 @@ final class AppModel: ObservableObject {
   private var storedCredentialsBootstrapTask: Task<Void, Never>?
   /// Erhöht bei jeder neuen Podcast-Verzeichnissuche; verhindert, dass abgebrochene Requests Treffer löschen oder Fehler setzen.
   private var podcastDirectorySearchGeneration: Int = 0
+  /// Serialisiert Offline↔Online-Übergänge; stale Tasks nach Toggle abbrechen.
+  private var offlineModeGeneration: UInt = 0
+  private var modeTransitionTask: Task<Void, Never>?
+  /// Verhindert parallele `loadStartDashboard`-Applies (Leave + Home-onChange + pathMonitor).
+  private var startDashboardGeneration: UInt = 0
+  /// Serialisiert `reloadLibrary`-Applies (Sort/Filter/Focus/Bootstrap).
+  private var libraryReloadSerial: UInt = 0
+  /// LocalStore-Persists: ältere fire-and-forget Writes dürfen nicht gewinnen.
+  private var librariesPersistGeneration: UInt64 = 0
+  private var homeShelvesPersistGeneration: UInt64 = 0
+  private var bookmarksPersistGeneration: UInt64 = 0
   private let pathMonitor = NWPathMonitor()
   private let pathMonitorQueue = DispatchQueue(label: "de.letzgo.abstand.network")
 
@@ -836,6 +894,8 @@ final class AppModel: ObservableObject {
   private var discardedProgressKeys: Set<String> = []
   /// Serialisiert asynchrone Progress-Persists — ältere `replaceAllProgress`-Tasks dürfen nicht gewinnen.
   private var progressPersistGeneration: UInt64 = 0
+  /// Serialisiert `/authorize`-Applies — älteres Authorize darf Discard nicht wieder einspielen.
+  private var authorizeApplyGeneration: UInt64 = 0
   /// eBook Mark-as-read / Reset: lokal gewünschter `ebookProgress`, bis der Server nachzieht
   /// (sonst überschreibt `max(local, server)` aus `authorize` den Reset wieder mit 100 %).
   private var pendingEbookProgressOverrideByItemId: [String: Double] = [:]
@@ -878,6 +938,7 @@ final class AppModel: ObservableObject {
     migrateStartDisabledCategoriesIfNeeded()
     loadLocalFinishedProgressKeys()
     loadDiscardedProgressKeys()
+    loadM4BEncodeJobs()
     reapplyAppearance(systemColorScheme: .dark)
     CarPlayCoordinator.shared.bind(appModel: self)
     // Player-Ticks nicht pauschal an `AppModel` — Floating-Bar hat `FloatingPlayerChromeController`.
@@ -951,20 +1012,20 @@ final class AppModel: ObservableObject {
           Task { await model.probeServerConnectionIfNeeded() }
         }
         if reachable, !wasReachable, !model.offlineHomeUIActive,
+          !model.isLeavingOfflineMode,
           !model.isDeferredBootstrapNetworkRefreshInProgress
         {
           Task {
             if model.pendingPostOfflineModeProgressSync {
-              model.pendingPostOfflineModeProgressSync = false
               let ok = await model.syncOfflineProgressToServer()
-              if !ok { model.pendingPostOfflineModeProgressSync = true }
+              if ok {
+                model.pendingPostOfflineModeProgressSync = false
+              }
             }
             if model.pendingPostOfflineModeCatalogReload {
-              model.pendingPostOfflineModeCatalogReload = false
               let ok = await model.reloadSettingsTab(reloadCatalogs: true)
-              if !ok {
-                model.pendingPostOfflineModeCatalogReload = true
-              } else {
+              if ok {
+                model.pendingPostOfflineModeCatalogReload = false
                 await model.reloadLibraryViewsForModeTransition()
               }
             }
@@ -2007,9 +2068,16 @@ final class AppModel: ObservableObject {
   /// Aktualisiert Fortschritt und Lesezeichen vom Server (`POST /api/authorize`).
   func refreshProgressFromServer() async {
     guard mayUseServerNetwork, let c = client else { return }
+    let epoch = accountSessionEpoch
+    authorizeApplyGeneration &+= 1
+    let authorizeGeneration = authorizeApplyGeneration
     ensureLocalProgressLoaded()
     do {
       let auth = try await c.authorize()
+      guard accountSessionEpoch == epoch,
+        authorizeApplyGeneration == authorizeGeneration,
+        mayUseServerNetwork
+      else { return }
       isServerReachable = true
       applyAuthorizeSession(auth)
       let t = auth.user.token
@@ -2077,17 +2145,23 @@ final class AppModel: ObservableObject {
       return ContinueRefreshAttemptResult()
     }
 
+    startDashboardGeneration &+= 1
+    let dashboardGeneration = startDashboardGeneration
+
     var result = ContinueRefreshAttemptResult()
     var didApplyOnlineStartDashboard = false
     defer {
-      // Online-Apply aktualisiert Continue reading bereits synchron — kein zweites Re-Inject nach Yields.
-      scheduleStartDashboardPostProcessing(
-        includeEbookShelfRefresh: !didApplyOnlineStartDashboard,
-        skipContinueSync: didApplyOnlineStartDashboard
-      )
+      // Nur die aktuellste Dashboard-Ladung darf Post-Processing anstoßen.
+      if startDashboardGeneration == dashboardGeneration {
+        scheduleStartDashboardPostProcessing(
+          includeEbookShelfRefresh: !didApplyOnlineStartDashboard,
+          skipContinueSync: didApplyOnlineStartDashboard
+        )
+      }
     }
     if offlineHomeUIActive {
       ensureLocalProgressLoaded()
+      guard startDashboardGeneration == dashboardGeneration else { return result }
       applyOfflineStartDashboard()
       return result
     }
@@ -2136,6 +2210,7 @@ final class AppModel: ObservableObject {
         }
         let inProgressPacked = try await inProgressTask
         if let progressSync { await progressSync.value }
+        guard startDashboardGeneration == dashboardGeneration, !offlineHomeUIActive else { return result }
         updateStartSettingsCategoryList(parsed: mergedParsed)
         // `force` nur: Early-Exit umgehen. Continue-Replace nur bei Pull-to-Refresh —
         // Hintergrund-Refresh bleibt local-first (Merge + lokale Continue-Reading-Regale erhalten).
@@ -2155,6 +2230,7 @@ final class AppModel: ObservableObject {
           : Task { await refreshProgressFromServer() }
         let inProgressPacked = try await c.itemsInProgressWithRawData(limit: 80)
         if let progressSync { await progressSync.value }
+        guard startDashboardGeneration == dashboardGeneration, !offlineHomeUIActive else { return result }
         applyStartDashboardFromItemsInProgressOnly(inProgressPacked.payload)
         didApplyOnlineStartDashboard = true
         result.appliedOnline = true
@@ -2170,6 +2246,7 @@ final class AppModel: ObservableObject {
       if !skipAuthorizeRefresh {
         await refreshProgressFromServer()
       }
+      guard startDashboardGeneration == dashboardGeneration else { return result }
       if !forPullToRefresh {
         applyCachedStartDashboard()
       }
@@ -2523,8 +2600,16 @@ final class AppModel: ObservableObject {
     guard let store = currentLocalLibraryStore() else { return }
     let libraryId = selectedBooksLibrary?.id ?? Keys.librarySelectionNone
     let sections = startShelves
-    Task.detached(priority: .utility) {
+    homeShelvesPersistGeneration &+= 1
+    let generation = homeShelvesPersistGeneration
+    Task.detached(priority: .utility) { [weak self] in
+      let stillCurrent = await MainActor.run { self?.homeShelvesPersistGeneration == generation }
+      guard stillCurrent == true else { return }
       try? await store.replaceHomeShelves(libraryId: libraryId, sections: sections)
+      let stillCurrentAfter = await MainActor.run { self?.homeShelvesPersistGeneration == generation }
+      if stillCurrentAfter != true {
+        await MainActor.run { self?.persistHomeShelvesToLocalStore() }
+      }
     }
   }
 
@@ -3798,8 +3883,15 @@ final class AppModel: ObservableObject {
     localFinishedProgressKeys = []
     discardedProgressKeys = []
     suppressedContinueListeningKeys = []
-    persistLocalFinishedProgressKeys()
-    persistDiscardedProgressKeys()
+    m4bEncodePollTask?.cancel()
+    m4bEncodePollTask = nil
+    m4bAdminSocket.disconnect()
+    m4bSocketBound = false
+    m4bEncodeJobs = []
+    m4bEncodeProgressStore.clearAll()
+    // Discard-/Finished-Keys nicht als leeres Set unter der *alten* serverURL persistieren —
+    // sonst gehen Reset-Schutz und lokale Finished-Markierungen des verlassenen Accounts verloren.
+    localProgressLoaded = false
     bookmarks = []
     ebookReaderSession = nil
     isPreparingEbook = false
@@ -5476,6 +5568,7 @@ final class AppModel: ObservableObject {
         sort: browseAuthorsSortField.apiSortParameter,
         descending: descending
       )
+      guard !offlineHomeUIActive else { return }
       if let store = currentLocalLibraryStore() {
         if reset, page == 0 {
           try? await store.replaceAuthorsFirstPage(
@@ -5485,6 +5578,7 @@ final class AppModel: ObservableObject {
           try? await store.appendAuthorsPage(libraryId: lib.id, total: total, items: items)
         }
       }
+      guard !offlineHomeUIActive else { return }
       browseAuthorsTotal = total
       if items.isEmpty, !reset { return }
       if reset {
@@ -5519,6 +5613,7 @@ final class AppModel: ObservableObject {
     defer { browseNarratorsLoading = false }
     do {
       let (items, _) = try await c.libraryNarrators(libraryId: lib.id)
+      guard !offlineHomeUIActive else { return }
       browseNarratorsFetched = items
       browseNarrators = sortedBrowseNarrators(items)
       browseNarratorCoverItemIdByNarratorName = [:]
@@ -5735,6 +5830,7 @@ final class AppModel: ObservableObject {
         sort: browseSeriesSortField.apiSortParameter,
         descending: descending
       )
+      guard !offlineHomeUIActive else { return }
       if let store = currentLocalLibraryStore() {
         if reset, page == 0 {
           try? await store.replaceSeriesFirstPage(
@@ -5744,6 +5840,7 @@ final class AppModel: ObservableObject {
           try? await store.appendSeriesPage(libraryId: lib.id, total: total, items: items)
         }
       }
+      guard !offlineHomeUIActive else { return }
       browseSeriesTotal = total
       if items.isEmpty, !reset { return }
       if reset {
@@ -5778,6 +5875,7 @@ final class AppModel: ObservableObject {
     defer { browseCollectionsLoading = false }
     do {
       let (items, total, _) = try await c.libraryCollectionsAll(libraryId: lib.id, minified: true)
+      guard !offlineHomeUIActive else { return }
       if let store = currentLocalLibraryStore() {
         try? await store.replaceCollections(libraryId: lib.id, total: total, items: items)
       }
@@ -8660,6 +8758,11 @@ final class AppModel: ObservableObject {
     }
     guard let row = progressByItemId[bookId] else { return }
     let playing = player.activeBook?.id == bookId && player.activePlaybackEpisodeId == nil
+    let preferredDeleteIds = [
+      row.mediaProgressServerId,
+      row.idForMediaProgressDeleteRequest,
+      bookId,
+    ].compactMap { $0 }
     markProgressKeyDiscarded(bookId)
     suppressedContinueListeningKeys.insert(bookId)
     progressByItemId.removeValue(forKey: bookId)
@@ -8682,7 +8785,11 @@ final class AppModel: ObservableObject {
       }
       clearPendingOfflineListeningSeconds(progressKey: bookId)
       await deleteAllListeningSessions(client: c, libraryItemId: bookId, episodeId: nil)
-      try await c.deleteMediaProgress(progressRowId: row.idForMediaProgressDeleteRequest)
+      try await c.deleteMediaProgressForLibraryItem(
+        libraryItemId: bookId,
+        episodeId: nil,
+        preferredRowIds: preferredDeleteIds
+      )
       progressByItemId.removeValue(forKey: bookId)
       removeAudiobookFromContinueListeningShelves(bookId: bookId)
       syncContinueListeningShelvesWithProgress()
@@ -8698,14 +8805,39 @@ final class AppModel: ObservableObject {
         await reloadLibrary(reset: true)
       }
       await refreshStartDashboardIfNeeded()
-      // Discard-Key erst freigeben, wenn authorize den Eintrag nicht mehr liefert.
-      reconcileDiscardedProgressKeyAfterAuthorize(bookId, mediaProgress: auth.user.mediaProgress)
+
+      // Wenn der Server den Eintrag noch hat: einmal mit frischer UUID nachlöschen.
+      let verified = try await verifyProgressDiscardedOnServer(
+        client: c,
+        progressKey: bookId,
+        libraryItemId: bookId,
+        episodeId: nil,
+        mediaProgress: auth.user.mediaProgress
+      )
+      if !verified {
+        clearDiscardedProgressKey(bookId)
+        if let fresh = try? await c.authorize() {
+          applyAuthorizeSession(fresh)
+        } else {
+          applyUserProgress(auth.user.mediaProgress)
+        }
+        errorMessage = "Could not reset progress on the server."
+        suppressedContinueListeningKeys.remove(bookId)
+        await persistProgressToLocalStoreNow()
+        persistHomeShelvesSnapshot()
+        return
+      }
       progressByItemId.removeValue(forKey: bookId)
       await persistProgressToLocalStoreNow()
       persistHomeShelvesSnapshot()
       suppressedContinueListeningKeys.remove(bookId)
     } catch {
+      // Discard-Schutz aufheben — sonst bleibt der Server-Stand lokal dauerhaft unsichtbar.
+      clearDiscardedProgressKey(bookId)
       suppressedContinueListeningKeys.remove(bookId)
+      if let auth = try? await c.authorize() {
+        applyAuthorizeSession(auth)
+      }
       publishErrorUnlessBenignCancellation(error)
     }
   }
@@ -8790,12 +8922,19 @@ final class AppModel: ObservableObject {
       return
     }
     let key = episode.progressLookupKey
-    guard let row = progressByItemId[key] ?? progressByItemId["\(episode.libraryItemId)/ep/\(episode.episodeId)"]
+    let legacyKey = "\(episode.libraryItemId)/ep/\(episode.episodeId)"
+    guard let row = progressByItemId[key] ?? progressByItemId[legacyKey]
     else { return }
     let playing =
       player.activeBook?.id == episode.libraryItemId && player.activePlaybackEpisodeId == episode.episodeId
+    let preferredDeleteIds = [
+      row.mediaProgressServerId,
+      row.idForMediaProgressDeleteRequest,
+      key,
+      "\(episode.libraryItemId)-\(episode.episodeId)",
+    ].compactMap { $0 }
     markProgressKeyDiscarded(key)
-    markProgressKeyDiscarded("\(episode.libraryItemId)/ep/\(episode.episodeId)")
+    markProgressKeyDiscarded(legacyKey)
     suppressedContinueListeningKeys.insert(key)
     purgeLocalProgressForPodcastEpisode(episode)
     removePodcastEpisodeFromContinueListeningShelves(episode)
@@ -8812,7 +8951,11 @@ final class AppModel: ObservableObject {
       clearPendingOfflineListeningSeconds(progressKey: key)
       await deleteAllListeningSessions(
         client: c, libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
-      try await c.deleteMediaProgress(progressRowId: row.idForMediaProgressDeleteRequest)
+      try await c.deleteMediaProgressForLibraryItem(
+        libraryItemId: episode.libraryItemId,
+        episodeId: episode.episodeId,
+        preferredRowIds: preferredDeleteIds
+      )
       purgeLocalProgressForPodcastEpisode(episode)
       removePodcastEpisodeFromContinueListeningShelves(episode)
       syncContinueListeningShelvesWithProgress()
@@ -8824,15 +8967,93 @@ final class AppModel: ObservableObject {
       await persistProgressToLocalStoreNow()
       persistHomeShelvesSnapshot()
       await refreshStartDashboardIfNeeded()
-      reconcileDiscardedProgressKeyAfterAuthorize(key, mediaProgress: auth.user.mediaProgress)
+
+      let verified = try await verifyProgressDiscardedOnServer(
+        client: c,
+        progressKey: key,
+        libraryItemId: episode.libraryItemId,
+        episodeId: episode.episodeId,
+        mediaProgress: auth.user.mediaProgress
+      )
+      if !verified {
+        clearDiscardedProgressKey(key)
+        clearDiscardedProgressKey(legacyKey)
+        if let fresh = try? await c.authorize() {
+          applyAuthorizeSession(fresh)
+        } else {
+          applyUserProgress(auth.user.mediaProgress)
+        }
+        errorMessage = "Could not reset progress on the server."
+        suppressedContinueListeningKeys.remove(key)
+        await persistProgressToLocalStoreNow()
+        persistHomeShelvesSnapshot()
+        return
+      }
+      clearDiscardedProgressKey(legacyKey)
       purgeLocalProgressForPodcastEpisode(episode)
       await persistProgressToLocalStoreNow()
       persistHomeShelvesSnapshot()
       suppressedContinueListeningKeys.remove(key)
     } catch {
+      clearDiscardedProgressKey(key)
+      clearDiscardedProgressKey(legacyKey)
       suppressedContinueListeningKeys.remove(key)
+      if let auth = try? await c.authorize() {
+        applyAuthorizeSession(auth)
+      }
       publishErrorUnlessBenignCancellation(error)
     }
+  }
+
+  /// Nach Reset: prüfen ob Progress auf dem Server wirklich weg ist; ggf. einmal mit UUID nachlöschen.
+  /// - Returns: `true` wenn der Key auf dem Server nicht mehr existiert.
+  private func verifyProgressDiscardedOnServer(
+    client c: ABSAPIClient,
+    progressKey: String,
+    libraryItemId: String,
+    episodeId: String?,
+    mediaProgress: [ABSUserMediaProgress]?
+  ) async throws -> Bool {
+    let key = progressKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    func stillPresent(_ list: [ABSUserMediaProgress]?) -> ABSUserMediaProgress? {
+      (list ?? []).first { $0.progressLookupKey == key }
+    }
+
+    if stillPresent(mediaProgress) == nil {
+      // Zusätzlich GET — authorize kann kurz stale sein; GET ist die Quelle für libraryItemId-Lookup.
+      if try await c.fetchMediaProgress(libraryItemId: libraryItemId, episodeId: episodeId) == nil {
+        clearDiscardedProgressKey(key)
+        return true
+      }
+    }
+
+    var still = stillPresent(mediaProgress)
+    if still == nil {
+      still = try await c.fetchMediaProgress(libraryItemId: libraryItemId, episodeId: episodeId)
+    }
+    if let still {
+      try await c.deleteMediaProgressForLibraryItem(
+        libraryItemId: libraryItemId,
+        episodeId: episodeId,
+        preferredRowIds: [
+          still.mediaProgressServerId,
+          still.idForMediaProgressDeleteRequest,
+        ].compactMap { $0 }
+      )
+      let auth2 = try await c.authorize()
+      applyAuthorizeSession(auth2)
+      progressByItemId.removeValue(forKey: key)
+      if stillPresent(auth2.user.mediaProgress) == nil,
+        try await c.fetchMediaProgress(libraryItemId: libraryItemId, episodeId: episodeId) == nil
+      {
+        clearDiscardedProgressKey(key)
+        return true
+      }
+      return false
+    }
+
+    clearDiscardedProgressKey(key)
+    return true
   }
 
   /// Alle Hör-Sitzungen eines Buchs / einer Folge auf dem Server löschen (Reset Progress).
@@ -9472,7 +9693,7 @@ final class AppModel: ObservableObject {
   ///   nächste `isNetworkReachable`-Wechsel (`pathMonitor.pathUpdateHandler`) automatisch erneut synct.
   @discardableResult
   func syncOfflineProgressToServer() async -> Bool {
-    guard isNetworkReachable,
+    guard mayUseServerNetwork, isNetworkReachable,
       ABSAPIClient.normalizeServerURL(serverURL) != nil,
       !token.isEmpty
     else { return false }
@@ -9480,7 +9701,9 @@ final class AppModel: ObservableObject {
     restoreServerClientIfNeeded()
     guard let c = client else { return false }
     await player.flushPendingPlaySessionSync()
+    guard mayUseServerNetwork else { return false }
     await flushPendingOfflineListeningTime()
+    guard mayUseServerNetwork else { return false }
     let keysToSync = pendingLocalProgressSyncKeys.isEmpty
       ? Set(progressByItemId.values.map(\.progressLookupKey))
       : pendingLocalProgressSyncKeys
@@ -9488,6 +9711,7 @@ final class AppModel: ObservableObject {
     var finishedSnapshots: [String: ABSUserMediaProgress] = [:]
     var hadFailure = false
     for key in keysToSync {
+      guard mayUseServerNetwork else { return false }
       guard let p = progressByItemId[key] else { continue }
       if p.isFinished {
         finishedSnapshots[key] = p
@@ -9690,8 +9914,16 @@ final class AppModel: ObservableObject {
 
   private func persistLibrariesToLocalStore(_ list: [ABSLibrary]) {
     guard let store = currentLocalLibraryStore() else { return }
-    Task {
+    librariesPersistGeneration &+= 1
+    let generation = librariesPersistGeneration
+    Task { [weak self] in
+      guard let self, self.librariesPersistGeneration == generation else { return }
       try? await store.replaceLibraries(list)
+      guard self.librariesPersistGeneration == generation else {
+        // Neuerer Apply während Write — aktuellen Memory-Stand nachziehen.
+        self.persistLibrariesToLocalStore(self.libraries)
+        return
+      }
     }
   }
 
@@ -9944,6 +10176,7 @@ final class AppModel: ObservableObject {
     if persistToDisk {
       syncStoredAccountFromSession()
     }
+    loadM4BEncodeJobs()
   }
 
   var isSessionGuest: Bool {
@@ -9966,6 +10199,57 @@ final class AppModel: ObservableObject {
     EbookLocalStore.updateActiveSession(account: cacheAccountURL(), userId: user.id)
     applyUserProgress(user.mediaProgress, persistToDisk: persistToDisk)
     applyUserBookmarks(user.bookmarks, persistToDisk: persistToDisk)
+    // Frühere fehlgeschlagene Resets: Discard-Keys die den Server-Stand lokal ausblenden reparieren.
+    let progressSnapshot = user.mediaProgress
+    Task { await self.repairStuckDiscardedProgressKeys(from: progressSnapshot) }
+  }
+
+  /// Discard-Keys, die noch auf dem Server existieren (Reset kam nie an), nachlöschen oder Schutz lösen.
+  private func repairStuckDiscardedProgressKeys(from mediaProgress: [ABSUserMediaProgress]?) async {
+    guard mayUseServerNetwork, isNetworkReachable, let c = client else { return }
+    let stuck = (mediaProgress ?? []).filter { row in
+      let key = row.progressLookupKey
+      guard discardedProgressKeys.contains(key) else { return false }
+      // Während eines laufenden Resets nicht eingreifen.
+      return !suppressedContinueListeningKeys.contains(key)
+    }
+    guard !stuck.isEmpty else { return }
+
+    var changed = false
+    for row in stuck {
+      let key = row.progressLookupKey
+      do {
+        try await c.deleteMediaProgressForLibraryItem(
+          libraryItemId: row.libraryItemId,
+          episodeId: row.episodeId,
+          preferredRowIds: [
+            row.mediaProgressServerId,
+            row.idForMediaProgressDeleteRequest,
+          ].compactMap { $0 }
+        )
+        if try await c.fetchMediaProgress(
+          libraryItemId: row.libraryItemId, episodeId: row.episodeId) == nil
+        {
+          clearDiscardedProgressKey(key)
+          progressByItemId.removeValue(forKey: key)
+          changed = true
+        } else {
+          // Delete wirkte nicht — lokalen Filter lösen, Server-Stand wieder zeigen.
+          clearDiscardedProgressKey(key)
+          progressByItemId[key] = row
+          changed = true
+        }
+      } catch {
+        clearDiscardedProgressKey(key)
+        progressByItemId[key] = row
+        changed = true
+      }
+    }
+    if changed {
+      syncContinueListeningShelvesWithProgress()
+      await persistProgressToLocalStoreNow()
+      persistHomeShelvesSnapshot()
+    }
   }
 
   func fetchServerUsers() async throws -> [ABSAdminUserSummary] {
@@ -10107,9 +10391,217 @@ final class AppModel: ObservableObject {
     return try await c.serverLibraryStats(libraryId: libraryId)
   }
 
+  func fetchServerLibraryDetail(libraryId: String) async throws -> ABSLibraryDetailEnvelope {
+    guard isServerRoot, let c = client else { throw ABSAPIError.emptyBody }
+    return try await c.libraryDetail(id: libraryId, includeFilterData: true)
+  }
+
+  func fetchServerLibraryEpisodeDownloads(libraryId: String) async throws -> ABSLibraryEpisodeDownloadsPayload {
+    guard isServerRoot, let c = client else { throw ABSAPIError.emptyBody }
+    return try await c.libraryEpisodeDownloads(libraryId: libraryId)
+  }
+
   func scanServerLibrary(libraryId: String) async throws {
     guard isServerRoot, let c = client, isNetworkReachable else { return }
     try await c.scanServerLibrary(libraryId: libraryId)
+  }
+
+  func startM4BEncode(
+    book: ABSBook,
+    bitrate: String = "64k",
+    codec: String = "aac",
+    channels: Int = 2
+  ) async {
+    guard isServerAdmin || isServerRoot, let c = client else { return }
+    guard isNetworkReachable else {
+      errorMessage = "No network connection."
+      return
+    }
+    if m4bEncodeJobs.contains(where: { $0.id == book.id && $0.isActive }) {
+      errorMessage = "Conversion already in progress for this title."
+      return
+    }
+    do {
+      try await c.encodeLibraryItemM4B(
+        libraryItemId: book.id,
+        bitrate: bitrate,
+        codec: codec,
+        channels: channels
+      )
+      let job = ServerM4BEncodeJob(
+        id: book.id,
+        title: book.displayTitle,
+        author: book.displayAuthors,
+        startedAt: Date(),
+        status: .running,
+        message: nil
+      )
+      m4bEncodeJobs.removeAll { $0.id == book.id }
+      m4bEncodeJobs.insert(job, at: 0)
+      m4bEncodeProgressStore.setPercent(id: book.id, percent: 0)
+      persistM4BEncodeJobs()
+      ensureM4BAdminSocket()
+      ensureM4BEncodePolling()
+    } catch {
+      publishErrorUnlessBenignCancellation(error)
+    }
+  }
+
+  func cancelM4BEncode(libraryItemId: String) async {
+    guard isServerAdmin || isServerRoot, let c = client else { return }
+    do {
+      try await c.cancelLibraryItemM4BEncode(libraryItemId: libraryItemId)
+      updateM4BEncodeJob(id: libraryItemId) { job in
+        job.status = .cancelled
+        job.message = "Cancelled"
+      }
+      m4bEncodeProgressStore.clear(id: libraryItemId)
+      stopM4BAdminSocketIfIdle()
+    } catch {
+      publishErrorUnlessBenignCancellation(error)
+    }
+  }
+
+  func purgeServerItemsMediaCache() async {
+    guard isServerAdmin || isServerRoot, let c = client else { return }
+    guard isNetworkReachable else {
+      errorMessage = "No network connection."
+      return
+    }
+    do {
+      try await c.purgeItemsMediaCache()
+    } catch {
+      publishErrorUnlessBenignCancellation(error)
+    }
+  }
+
+  func clearFinishedM4BEncodeJobs() {
+    m4bEncodeJobs.removeAll { !$0.isActive }
+    persistM4BEncodeJobs()
+  }
+
+  private func m4bEncodeJobsStorageKey() -> String {
+    guard let u = ABSAPIClient.normalizeServerURL(serverURL)?.absoluteString, !u.isEmpty else {
+      return "abstand_m4b_encode_jobs"
+    }
+    return "abstand_m4b_encode_jobs.\(u)"
+  }
+
+  private func loadM4BEncodeJobs() {
+    guard let data = UserDefaults.standard.data(forKey: m4bEncodeJobsStorageKey()) else {
+      m4bEncodeJobs = []
+      return
+    }
+    m4bEncodeJobs = (try? ABSJSON.decoder().decode([ServerM4BEncodeJob].self, from: data)) ?? []
+    if m4bEncodeJobs.contains(where: \.isActive) {
+      ensureM4BAdminSocket()
+      ensureM4BEncodePolling()
+    }
+  }
+
+  private func persistM4BEncodeJobs() {
+    guard let data = try? ABSJSON.encoder().encode(m4bEncodeJobs) else { return }
+    UserDefaults.standard.set(data, forKey: m4bEncodeJobsStorageKey())
+  }
+
+  private func updateM4BEncodeJob(id: String, mutate: (inout ServerM4BEncodeJob) -> Void) {
+    guard let idx = m4bEncodeJobs.firstIndex(where: { $0.id == id }) else { return }
+    mutate(&m4bEncodeJobs[idx])
+    persistM4BEncodeJobs()
+  }
+
+  private func ensureM4BAdminSocket() {
+    guard isServerAdmin || isServerRoot else { return }
+    guard let base = ABSAPIClient.normalizeServerURL(serverURL) else { return }
+    let tok = token.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !tok.isEmpty else { return }
+    if !m4bSocketBound {
+      m4bAdminSocket.onEvent = { [weak self] event in
+        Task { @MainActor in
+          self?.handleM4BSocketEvent(event)
+        }
+      }
+      m4bSocketBound = true
+    }
+    m4bAdminSocket.connect(serverURL: base, token: tok)
+  }
+
+  private func stopM4BAdminSocketIfIdle() {
+    guard !m4bEncodeJobs.contains(where: \.isActive) else { return }
+    m4bAdminSocket.disconnect()
+  }
+
+  private func handleM4BSocketEvent(_ event: ABSAdminSocketClient.Event) {
+    switch event {
+    case .taskProgress(let libraryItemId, let percent):
+      guard m4bEncodeJobs.contains(where: { $0.id == libraryItemId && $0.isActive }) else { return }
+      // Nur ProgressStore — kein Update an `m4bEncodeJobs`, sonst flackert Book Detail / Menü.
+      m4bEncodeProgressStore.setPercent(id: libraryItemId, percent: percent)
+    case .taskFinished(let libraryItemId, let action, let failed):
+      guard action == "encode-m4b" || action.isEmpty || action.contains("m4b") else { return }
+      guard m4bEncodeJobs.contains(where: { $0.id == libraryItemId && $0.isActive }) else { return }
+      if !failed {
+        m4bEncodeProgressStore.setPercent(id: libraryItemId, percent: 100)
+      }
+      updateM4BEncodeJob(id: libraryItemId) { job in
+        job.status = failed ? .failed : .finished
+        job.message = failed ? (job.message ?? "Failed") : "Done"
+      }
+      stopM4BAdminSocketIfIdle()
+    case .connected, .disconnected:
+      break
+    }
+  }
+
+  private func ensureM4BEncodePolling() {
+    guard m4bEncodePollTask == nil else { return }
+    m4bEncodePollTask = Task { [weak self] in
+      while !Task.isCancelled {
+        guard let self else { return }
+        let active = await MainActor.run { self.m4bEncodeJobs.filter(\.isActive) }
+        if active.isEmpty {
+          await MainActor.run {
+            self.m4bEncodePollTask = nil
+            self.stopM4BAdminSocketIfIdle()
+          }
+          return
+        }
+        for job in active {
+          await self.refreshM4BEncodeJobStatus(jobId: job.id)
+        }
+        try? await Task.sleep(nanoseconds: 4_000_000_000)
+      }
+      await MainActor.run { self?.m4bEncodePollTask = nil }
+    }
+  }
+
+  private func refreshM4BEncodeJobStatus(jobId: String) async {
+    guard let c = client else { return }
+    do {
+      let item = try await c.item(id: jobId, expanded: true)
+      if item.isSingleM4BAudiobook {
+        m4bEncodeProgressStore.setPercent(id: jobId, percent: 100)
+        updateM4BEncodeJob(id: jobId) { job in
+          job.status = .finished
+          job.message = "Done"
+        }
+        stopM4BAdminSocketIfIdle()
+        return
+      }
+      // Nach 6 Stunden ohne M4B: als fehlgeschlagen markieren.
+      if let started = m4bEncodeJobs.first(where: { $0.id == jobId })?.startedAt,
+        Date().timeIntervalSince(started) > 6 * 3600
+      {
+        updateM4BEncodeJob(id: jobId) { job in
+          job.status = .failed
+          job.message = "Timed out waiting for conversion"
+        }
+        m4bEncodeProgressStore.clear(id: jobId)
+        stopM4BAdminSocketIfIdle()
+      }
+    } catch {
+      // Netzwerkfehler beim Poll — Job weiterlaufen lassen.
+    }
   }
 
   func bookmarks(for libraryItemId: String) -> [ABSAudioBookmark] {
@@ -10576,8 +11068,16 @@ final class AppModel: ObservableObject {
   private func persistBookmarksToLocalStore() {
     guard let store = currentLocalLibraryStore() else { return }
     let list = bookmarks
-    Task.detached(priority: .utility) {
+    bookmarksPersistGeneration &+= 1
+    let generation = bookmarksPersistGeneration
+    Task.detached(priority: .utility) { [weak self] in
+      let stillCurrent = await MainActor.run { self?.bookmarksPersistGeneration == generation }
+      guard stillCurrent == true else { return }
       try? await store.replaceAllBookmarks(list)
+      let stillCurrentAfter = await MainActor.run { self?.bookmarksPersistGeneration == generation }
+      if stillCurrentAfter != true {
+        await MainActor.run { self?.persistBookmarksToLocalStore() }
+      }
     }
   }
 
@@ -11097,22 +11597,28 @@ final class AppModel: ObservableObject {
     let generation = progressPersistGeneration
     let list = Array(progressByItemId.values)
     Task.detached(priority: .utility) { [weak self] in
-      // Veraltete Writes verwerfen — sonst gewinnt ein früherer authorize-Merge gegen den Discard.
       let stillCurrent = await MainActor.run { self?.progressPersistGeneration == generation }
       guard stillCurrent == true else { return }
       try? await store.replaceAllProgress(list)
+      // Nach Write erneut prüfen — sonst überschreibt dieser Write einen neueren Now-Persist.
+      let stillCurrentAfter = await MainActor.run { self?.progressPersistGeneration == generation }
+      if stillCurrentAfter != true {
+        await MainActor.run { self?.persistProgressToLocalStore() }
+      }
     }
   }
 
   /// Synchroner Persist für Reset — verhindert Race mit späteren async Writes beim App-Kill.
   private func persistProgressToLocalStoreNow() async {
     guard let store = currentLocalLibraryStore() else { return }
-    progressPersistGeneration &+= 1
-    let generation = progressPersistGeneration
-    let list = Array(progressByItemId.values)
-    try? await store.replaceAllProgress(list)
-    // Falls inzwischen ein neuerer Persist geplant wurde, dessen Generation behalten.
-    _ = generation
+    // Loop: während des Writes kann eine neuere Generation entstehen — dann Snapshot erneut schreiben.
+    while true {
+      progressPersistGeneration &+= 1
+      let generation = progressPersistGeneration
+      let list = Array(progressByItemId.values)
+      try? await store.replaceAllProgress(list)
+      if progressPersistGeneration == generation { return }
+    }
   }
 
   /// SwiftData-`LocalProgress` in `progressByItemId` mergen — z. B. Offline-Home ohne vorherigen `/authorize`.
@@ -11120,10 +11626,11 @@ final class AppModel: ObservableObject {
 
   private func ensureLocalProgressLoaded() {
     guard !localProgressLoaded else { return }
-    localProgressLoaded = true
     loadLocalFinishedProgressKeys()
     loadDiscardedProgressKeys()
     guard let context = currentLocalLibraryMainContext() else { return }
+    // Flag erst setzen, wenn der Store offen ist — sonst kein Retry nach verzögertem Store-Open.
+    localProgressLoaded = true
     let list = (try? context.fetch(FetchDescriptor<LocalProgress>()))?.map { $0.toABSUserMediaProgress() } ?? []
     guard !list.isEmpty else { return }
     applyUserProgress(list, persistToDisk: false)
@@ -11739,6 +12246,9 @@ extension AppModel {
     podcastDirectorySearchTask = nil
     podcastLibrarySearchTask?.cancel()
     podcastLibrarySearchTask = nil
+    libraryReloadSerial &+= 1
+    startDashboardGeneration &+= 1
+    authorizeApplyGeneration &+= 1
     deferredBooksCatalogLocalRestoreScheduled = false
     deferredBrowseListsLocalRestoreScheduled = false
     shouldPrewarmSecondaryTabs = false
@@ -11800,7 +12310,7 @@ extension AppModel {
     isDeferredBootstrapNetworkRefreshInProgress = true
     defer { isDeferredBootstrapNetworkRefreshInProgress = false }
 
-    if bootstrapSupersededByOffline || offlineHomeMode { return }
+    if bootstrapSupersededByOffline || offlineHomeUIActive { return }
 
     guard ABSAPIClient.normalizeServerURL(serverURL) != nil, !token.isEmpty else { return }
     restoreServerClientIfNeeded()
@@ -11849,9 +12359,17 @@ extension AppModel {
     deferredBootstrapAuthorizeTask?.cancel()
     deferredBootstrapAuthorizeTask = Task(priority: .utility) { @MainActor [weak self] in
       guard let self, let c = self.client else { return }
+      let epoch = self.accountSessionEpoch
+      self.authorizeApplyGeneration &+= 1
+      let authorizeGeneration = self.authorizeApplyGeneration
       do {
         let auth = try await c.authorize()
-        guard !Task.isCancelled, !self.bootstrapSupersededByOffline else { return }
+        guard !Task.isCancelled,
+          !self.bootstrapSupersededByOffline,
+          !self.offlineHomeUIActive,
+          self.accountSessionEpoch == epoch,
+          self.authorizeApplyGeneration == authorizeGeneration
+        else { return }
         self.applyAuthorizeSession(auth)
       } catch {
         if !AbstandErrorFilter.isBenignCancellation(error) {
@@ -11936,11 +12454,17 @@ extension AppModel {
   private func refreshLibrariesFromServerInBackground() async {
     guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
     guard mayUseServerNetwork, isNetworkReachable else { return }
+    let epoch = accountSessionEpoch
     restoreServerClientIfNeeded()
     guard let c = client else { return }
     do {
-      applyLibrariesFromServer(try await c.libraries())
-      if bootstrapSupersededByOffline || offlineHomeUIActive { return }
+      let list = try await c.libraries()
+      guard !Task.isCancelled,
+        !bootstrapSupersededByOffline,
+        !offlineHomeUIActive,
+        accountSessionEpoch == epoch
+      else { return }
+      applyLibrariesFromServer(list)
       let defaultLibId = UserDefaults.standard.string(forKey: Keys.userDefaultLibraryId)?
         .trimmingCharacters(in: .whitespacesAndNewlines)
       await resolveLibrariesAfterServerFetch(
@@ -12047,8 +12571,9 @@ extension AppModel {
   /// Vor Offline-Modus: aktuelle Position lokal + Play-Session an den Server, dann Netzwerk trennen.
   private func prepareForOfflineHomeMode() async {
     recordActivePlaybackProgressLocally(markPendingServerSync: true)
-    if let c = client {
+    if let c = client, mayUseServerNetwork {
       await player.flushPendingPlaySessionSync()
+      guard offlineHomeUIActive else { return }
       if player.isRemotePlaySessionActive, let book = player.activeBook {
         let dur = player.totalDuration
         if dur > 0 {
@@ -12064,7 +12589,9 @@ extension AppModel {
         }
       }
     }
+    guard offlineHomeUIActive else { return }
     await adaptActivePlaybackForOfflineHomeMode()
+    guard offlineHomeUIActive else { return }
     isServerReachable = false
     player.suspendServerNetworkingForOfflineMode()
     client = nil
@@ -12135,7 +12662,7 @@ extension AppModel {
     var serverSessionEstablished = false
     do {
       let res = try await ABSAPIClient.login(server: url, username: username, password: password)
-      if bootstrapSupersededByOffline || offlineHomeMode { return }
+      if bootstrapSupersededByOffline || offlineHomeUIActive { return }
       token = res.user.token
       serverURL = server.trimmingCharacters(in: .whitespacesAndNewlines)
       UserDefaults.standard.set(serverURL, forKey: Keys.server)
@@ -12148,13 +12675,13 @@ extension AppModel {
       loadDownloadedItemIdsForActiveAccount()
       isServerReachable = true
       applyLibrariesFromServer(try await c.libraries())
-      if bootstrapSupersededByOffline || offlineHomeMode { return }
+      if bootstrapSupersededByOffline || offlineHomeUIActive { return }
       await resolveLibrariesAfterServerFetch(userDefaultLibraryId: res.userDefaultLibraryId)
-      if bootstrapSupersededByOffline || offlineHomeMode { return }
+      if bootstrapSupersededByOffline || offlineHomeUIActive { return }
       mainTab = .start
       await finishLaunchPresentationAfterBootstrap()
     } catch {
-      if bootstrapSupersededByOffline || offlineHomeMode { return }
+      if bootstrapSupersededByOffline || offlineHomeUIActive { return }
       isRestoringLaunchPlayback = false
       player.setMiniPlayerPlaceholder(false)
       publishErrorUnlessBenignCancellation(error)
@@ -12227,6 +12754,9 @@ extension AppModel {
     sessionUserType = account.userType ?? "user"
     applyLibraryPreferencesFromStoredAccount(account)
     loadDownloadedItemIdsForActiveAccount()
+    // Discard-/Finished-Keys des neuen Accounts laden, bevor Home-Restore Progress merged.
+    loadLocalFinishedProgressKeys()
+    loadDiscardedProgressKeys()
     if let cacheRoot = cacheAccountURL() {
       EbookLocalStore.updateActiveSession(account: cacheRoot, userId: switchedUserId.isEmpty ? nil : switchedUserId)
     }
@@ -12377,9 +12907,18 @@ extension AppModel {
 
   func reloadLibrary(reset: Bool, preserveOtherCachedPages: Bool = false) async {
     guard let lib = booksCatalogLibrary else {
-      await loadStartDashboard()
+      if mayUseServerNetwork, startShelves.isEmpty {
+        await loadStartDashboard()
+      }
       return
     }
+    libraryReloadSerial &+= 1
+    let reloadSerial = libraryReloadSerial
+    let expectedLibraryId = lib.id
+    let expectedSortKey = catalogSortField.apiSortParameter
+    let expectedAscending = catalogSortField == .random ? true : !catalogSortDescending
+    let expectedFilter = activeLibraryFilter
+
     // Lokale DB nur für die SOFORT-Anzeige, bevor der Server antwortet — und nur wenn der
     // Cache-Slug (Sort/Filter) exakt passt. Online kein Superset-Fallback: der würde kurz die
     // ganze lokale Lib in Client-Sortierung zeigen und gleich durch Server-Seite 0 ersetzt
@@ -12390,6 +12929,12 @@ extension AppModel {
       didWarmFromExactLocalCatalog = loadLibraryFromLocalStore(
         allowSupersetFallback: !isNetworkReachable
       )
+    }
+    guard mayUseServerNetwork else {
+      if reset, !didWarmFromExactLocalCatalog {
+        _ = loadLibraryFromLocalStore(allowSupersetFallback: true)
+      }
+      return
     }
     guard let c = client else {
       if reset, !didWarmFromExactLocalCatalog {
@@ -12407,7 +12952,11 @@ extension AppModel {
       return
     }
     isLoadingLibrary = true
-    defer { isLoadingLibrary = false }
+    defer {
+      if libraryReloadSerial == reloadSerial {
+        isLoadingLibrary = false
+      }
+    }
     // Kein passender Sort/Filter-Cache: alte Liste nicht stehen lassen und keinen Superset
     // blenden — Spinner bis Server-Seite 0 da ist. Stille Background-Refreshes behalten die Liste.
     if reset, !preserveOtherCachedPages, !didWarmFromExactLocalCatalog {
@@ -12419,36 +12968,45 @@ extension AppModel {
         libraryPage = 0
       }
     }
-    let ascending = catalogSortField == .random ? true : !catalogSortDescending
-    let sortKey = catalogSortField.apiSortParameter
     do {
       if reset {
         libraryPage = 0
       }
       let pageIndex = libraryPage
       let (page, _) = try await c.libraryItems(
-        libraryId: lib.id,
+        libraryId: expectedLibraryId,
         page: pageIndex,
         limit: Self.libraryCatalogPageLimit,
-        sort: sortKey,
-        ascending: ascending,
+        sort: expectedSortKey,
+        ascending: expectedAscending,
         minified: true,
-        filter: activeLibraryFilter
+        filter: expectedFilter
       )
+      guard libraryReloadSerial == reloadSerial,
+        !offlineHomeUIActive,
+        booksCatalogLibrary?.id == expectedLibraryId,
+        catalogSortField.apiSortParameter == expectedSortKey,
+        (catalogSortField == .random ? true : !catalogSortDescending) == expectedAscending,
+        activeLibraryFilter == expectedFilter
+      else { return }
       let pageBooks = page.results.filter(\.isUsableLibraryCatalogRow)
       if let store = currentLocalLibraryStore() {
         if reset, preserveOtherCachedPages {
           try? await store.refreshCatalogFirstPagePreservingRest(
-            libraryId: lib.id, sortField: sortKey, ascending: ascending, filterKey: activeLibraryFilter,
+            libraryId: expectedLibraryId, sortField: expectedSortKey, ascending: expectedAscending,
+            filterKey: expectedFilter,
             total: page.total, items: pageBooks)
         } else if reset {
           try? await store.replaceCatalogFirstPage(
-            libraryId: lib.id, sortField: sortKey, ascending: ascending, filterKey: activeLibraryFilter,
+            libraryId: expectedLibraryId, sortField: expectedSortKey, ascending: expectedAscending,
+            filterKey: expectedFilter,
             total: page.total, items: pageBooks)
         } else {
-          try? await store.appendCatalogPage(libraryId: lib.id, total: page.total, items: pageBooks)
+          try? await store.appendCatalogPage(
+            libraryId: expectedLibraryId, total: page.total, items: pageBooks)
         }
       }
+      guard libraryReloadSerial == reloadSerial, !offlineHomeUIActive else { return }
       if reset, preserveOtherCachedPages {
         // Stiller Hintergrund-Refresh (z. B. nach Bootstrap): nur die ersten `pageBooks.count`
         // Positionen mit der frischen Server-Reihenfolge ersetzen, bereits gescrollte Folgeseiten
@@ -12473,6 +13031,7 @@ extension AppModel {
     } catch {
       publishErrorUnlessBenignCancellation(error)
     }
+    guard libraryReloadSerial == reloadSerial, !offlineHomeUIActive else { return }
     if startShelves.isEmpty {
       await loadStartDashboard()
     }

@@ -1,0 +1,4 @@
+{
+  "summary": "Progress-Reset-Bug behoben: ABS DELETE braucht die MediaProgress-UUID; 404 wurde bisher still als Erfolg gewertet, während discardedProgressKeys den Server-Stand lokal ausblendete. Neu: GET+Multi-ID-Delete, Verify/Retry nach authorize, Discard-Rollback bei Fehler, plus Repair für hängengebliebene Discard-Keys beim nächsten Authorize. Build iPhone 17 grün.",
+  "current_status": "Progress-Reset sollte Server und App wieder konsistent halten; bestehende „nur lokal reset“-Bücher werden beim nächsten Authorize nachgelöscht bzw. der lokale Filter gelöst. Manueller Test (Reset im Detail, Web-UI prüfen) empfohlen."
+}

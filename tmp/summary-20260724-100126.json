@@ -1,0 +1,4 @@
+{
+  "summary": "M4B-UX umgestellt: Convert sitzt im Book-Detail More-Menü (nur wenn kein Einzel-M4B); Settings/Server zeigt nur noch M4B Progress + Delete media cache, keine Buchliste mehr. fetchM4BConversionCandidates entfernt; Encode/Cancel auch für Admin.",
+  "current_status": "Convert startet aus Book Detail; Progress-Manager unter Settings → Server → M4B Progress. Build zuvor grün."
+}
