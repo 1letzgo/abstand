@@ -333,6 +333,8 @@ private struct SettingsCardSecureFieldRow: View {
   let title: String
   @Binding var text: String
   var placeholder: String = "••••••••"
+  /// Password AutoFill: `.password` (aktuell) bzw. `.newPassword` (neu + Bestätigung).
+  var textContentType: UITextContentType? = nil
 
   var body: some View {
     HStack(spacing: 12) {
@@ -349,9 +351,39 @@ private struct SettingsCardSecureFieldRow: View {
       .font(.body)
       .foregroundStyle(model.appearancePalette.textPrimary)
       .multilineTextAlignment(.trailing)
+      .textContentType(textContentType)
       .textInputAutocapitalization(.never)
       .autocorrectionDisabled()
       .frame(maxWidth: 180)
+      .accessibilityLabel(title)
+    }
+    .settingsCardRowFrame()
+  }
+}
+
+/// Read-only Username für Password AutoFill (Strong Password füllt New + Confirm nur mit Username-Kontext zuverlässig).
+private struct SettingsCardUsernameAutofillRow: View {
+  @EnvironmentObject private var model: AppModel
+  let username: String
+
+  var body: some View {
+    HStack(spacing: 12) {
+      SettingsCardIcon(systemName: "person.fill")
+      Text("Username")
+        .font(.body)
+        .foregroundStyle(model.appearancePalette.textPrimary)
+      Spacer(minLength: 8)
+      TextField("", text: .constant(username))
+        .font(.body)
+        .foregroundStyle(model.appearancePalette.textSecondary)
+        .multilineTextAlignment(.trailing)
+        .textContentType(.username)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .disabled(true)
+        .frame(maxWidth: 180)
+        .accessibilityLabel("Username")
+        .accessibilityValue(username)
     }
     .settingsCardRowFrame()
   }
@@ -1073,24 +1105,32 @@ struct SettingsChangePasswordView: View {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
         AbstandGroupedCard {
           VStack(alignment: .leading, spacing: 0) {
+            // Reihenfolge für System-AutoFill: Current → Username → New → Confirm.
             SettingsCardSecureFieldRow(
               icon: "lock.fill",
               title: "Current password",
-              text: $currentPassword
+              text: $currentPassword,
+              textContentType: .password
             )
+            if !model.sessionUsername.isEmpty {
+              SettingsCardDivider()
+              SettingsCardUsernameAutofillRow(username: model.sessionUsername)
+            }
             SettingsCardDivider()
             SettingsCardSecureFieldRow(
               icon: "lock.open.fill",
               title: "New password",
               text: $newPassword,
-              placeholder: model.isServerRoot ? "Optional" : "Required"
+              placeholder: model.isServerRoot ? "Optional" : "Required",
+              textContentType: .newPassword
             )
             SettingsCardDivider()
             SettingsCardSecureFieldRow(
               icon: "lock.fill",
               title: "Confirm password",
               text: $confirmPassword,
-              placeholder: model.isServerRoot ? "Optional" : "Required"
+              placeholder: model.isServerRoot ? "Optional" : "Required",
+              textContentType: .newPassword
             )
           }
         }
