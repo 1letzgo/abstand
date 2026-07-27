@@ -201,6 +201,7 @@ struct BookDetailView: View {
         case .edit:
           EditMetadataSheet(
             itemId: bookId,
+            libraryId: (detail ?? book).libraryId,
             metadata: (detail ?? book).media.metadata,
             tags: (detail ?? book).media.tags
           )

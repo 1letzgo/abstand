@@ -686,12 +686,7 @@ struct MainRootView: View {
 
   @ViewBuilder
   private func podcastCatalogSectionScrollContent(showId: String?) -> some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-        TabContentSectionTitle(title:"Episodes")
-        podcastPodcastsTabEpisodesContent(showId: showId)
-      }
-    }
+    podcastPodcastsTabEpisodesContent(showId: showId)
   }
 
   private var podcastDockStripItems: [AbstandBrowseStripItem] {

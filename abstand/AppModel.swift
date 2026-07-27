@@ -7942,6 +7942,32 @@ final class AppModel: ObservableObject {
     return try await c.searchCovers(title: title, author: author, provider: provider)
   }
 
+  /// Serien-Vorschläge für Metadaten-Editor (`GET /api/libraries/:id/search` → `series`).
+  func searchLibrarySeries(query: String, libraryId: String? = nil) async throws -> [ABSSearchSeriesRow] {
+    let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard q.count >= 3 else { return [] }
+    guard let c = client else { throw ABSAPIError.emptyBody }
+    let resolvedLibraryId =
+      libraryId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      ?? booksCatalogLibrary?.id
+      ?? selectedBooksLibrary?.id
+    guard let resolvedLibraryId, !resolvedLibraryId.isEmpty else { return [] }
+    let res = try await c.search(libraryId: resolvedLibraryId, query: q, limit: 24)
+    let needle = q.lowercased()
+    var seen = Set<String>()
+    var out: [ABSSearchSeriesRow] = []
+    for row in res.series {
+      let name = row.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !name.isEmpty else { continue }
+      let key = name.lowercased()
+      guard key.contains(needle), !seen.contains(key) else { continue }
+      seen.insert(key)
+      out.append(row)
+      if out.count >= 12 { break }
+    }
+    return out
+  }
+
   /// Setzt ein Cover per Remote-URL (`POST /api/items/:id/cover` mit `{ url }`) und aktualisiert das Detail.
   @discardableResult
   func applyCoverURL(itemId: String, url: String) async -> Bool {

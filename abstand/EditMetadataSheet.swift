@@ -10,6 +10,8 @@ struct EditMetadataSheet: View {
   @Environment(\.themeAccent) private var themeAccent
 
   let itemId: String
+  /// Bibliothek des Items — für Series-Suche; Fallback in `AppModel.searchLibrarySeries`.
+  var libraryId: String? = nil
   let metadata: ABSBookMediaMetadata
   let tags: [String]?
 
@@ -26,6 +28,13 @@ struct EditMetadataSheet: View {
   @State private var genres: String = ""
   @State private var tagsText: String = ""
   @State private var asin: String = ""
+  /// Vorschläge pro Series-Zeile (Index → Namen aus Library-Search).
+  @State private var seriesSuggestionsByRow: [Int: [String]] = [:]
+  @State private var seriesSearchBusyRow: Int?
+  /// Laufende Debounce-Tasks pro Zeile (nur bei Nutzer-Eingabe, nicht Prefill).
+  @State private var seriesSearchTasks: [Int: Task<Void, Never>] = [:]
+  /// Nächstes `onChange` überspringen (Vorschlag übernommen / Zeile geleert).
+  @State private var seriesSearchSuppressRows: Set<Int> = []
 
   // Save-State
   @State private var isSaving = false
@@ -76,6 +85,11 @@ struct EditMetadataSheet: View {
         }
       }
       .onAppear { prefetchFromMetadata() }
+      .onDisappear {
+        for (_, task) in seriesSearchTasks { task.cancel() }
+        seriesSearchTasks = [:]
+        seriesSearchBusyRow = nil
+      }
       .alert("Save failed", isPresented: .constant(saveError != nil)) {
         Button("OK", role: .cancel) { saveError = nil }
       } message: { Text(saveError ?? "") }
@@ -163,30 +177,50 @@ struct EditMetadataSheet: View {
     }
   }
 
-  // Series — wiederholbare Zeilen (Name + Sequence).
+  // Series — wiederholbare Zeilen (Name + Sequence); ab 3 Zeichen Server-Suche.
   @ViewBuilder
   private var seriesEditor: some View {
     VStack(alignment: .leading, spacing: 6) {
-      fieldLabel("Series")
+      fieldLabel("Series", hint: "Search from 3 letters")
       ForEach(Array(seriesRows.enumerated()), id: \.offset) { idx, _ in
-        HStack(spacing: 8) {
-          TextField("Series name", text: $seriesRows[idx].name)
-            .textFieldStyle(.roundedBorder)
-          TextField("#", text: $seriesRows[idx].sequence)
-            .textFieldStyle(.roundedBorder)
-            .frame(width: 64)
-            .keyboardType(.decimalPad)
-          Button {
-            if seriesRows.count == 1 {
-              seriesRows[0] = EditSeriesRow()
-            } else {
-              seriesRows.remove(at: idx)
+        VStack(alignment: .leading, spacing: 4) {
+          HStack(spacing: 8) {
+            TextField("Series name", text: $seriesRows[idx].name)
+              .textFieldStyle(.roundedBorder)
+              .textInputAutocapitalization(.words)
+              .autocorrectionDisabled()
+              .onChange(of: seriesRows[idx].name) { _, _ in
+                scheduleSeriesSearch(rowIndex: idx)
+              }
+            TextField("#", text: $seriesRows[idx].sequence)
+              .textFieldStyle(.roundedBorder)
+              .frame(width: 64)
+              .keyboardType(.decimalPad)
+            Button {
+              seriesSearchTasks[idx]?.cancel()
+              seriesSearchTasks[idx] = nil
+              seriesSearchSuppressRows.insert(idx)
+              if seriesRows.count == 1 {
+                seriesRows[0] = EditSeriesRow()
+              } else {
+                seriesRows.remove(at: idx)
+              }
+              seriesSuggestionsByRow[idx] = nil
+              if seriesSearchBusyRow == idx { seriesSearchBusyRow = nil }
+            } label: {
+              Image(systemName: "minus.circle")
+                .foregroundStyle(AppTheme.textSecondary)
             }
-          } label: {
-            Image(systemName: "minus.circle")
-              .foregroundStyle(AppTheme.textSecondary)
+            .buttonStyle(.plain)
           }
-          .buttonStyle(.plain)
+          if seriesSearchBusyRow == idx {
+            ProgressView()
+              .controlSize(.mini)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(.leading, 2)
+          } else if let suggestions = seriesSuggestionsByRow[idx], !suggestions.isEmpty {
+            seriesSuggestionsList(rowIndex: idx, suggestions: suggestions)
+          }
         }
       }
       Button {
@@ -197,6 +231,94 @@ struct EditMetadataSheet: View {
       }
       .buttonStyle(.plain)
       .foregroundStyle(themeAccent)
+    }
+  }
+
+  @ViewBuilder
+  private func seriesSuggestionsList(rowIndex: Int, suggestions: [String]) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      ForEach(suggestions, id: \.self) { name in
+        Button {
+          seriesSearchTasks[rowIndex]?.cancel()
+          seriesSearchTasks[rowIndex] = nil
+          seriesSearchSuppressRows.insert(rowIndex)
+          seriesRows[rowIndex].name = name
+          seriesSuggestionsByRow[rowIndex] = []
+          if seriesSearchBusyRow == rowIndex { seriesSearchBusyRow = nil }
+        } label: {
+          Text(name)
+            .font(.subheadline)
+            .foregroundStyle(AppTheme.textPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        if name != suggestions.last {
+          Divider()
+            .overlay(AppTheme.textSecondary.opacity(0.25))
+        }
+      }
+    }
+    .background(
+      AppTheme.background,
+      in: RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius, style: .continuous)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius, style: .continuous)
+        .strokeBorder(AppTheme.textSecondary.opacity(0.2), lineWidth: 1)
+    )
+  }
+
+  /// Nur bei aktiver Texteingabe — nicht beim Prefill aus vorhandenen Metadaten.
+  private func scheduleSeriesSearch(rowIndex: Int) {
+    if seriesSearchSuppressRows.contains(rowIndex) {
+      seriesSearchSuppressRows.remove(rowIndex)
+      seriesSuggestionsByRow[rowIndex] = []
+      if seriesSearchBusyRow == rowIndex { seriesSearchBusyRow = nil }
+      return
+    }
+    seriesSearchTasks[rowIndex]?.cancel()
+    seriesSearchTasks[rowIndex] = Task {
+      await runSeriesSearch(rowIndex: rowIndex)
+    }
+  }
+
+  /// Debounced Library-Search für Series-Namen (ab 3 Zeichen).
+  private func runSeriesSearch(rowIndex: Int) async {
+    guard seriesRows.indices.contains(rowIndex) else { return }
+    let q = seriesRows[rowIndex].name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard q.count >= 3 else {
+      seriesSuggestionsByRow[rowIndex] = []
+      if seriesSearchBusyRow == rowIndex { seriesSearchBusyRow = nil }
+      return
+    }
+    guard model.isNetworkReachable else {
+      seriesSuggestionsByRow[rowIndex] = []
+      return
+    }
+    try? await Task.sleep(for: .milliseconds(300))
+    guard !Task.isCancelled else { return }
+    guard seriesRows.indices.contains(rowIndex) else { return }
+    let still = seriesRows[rowIndex].name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard still == q else { return }
+
+    seriesSearchBusyRow = rowIndex
+    defer {
+      if seriesSearchBusyRow == rowIndex { seriesSearchBusyRow = nil }
+    }
+    do {
+      let rows = try await model.searchLibrarySeries(query: q, libraryId: libraryId)
+      guard !Task.isCancelled else { return }
+      let names = rows
+        .map(\.name)
+        .filter { $0.caseInsensitiveCompare(q) != .orderedSame }
+      seriesSuggestionsByRow[rowIndex] = names
+    } catch is CancellationError {
+      // Stille.
+    } catch {
+      seriesSuggestionsByRow[rowIndex] = []
     }
   }
 

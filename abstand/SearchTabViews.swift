@@ -246,7 +246,6 @@ private struct PodcastLibrarySearchResultsView: View {
 
       if !model.podcastLibrarySearchEpisodes.isEmpty {
         LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          TabContentSectionTitle(title:"Episodes")
           ForEach(model.podcastLibrarySearchEpisodes) { episode in
             LibraryPodcastListCard(
               episode: episode,

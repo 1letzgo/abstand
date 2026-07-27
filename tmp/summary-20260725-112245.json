@@ -1,0 +1,4 @@
+{
+  "summary": "Edit Metadata: Series-Feld sucht ab 3 Zeichen per Library-Search (GET …/search → series) auf dem Server, debounce 300ms, Vorschlagsliste zum Übernehmen. libraryId vom Buch wird mitgegeben. Build iPhone 17 grün.",
+  "current_status": "Series-Autocomplete im Metadaten-Editor fertig; Play-Pillen/Padding und M4B-Progress unverändert nutzbar."
+}
