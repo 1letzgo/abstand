@@ -264,13 +264,12 @@ struct PodcastEpisodeDetailView: View {
   }
 
   private var episodePublishedYearLabel: String {
-    guard let pub = detail?.pubDate?.trimmingCharacters(in: .whitespacesAndNewlines), !pub.isEmpty else {
-      return ""
+    guard let label = episodePublishedDateLabel(detail?.pubDate) else { return "" }
+    // Hero: nur Jahr, wenn ein ISO-/Kalenderdatum erkannt wurde.
+    if label.count >= 4, label.prefix(4).allSatisfy(\.isNumber) {
+      return String(label.prefix(4))
     }
-    if pub.count >= 4, pub.prefix(4).allSatisfy(\.isNumber) {
-      return String(pub.prefix(4))
-    }
-    return pub
+    return label
   }
 
   private var episodePlayProgress01: Double {
@@ -288,19 +287,57 @@ struct PodcastEpisodeDetailView: View {
     return formatPlaybackTime(sec)
   }
 
-  /// Der Server liefert Veröffentlichungsdaten häufig als ISO-8601-Zeitstempel.
-  /// Das Kalenderdatum wird direkt aus dem Wert übernommen, damit keine Zeitzonen-
-  /// umrechnung den angezeigten Tag verändert.
+  /// Veröffentlichungsdatum ohne Uhrzeit (ISO-Tag oder lokalisiertes Datum).
   private func episodePublishedDateLabel(_ rawValue: String?) -> String? {
     guard let value = trimmedMetaValue(rawValue) else { return nil }
+
+    // ISO-8601 / `YYYY-MM-DD…` — Tag direkt aus dem String (ohne Zeitzonenverschiebung).
     let datePrefix = String(value.prefix(10))
-    guard datePrefix.range(
-      of: #"^\d{4}-\d{2}-\d{2}$"#,
-      options: .regularExpression
-    ) != nil else {
-      return value
+    if datePrefix.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil {
+      return datePrefix
     }
-    return datePrefix
+
+    if let date = Self.parseEpisodePublicationDate(value) {
+      return date.formatted(.dateTime.year().month().day())
+    }
+
+    // Letzter Fallback: alles ab der ersten Uhrzeit/`T` abschneiden.
+    if let t = value.firstIndex(of: "T") {
+      let head = String(value[..<t]).trimmingCharacters(in: .whitespacesAndNewlines)
+      if !head.isEmpty { return head }
+    }
+    if let space = value.firstIndex(of: " "),
+      value[space...].contains(where: { $0 == ":" })
+    {
+      let head = String(value[..<space]).trimmingCharacters(in: .whitespacesAndNewlines)
+      if !head.isEmpty { return head }
+    }
+    return value
+  }
+
+  private static func parseEpisodePublicationDate(_ raw: String) -> Date? {
+    let isoFractional = ISO8601DateFormatter()
+    isoFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let d = isoFractional.date(from: raw) { return d }
+
+    let iso = ISO8601DateFormatter()
+    iso.formatOptions = [.withInternetDateTime]
+    if let d = iso.date(from: raw) { return d }
+
+    let formats = [
+      "yyyy-MM-dd HH:mm:ss Z",
+      "yyyy-MM-dd HH:mm:ss",
+      "EEE, dd MMM yyyy HH:mm:ss Z",
+      "EEE, dd MMM yyyy HH:mm:ss zzz",
+      "dd MMM yyyy HH:mm:ss Z",
+    ]
+    let df = DateFormatter()
+    df.locale = Locale(identifier: "en_US_POSIX")
+    for format in formats {
+      df.dateFormat = format
+      if let d = df.date(from: raw) { return d }
+    }
+    return nil
   }
 
   private func detailBelowPlaySection(_ d: ABSPodcastEpisodeExpandedDetail) -> some View {

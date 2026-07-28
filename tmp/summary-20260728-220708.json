@@ -1,0 +1,4 @@
+{
+  "summary": "Episode Detail „Published“ zeigt nur noch das Datum ohne Uhrzeit: ISO-Tag direkt, sonst geparst und als Datum formatiert; Fallback schneidet Zeitanteile ab.",
+  "current_status": "Episode-Detail-Veröffentlichungsdatum ohne Timestamp; übrige Features unverändert."
+}
