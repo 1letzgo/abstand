@@ -3370,6 +3370,15 @@ struct ABSAdminMediaProgressRow: Identifiable {
 
   var needsDisplayMetadataEnrichment: Bool { needsTitleEnrichment || needsAuthorEnrichment }
 
+  /// Podcast-Folge — Titel muss Episoden-Titel sein (Show-Name allein reicht nie).
+  var hasPodcastEpisodeId: Bool {
+    let e = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return !e.isEmpty
+  }
+
+  /// Episoden-Zeilen immer auflösen: API liefert oft den Show-Namen als `title`.
+  var needsEpisodeTitleResolution: Bool { hasPodcastEpisodeId }
+
   func withDisplayMetadata(title: String, author: String) -> ABSAdminMediaProgressRow {
     ABSAdminMediaProgressRow(
       libraryItemId: libraryItemId,
@@ -3382,6 +3391,21 @@ struct ABSAdminMediaProgressRow: Identifiable {
       title: title,
       author: author
     )
+  }
+
+  /// Erzwingt Titel/Autor (ohne Placeholder-Gate) — für Episoden-Titel nach Lookup.
+  func replacingDisplayMetadata(title: String?, author: String?) -> ABSAdminMediaProgressRow {
+    let nextTitle: String = {
+      guard let title else { return self.title }
+      let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+      return t.isEmpty ? self.title : t
+    }()
+    let nextAuthor: String = {
+      guard let author else { return self.author }
+      let a = author.trimmingCharacters(in: .whitespacesAndNewlines)
+      return a.isEmpty ? self.author : a
+    }()
+    return withDisplayMetadata(title: nextTitle, author: nextAuthor)
   }
 
   init(
@@ -3483,14 +3507,18 @@ struct ABSAdminMediaProgressRow: Identifiable {
     for list in episodeLists {
       guard let episodes = list else { continue }
       for ep in episodes {
-        guard (ep["id"] as? String) == eid else { continue }
+        let epId = (ep["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !epId.isEmpty, epId == eid || eid.hasSuffix(epId) || epId.hasSuffix(eid) else {
+          continue
+        }
         let title =
           (ep["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
           ?? (ep["displayTitle"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let title, !title.isEmpty else { break }
+        guard let title, !title.isEmpty else { continue }
         let author =
-          (ep["displayAuthor"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+          showTitle
           ?? showAuthor
+          ?? (ep["displayAuthor"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
           ?? "—"
         return (title, author.isEmpty ? "—" : author)
       }
@@ -3504,37 +3532,88 @@ struct ABSAdminMediaProgressRow: Identifiable {
     libraryItem: [String: Any],
     episodeId: String?
   ) {
+    let eid = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    var showTitle: String?
+    var showAuthor: String?
+
     if let dt = libraryItem["displayTitle"] as? String,
-      !dt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-      isPlaceholderMetadata(title)
+      !dt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     {
-      title = dt
+      showTitle = dt
     }
     if let da = libraryItem["displayAuthor"] as? String,
-      !da.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-      isPlaceholderMetadata(author)
+      !da.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     {
-      author = da
+      showAuthor = da
     }
     if let media = libraryItem["media"] as? [String: Any],
       let meta = media["metadata"] as? [String: Any]
     {
-      applyMetadata(title: &title, author: &author, from: meta)
-    }
-    let eid = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    if !eid.isEmpty, let episodes = libraryItem["episodes"] as? [[String: Any]] {
-      for ep in episodes {
-        guard let id = ep["id"] as? String, id == eid else { continue }
-        if let t = ep["title"] as? String, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-          title = t
-        }
-        break
+      if showTitle == nil, let t = meta["title"] as? String,
+        !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
+        showTitle = t
+      }
+      if showAuthor == nil, let a = meta["author"] as? String,
+        !a.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
+        showAuthor = a
+      }
+      if showAuthor == nil, let a = meta["authorName"] as? String,
+        !a.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
+        showAuthor = a
       }
     }
-    if isPlaceholderMetadata(title), let recent = libraryItem["recentEpisode"] as? [String: Any] {
-      if let t = recent["title"] as? String, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+
+    if !eid.isEmpty {
+      let episodeLists = [
+        libraryItem["episodes"] as? [[String: Any]],
+        (libraryItem["media"] as? [String: Any])?["episodes"] as? [[String: Any]],
+      ]
+      for list in episodeLists {
+        guard let episodes = list else { continue }
+        for ep in episodes {
+          let epId = (ep["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+          guard !epId.isEmpty, epId == eid || eid.hasSuffix(epId) || epId.hasSuffix(eid) else {
+            continue
+          }
+          if let t = ep["title"] as? String, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            title = t
+          } else if let t = ep["displayTitle"] as? String,
+            !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          {
+            title = t
+          }
+          break
+        }
+      }
+      if isPlaceholderMetadata(title), let recent = libraryItem["recentEpisode"] as? [String: Any],
+        let recentId = recent["id"] as? String, recentId == eid,
+        let t = recent["title"] as? String, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
         title = t
       }
+      // Show-Name gehört bei Episodes in die Autoren-/Show-Zeile, nicht in den Titel.
+      if isPlaceholderMetadata(author) {
+        if let showAuthor, !showAuthor.isEmpty {
+          author = showAuthor
+        } else if let showTitle, !showTitle.isEmpty {
+          author = showTitle
+        }
+      }
+      return
+    }
+
+    if let showTitle, isPlaceholderMetadata(title) {
+      title = showTitle
+    }
+    if let showAuthor, isPlaceholderMetadata(author) {
+      author = showAuthor
+    } else if let media = libraryItem["media"] as? [String: Any],
+      let meta = media["metadata"] as? [String: Any]
+    {
+      applyMetadata(title: &title, author: &author, from: meta)
     }
   }
 
@@ -3585,7 +3664,20 @@ struct ABSAdminMediaProgressRow: Identifiable {
     }()
     guard !resolvedLibraryItemId.isEmpty else { return nil }
 
-    let resolvedEpisodeId = jsonString(["episodeId", "episode_id"])
+    // episodeId oft nur in Composite-`id` (`<libraryItemId>-ep_…`), nicht als eigenes Feld.
+    let resolvedEpisodeId: String? = {
+      if let e = jsonString(["episodeId", "episode_id"]), !e.isEmpty { return e }
+      if let r = rawId.range(of: "-ep_") {
+        return String(rawId[rawId.index(after: r.lowerBound)...])
+      }
+      let prefix = resolvedLibraryItemId + "-"
+      if rawId.hasPrefix(prefix) {
+        let rest = String(rawId.dropFirst(prefix.count))
+        return rest.isEmpty ? nil : rest
+      }
+      return nil
+    }()
+    let isEpisode = !(resolvedEpisodeId?.isEmpty ?? true)
     let resolvedDuration = jsonDouble(["duration"])
     let resolvedProgress = jsonDouble(["progress"])
     let resolvedCurrentTime = jsonDouble(["currentTime", "current_time"])
@@ -3597,7 +3689,13 @@ struct ABSAdminMediaProgressRow: Identifiable {
     if let media = d["media"] as? [String: Any],
       let meta = media["metadata"] as? [String: Any]
     {
-      Self.applyMetadata(title: &resolvedTitle, author: &resolvedAuthor, from: meta)
+      if isEpisode {
+        // Podcast-Show-Metadaten → nur Show-Zeile, nie Episoden-Titel.
+        var ignoredTitle = "—"
+        Self.applyMetadata(title: &ignoredTitle, author: &resolvedAuthor, from: meta)
+      } else {
+        Self.applyMetadata(title: &resolvedTitle, author: &resolvedAuthor, from: meta)
+      }
     }
     if let ep = d["episode"] as? [String: Any] {
       Self.applyMetadata(title: &resolvedTitle, author: &resolvedAuthor, from: ep)
@@ -3610,7 +3708,11 @@ struct ABSAdminMediaProgressRow: Identifiable {
         episodeId: resolvedEpisodeId
       )
     }
-    if let topTitle = jsonString(["title", "displayTitle"]), Self.isPlaceholderMetadata(resolvedTitle) {
+    // Top-Level `title`/`displayTitle` bei Episodes oft = Show-Name — ignorieren wenn noch kein Episoden-Titel.
+    if !isEpisode,
+      let topTitle = jsonString(["title", "displayTitle"]),
+      Self.isPlaceholderMetadata(resolvedTitle)
+    {
       resolvedTitle = topTitle
     }
     if let topAuthor = jsonString(["author", "authorName", "displayAuthor"]),

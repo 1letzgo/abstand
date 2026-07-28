@@ -761,7 +761,7 @@ struct SettingsHubRootView: View {
         AbstandGroupedCard {
           ServerAdminNavRow(
             icon: "hourglass",
-            title: "M4B Progress",
+            title: "M4B Converter",
             subtitle: {
               let activeCount = model.m4bEncodeJobs.filter(\.isActive).count
               guard activeCount > 0 else { return nil }
@@ -2328,7 +2328,7 @@ private struct ServerM4BProgressContent: View {
         }
       }
     }
-    .navigationTitle("M4B Progress")
+    .navigationTitle("M4B Converter")
     .toolbarTitleDisplayMode(.inlineLarge)
     .tint(model.appearanceAccentColor)
     .alert("Delete media cache?", isPresented: $confirmPurgeCache) {

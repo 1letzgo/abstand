@@ -1,0 +1,4 @@
+{
+  "summary": "Library Progress (Settings/Server/User): Podcast-Zeilen zeigen Episoden-Titel statt Show-Namen. Lokal wird der Show-Titel nur noch als Autor genutzt; Netz-Enrichment holt den Episoden-Titel; Decode prüft auch media.episodes. Build iPhone 17 grün.",
+  "current_status": "Admin User Library Progress zeigt für Podcasts Episodentitel; übrige Server-Admin-Features unverändert."
+}

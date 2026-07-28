@@ -10314,6 +10314,12 @@ final class AppModel: ObservableObject {
       for ep in podcastEpisodes where ep.libraryItemId == libraryItemId && ep.episodeId == eid {
         return (ep.episodeTitle, ep.showTitle)
       }
+      // Nur Show lokal → Show-Name als Autor, Titel bleibt Placeholder (Netz-Enrichment für Episode).
+      if let show = (podcastShows + podcastSearchBooks).first(where: { $0.id == libraryItemId }) {
+        let showTitle = show.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ("—", showTitle.isEmpty ? "—" : showTitle)
+      }
+      return nil
     }
     for b in mergedLocalCatalogBooks() + podcastShows + podcastSearchBooks
     where b.id == libraryItemId
@@ -10328,7 +10334,16 @@ final class AppModel: ObservableObject {
     title: String,
     author: String
   ) -> ABSAdminMediaProgressRow {
-    row.withDisplayMetadata(
+    if row.needsEpisodeTitleResolution {
+      // Episoden: Titel immer überschreiben, sobald ein echter Episoden-Titel da ist.
+      let titleTrim = title.trimmingCharacters(in: .whitespacesAndNewlines)
+      let useTitle = !titleTrim.isEmpty && titleTrim != "—"
+      return row.replacingDisplayMetadata(
+        title: useTitle ? titleTrim : nil,
+        author: row.needsAuthorEnrichment || useTitle ? author : nil
+      )
+    }
+    return row.withDisplayMetadata(
       title: row.needsTitleEnrichment ? title : row.resolvedDisplayTitle,
       author: row.needsAuthorEnrichment ? author : row.resolvedDisplayAuthor
     )
@@ -10344,7 +10359,7 @@ final class AppModel: ObservableObject {
     var pending: [ABSAdminMediaProgressRow] = []
     for row in rows {
       var working = row
-      if working.needsDisplayMetadataEnrichment,
+      if working.needsDisplayMetadataEnrichment || working.needsEpisodeTitleResolution,
         let meta = localDisplayMetadataForAdminProgress(
           libraryItemId: row.libraryItemId,
           episodeId: row.episodeId
@@ -10352,7 +10367,26 @@ final class AppModel: ObservableObject {
       {
         working = mergeAdminProgressRowMetadata(working, title: meta.title, author: meta.author)
       }
-      if working.needsDisplayMetadataEnrichment {
+
+      let localEpisodeResolved: Bool = {
+        guard working.needsEpisodeTitleResolution else { return false }
+        let eid = working.episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !eid.isEmpty else { return false }
+        return podcastEpisodes.contains {
+          $0.libraryItemId == working.libraryItemId
+            && $0.episodeId == eid
+            && !$0.episodeTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && $0.episodeTitle == working.title
+        }
+      }()
+
+      if working.needsEpisodeTitleResolution {
+        if localEpisodeResolved {
+          out.append(working)
+        } else {
+          pending.append(working)
+        }
+      } else if working.needsDisplayMetadataEnrichment {
         pending.append(working)
       } else {
         out.append(working)
@@ -10389,10 +10423,28 @@ final class AppModel: ObservableObject {
     do {
       let data = try await client.itemResponseData(id: row.libraryItemId, expanded: true)
       let eid = row.episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      if !eid.isEmpty,
-        let epMeta = ABSAdminMediaProgressRow.episodeMetadata(fromItemJSON: data, episodeId: eid)
-      {
-        return mergeAdminProgressRowMetadata(row, title: epMeta.title, author: epMeta.author)
+      if !eid.isEmpty {
+        if let epMeta = ABSAdminMediaProgressRow.episodeMetadata(fromItemJSON: data, episodeId: eid)
+        {
+          return row.replacingDisplayMetadata(title: epMeta.title, author: epMeta.author)
+        }
+        // Fallback über Codable-Episodenliste.
+        if let item = try? ABSJSON.decoder().decode(ABSBook.self, from: data),
+          let episodes = item.media.podcastEpisodes,
+          let match = episodes.first(where: {
+            $0.id == eid || eid.hasSuffix($0.id) || $0.id.hasSuffix(eid)
+          })
+        {
+          let show = item.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+          return row.replacingDisplayMetadata(
+            title: match.title,
+            author: show.isEmpty ? nil : show
+          )
+        }
+        if let item = try? ABSJSON.decoder().decode(ABSBook.self, from: data) {
+          return row.replacingDisplayMetadata(title: nil, author: item.displayTitle)
+        }
+        return row
       }
       let item = try ABSJSON.decoder().decode(ABSBook.self, from: data)
       return mergeAdminProgressRowMetadata(

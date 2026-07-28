@@ -1,0 +1,4 @@
+{
+  "summary": "Library Progress: Episode-Titel-Fix vertieft — episodeId aus Composite-ID (`…-ep_…`) extrahieren; Show-Metadaten nicht mehr als Titel; Episoden immer per Lookup anreichern (Titel erzwingen). Build grün.",
+  "current_status": "Admin User Library Progress sollte Podcast-Episoden-Titel zeigen; manuell in Settings/Server/User prüfen."
+}
