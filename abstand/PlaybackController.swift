@@ -1175,7 +1175,8 @@ final class PlaybackController: NSObject, ObservableObject {
     liveTranscription.handlePlaybackTick(player: self)
     refreshGlobalFromPlayer()
     updateChapterUI(global: globalPosition)
-    updateNowPlaying()
+    // Nur Position/Rate — volles Ersetzen von nowPlayingInfo jedes Tick lässt das Sperrbildschirm-Cover verschwinden.
+    pushNowPlayingPlaybackProgress()
     // Zeit-Timer: Wanduhr-abhängig.
     if isPlaying, let end = sleepEndDate, Date() >= end {
       clearSleepTimer()
@@ -1831,6 +1832,7 @@ final class PlaybackController: NSObject, ObservableObject {
 
   private func updateNowPlaying() {
     guard let book = activeBook else { return }
+    ensureNowPlayingArtworkFromCache()
     var info: [String: Any] = [
       MPMediaItemPropertyTitle: book.displayTitle,
       MPMediaItemPropertyArtist: book.displayAuthors,
@@ -1842,12 +1844,58 @@ final class PlaybackController: NSObject, ObservableObject {
     ]
     if let art = nowPlayingArtwork {
       info[MPMediaItemPropertyArtwork] = art
+    } else if let existing = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork]
+    {
+      info[MPMediaItemPropertyArtwork] = existing
     }
     MPNowPlayingInfoCenter.default().nowPlayingInfo = info
   }
 
+  /// Leichte Progress-Aktualisierung — Artwork/Titel unverändert lassen (Sperrbildschirm).
+  private func pushNowPlayingPlaybackProgress() {
+    guard activeBook != nil else { return }
+    var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+    if info[MPMediaItemPropertyTitle] == nil {
+      updateNowPlaying()
+      return
+    }
+    info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = globalPosition
+    info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(playbackRate) : 0
+    info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = Double(playbackRate)
+    info[MPMediaItemPropertyPlaybackDuration] = totalDuration
+    if info[MPMediaItemPropertyArtwork] == nil {
+      ensureNowPlayingArtworkFromCache()
+      if let art = nowPlayingArtwork {
+        info[MPMediaItemPropertyArtwork] = art
+      }
+    }
+    MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+  }
+
+  /// Cover aus letztem Tint-Bild oder Memory-Cache wiederherstellen (ohne Netz).
+  private func ensureNowPlayingArtworkFromCache() {
+    if nowPlayingArtwork != nil { return }
+    if let image = lastCoverImageForBarTint {
+      nowPlayingArtwork = Self.makeNowPlayingArtwork(from: image)
+      return
+    }
+    guard let bookId = activeBook?.id else { return }
+    for key in [bookId, "\(bookId)#cover-hero"] {
+      if let image = CoverImageCache.memoryImage(itemId: key) {
+        lastCoverImageForBarTint = image
+        nowPlayingArtwork = Self.makeNowPlayingArtwork(from: image)
+        return
+      }
+    }
+  }
+
   private func scheduleCoverLoad(for bookId: String) {
     coverLoadTask?.cancel()
+    // Sofort aus Cache/Tint — Sperrbildschirm nicht auf Netz warten lassen.
+    ensureNowPlayingArtworkFromCache()
+    if nowPlayingArtwork != nil {
+      updateNowPlaying()
+    }
     coverLoadTask = Task { [weak self] in
       await self?.loadNowPlayingArtwork(bookId: bookId)
     }
@@ -1855,16 +1903,21 @@ final class PlaybackController: NSObject, ObservableObject {
 
   private func loadNowPlayingArtwork(bookId: String) async {
     guard let client = apiClient else { return }
+    // Bereits vorhanden (Cache) — optional Netz-Refresh, Cover behalten bei Fehler.
     let url = await client.coverURL(itemId: bookId, tier: .hero)
     let data: Data
     do {
       data = try await client.authenticatedData(from: url)
     } catch {
+      ensureNowPlayingArtworkFromCache()
+      if nowPlayingArtwork != nil { updateNowPlaying() }
       return
     }
     guard !Task.isCancelled, activeBook?.id == bookId else { return }
     guard let image = UIImage(data: data) else { return }
     lastCoverImageForBarTint = image
+    CoverImageCache.storeMemory(itemId: bookId, image: image)
+    CoverImageCache.storeMemory(itemId: "\(bookId)#cover-hero", image: image)
     applyMiniPlayerBarFillFromStoredCover()
     let artwork = Self.makeNowPlayingArtwork(from: image)
     nowPlayingArtwork = artwork
@@ -1954,7 +2007,7 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   /// Offline-Modus: keine weiteren Play-Session- oder Cover-Requests.
-  /// Vorher `flushPendingPlaySessionSync()` aufrufen — Session absichtlich offen lassen (kein `closePlaySession`).
+  /// Vorher `flushPendingPlaySessionSync()` + `consumePendingListenSeconds()` — Session absichtlich offen lassen.
   func suspendServerNetworkingForOfflineMode() {
     syncTask?.cancel()
     syncTask = nil
@@ -1962,6 +2015,15 @@ final class PlaybackController: NSObject, ObservableObject {
     coverLoadTask = nil
     playSessionId = nil
     apiClient = nil
+  }
+
+  /// Aufgelaufene Hörsekunden abholen und Zähler leeren (Offline-Persistenz vor Session-Clear).
+  func consumePendingListenSeconds() -> Int {
+    accumulateListenTime()
+    let raw = pendingListenSeconds
+    let tl = Int(floor(raw))
+    pendingListenSeconds = max(0, raw - Double(tl))
+    return max(0, tl)
   }
 
   func closeSessionIfNeeded() async {

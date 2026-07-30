@@ -2120,12 +2120,15 @@ final class AppModel: ObservableObject {
     }
   }
 
-  /// Kurz nach Netzverlust: lokalen Fortschritt laden und Continue-Regal reparieren (ohne Server).
+  /// Kurz nach Netzverlust: Position lokal sichern und Continue-Regal reparieren (ohne Server).
   func handleNetworkBecameUnreachable() {
+    recordActivePlaybackProgressLocally(markPendingServerSync: true)
     ensureLocalProgressLoaded()
     if !startShelves.isEmpty {
       repairContinueListeningShelfFromLocalProgressOnly()
     }
+    // Persist nicht blockierend im Path-Handler — Generation schützt vor veraltetem Write.
+    persistProgressToLocalStore()
   }
 
   /// Lädt Home-Regale: online `/personalized` + `items-in-progress`; offline nur Cache + lokaler Fortschritt.
@@ -9710,7 +9713,8 @@ final class AppModel: ObservableObject {
     if let episode = podcastEpisodeForSmartDownloadFromActivePlayback() {
       return episode.progressLookupKey
     }
-    return "\(book.id)/ep/\(ep)"
+    // Gleicher Trenner wie `ABSUserMediaProgress.progressLookupKey` (`libraryItemId-episodeId`).
+    return "\(book.id)-\(ep)"
   }
 
   /// Nach Offline-Modus: Session-Sync, dann alle lokalen `progressByItemId`-Einträge per PATCH; zuletzt `/authorize` zum Abgleich.
@@ -12649,10 +12653,15 @@ extension AppModel {
   /// Vor Offline-Modus: aktuelle Position lokal + Play-Session an den Server, dann Netzwerk trennen.
   private func prepareForOfflineHomeMode() async {
     recordActivePlaybackProgressLocally(markPendingServerSync: true)
-    if let c = client, mayUseServerNetwork {
+    // Synchron persistieren — sonst kann ein schneller App-Kill den async Write verlieren.
+    await persistProgressToLocalStoreNow()
+
+    // Offline-UI ist hier bereits aktiv → `mayUseServerNetwork` ist false. Client/apiClient
+    // leben noch bis zum Suspend am Ende — letzte Session/PATCH trotzdem absetzen.
+    if isNetworkReachable, client != nil {
       await player.flushPendingPlaySessionSync()
       guard offlineHomeUIActive else { return }
-      if player.isRemotePlaySessionActive, let book = player.activeBook {
+      if player.isRemotePlaySessionActive, let c = client, let book = player.activeBook {
         let dur = player.totalDuration
         if dur > 0 {
           let pos = player.globalPosition
@@ -12664,9 +12673,20 @@ extension AppModel {
               currentTime: pos, duration: dur, progress: prog, isFinished: nil
             )
           )
+          if let key = activePlaybackProgressLookupKey() {
+            pendingLocalProgressSyncKeys.remove(key)
+          }
         }
       }
     }
+
+    // Was die Session nicht mehr absetzen konnte (kein Netz / Fehler) → Offline-Hörzeit parken,
+    // bevor tearDown/suspend `pendingListenSeconds` verwerfen.
+    let leftover = player.consumePendingListenSeconds()
+    if leftover > 0, let key = activePlaybackProgressLookupKey() {
+      addPendingOfflineListeningSeconds(progressKey: key, seconds: leftover)
+    }
+
     guard offlineHomeUIActive else { return }
     await adaptActivePlaybackForOfflineHomeMode()
     guard offlineHomeUIActive else { return }
@@ -12682,6 +12702,8 @@ extension AppModel {
 
     let position = player.globalPosition
     let wasPlaying = player.isPlaying
+    // Position nochmals lokal — tearDown setzt globalPosition auf 0.
+    recordActivePlaybackProgressLocally(markPendingServerSync: true)
 
     if let episode = podcastEpisodeForActivePlayback() {
       let storageKey = podcastEpisodeOfflineStorageId(episode)

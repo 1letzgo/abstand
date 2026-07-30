@@ -1,0 +1,4 @@
+{
+  "summary": "Sperrbildschirm-Cover-Fix: Progress-Ticks aktualisieren nur noch Elapsed/Rate (nicht mehr das ganze nowPlayingInfo); Artwork wird aus Cache/Tint wiederhergestellt und bei Netzfehlern behalten. Build iPhone 17 grün.",
+  "current_status": "Lock-Screen-Cover sollte während der Wiedergabe stabil bleiben; manuell mit Sperrbildschirm prüfen."
+}
