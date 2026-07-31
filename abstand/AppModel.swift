@@ -1067,6 +1067,7 @@ final class AppModel: ObservableObject {
     let accountBootstrap = Self.bootstrapStoredAccountsState()
     storedAccounts = accountBootstrap.accounts
     activeAccountKey = accountBootstrap.activeKey
+    hydrateSessionUserIdForLocalStore()
     loadDownloadedItemIdsForActiveAccount()
     loadActiveLibraryIdsFromUserDefaults()
     // Home-Regale off-MainActor laden (SwiftData blockiert nicht den ersten Frame); Katalog/Podcasts/Downloads deferred.
@@ -4105,6 +4106,7 @@ final class AppModel: ObservableObject {
     }
     homeLaunchLocalRestoreTask?.cancel()
     let localStore = currentLocalLibraryStore()
+    let shelfLibraryIds = homeShelvesCacheLibraryIds(primary: libId)
     homeLaunchLocalRestoreTask = Task(priority: .userInitiated) { @MainActor [weak self] in
       defer {
         AppLog.launchSignposter.endInterval("restoreHome", sp)
@@ -4121,7 +4123,12 @@ final class AppModel: ObservableObject {
       }()
       async let cachedShelvesTask: [ABSStartShelfSection]? = {
         guard let localStore else { return nil }
-        return await localStore.fetchHomeShelves(libraryId: libId)
+        for shelfLibId in shelfLibraryIds {
+          if let cached = await localStore.fetchHomeShelves(libraryId: shelfLibId), !cached.isEmpty {
+            return cached
+          }
+        }
+        return nil
       }()
       let (progressList, bookmarksList) = await localSnapshot
       let cachedShelves = await cachedShelvesTask
@@ -4136,25 +4143,10 @@ final class AppModel: ObservableObject {
         self.applyOfflineStartDashboard()
         return
       }
-      var parsed: [ABSStartShelfSection] = []
-      if let cached = cachedShelves {
-        parsed = cached
-        let visible = parsed.filter { self.isStartCategoryEnabled($0.category) }
-        if !visible.isEmpty {
-          var transaction = Transaction()
-          transaction.disablesAnimations = true
-          withTransaction(transaction) {
-            self.startShelves = visible
-            self.recomputeStartBooksUnion(from: visible)
-            self.updateStartSettingsCategoryList(parsed: parsed)
-            self.applyContinueListeningFromCachedItemsInProgress()
-            self.repairContinueListeningShelfFromLocalProgressOnly()
-            self.syncContinueListeningShelvesWithProgress()
-          }
-          return
-        }
+      if let cached = cachedShelves, self.applyRestoredHomeShelvesFromCache(cached) {
+        return
       }
-      self.applyLaunchHomeContinueAndEbookCache(libraryId: libId, parsed: parsed)
+      self.applyLaunchHomeContinueAndEbookCache(libraryId: libId, parsed: cachedShelves ?? [])
     }
   }
 
@@ -4201,24 +4193,54 @@ final class AppModel: ObservableObject {
       return
     }
     var parsed: [ABSStartShelfSection] = []
-    if let context, let cached = LocalLibraryQueries.homeShelves(context: context, libraryId: libId) {
-      parsed = cached
-      let visible = parsed.filter { isStartCategoryEnabled($0.category) }
-      if !visible.isEmpty {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-          startShelves = visible
-          recomputeStartBooksUnion(from: visible)
-          updateStartSettingsCategoryList(parsed: parsed)
-          applyContinueListeningFromCachedItemsInProgress()
-          repairContinueListeningShelfFromLocalProgressOnly()
-          syncContinueListeningShelvesWithProgress()
+    if let context {
+      for shelfLibId in homeShelvesCacheLibraryIds(primary: libId) {
+        if let cached = LocalLibraryQueries.homeShelves(context: context, libraryId: shelfLibId),
+          !cached.isEmpty
+        {
+          parsed = cached
+          break
         }
+      }
+      if applyRestoredHomeShelvesFromCache(parsed) {
         return
       }
     }
     applyLaunchHomeContinueAndEbookCache(libraryId: libId, parsed: parsed)
+  }
+
+  /// Library-IDs für Home-Shelves-Cache: Primary zuerst, dann weitere aktive Books-Libraries.
+  private func homeShelvesCacheLibraryIds(primary: String) -> [String] {
+    var ids: [String] = []
+    let primaryId = primary.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !primaryId.isEmpty { ids.append(primaryId) }
+    for id in activeBooksLibraryIds {
+      let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty, !ids.contains(trimmed) else { continue }
+      ids.append(trimmed)
+    }
+    return ids
+  }
+
+  /// Gecachte Home-Regale beim Kaltstart anwenden.
+  /// Finished-Filter nur mit geladenem Progress — sonst würde Continue Listening geleert.
+  @discardableResult
+  private func applyRestoredHomeShelvesFromCache(_ parsed: [ABSStartShelfSection]) -> Bool {
+    let visible = parsed.filter { isStartCategoryEnabled($0.category) }
+    guard !visible.isEmpty else { return false }
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction) {
+      startShelves = visible
+      recomputeStartBooksUnion(from: visible)
+      updateStartSettingsCategoryList(parsed: parsed)
+      applyContinueListeningFromCachedItemsInProgress()
+      repairContinueListeningShelfFromLocalProgressOnly()
+      if !progressByItemId.isEmpty {
+        syncContinueListeningShelvesWithProgress()
+      }
+    }
+    return !startShelves.isEmpty
   }
 
   /// Continue-Regale aus LocalStore, wenn kein `/personalized`-Snapshot da ist.
@@ -4238,11 +4260,20 @@ final class AppModel: ObservableObject {
       } else {
         applyContinueListeningFromCachedItemsInProgress()
         repairContinueListeningShelfFromLocalProgressOnly()
-        syncContinueListeningShelvesWithProgress()
+        if !progressByItemId.isEmpty {
+          syncContinueListeningShelvesWithProgress()
+        }
       }
       if !parsed.isEmpty {
         updateStartSettingsCategoryList(parsed: parsed)
       }
+    }
+  }
+
+  /// Wartet auf den async LocalStore-Continue-Restore — Bootstrap darf nicht vorher force-refreshen.
+  private func waitForHomeContinueLaunchRestoreIfNeeded() async {
+    if let task = homeLaunchLocalRestoreTask {
+      await task.value
     }
   }
 
@@ -10054,6 +10085,21 @@ final class AppModel: ObservableObject {
     return nil
   }
 
+  /// Vor dem ersten LocalStore-Zugriff: UserId aus UserDefaults/Account setzen (sonst falsches Store-Verzeichnis).
+  private func hydrateSessionUserIdForLocalStore() {
+    guard sessionUserId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    let fromDefaults =
+      UserDefaults.standard.string(forKey: Keys.sessionUserId)?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !fromDefaults.isEmpty {
+      sessionUserId = fromDefaults
+      return
+    }
+    if let uid = resolvedLocalStoreUserId() {
+      sessionUserId = uid
+    }
+  }
+
   /// eBook-Lesesession — erst bei Reader/eBook-Refresh, nicht beim Kaltstart.
   private func ensureEbookLocalSessionIfNeeded() {
     let uid =
@@ -12235,7 +12281,11 @@ extension AppModel {
     // Nur Downloads-Manifest früh — Katalog/Prewarm erst nach Connect + Home/Player.
     scheduleFinishDeferredLaunchLocalRestore()
 
-    // `restoreHomeLaunchStateFromLocalStore()` in init — Home/Katalog sofort aus Cache.
+    // Continue-Cache aus init fertig anwenden, bevor Cache-vs-Network entschieden wird.
+    await waitForHomeContinueLaunchRestoreIfNeeded()
+    guard !bootstrapSupersededByOffline else { return }
+
+    // `scheduleHomeLaunchRestoreFromLocalStore()` in init — Home/Katalog sofort aus Cache.
     let hadCachedBootstrap = hasCachedBootstrapContent
     if !hadCachedBootstrap {
       isAppBootstrapInProgress = true
@@ -12267,6 +12317,9 @@ extension AppModel {
 
   /// Home-Refresh und Mini-Player nach Bootstrap — blockiert Kaltstart nur ohne Cache.
   private func finishLaunchPresentationAfterBootstrap() async {
+    guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
+    // Continue-Cache zuerst fertig anwenden — sonst force-Network bevor Shelves da sind.
+    await waitForHomeContinueLaunchRestoreIfNeeded()
     guard !bootstrapSupersededByOffline, !offlineHomeUIActive else { return }
     let hadCachedHome = !startShelves.isEmpty
     async let home = loadStartDashboard(
