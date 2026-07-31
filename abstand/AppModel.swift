@@ -738,6 +738,8 @@ final class AppModel: ObservableObject {
         defer {
           if self?.offlineModeGeneration == generation {
             self?.isLeavingOfflineMode = false
+            // Reachable-Edge während Leave wurde übersprungen — Pending Flags nachziehen.
+            self?.schedulePendingPostOfflineModeRetriesIfNeeded()
           }
         }
         guard let self, !Task.isCancelled else { return }
@@ -747,7 +749,8 @@ final class AppModel: ObservableObject {
   }
 
   /// Nach Offline-Modus: Client, Fortschritt, Bibliotheken für Settings, Home.
-  /// Sync und Katalog bewusst sequenziell — parallele Writes auf `books`/`progressByItemId` rasten sonst.
+  /// Katalog + Continue Listening nicht hinter dem Progress-Sync blockieren — sonst bleiben
+  /// Library/Continue auf dem Offline-Stand, bis alle PATCHes durch sind (oder hängen).
   private func finishLeavingOfflineHomeMode(generation: UInt) async {
     guard offlineModeGeneration == generation, !offlineHomeUIActive else { return }
     restoreServerClientIfNeeded()
@@ -756,17 +759,44 @@ final class AppModel: ObservableObject {
     guard offlineModeGeneration == generation, !offlineHomeUIActive, mayUseServerNetwork else { return }
     persistHomeShelvesSnapshot()
 
-    let progressOk = await syncOfflineProgressToServer()
-    guard offlineModeGeneration == generation, !offlineHomeUIActive else { return }
-    if !progressOk { pendingPostOfflineModeProgressSync = true }
+    // Progress-Sync fire-and-forget: Leave/UI-Refresh darf nicht auf PATCHes warten.
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      let progressOk = await self.syncOfflineProgressToServer()
+      guard self.offlineModeGeneration == generation, !self.offlineHomeUIActive else { return }
+      if !progressOk { self.pendingPostOfflineModeProgressSync = true }
+    }
 
     let catalogOk = await reloadSettingsTab(reloadCatalogs: true)
     guard offlineModeGeneration == generation, !offlineHomeUIActive else { return }
     if !catalogOk { pendingPostOfflineModeCatalogReload = true }
 
-    await loadStartDashboard(force: true)
+    // Offline-Continue (nur Downloads) muss ersetzt werden — Merge behält den Offline-Stand.
+    await loadStartDashboard(force: true, replaceContinueShelves: true)
     guard offlineModeGeneration == generation, !offlineHomeUIActive else { return }
     await reloadLibraryViewsForModeTransition()
+  }
+
+  /// Pending Offline→Online-Retries, wenn der Path-Monitor-Edge während `isLeavingOfflineMode` verpasst wurde.
+  private func schedulePendingPostOfflineModeRetriesIfNeeded() {
+    guard !offlineHomeUIActive, !isLeavingOfflineMode, isNetworkReachable, mayUseServerNetwork else { return }
+    guard pendingPostOfflineModeProgressSync || pendingPostOfflineModeCatalogReload else { return }
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      guard !self.offlineHomeUIActive, !self.isLeavingOfflineMode, self.isNetworkReachable else { return }
+      if self.pendingPostOfflineModeProgressSync {
+        let ok = await self.syncOfflineProgressToServer()
+        if ok { self.pendingPostOfflineModeProgressSync = false }
+      }
+      if self.pendingPostOfflineModeCatalogReload {
+        let ok = await self.reloadSettingsTab(reloadCatalogs: true)
+        if ok {
+          self.pendingPostOfflineModeCatalogReload = false
+          await self.reloadLibraryViewsForModeTransition()
+        }
+      }
+      await self.loadStartDashboard(force: true, replaceContinueShelves: true)
+    }
   }
 
   /// Nach Online-/Offline-Wechsel: Browse-Listen + eBooks einmal neu laden — sonst zeigen sie per Guard in
@@ -1031,7 +1061,7 @@ final class AppModel: ObservableObject {
             }
             model.ensureLocalProgressLoaded()
             await model.flushPendingOfflineListeningTime()
-            await model.loadStartDashboard()
+            await model.loadStartDashboard(force: true, replaceContinueShelves: true)
           }
         }
       }
@@ -2136,11 +2166,13 @@ final class AppModel: ObservableObject {
   /// `skipAuthorizeRefresh`: nach frischem `authorize` in Bootstrap/Login — kein zweites `/authorize`.
   /// `force`: Netzwerk-Refresh auch wenn Regale schon da sind (Pull-to-Refresh, Bootstrap, Settings).
   /// `forPullToRefresh`: expliziter Pull — Netz trotz PathMonitor versuchen, Fehler anzeigen.
+  /// `replaceContinueShelves`: Continue Listening neu aus Server aufbauen (Offline→Online, Pull-to-Refresh).
   @discardableResult
   func loadStartDashboard(
     skipAuthorizeRefresh: Bool = false,
     force: Bool = false,
-    forPullToRefresh: Bool = false
+    forPullToRefresh: Bool = false,
+    replaceContinueShelves: Bool = false
   ) async -> ContinueRefreshAttemptResult {
     ensureLocalProgressLoaded()
 
@@ -2151,6 +2183,7 @@ final class AppModel: ObservableObject {
 
     startDashboardGeneration &+= 1
     let dashboardGeneration = startDashboardGeneration
+    let shouldReplaceContinue = forPullToRefresh || replaceContinueShelves
 
     var result = ContinueRefreshAttemptResult()
     var didApplyOnlineStartDashboard = false
@@ -2216,12 +2249,12 @@ final class AppModel: ObservableObject {
         if let progressSync { await progressSync.value }
         guard startDashboardGeneration == dashboardGeneration, !offlineHomeUIActive else { return result }
         updateStartSettingsCategoryList(parsed: mergedParsed)
-        // `force` nur: Early-Exit umgehen. Continue-Replace nur bei Pull-to-Refresh —
-        // Hintergrund-Refresh bleibt local-first (Merge + lokale Continue-Reading-Regale erhalten).
+        // `force` nur: Early-Exit umgehen. Continue-Replace bei Pull-to-Refresh oder
+        // Offline→Online — Hintergrund-Refresh bleibt sonst local-first.
         applyOnlineStartDashboard(
           parsed: mergedParsed,
           itemsInProgress: inProgressPacked.payload,
-          replaceContinueShelves: forPullToRefresh
+          replaceContinueShelves: shouldReplaceContinue
         )
         didApplyOnlineStartDashboard = true
         result.appliedOnline = true
