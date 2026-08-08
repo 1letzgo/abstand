@@ -356,9 +356,9 @@ struct PlayerLiveTranscriptPanelView: View {
     let progress = fractionalLine - floor(fractionalLine)
     let layout = teleprompterLayout
     let intraLineOffset = -CGFloat(progress) * layout.rowStride
-    let activeWord = transcription.activeWord(at: time)
-    let activeLineIndex = activeTranscriptLineIndex(
-      in: lines, centerIdx: centerIdx, activeWord: activeWord)
+    let activeHit = transcription.activeWordHit(at: time)
+    let activeWord = activeHit?.word
+    let activeLineIndex = activeHit?.lineIndex ?? centerIdx
 
     return VStack(alignment: .leading, spacing: layout.lineSpacing) {
       ForEach(-layout.linesBeforeCenter...layout.linesBeforeCenter, id: \.self) { delta in
@@ -387,19 +387,6 @@ struct PlayerLiveTranscriptPanelView: View {
     }
     .offset(y: intraLineOffset)
     .compositingGroup()
-  }
-
-  private func activeTranscriptLineIndex(
-    in lines: [PlayerTranscriptLine],
-    centerIdx: Int,
-    activeWord: PlayerTranscriptWord?
-  ) -> Int {
-    guard let activeWord,
-      let idx = lines.firstIndex(where: { line in
-        line.words.contains { $0.id == activeWord.id }
-      })
-    else { return centerIdx }
-    return idx
   }
 
   private func selectWordForLookup(_ word: PlayerTranscriptWord) {

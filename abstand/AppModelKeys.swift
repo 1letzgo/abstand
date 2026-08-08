@@ -25,6 +25,9 @@ extension AppModel {
   /// Nutzer-Reihenfolge der Home-Regale (JSON `[String]`); Continue listening bleibt immer zuerst.
   static let startCategoryOrder = "abstand_start_category_order"
   static let homeBrowseCategory = "abstand_home_browse_category"
+  /// Kaltstart-Signal je Account: LocalStore hält Home-Regale oder Fortschritt.
+  /// Ersetzt einen synchronen SwiftData-Fetch, der sonst im View-Body und im Bootstrap-Fenster läuft.
+  static let hasCachedLaunchArtifacts = "abstand_has_cached_launch_artifacts"
   static let catalogSortField = "abstand_catalog_sort_field"
   static let catalogSortDescending = "abstand_catalog_sort_descending"
   /// Sortierung nur Podcast-Bibliothek (Shows-Leiste + Fallback `libraryItems` für Folgen).

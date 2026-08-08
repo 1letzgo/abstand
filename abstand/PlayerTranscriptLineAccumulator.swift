@@ -77,6 +77,19 @@ final class PlayerTranscriptLineAccumulator {
     return all
   }
 
+  /// Zeilenzahl ohne Array-Kopie — wird pro Player-Tick abgefragt.
+  var publishedLineCount: Int {
+    closedLines.count + (openWords.contains { !$0.isWhitespaceOnly } ? 1 : 0)
+  }
+
+  /// Älteste Zeilen verwerfen. Ohne Obergrenze wächst `closedLines` über Stunden
+  /// Laufzeit unbegrenzt und jede Veröffentlichung kopiert mehr Daten.
+  /// In Blöcken kürzen, damit `removeFirst` nicht bei jeder neuen Zeile anfällt.
+  func pruneClosedLines(keeping limit: Int, chunk: Int) {
+    guard closedLines.count >= limit + chunk else { return }
+    closedLines.removeFirst(closedLines.count - limit)
+  }
+
   private func openLineSnapshot(volatile: Bool = false) -> PlayerTranscriptLine? {
     let spoken = openWords.filter { !$0.isWhitespaceOnly }
     guard !spoken.isEmpty else { return nil }

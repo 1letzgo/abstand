@@ -2174,6 +2174,7 @@ final class AppModel: ObservableObject {
     forPullToRefresh: Bool = false,
     replaceContinueShelves: Bool = false
   ) async -> ContinueRefreshAttemptResult {
+    await awaitHomeLaunchLocalRestore()
     ensureLocalProgressLoaded()
 
     // Tab-Wechsel / erneutes onAppear: `startShelves` aus init/Cache behalten, kein Reload.
@@ -2290,6 +2291,15 @@ final class AppModel: ObservableObject {
       publishErrorUnlessBenignCancellation(error, forceDisplay: forPullToRefresh)
     }
     return result
+  }
+
+  /// Kaltstart: Der LocalStore-Restore ist alleiniger Erst-Schreiber von `startShelves`.
+  /// Ohne dieses Warten laufen Restore und Netz-Apply parallel auf dieselbe Property — der später
+  /// fertige Restore überschreibt dann frische Server-Regale mit dem alten Snapshot, und
+  /// `loadStartDashboard` liest den Cache ein zweites Mal synchron auf dem MainActor.
+  private func awaitHomeLaunchLocalRestore() async {
+    guard let task = homeLaunchLocalRestoreTask else { return }
+    await task.value
   }
 
   /// Personalisierte Regale mehrerer aktiver Books-Libraries zusammenführen (Dedup per Item-ID).
@@ -2637,6 +2647,9 @@ final class AppModel: ObservableObject {
     guard let store = currentLocalLibraryStore() else { return }
     let libraryId = selectedBooksLibrary?.id ?? Keys.librarySelectionNone
     let sections = startShelves
+    if !sections.isEmpty {
+      setHasCachedLaunchArtifacts(true)
+    }
     homeShelvesPersistGeneration &+= 1
     let generation = homeShelvesPersistGeneration
     Task.detached(priority: .utility) { [weak self] in
@@ -3952,6 +3965,7 @@ final class AppModel: ObservableObject {
     }
     UserDefaults.standard.removeObject(forKey: Keys.startDisabledCategories)
     UserDefaults.standard.removeObject(forKey: Keys.homeBrowseCategory)
+    UserDefaults.standard.removeObject(forKey: cachedLaunchArtifactsDefaultsKey())
     startDisabledCategories = []
     homeBrowseCategory = ABSStartShelfLocalization.homeBrowseContinueSectionID
     startSettingsCategoryList = ABSStartShelfLocalization.settingsCategoryOrder.map {
@@ -4166,6 +4180,8 @@ final class AppModel: ObservableObject {
       let (progressList, bookmarksList) = await localSnapshot
       let cachedShelves = await cachedShelvesTask
       guard !Task.isCancelled else { return }
+      // Kaltstart-Flag am tatsächlichen Store-Inhalt ausrichten — nur hier ist er sicher bekannt.
+      self.setHasCachedLaunchArtifacts(!progressList.isEmpty || !(cachedShelves ?? []).isEmpty)
       if !progressList.isEmpty {
         self.applyUserProgress(progressList, persistToDisk: false)
       }
@@ -4297,9 +4313,10 @@ final class AppModel: ObservableObject {
           syncContinueListeningShelvesWithProgress()
         }
       }
-      if !parsed.isEmpty {
-        updateStartSettingsCategoryList(parsed: parsed)
-      }
+      // Immer setzen, auch ohne Regal-Snapshot: `startShelves(forHomeBrowseSection:)` iteriert über diese
+      // Liste. Bleibt sie leer, zeigt Home „alle Regale aus“, obwohl die lokal rekonstruierten
+      // Continue-Regale bereits in `startShelves` stehen. Die Reihenfolge ist rein lokal berechenbar.
+      updateStartSettingsCategoryList(parsed: parsed)
     }
   }
 
@@ -11757,6 +11774,9 @@ final class AppModel: ObservableObject {
     progressPersistGeneration &+= 1
     let generation = progressPersistGeneration
     let list = Array(progressByItemId.values)
+    if !list.isEmpty {
+      setHasCachedLaunchArtifacts(true)
+    }
     Task.detached(priority: .utility) { [weak self] in
       let stillCurrent = await MainActor.run { self?.progressPersistGeneration == generation }
       guard stillCurrent == true else { return }
@@ -12643,7 +12663,34 @@ extension AppModel {
 
   var hasCachedBootstrapContent: Bool {
     if !startShelves.isEmpty || !books.isEmpty || !podcastEpisodes.isEmpty { return true }
-    return hasCachedLaunchArtifactsInLocalStore()
+    return hasCachedLaunchArtifactsFlag()
+  }
+
+  private func cachedLaunchArtifactsDefaultsKey() -> String {
+    if let key = activeAccountKey?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
+      return "\(Keys.hasCachedLaunchArtifacts).\(key)"
+    }
+    return Keys.hasCachedLaunchArtifacts
+  }
+
+  /// Persistiertes Kaltstart-Signal statt SwiftData-Fetch: `hasCachedBootstrapContent` steckt in der
+  /// `.task(id:)`-Interpolation von `StartDashboardView` und wird im Bootstrap ausgewertet, bevor der
+  /// LocalStore-Restore durch ist. Ein Fetch an dieser Stelle ist teuer und macht den Pfad timing-abhängig
+  /// (mal `force: true` mit Overlay, mal local-first).
+  private func hasCachedLaunchArtifactsFlag() -> Bool {
+    guard cacheAccountURL() != nil else { return false }
+    let key = cachedLaunchArtifactsDefaultsKey()
+    if let stored = UserDefaults.standard.object(forKey: key) as? Bool { return stored }
+    // Erster Start nach dem Update: einmalig aus dem LocalStore ableiten und merken.
+    let available = hasCachedLaunchArtifactsInLocalStore()
+    UserDefaults.standard.set(available, forKey: key)
+    return available
+  }
+
+  /// Flag nachziehen — sowohl nach Persists als auch nach dem Restore, der den echten Zustand kennt.
+  private func setHasCachedLaunchArtifacts(_ available: Bool) {
+    guard cacheAccountURL() != nil else { return }
+    UserDefaults.standard.set(available, forKey: cachedLaunchArtifactsDefaultsKey())
   }
 
   /// LocalStore-Artefakte für schnellen Kaltstart (auch wenn Regale im Speicher noch leer sind).
