@@ -86,8 +86,6 @@ private struct AppRootContainer: View {
       model.reapplyAppearance(systemColorScheme: scheme)
     }
     .onChange(of: scenePhase) { _, phase in
-      // Nur im Vordergrund die Session setzen: Bei `.inactive` (z. B. Control Center,
-      // Sperrbildschirm) erneutes `setCategory`/`setActive` kann die laufende Wiedergabe unterbrechen.
       if phase == .active {
         model.player.handleReturnToForeground()
         // Self-Heal: Podcast-Liste nachladen, falls während Sperre eine Folge beendet wurde
@@ -97,16 +95,12 @@ private struct AppRootContainer: View {
         // fortschreiben, wenn der letzte Server-Abgleich zu lange her ist.
         model.refreshCatalogsIfStaleOnForeground()
       } else if phase == .background {
-        model.player.disableTeleprompterIfNeeded()
+        // Nur Teleprompter beenden. Die Audio-Session bleibt unangetastet — iOS hält die
+        // laufende Wiedergabe über `.playback` + `audio`-Background-Mode selbst am Leben.
+        // `.inactive` bewusst ausgenommen: das feuert auch bei Control Center, App-Switcher
+        // oder Anruf-Banner, wo die App gleich wieder aktiv ist.
+        model.player.handleEnterBackground()
       }
-    }
-    .onReceive(
-      NotificationCenter.default.publisher(
-        for: UIApplication.protectedDataWillBecomeUnavailableNotification
-      )
-    ) { _ in
-      // Display aus / Gerät gesperrt — Teleprompter beenden, Wiedergabe läuft weiter.
-      model.player.disableTeleprompterIfNeeded()
     }
     .alert("Connecting ABS Server", isPresented: serverConnectionAlertPresented) {
       Button("Go offline") {

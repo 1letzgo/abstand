@@ -124,6 +124,8 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   private var player: AVPlayer?
+  /// Einziger Zugriffspunkt auf `AVAudioSession` — siehe `AudioSessionController`.
+  private let audioSession = AudioSessionController.shared
   private var timeObserver: Any?
   /// Read-Along: häufigere Position-Updates für flüssigeres Teleprompter-Scrollen.
   private var readAlongHighFrequencyTicks = false
@@ -210,10 +212,11 @@ final class PlaybackController: NSObject, ObservableObject {
   private var sleepTimerPaused = false
   /// Für `.shouldResume` nach Telefonanruf / Unterbrechung.
   private var wasPlayingBeforeInterruption = false
-  /// Nach Telefonat / Media-Services-Reset: Category + Active neu setzen, nicht überspringen.
-  private var needsHardAudioSessionReset = false
-  /// Nach Unterbrechung: wenn Engine nicht anspringt, Track einmal neu laden.
+  /// Nach Media-Services-Reset: Player-Item ist unbrauchbar, Track einmal neu laden.
   private var prefersTrackReloadAfterInterruption = false
+  /// Bewusstes Resume/Reload: kurzzeitiges Engine-`.paused` (Seek/Item-Replace) nicht als Pause werten.
+  /// Sonst stoppt die Wiedergabe ~1–2 s nach Session-/Track-Neustart wieder.
+  private var suppressEnginePauseSyncUntil: Date?
 
   /// Intelligenter Sleep-Timer: letzte Konfiguration + Zeitstempel bei natürlichem Ablauf.
   /// Wenn die Wiedergabe innerhalb von `sleepTimerGraceSeconds` nach Ablauf neu startet,
@@ -474,109 +477,68 @@ final class PlaybackController: NSObject, ObservableObject {
     lastExpiredSleepDate = nil
   }
 
-  /// Session für Hintergrund / Sperrbildschirm; `setCategory` nur bei Bedarf (erneuter Aufruf kann sonst kurz unterbrechen).
-  /// `reclaimFromOtherApps`: Tonspur von anderer App zurückholen (explizites Play), nicht beim bloßen Vordergrund-Wechsel.
-  /// Nach Telefonat / Media-Services-Reset erzwingen wir Category + Active neu — iOS lässt die Session
-  /// oft „optisch“ unverändert, aber `setActive` schlägt ohne Neuaufbau fehl und Play bleibt stumm.
-  @discardableResult
-  func ensureAudioSessionForPlayback(reclaimFromOtherApps: Bool = false) -> Bool {
-    let session = AVAudioSession.sharedInstance()
-    let categoryOpts: AVAudioSession.CategoryOptions = [
-      .allowBluetoothHFP, .allowBluetoothA2DP, .allowAirPlay,
-    ]
-    var activeOpts: AVAudioSession.SetActiveOptions = []
-    if reclaimFromOtherApps {
-      activeOpts.insert(.notifyOthersOnDeactivation)
-    }
-    let force = needsHardAudioSessionReset
-    let needsCategory =
-      force
-      || session.category != .playback
-      || session.mode != .spokenAudio
-
-    do {
-      if needsCategory {
-        try session.setCategory(
-          .playback,
-          mode: .spokenAudio,
-          policy: .longFormAudio,
-          options: categoryOpts
-        )
-      }
-      try session.setActive(true, options: activeOpts)
-      needsHardAudioSessionReset = false
-      return true
-    } catch {
-      DebugLogCollector.shared.log(
-        "audioSession activate failed force=\(force) err=\(error.localizedDescription)"
-      )
-    }
-
-    // Telefon/andere App kann longFormAudio kurz blockieren — ohne Policy erneut versuchen.
-    do {
-      try session.setCategory(.playback, mode: .spokenAudio, options: categoryOpts)
-      try session.setActive(true, options: activeOpts)
-      needsHardAudioSessionReset = false
-      return true
-    } catch {
-      DebugLogCollector.shared.log(
-        "audioSession fallback activate failed err=\(error.localizedDescription)"
-      )
-    }
-
-    // Letzter Versuch: Session kurz deaktivieren und neu aktivieren.
-    try? session.setActive(false, options: .notifyOthersOnDeactivation)
-    do {
-      try session.setCategory(.playback, mode: .default, options: categoryOpts)
-      try session.setActive(true, options: activeOpts)
-      needsHardAudioSessionReset = false
-      return true
-    } catch {
-      DebugLogCollector.shared.log(
-        "audioSession hard reset failed err=\(error.localizedDescription)"
-      )
-      return false
+  /// Seek/Item-Replace und Session-Restart melden kurz `.paused` — das ist kein User-Pause.
+  private func beginSuppressingEnginePauseSync(for seconds: TimeInterval = 2.5) {
+    let until = Date().addingTimeInterval(seconds)
+    if let current = suppressEnginePauseSyncUntil {
+      suppressEnginePauseSyncUntil = max(current, until)
+    } else {
+      suppressEnginePauseSyncUntil = until
     }
   }
 
+  /// Display aus / App in den Hintergrund. An der Audio-Session wird hier **nichts** verändert:
+  /// mit `.playback` und dem `audio`-Background-Mode hält iOS die laufende Wiedergabe von selbst,
+  /// während ein `setCategory`/`setActive` in diesem Moment den Ton abreißen lassen kann.
+  /// Nur der Teleprompter wird beendet, weil er ohne Display keinen Zweck hat.
+  func handleEnterBackground() {
+    disableTeleprompterIfNeeded()
+  }
+
+  /// Interruption-Handling nach Apple-Vorgabe: bei `.began` hält das System das Audio bereits an,
+  /// wir übernehmen nur den Zustand. Fortgesetzt wird ausschließlich bei `.shouldResume`.
   private func handleAudioSessionInterruption(typeRaw: UInt, optionRaw: UInt) {
     guard let type = AVAudioSession.InterruptionType(rawValue: typeRaw) else { return }
     switch type {
     case .began:
       wasPlayingBeforeInterruption = isPlaying || wasPlayingBeforeInterruption
-      needsHardAudioSessionReset = true
-      prefersTrackReloadAfterInterruption = true
-      player?.pause()
-      syncPlayingStateFromPlayerIfNeeded()
       DebugLogCollector.shared.log(
         "audioSession interruption began wasPlaying=\(wasPlayingBeforeInterruption)"
       )
+      guard isPlaying else { return }
+      // Kein zusätzliches `player.pause()` — das System hat den Ton schon gestoppt.
+      accumulateListenTime()
+      isPlaying = false
+      pauseSleepTimer()
+      updateNowPlaying()
+      Task { await flushSync(force: true) }
     case .ended:
       let opts = AVAudioSession.InterruptionOptions(rawValue: optionRaw)
       let shouldResume = opts.contains(.shouldResume)
-      let activated = ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
-      DebugLogCollector.shared.log(
-        "audioSession interruption ended shouldResume=\(shouldResume) "
-          + "wasPlaying=\(wasPlayingBeforeInterruption) activated=\(activated)"
-      )
-      if shouldResume, wasPlayingBeforeInterruption {
-        play()
-      } else {
-        syncPlayingStateFromPlayerIfNeeded()
-      }
+      let resumePlayback = wasPlayingBeforeInterruption && shouldResume
       wasPlayingBeforeInterruption = false
+      DebugLogCollector.shared.log(
+        "audioSession interruption ended shouldResume=\(shouldResume) resume=\(resumePlayback)"
+      )
+      guard resumePlayback else {
+        syncPlayingStateFromPlayerIfNeeded()
+        return
+      }
+      // `play()` aktiviert die Session mit Wiederholungen — direkt nach dem Anruf liegt sie
+      // noch beim Telefondienst — und holt bei Bedarf Play-Session/Stream-URL neu.
+      play()
     @unknown default:
       break
     }
   }
 
-  /// Media-Services-Reset (selten, u. a. nach Telefonat): Player-Item neu binden.
+  /// Media-Services-Reset (selten, u. a. nach Telefonat): laut Apple-Doku sind Session-Konfiguration
+  /// und alle Audio-Objekte danach ungültig — Session neu aufbauen und Player-Item neu binden.
   private func handleMediaServicesWereReset() {
-    needsHardAudioSessionReset = true
     prefersTrackReloadAfterInterruption = true
     let resume = isPlaying
     DebugLogCollector.shared.log("audioSession mediaServicesWereReset resume=\(resume)")
-    ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
+    audioSession.rebuildAfterMediaServicesReset()
     guard activeBook != nil, player != nil else {
       syncPlayingStateFromPlayerIfNeeded()
       return
@@ -599,14 +561,11 @@ final class PlaybackController: NSObject, ObservableObject {
     reconcilePlayingStateWithEngine()
   }
 
-  /// Vordergrund nach langer Pause: UI-Zustand angleichen.
-  /// Nach Telefonat zusätzlich die Audio-Session wiederherstellen — ohne Auto-Play.
+  /// Vordergrund nach langer Pause: UI-Zustand angleichen — ohne Auto-Play und ohne
+  /// Session-Eingriff (die Session bleibt aktiv, solange die Wiedergabe läuft).
   func handleReturnToForeground() {
     refreshPlaybackStateFromEngine()
     reconcileSleepTimerAfterBackground()
-    if needsHardAudioSessionReset, activeBook != nil {
-      _ = ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
-    }
   }
 
   /// Sleep-Timer nach Hintergrund-Phase angleichen: AVPlayer läuft im Hintergrund weiter,
@@ -680,6 +639,11 @@ final class PlaybackController: NSObject, ObservableObject {
       // Countdown eingefroren und der Timer feuert nie.
       resumeSleepTimerIfNeeded()
     } else {
+      // Item-Replace / Seek / Session-Restart: Engine ist kurz pausiert, Absicht bleibt Play.
+      if let until = suppressEnginePauseSyncUntil {
+        if Date() < until { return }
+        suppressEnginePauseSyncUntil = nil
+      }
       accumulateListenTime()
       isPlaying = false
       pauseSleepTimer()
@@ -691,7 +655,10 @@ final class PlaybackController: NSObject, ObservableObject {
   private func applyBackgroundPlaybackPolicy(_ player: AVPlayer?) {
     guard let player else { return }
     player.allowsExternalPlayback = true
-    player.automaticallyWaitsToMinimizeStalling = false
+    // Systemdefault beibehalten: bei leerem Puffer wartet der Player statt zu stallen — im
+    // Hintergrund beendet ein Stall sonst die Wiedergabe. Der schnelle Start kommt aus
+    // `playImmediately(atRate:)`, das diese Einstellung für den Startmoment ohnehin übergeht.
+    player.automaticallyWaitsToMinimizeStalling = true
     if #available(iOS 15.0, macOS 12.0, *) {
       player.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible
     }
@@ -862,7 +829,7 @@ final class PlaybackController: NSObject, ObservableObject {
       await liveTranscription.disable()
     }
     tearDownPlayer()
-    ensureAudioSessionForPlayback()
+    audioSession.activateForPlayback(reclaimingOutput: true)
     shouldAutoPlayAfterLoad = autoPlay
     apiClient = client
     activeBook = book
@@ -1383,6 +1350,9 @@ final class PlaybackController: NSObject, ObservableObject {
     statusObserver?.invalidate()
     statusObserver = nil
 
+    // Replace + Seek melden `.paused` — bei play=true nicht als echte Pause übernehmen.
+    if play { beginSuppressingEnginePauseSync(for: 3) }
+
     player?.replaceCurrentItem(with: item)
     installObservers()
     applyEQToCurrentItem()
@@ -1397,6 +1367,7 @@ final class PlaybackController: NSObject, ObservableObject {
           self.updateChapterUI(global: g)
           self.updateNowPlaying()
           if shouldPlay {
+            self.beginSuppressingEnginePauseSync(for: 2)
             self.applyPlayingRate()
             self.isPlaying = true
           }
@@ -1498,12 +1469,13 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Resume nach Pause, Unterbrechung oder Fremd-App: Session + Stream ggf. neu verbinden.
   private func performPlayResume() async {
     guard !Task.isCancelled else { return }
-    let sessionReady = ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
-    if !sessionReady {
-      DebugLogCollector.shared.log("playResume: audio session not active — retrying hard reset")
-      needsHardAudioSessionReset = true
-      _ = ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
+    beginSuppressingEnginePauseSync(for: 3)
+
+    // Nach Telefonat/Fremd-App kann die Session einen Moment belegt sein — mit Wiederholungen.
+    if await audioSession.activateForPlayback(retries: 2) == false {
+      DebugLogCollector.shared.log("playResume: audio session not active")
     }
+    guard !Task.isCancelled else { return }
 
     if localRoot != nil, playSessionId == nil, attemptServerPlaySessionForLocal {
       await recreatePlaySessionForLocalPlaybackIfNeeded()
@@ -1518,29 +1490,35 @@ final class PlaybackController: NSObject, ObservableObject {
       let offset = local.isFinite ? max(0, local) : 0
       prefersTrackReloadAfterInterruption = false
       await loadCurrentTrack(play: true, localOffset: offset)
+      beginPlaybackEngine()
+      await schedulePlaybackEngineKickstartIfStillPaused(alreadyReloadedTrack: true)
       return
     }
 
-    // Nach Telefonat: EQ-Tap / Item oft unbrauchbar — Track vor dem ersten playImmediately neu binden.
+    // Nach Telefonat: EQ-Tap / Item oft unbrauchbar — Track einmal neu binden (nicht nochmal im Kickstart).
+    let reloadedAfterInterruption: Bool
     if prefersTrackReloadAfterInterruption, player?.currentItem != nil {
       prefersTrackReloadAfterInterruption = false
+      reloadedAfterInterruption = true
       let local = player?.currentTime().seconds ?? 0
       let offset = local.isFinite ? max(0, local) : 0
       DebugLogCollector.shared.log(
         "playResume: reload track after interruption offset=\(String(format: "%.1f", offset))"
       )
       await loadCurrentTrack(play: true, localOffset: offset, pauseOnFailure: false)
-      beginPlaybackEngine()
-      await schedulePlaybackEngineKickstartIfStillPaused()
-      return
+    } else {
+      reloadedAfterInterruption = false
     }
 
     guard !Task.isCancelled else { return }
     beginPlaybackEngine()
-    await schedulePlaybackEngineKickstartIfStillPaused()
+    await schedulePlaybackEngineKickstartIfStillPaused(
+      alreadyReloadedTrack: reloadedAfterInterruption
+    )
   }
 
   private func beginPlaybackEngine() {
+    beginSuppressingEnginePauseSync(for: 2)
     applyPlayingRate()
     isPlaying = true
     lastListenTick = Date()
@@ -1554,51 +1532,56 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   /// Kurz nach `play()`: Session/Stream erneuern, falls iOS den Engine-Start verschluckt hat.
-  private func schedulePlaybackEngineKickstartIfStillPaused() async {
-    try? await Task.sleep(nanoseconds: 350_000_000)
+  /// `alreadyReloadedTrack`: kein zweites `loadCurrentTrack` — das killt sonst die gerade gestartete Wiedergabe.
+  private func schedulePlaybackEngineKickstartIfStillPaused(
+    alreadyReloadedTrack: Bool = false
+  ) async {
+    try? await Task.sleep(nanoseconds: 450_000_000)
     guard !Task.isCancelled else { return }
-    guard isPlaying, let p = player, p.currentItem != nil else { return }
-    guard !Self.engineIndicatesPlaying(p) else { return }
+    guard isPlaying, let p = player, let item = p.currentItem else { return }
+    // Item noch nicht bereit: warten, nicht sofort als „hängengeblieben“ werten.
+    if item.status == .unknown {
+      try? await Task.sleep(nanoseconds: 500_000_000)
+      guard !Task.isCancelled, isPlaying else { return }
+    }
+    guard let pReady = player, pReady.currentItem != nil else { return }
+    guard !Self.engineIndicatesPlaying(pReady) else { return }
 
-    ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
+    beginSuppressingEnginePauseSync(for: 3)
+    audioSession.activateForPlayback(reclaimingOutput: true)
     applyPlayingRate()
 
-    try? await Task.sleep(nanoseconds: 250_000_000)
+    try? await Task.sleep(nanoseconds: 350_000_000)
     guard !Task.isCancelled else { return }
     guard isPlaying, let p2 = player, p2.currentItem != nil else { return }
     guard !Self.engineIndicatesPlaying(p2) else { return }
 
     // Nach langer Pause / Fremd-App: oft abgelaufene Session oder stale Stream-URL.
-    if await recoverStaleRemotePlaybackIfNeeded() {
-      ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
-      applyPlayingRate()
-      updateNowPlaying()
+    if await recoverStaleRemotePlaybackIfNeeded(wantPlay: true) {
+      beginPlaybackEngine()
       return
     }
 
-    // Lokale Dateien nach Telefonat: Item neu binden (Session-Recovery greift hier nicht).
-    if isUsingLocalTrackFiles || localRoot != nil {
+    // Lokale Dateien: nur wenn in diesem Resume noch nicht neu gebunden.
+    if !alreadyReloadedTrack, isUsingLocalTrackFiles || localRoot != nil {
       let local = player?.currentTime().seconds ?? 0
       let offset = local.isFinite ? max(0, local) : 0
       DebugLogCollector.shared.log(
         "playKickstart: reload local track offset=\(String(format: "%.1f", offset))"
       )
-      needsHardAudioSessionReset = true
-      ensureAudioSessionForPlayback(reclaimFromOtherApps: true)
       await loadCurrentTrack(play: true, localOffset: offset, pauseOnFailure: false)
-      try? await Task.sleep(nanoseconds: 250_000_000)
+      beginPlaybackEngine()
+      try? await Task.sleep(nanoseconds: 400_000_000)
       guard !Task.isCancelled else { return }
-      if let p3 = player, Self.engineIndicatesPlaying(p3) {
-        beginPlaybackEngine()
-        return
-      }
+      if let p3 = player, Self.engineIndicatesPlaying(p3) { return }
     }
 
-    // Kein „spielt“-Zustand ohne tatsächlich laufende Engine: Nach einer Session-Übernahme
-    // durch eine andere App kann iOS den Start ablehnen. Der nächste Tap bleibt dadurch ein
-    // Startversuch statt fälschlich als Pause interpretiert zu werden.
+    // Noch einmal warten: Seek-Completion kann verzögert playImmediately auslösen.
+    try? await Task.sleep(nanoseconds: 500_000_000)
+    guard !Task.isCancelled, isPlaying else { return }
     if let stalledPlayer = player, !Self.engineIndicatesPlaying(stalledPlayer) {
       DebugLogCollector.shared.log("playKickstart: engine still paused after recovery")
+      suppressEnginePauseSyncUntil = nil
       isPlaying = false
       pauseSleepTimer()
       updateNowPlaying()
@@ -1606,7 +1589,7 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   /// Remote-Wiedergabe: Play-Session und Stream-URL an aktuelle Position neu anbinden.
-  private func recoverStaleRemotePlaybackIfNeeded() async -> Bool {
+  private func recoverStaleRemotePlaybackIfNeeded(wantPlay: Bool = false) async -> Bool {
     guard activeBook != nil, apiClient != nil, !isUsingLocalTrackFiles, !tracks.isEmpty else { return false }
     let resumeAt = playbackGlobalPosition()
     currentTrackIndex = trackIndex(forGlobal: resumeAt)
@@ -1618,11 +1601,12 @@ final class PlaybackController: NSObject, ObservableObject {
       guard playSessionId != nil else { return false }
     }
 
-    await loadCurrentTrack(play: false, localOffset: offsetInTrack, pauseOnFailure: false)
+    beginSuppressingEnginePauseSync(for: 3)
+    await loadCurrentTrack(play: wantPlay, localOffset: offsetInTrack, pauseOnFailure: false)
     if player?.currentItem?.status == .failed {
       await recoverPlaySessionAfterSyncFailure(lostTimeListened: 0)
       guard playSessionId != nil else { return false }
-      await loadCurrentTrack(play: false, localOffset: offsetInTrack, pauseOnFailure: false)
+      await loadCurrentTrack(play: wantPlay, localOffset: offsetInTrack, pauseOnFailure: false)
     }
     return player?.currentItem != nil && player?.currentItem?.status != .failed
   }
@@ -1930,6 +1914,7 @@ final class PlaybackController: NSObject, ObservableObject {
   private func recoverPlaySessionAfterSyncFailure(lostTimeListened: Int) async {
     guard let client = apiClient, let book = activeBook else { return }
     let resumeAt = playbackGlobalPosition()
+    let wantPlay = isPlaying
     let ep = activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines)
     let episodeId = (ep?.isEmpty == false) ? ep : nil
     do {
@@ -1951,7 +1936,12 @@ final class PlaybackController: NSObject, ObservableObject {
       currentTrackIndex = trackIndex(forGlobal: resumeAt)
       guard currentTrackIndex < trackStarts.count else { return }
       let offsetInTrack = max(0, resumeAt - trackStarts[currentTrackIndex])
-      await loadCurrentTrack(play: isPlaying, localOffset: offsetInTrack, pauseOnFailure: false)
+      // Stream-URL neu: Seek meldet `.paused` — Absicht (`wantPlay`) nicht verlieren.
+      if wantPlay { beginSuppressingEnginePauseSync(for: 3) }
+      await loadCurrentTrack(play: wantPlay, localOffset: offsetInTrack, pauseOnFailure: false)
+      if wantPlay {
+        beginPlaybackEngine()
+      }
     } catch {
       if !Self.isTransientNetworkError(error) {
         playSessionId = nil
