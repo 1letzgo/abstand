@@ -306,6 +306,9 @@ struct PodcastEpisodeRowCard: View {
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
   var opensDetailOnTap = true
+  /// Wenn gesetzt, öffnet der Tap diese Aktion statt einer eigenen `navigationDestination`
+  /// (nötig in `LazyVStack` — per-Zeile `isPresented` kommt dort oft nicht an).
+  var onOpenDetail: (() -> Void)? = nil
 
   @State private var live: LibraryPodcastEpisodeRowLiveState
   @State private var showDetail = false
@@ -313,10 +316,12 @@ struct PodcastEpisodeRowCard: View {
   init(
     episode: ABSPodcastEpisodeListItem,
     model: AppModel,
-    opensDetailOnTap: Bool = true
+    opensDetailOnTap: Bool = true,
+    onOpenDetail: (() -> Void)? = nil
   ) {
     self.episode = episode
     self.opensDetailOnTap = opensDetailOnTap
+    self.onOpenDetail = onOpenDetail
     self.model = model
     _live = State(
       wrappedValue: LibraryPodcastEpisodeRowLiveState(
@@ -325,6 +330,18 @@ struct PodcastEpisodeRowCard: View {
         model: model
       )
     )
+  }
+
+  private var usesOwnedDetailDestination: Bool {
+    opensDetailOnTap && onOpenDetail == nil
+  }
+
+  private func openEpisodeDetail() {
+    if let onOpenDetail {
+      onOpenDetail()
+    } else {
+      showDetail = true
+    }
   }
 
   private var prog: ABSUserMediaProgress? { live.progress }
@@ -351,7 +368,7 @@ struct PodcastEpisodeRowCard: View {
   var body: some View {
     let _ = themeRevision
     return Group {
-      if opensDetailOnTap {
+      if usesOwnedDetailDestination {
         podcastEpisodeRowCardBody
           .navigationDestination(isPresented: $showDetail) {
             PodcastEpisodeDetailView(episode: episode)
@@ -368,7 +385,7 @@ struct PodcastEpisodeRowCard: View {
       cardColor: AppTheme.card,
       showsBottomProgressBar: showsBottomProgressBar,
       progressValue: bottomProgressValue,
-      openDetails: nil
+      openDetails: opensDetailOnTap ? { openEpisodeDetail() } : nil
     ) {
       HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
         Button {
@@ -397,41 +414,34 @@ struct PodcastEpisodeRowCard: View {
         .accessibilityLabel("Play")
         .accessibilityHint("Starts playback of this episode.")
 
-        Group {
-          LibraryRowLayout.metadataColumn(showsProgressBar: showsBottomProgressBar) {
-            VStack(alignment: .leading, spacing: 2) {
-              Text(episode.episodeTitle)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(AppTheme.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .minimumScaleFactor(0.85)
-                .fixedSize(horizontal: false, vertical: true)
-              PodcastEpisodeCollapsedShowLine(episode: episode)
-              Spacer(minLength: 0)
-              LibraryRowLayout.metadataFooter {
-                Text(formatPlaybackTime(resolvedTotalDurationSeconds))
-                  .font(.subheadline.monospacedDigit())
-                  .foregroundStyle(AppTheme.textSecondary)
-              } trailing: {
-                Group {
-                  if prog?.isFinished == true {
-                    Image(systemName: "checkmark.circle.fill")
-                      .foregroundStyle(themeAccent)
-                      .font(.caption)
-                      .accessibilityLabel("Finished")
-                  }
-                  podcastDownloadStatusIcon
+        LibraryRowLayout.metadataColumn(showsProgressBar: showsBottomProgressBar) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(episode.episodeTitle)
+              .font(.headline.weight(.semibold))
+              .foregroundStyle(AppTheme.textPrimary)
+              .lineLimit(1)
+              .truncationMode(.tail)
+              .minimumScaleFactor(0.85)
+              .fixedSize(horizontal: false, vertical: true)
+            PodcastEpisodeCollapsedShowLine(episode: episode)
+            Spacer(minLength: 0)
+            LibraryRowLayout.metadataFooter {
+              Text(formatPlaybackTime(resolvedTotalDurationSeconds))
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(AppTheme.textSecondary)
+            } trailing: {
+              Group {
+                if prog?.isFinished == true {
+                  Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(themeAccent)
+                    .font(.caption)
+                    .accessibilityLabel("Finished")
                 }
+                podcastDownloadStatusIcon
               }
             }
-            .padding(.trailing, 4)
           }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-          guard opensDetailOnTap else { return }
-          showDetail = true
+          .padding(.trailing, 4)
         }
       }
     }
@@ -650,6 +660,7 @@ struct LibraryPodcastListCard: View {
   let episode: ABSPodcastEpisodeListItem
   let model: AppModel
   var opensDetailOnTap = true
+  var onOpenDetail: (() -> Void)? = nil
   /// Offline-Downloadliste: immer kompakte Zeilen, unabhängig von Settings.
   var forceCompactListStyle = false
   /// Home-Regale u. Ä.: Style unabhängig von Library-Settings erzwingen.
@@ -666,13 +677,15 @@ struct LibraryPodcastListCard: View {
       LibraryHeroPodcastEpisodeCard(
         episode: episode,
         model: model,
-        opensDetailOnTap: opensDetailOnTap
+        opensDetailOnTap: opensDetailOnTap,
+        onOpenDetail: onOpenDetail
       )
     } else {
       PodcastEpisodeRowCard(
         episode: episode,
         model: model,
-        opensDetailOnTap: opensDetailOnTap
+        opensDetailOnTap: opensDetailOnTap,
+        onOpenDetail: onOpenDetail
       )
     }
   }
@@ -683,6 +696,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
   let episode: ABSPodcastEpisodeListItem
   let model: AppModel
   var opensDetailOnTap = true
+  var onOpenDetail: (() -> Void)? = nil
 
   @State private var live: LibraryPodcastEpisodeRowLiveState
   @State private var showDetail = false
@@ -690,10 +704,12 @@ private struct LibraryHeroPodcastEpisodeCard: View {
   init(
     episode: ABSPodcastEpisodeListItem,
     model: AppModel,
-    opensDetailOnTap: Bool = true
+    opensDetailOnTap: Bool = true,
+    onOpenDetail: (() -> Void)? = nil
   ) {
     self.episode = episode
     self.opensDetailOnTap = opensDetailOnTap
+    self.onOpenDetail = onOpenDetail
     self.model = model
     _live = State(
       wrappedValue: LibraryPodcastEpisodeRowLiveState(
@@ -749,6 +765,18 @@ private struct LibraryHeroPodcastEpisodeCard: View {
     return nil
   }
 
+  private var usesOwnedDetailDestination: Bool {
+    opensDetailOnTap && onOpenDetail == nil
+  }
+
+  private func openEpisodeDetail() {
+    if let onOpenDetail {
+      onOpenDetail()
+    } else {
+      showDetail = true
+    }
+  }
+
   var body: some View {
     let palette = model.appearancePalette
     let coverInset = AppTheme.Layout.libraryRowCardInset
@@ -763,7 +791,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
     )
 
     Group {
-      if opensDetailOnTap {
+      if usesOwnedDetailDestination {
         cardBody(palette: palette, coverInset: coverInset, coverClip: coverClip, barH: barH)
           .navigationDestination(isPresented: $showDetail) {
             PodcastEpisodeDetailView(episode: episode)
@@ -795,7 +823,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
         .contentShape(coverClip)
         .onTapGesture {
           if opensDetailOnTap {
-            showDetail = true
+            openEpisodeDetail()
           }
         }
         .accessibilityLabel(episode.episodeTitle)
@@ -838,7 +866,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
         detailLabel: "Show",
         detailValue: showLine,
         horizontalInset: coverInset,
-        onTitleTap: { if opensDetailOnTap { showDetail = true } }
+        onTitleTap: { if opensDetailOnTap { openEpisodeDetail() } }
       ) {
         let isCurrent = model.isActivelyPlayingMedia(
           libraryItemId: episode.libraryItemId,

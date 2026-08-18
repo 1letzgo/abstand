@@ -236,7 +236,8 @@ private struct ContinueCarouselViewportWidthKey: PreferenceKey {
   }
 }
 
-/// Feste Reihenfolge solange sich Regal-Inhalt nicht ändert (kein Neu-Sortieren bei Fortschritt-Ticks).
+/// Feste Reihenfolge solange sich die `lastUpdate`-Rangfolge nicht ändert
+/// (kein Neu-Sortieren bei Fortschritt-Ticks der bereits vordersten Karte).
 /// Kartenbreite adaptiv über `horizontalSizeClass` (Compact 1½, Regular +2, mit Max-Breite).
 struct ContinueListeningHeroCarousel: View {
   @EnvironmentObject private var model: AppModel
@@ -246,11 +247,16 @@ struct ContinueListeningHeroCarousel: View {
   @State private var rows: [ABSStartShelfMergedRow] = []
   @State private var viewportWidth: CGFloat = 0
 
-  private var contentSignature: String {
-    let bookPart = shelf.books.map(\.id).joined(separator: "\u{1f}")
-    let episodePart = shelf.podcastEpisodes.map(\.progressLookupKey).joined(separator: "\u{1f}")
-    return "\(bookPart)\u{1e}\(episodePart)"
-  }
+/// Reihenfolge nach `lastUpdate`, aber nicht bei jedem Fortschritt-Tick.
+/// Nur IDs zu beobachten reicht nicht: nach einem Play-Start bleiben dieselben Titel
+/// im Regal, die gespielte Karte muss trotzdem nach vorne.
+private var orderSignature: String {
+  ABSStartShelfMergedRow.merged(
+    books: shelf.books,
+    podcastEpisodes: shelf.podcastEpisodes,
+    progress: model.progressByItemId
+  ).map(\.id).joined(separator: "\u{1f}")
+}
 
   private var cardWidth: CGFloat {
     AppTheme.Layout.continueHeroCardWidth(
@@ -287,7 +293,7 @@ struct ContinueListeningHeroCarousel: View {
     }
     .onPreferenceChange(ContinueCarouselViewportWidthKey.self) { viewportWidth = $0 }
     .onAppear { rebuildRows() }
-    .onChange(of: contentSignature) { _, _ in rebuildRows() }
+    .onChange(of: orderSignature) { _, _ in rebuildRows() }
   }
 
   private func rebuildRows() {

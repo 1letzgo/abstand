@@ -3441,17 +3441,27 @@ final class AppModel: ObservableObject {
     }
   }
 
-  /// Entfernt aus „Continue listening“-Regalen Einträge ohne passenden Server-Fortschritt oder mit `isFinished`.
-  /// (`items-in-progress` / personalisierte Regale können nach `DELETE …/progress` kurz noch alte Zeilen liefern.)
+  /// Entfernt fertige Einträge und sortiert „Continue listening“ nach `lastUpdate`
+  /// (Play-Start schiebt den Titel nach vorne, ohne bei jedem Tick umzusortieren).
   private func applyContinueListeningFinishedFilter() {
     guard !startShelves.isEmpty else { return }
+    var changed = false
     let newShelves = startShelves.map { shelf -> ABSStartShelfSection in
       guard isHomeContinueCategory(shelf.category) else { return shelf }
-      let books = shelf.books.filter { qualifiesForContinueListeningShelf(bookId: $0.id) }
-      let eps = shelf.podcastEpisodes.filter {
-        qualifiesForContinueListeningShelf(episodeKey: $0.progressLookupKey)
+      let books = dedupeContinueListeningBooks(
+        shelf.books.filter { qualifiesForContinueListeningShelf(bookId: $0.id) }
+      )
+      let eps = dedupePodcastEpisodesForHomeContinueList(
+        shelf.podcastEpisodes.filter {
+          qualifiesForContinueListeningShelf(episodeKey: $0.progressLookupKey)
+        }
+      )
+      if books.map(\.id) == shelf.books.map(\.id),
+        eps.map(\.progressLookupKey) == shelf.podcastEpisodes.map(\.progressLookupKey)
+      {
+        return shelf
       }
-      if books.count == shelf.books.count, eps.count == shelf.podcastEpisodes.count { return shelf }
+      changed = true
       return ABSStartShelfSection(
         id: shelf.id,
         category: shelf.category,
@@ -3462,6 +3472,7 @@ final class AppModel: ObservableObject {
         series: shelf.series
       )
     }
+    guard changed else { return }
     startShelves = newShelves
     recomputeStartBooksUnion(from: newShelves)
   }
@@ -3605,7 +3616,11 @@ final class AppModel: ObservableObject {
   private func normalizedContinueListeningShelf(_ shelf: ABSStartShelfSection) -> ABSStartShelfSection {
     let books = dedupeContinueListeningBooks(shelf.books)
     let eps = dedupePodcastEpisodesForHomeContinueList(shelf.podcastEpisodes)
-    if books.count == shelf.books.count, eps.count == shelf.podcastEpisodes.count { return shelf }
+    if books.map(\.id) == shelf.books.map(\.id),
+      eps.map(\.progressLookupKey) == shelf.podcastEpisodes.map(\.progressLookupKey)
+    {
+      return shelf
+    }
     return ABSStartShelfSection(
       id: shelf.id,
       category: shelf.category,
@@ -8372,11 +8387,9 @@ final class AppModel: ObservableObject {
 
   private func bumpOptimisticContinueListeningForAudiobook(_ book: ABSBook, resumeAt: Double) {
     guard isStartCategoryEnabled(Self.homeContinueCategory) else { return }
-    if let libId = selectedBooksLibrary?.id.trimmingCharacters(in: .whitespacesAndNewlines), !libId.isEmpty {
-      if let lid = book.libraryId?.trimmingCharacters(in: .whitespacesAndNewlines), !lid.isEmpty, lid != libId {
-        applyOptimisticProgressOnly(progressForOptimisticAudiobook(book, resumeAt: resumeAt))
-        return
-      }
+    if !bookBelongsToActiveContinueListeningLibrary(book) {
+      applyOptimisticProgressOnly(progressForOptimisticAudiobook(book, resumeAt: resumeAt))
+      return
     }
     let p = progressForOptimisticAudiobook(book, resumeAt: resumeAt)
     progressByItemId[p.progressLookupKey] = p
@@ -8390,17 +8403,38 @@ final class AppModel: ObservableObject {
     resumeAt: Double
   ) {
     guard isStartCategoryEnabled(Self.homeContinueCategory) else { return }
-    if let plid = selectedPodcastLibrary?.id.trimmingCharacters(in: .whitespacesAndNewlines), !plid.isEmpty {
-      if let eLib = episode.libraryId?.trimmingCharacters(in: .whitespacesAndNewlines), !eLib.isEmpty, eLib != plid {
-        applyOptimisticProgressOnly(progressForOptimisticPodcastEpisode(episode, resumeAt: resumeAt))
-        return
-      }
+    if !episodeBelongsToActiveContinueListeningLibrary(episode) {
+      applyOptimisticProgressOnly(progressForOptimisticPodcastEpisode(episode, resumeAt: resumeAt))
+      return
     }
     let p = progressForOptimisticPodcastEpisode(episode, resumeAt: resumeAt)
     progressByItemId[p.progressLookupKey] = p
     mergeOptimisticPodcastEpisodeIntoContinueShelves(episode)
     recomputeStartBooksUnion(from: startShelves)
     applyContinueListeningFinishedFilter()
+  }
+
+  /// Wie die Continue-Kandidaten: alle aktiven Bibliotheken, nicht nur die gerade gewählte.
+  private func bookBelongsToActiveContinueListeningLibrary(_ book: ABSBook) -> Bool {
+    guard let lid = book.libraryId?.trimmingCharacters(in: .whitespacesAndNewlines), !lid.isEmpty else {
+      return true
+    }
+    let active = activeBooksLibraryIdSet
+    if !active.isEmpty { return active.contains(lid) }
+    let selected = selectedBooksLibrary?.id.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if selected.isEmpty { return true }
+    return lid == selected
+  }
+
+  private func episodeBelongsToActiveContinueListeningLibrary(_ episode: ABSPodcastEpisodeListItem) -> Bool {
+    guard let lid = episode.libraryId?.trimmingCharacters(in: .whitespacesAndNewlines), !lid.isEmpty else {
+      return true
+    }
+    let active = activePodcastLibraryIdSet
+    if !active.isEmpty { return active.contains(lid) }
+    let selected = selectedPodcastLibrary?.id.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if selected.isEmpty { return true }
+    return lid == selected
   }
 
   func play(book: ABSBook, resumeAtOverride: Double? = nil, autoPlay: Bool = true) async {

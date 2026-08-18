@@ -148,7 +148,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   static let maxRetainedTranscriptWords = 14000
   private static let transcriptPruneChunk = 200
   /// Ein Player-State-Check deckt so viele Sample-Buffer ab (~0,4 s Audio).
-  private static let feedBuffersPerStateCheck = 16
+  /// `nonisolated`, weil der Feed außerhalb des MainActors liest.
+  private nonisolated static let feedBuffersPerStateCheck = 16
   private static let maxFeedTimelineSegments = 32
   /// Ein Recap bleibt für mindestens eine weitere Hörminute gültig.
   static let recapCachePlaybackSeconds: Double = 60
@@ -220,8 +221,10 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   /// Feed soll am Abspielpunkt neu aufsetzen (Selbstheilung bei Stillstand).
   private var feedRestartRequested = false
-  /// `false`, sobald der Feed-Loop beendet ist — dann hilft nur ein Session-Neustart.
-  private var isFeedLoopRunning = false
+  /// Generation des laufenden Feed-Loops, `nil` wenn keiner läuft — dann hilft nur ein
+  /// Session-Neustart. Generationsgebunden, damit ein auslaufender Loop der alten Session
+  /// die neue nicht als „Feed tot“ markiert.
+  private var runningFeedLoopGeneration: UInt?
   private var feedStallRecoveryCount = 0
   private var lastFeedStallRecoveryAt: Date?
 
@@ -254,6 +257,9 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   private var stallRecoveryWatchdogTask: Task<Void, Never>?
   /// Inkrementiert bei jedem Start — Tasks ignorieren veraltete Generationen.
   private var sessionGeneration: UInt = 0
+  /// Start-Absicht. `disable()` erhöht sie, damit `startTeleprompterMode` nach einem
+  /// `await` nicht eine Session aufsetzt, die inzwischen beendet wurde.
+  private var teleprompterIntentGeneration: UInt = 0
   /// Aktives Buch zum Erkennen von Quellenwechseln.
   private var activeTranscriptionBookId: String?
   private var lastTranscriptionProgressAt: Date?
@@ -276,14 +282,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
     resetZombieTeleprompterModeIfNeeded()
 
-    if isTeleprompterModeActive || isEnabled {
+    // Auch ein noch laufender Start zählt als „an“ — der Tap bricht ihn dann ab.
+    if isTeleprompterModeActive || isEnabled || isSessionBusy {
       errorMessage = nil
       await disable()
       return
-    }
-
-    if isSessionBusy {
-      await recoverFromStuckEnableAttempt()
     }
 
     await startTeleprompterMode(player: player)
@@ -305,36 +308,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     finishTeleprompterMode(resetContent: true)
   }
 
-  /// Vorheriger Enable-Task hängt — abbrechen, damit Start nicht still ignoriert wird.
-  private func recoverFromStuckEnableAttempt() async {
-    enableTask?.cancel()
-    if let pendingEnable = enableTask {
-      enableTask = nil
-      await pendingEnable.value
-    } else {
-      enableTask = nil
-    }
-    stopSessionTask?.cancel()
-    if let pendingStop = stopSessionTask {
-      stopSessionTask = nil
-      await pendingStop.value
-    }
-    isPreparing = false
-    isSessionBusy = false
-    if isTeleprompterModeActive {
-      sessionGeneration &+= 1
-      finishTeleprompterMode(resetContent: true)
-      await stopSession()
-    }
-  }
-
   /// Teleprompter-Modus einschalten: UI sofort, Session asynchron starten.
+  /// Jedes Einschalten beginnt eine **neue** Session — vorheriger Modus, hängender Start und
+  /// alter Analyzer werden vorher hart abgeräumt, statt den Aufruf still zu verwerfen.
   func startTeleprompterMode(player: PlaybackController) async {
     guard isReadAlongAvailable, player.isReadAlongDownloadReady else { return }
-
-    resetZombieTeleprompterModeIfNeeded()
-
-    guard !isTeleprompterModeActive, !isSessionBusy else { return }
 
     errorMessage = nil
     guard player.activeBook != nil else {
@@ -342,10 +320,24 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       return
     }
 
-    if let pendingStop = stopSessionTask {
-      pendingStop.cancel()
-      stopSessionTask = nil
-      await pendingStop.value
+    teleprompterIntentGeneration &+= 1
+    let intent = teleprompterIntentGeneration
+
+    // Modus und Busy sofort — nicht erst nach dem Teardown. Sonst ist
+    // `isTeleprompterModeActive` während `await stopSession` kurz false, `playBook`
+    // überspringt disable(), und `playbackDidStop` räumt die neue Session wieder weg.
+    isTeleprompterModeActive = true
+    isSessionBusy = true
+    isPreparing = true
+    applyTeleprompterSideEffects()
+
+    await teardownForFreshStart()
+
+    guard teleprompterIntentGeneration == intent else { return }
+    guard player.activeBook != nil else {
+      errorMessage = PlayerLiveTranscriptionError.noActivePlayback.localizedDescription
+      await disable()
+      return
     }
 
     sessionGeneration &+= 1
@@ -354,11 +346,46 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     isTeleprompterModeActive = true
     applyTeleprompterSideEffects()
 
-    enableTask?.cancel()
     enableTask = Task { @MainActor [weak self] in
       guard let self else { return }
       await self.runEnableSession(player: player, generation: generation)
     }
+  }
+
+  /// Alles aus einer eventuell noch laufenden Session beenden, damit der folgende Start auf
+  /// leerem Zustand aufsetzt: Generation hochzählen (entwertet alle alten Tasks), Enable-Task
+  /// und Watchdogs abbrechen und den Analyzer sofort verwerfen.
+  ///
+  /// `isTeleprompterModeActive` bleibt gesetzt — der Aufrufer will den Modus anlassen.
+  /// Ein kurzes false würde `playBook` den Disable-Guard überspringen lassen.
+  private func teardownForFreshStart() async {
+    sessionGeneration &+= 1
+
+    enableTask?.cancel()
+    let pendingEnable = enableTask
+    enableTask = nil
+    await pendingEnable?.value
+
+    cancelSessionWatchdogs()
+
+    setSessionRunning(false)
+
+    stopSessionTask?.cancel()
+    let pendingStop = stopSessionTask
+    stopSessionTask = nil
+    await pendingStop?.value
+
+    await stopSession()
+    resetTranscriptContent()
+  }
+
+  private func cancelSessionWatchdogs() {
+    startupWatchdogTask?.cancel()
+    startupWatchdogTask = nil
+    progressStallWatchdogTask?.cancel()
+    progressStallWatchdogTask = nil
+    stallRecoveryWatchdogTask?.cancel()
+    stallRecoveryWatchdogTask = nil
   }
 
   private func runEnableSession(player: PlaybackController, generation: UInt) async {
@@ -418,12 +445,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   /// Fehler während `runEnableSession` — kein `disable()` (Deadlock auf MainActor).
   private func tearDownAfterFailedEnable(generation: UInt, message: String) async {
     guard sessionGeneration == generation else { return }
-    startupWatchdogTask?.cancel()
-    startupWatchdogTask = nil
-    progressStallWatchdogTask?.cancel()
-    progressStallWatchdogTask = nil
-    stallRecoveryWatchdogTask?.cancel()
-    stallRecoveryWatchdogTask = nil
+    cancelSessionWatchdogs()
     errorMessage = message
     sessionGeneration &+= 1
     finishTeleprompterMode(resetContent: true)
@@ -724,6 +746,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   /// Modus beenden und Session vollständig stoppen (idempotent).
   func disable(resetError: Bool = true) async {
+    teleprompterIntentGeneration &+= 1
     if resetError {
       errorMessage = nil
     }
@@ -734,12 +757,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       await pendingEnable.value
     }
 
-    startupWatchdogTask?.cancel()
-    startupWatchdogTask = nil
-    progressStallWatchdogTask?.cancel()
-    progressStallWatchdogTask = nil
-    stallRecoveryWatchdogTask?.cancel()
-    stallRecoveryWatchdogTask = nil
+    cancelSessionWatchdogs()
 
     if let player = boundPlayer {
       lastTeleprompterPlaybackTime = player.liveGlobalPlaybackPosition
@@ -765,6 +783,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   private func finishTeleprompterMode(resetContent: Bool) {
     isTeleprompterModeActive = false
     setSessionRunning(false)
+    isPreparing = false
+    isSessionBusy = false
     applyTeleprompterSideEffects()
     if resetContent {
       words = []
@@ -792,7 +812,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   }
 
   func playbackDidStop() {
+    let intentAtStop = teleprompterIntentGeneration
     Task { @MainActor in
+      // Veralteter Stop darf einen neueren Start nicht mehr abwürgen.
+      guard self.teleprompterIntentGeneration == intentAtStop else { return }
+      guard self.isTeleprompterModeActive else { return }
       await self.disable()
     }
   }
@@ -904,10 +928,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     lastFeedStallRecoveryAt = Date()
     feedStallRecoveryCount += 1
 
+    let feedLoopAlive = runningFeedLoopGeneration == generation
     let needsSessionRestart =
-      !isFeedLoopRunning || feedStallRecoveryCount > Self.maxFeedRestartsBeforeSessionRestart
+      !feedLoopAlive || feedStallRecoveryCount > Self.maxFeedRestartsBeforeSessionRestart
     DebugLogCollector.shared.log(
-      "readAlong stall attempt=\(feedStallRecoveryCount) feedLoop=\(isFeedLoopRunning) "
+      "readAlong stall attempt=\(feedStallRecoveryCount) feedLoop=\(feedLoopAlive) "
         + "progressEnd=\(String(format: "%.1f", transcriptionProgressEnd)) "
         + "playback=\(String(format: "%.1f", boundPlayer?.liveGlobalPlaybackPosition ?? -1)) "
         + "sessionRestart=\(needsSessionRestart)"
@@ -990,28 +1015,16 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   // MARK: - Session
 
+  /// Baut eine frische Speech-Session auf. `teardownForFreshStart()` hat die vorherige bereits
+  /// vollständig verworfen — hier wird nichts mehr recycelt.
   private func startSession(player: PlaybackController, generation: UInt) async throws {
     guard sessionIsCurrent(generation) else { return }
-    if let pendingStop = stopSessionTask {
-      await pendingStop.value
-    }
     try await ensureSpeechRecognitionAuthorized()
     guard sessionIsCurrent(generation) else { return }
-    stopSessionTask?.cancel()
-    let stopTask = Task { @MainActor [weak self] in
-      guard let self else { return }
-      await self.stopSession()
-    }
-    stopSessionTask = stopTask
-    await stopTask.value
-    if stopSessionTask == stopTask {
-      stopSessionTask = nil
-    }
-    guard sessionIsCurrent(generation) else { return }
     resetTranscriptContent()
+    resetFeedState()
     feedTrackGeneration = 0
     audioContextUnavailableSince = nil
-    feedRestartRequested = false
     boundPlayer = player
     activeTranscriptionBookId = player.activeBook?.id
     player.syncGlobalPositionFromPlayer()
@@ -1119,25 +1132,50 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     case restartAtPlayback
   }
 
+  /// Session vollständig verwerfen. Reihenfolge: Input schließen, Feed abbrechen und auslaufen
+  /// lassen, dann den Analyzer sofort abbrechen (beendet auch den Ergebnis-Stream).
+  ///
+  /// `cancelAndFinishNow()` statt `finalizeAndFinishThroughEndOfInput()`: beim Abschalten ist
+  /// kein Restergebnis mehr von Interesse, und das Finalisieren arbeitet zuerst den gesamten
+  /// noch eingespeisten Backlog ab (bis `maxAnalyzerBacklogSeconds` an Audio). Genau darauf
+  /// wartete der nächste Start — sichtbar als Teleprompter, der nicht anläuft.
   private func stopSession() async {
-    feedTask?.cancel()
-    feedTask = nil
-    resultsTask?.cancel()
-    resultsTask = nil
     inputBuilder?.finish()
     inputBuilder = nil
 
-    let analyzerToFinish = analyzer
+    let feed = feedTask
+    feedTask = nil
+    feed?.cancel()
+
+    let results = resultsTask
+    resultsTask = nil
+    results?.cancel()
+
+    let analyzerToCancel = analyzer
     transcriber = nil
     analyzer = nil
     analyzerFormat = nil
     activeContext = nil
+
+    await feed?.value
+    if let analyzerToCancel {
+      await analyzerToCancel.cancelAndFinishNow()
+    }
+    await results?.value
+
+    resetFeedState()
+  }
+
+  /// Feed-Zustand und Selbstheilungszähler. Ohne dieses Zurücksetzen erbt die nächste Session
+  /// die verbrauchten Recovery-Versuche und eskaliert sofort wieder zum Neustart.
+  private func resetFeedState() {
     feedTimeline = []
     fedAnalyzerSeconds = 0
-
-    if let analyzerToFinish {
-      try? await analyzerToFinish.finalizeAndFinishThroughEndOfInput()
-    }
+    feedRestartRequested = false
+    feedStallRecoveryCount = 0
+    lastFeedStallRecoveryAt = nil
+    lastFeedTrackKey = nil
+    runningFeedLoopGeneration = nil
   }
 
   private func ensureSpeechModel(locale: Locale) async throws {
@@ -1714,8 +1752,10 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   // MARK: - Audio-Feed
 
   private func continuousFeedLoop(targetFormat: AVAudioFormat, generation: UInt) async {
-    isFeedLoopRunning = true
-    defer { isFeedLoopRunning = false }
+    runningFeedLoopGeneration = generation
+    defer {
+      if runningFeedLoopGeneration == generation { runningFeedLoopGeneration = nil }
+    }
     do {
       try await runContinuousFeedLoop(targetFormat: targetFormat, generation: generation)
       DebugLogCollector.shared.log("readAlong feed loop ended cleanly")
@@ -1775,8 +1815,10 @@ final class PlayerLiveTranscriptionController: ObservableObject {
         expectedTrackKey: trackKey,
         localStartSeconds: localStart,
         targetFormat: targetFormat,
-        input: input
+        input: input,
+        generation: generation
       )
+      guard sessionIsCurrent(generation) else { return }
       fedAnalyzerSeconds += result.fedAnalyzerSeconds
       DebugLogCollector.shared.log(
         "readAlong segment end outcome=\(result.outcome) track=\(trackKey) "
@@ -1793,14 +1835,22 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       case .completed:
         yieldSilenceFlush(format: targetFormat)
         guard boundPlayer?.hasNextTranscriptionTrack == true else { return }
-        try await waitForNextTrack(after: trackKey, generation: trackGeneration)
+        try await waitForNextTrack(
+          after: trackKey,
+          trackGeneration: trackGeneration,
+          generation: generation
+        )
       }
     }
   }
 
-  private func waitForNextTrack(after trackKey: String, generation: Int) async throws {
-    while !Task.isCancelled, isTeleprompterModeActive {
-      if feedTrackGeneration > generation { return }
+  private func waitForNextTrack(
+    after trackKey: String,
+    trackGeneration: Int,
+    generation: UInt
+  ) async throws {
+    while !Task.isCancelled, sessionIsCurrent(generation) {
+      if feedTrackGeneration > trackGeneration { return }
       if let player = boundPlayer, player.transcriptionTrackKey != trackKey { return }
       // Selbstheilung muss auch hier greifen: der Reader kann eine Datei vorzeitig beenden,
       // während die Wiedergabe noch minutenlang im selben Track bleibt.
@@ -1827,110 +1877,114 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     fedAnalyzerSeconds += Double(frames) / format.sampleRate
   }
 
-  private func feedSingleTrack(
+  /// `nonisolated`, damit Lesen und Konvertieren nicht auf dem MainActor laufen. Bewusst **kein**
+  /// `Task.detached`: ein losgelöster Task erbt die Cancellation des Feed-Tasks nicht, und der
+  /// Reader lief nach dem Abschalten bis zum Dateiende weiter — er verbrannte CPU und schrieb in
+  /// die tote Session, während die nächste schon startete.
+  private nonisolated func feedSingleTrack(
     context: PlayerTranscriptionAudioContext,
     expectedTrackKey: String,
     localStartSeconds: Double,
     targetFormat: AVAudioFormat,
-    input: AsyncStream<AnalyzerInput>.Continuation
+    input: AsyncStream<AnalyzerInput>.Continuation,
+    generation: UInt
   ) async throws -> TrackFeedResult {
-    let assetURL = context.assetURL
     let streamToken = context.streamAuthToken
     let trackGlobalOffset = context.trackGlobalOffset
 
-    return try await Task.detached(priority: .userInitiated) { [weak self] () async throws -> TrackFeedResult in
-      guard let self else {
-        return TrackFeedResult(outcome: .trackChanged, fedAnalyzerSeconds: 0)
+    let asset: AVURLAsset
+    if let token = streamToken, !token.isEmpty {
+      asset = AVURLAsset(url: context.assetURL, options: Self.streamHeaderOptions(token: token))
+    } else {
+      asset = AVURLAsset(url: context.assetURL)
+    }
+
+    let tracks = try await asset.loadTracks(withMediaType: .audio)
+    guard let audioTrack = tracks.first else {
+      throw PlayerLiveTranscriptionError.audioSourceUnavailable
+    }
+
+    let reader = try AVAssetReader(asset: asset)
+    let outputSettings: [String: Any] = [
+      AVFormatIDKey: kAudioFormatLinearPCM,
+      AVLinearPCMBitDepthKey: 16,
+      AVLinearPCMIsFloatKey: false,
+      AVLinearPCMIsBigEndianKey: false,
+      AVLinearPCMIsNonInterleaved: false,
+    ]
+    let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
+    output.alwaysCopiesSampleData = false
+    guard reader.canAdd(output) else { throw PlayerLiveTranscriptionError.conversionFailed }
+    reader.add(output)
+
+    let startTime = CMTime(seconds: localStartSeconds, preferredTimescale: 600)
+    reader.timeRange = CMTimeRange(start: startTime, duration: .positiveInfinity)
+    guard reader.startReading() else {
+      throw reader.error ?? PlayerLiveTranscriptionError.audioSourceUnavailable
+    }
+    // Nach dem Abbruch nicht weiterlesen — sonst bleibt der Reader an der Datei hängen.
+    defer { if reader.status == .reading { reader.cancelReading() } }
+
+    var fedLocalSeconds = localStartSeconds
+    var fedAnalyzerSeconds: Double = 0
+    var audioConverter: PlayerTranscriptionAudioConverter?
+
+    func result(_ outcome: TrackFeedOutcome) -> TrackFeedResult {
+      TrackFeedResult(outcome: outcome, fedAnalyzerSeconds: fedAnalyzerSeconds)
+    }
+
+    while reader.status == .reading, !Task.isCancelled {
+      switch await nextFeedStep(
+        expectedTrackKey: expectedTrackKey,
+        fedLocalSeconds: fedLocalSeconds,
+        trackGlobalOffset: trackGlobalOffset,
+        generation: generation
+      ) {
+      case .trackChanged:
+        return result(.trackChanged)
+      case .restartAtPlayback:
+        return result(.restartAtPlayback)
+      case .wait(let nanoseconds):
+        try await Task.sleep(nanoseconds: nanoseconds)
+        continue
+      case .feed:
+        break
       }
 
-      let asset: AVURLAsset
-      if let token = streamToken, !token.isEmpty {
-        asset = AVURLAsset(url: assetURL, options: Self.streamHeaderOptions(token: token))
-      } else {
-        asset = AVURLAsset(url: assetURL)
-      }
-
-      let tracks = try await asset.loadTracks(withMediaType: .audio)
-      guard let audioTrack = tracks.first else { throw PlayerLiveTranscriptionError.audioSourceUnavailable }
-
-      let reader = try AVAssetReader(asset: asset)
-      let outputSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatLinearPCM,
-        AVLinearPCMBitDepthKey: 16,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMIsBigEndianKey: false,
-        AVLinearPCMIsNonInterleaved: false,
-      ]
-      let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
-      output.alwaysCopiesSampleData = false
-      guard reader.canAdd(output) else { throw PlayerLiveTranscriptionError.conversionFailed }
-      reader.add(output)
-
-      let startTime = CMTime(seconds: localStartSeconds, preferredTimescale: 600)
-      reader.timeRange = CMTimeRange(start: startTime, duration: .positiveInfinity)
-      guard reader.startReading() else {
-        throw reader.error ?? PlayerLiveTranscriptionError.audioSourceUnavailable
-      }
-
-      var fedLocalSeconds = localStartSeconds
-      var fedAnalyzerSeconds: Double = 0
-      var audioConverter: PlayerTranscriptionAudioConverter?
-
-      func result(_ outcome: TrackFeedOutcome) -> TrackFeedResult {
-        TrackFeedResult(outcome: outcome, fedAnalyzerSeconds: fedAnalyzerSeconds)
-      }
-
-      while reader.status == .reading, !Task.isCancelled {
-        switch await self.nextFeedStep(
-          expectedTrackKey: expectedTrackKey,
-          fedLocalSeconds: fedLocalSeconds,
-          trackGlobalOffset: trackGlobalOffset
-        ) {
-        case .trackChanged:
-          return result(.trackChanged)
-        case .restartAtPlayback:
-          return result(.restartAtPlayback)
-        case .wait(let nanoseconds):
-          try await Task.sleep(nanoseconds: nanoseconds)
-          continue
-        case .feed:
+      // Mehrere Buffer pro Prüfung: jeder MainActor-Hop konkurriert mit dem
+      // Teleprompter-Rendering, und der Vorlauf ist mit 120 s grob genug dafür.
+      for _ in 0..<Self.feedBuffersPerStateCheck {
+        guard reader.status == .reading, !Task.isCancelled else { break }
+        guard let sample = output.copyNextSampleBuffer() else {
+          if reader.status == .completed { return result(.completed) }
+          try await Task.sleep(nanoseconds: 50_000_000)
           break
         }
 
-        // Mehrere Buffer pro Prüfung: jeder MainActor-Hop konkurriert mit dem
-        // Teleprompter-Rendering, und der Vorlauf ist mit 120 s grob genug dafür.
-        for _ in 0..<Self.feedBuffersPerStateCheck {
-          guard reader.status == .reading, !Task.isCancelled else { break }
-          guard let sample = output.copyNextSampleBuffer() else {
-            if reader.status == .completed { return result(.completed) }
-            try await Task.sleep(nanoseconds: 50_000_000)
-            break
-          }
-
-          guard let buffer = Self.sampleBufferToPCMBuffer(sample) else { continue }
-          if audioConverter == nil {
-            audioConverter = PlayerTranscriptionAudioConverter(
-              sourceFormat: buffer.format,
-              targetFormat: targetFormat
-            )
-          }
-          guard let converter = audioConverter else {
-            throw PlayerLiveTranscriptionError.conversionFailed
-          }
-          let converted = try converter.convert(buffer, to: targetFormat)
-          // `AsyncStream.Continuation` ist thread-safe — kein Umweg über den MainActor.
-          input.yield(AnalyzerInput(buffer: converted))
-          fedAnalyzerSeconds += Double(converted.frameLength) / targetFormat.sampleRate
-
-          let dur = CMSampleBufferGetDuration(sample).seconds
-          let pts = CMSampleBufferGetPresentationTimeStamp(sample).seconds
-          if pts.isFinite { fedLocalSeconds = pts + (dur.isFinite ? dur : 0) }
+        guard let buffer = Self.sampleBufferToPCMBuffer(sample) else { continue }
+        if audioConverter == nil {
+          audioConverter = PlayerTranscriptionAudioConverter(
+            sourceFormat: buffer.format,
+            targetFormat: targetFormat
+          )
         }
-        await Task.yield()
-      }
+        guard let converter = audioConverter else {
+          throw PlayerLiveTranscriptionError.conversionFailed
+        }
+        let converted = try converter.convert(buffer, to: targetFormat)
+        // `AsyncStream.Continuation` ist thread-safe — kein Umweg über den MainActor.
+        input.yield(AnalyzerInput(buffer: converted))
+        fedAnalyzerSeconds += Double(converted.frameLength) / targetFormat.sampleRate
 
-      return result(reader.status == .completed ? .completed : .trackChanged)
-    }.value
+        let dur = CMSampleBufferGetDuration(sample).seconds
+        let pts = CMSampleBufferGetPresentationTimeStamp(sample).seconds
+        if pts.isFinite { fedLocalSeconds = pts + (dur.isFinite ? dur : 0) }
+      }
+      await Task.yield()
+    }
+
+    if Task.isCancelled { throw CancellationError() }
+    return result(reader.status == .completed ? .completed : .trackChanged)
   }
 
   /// Gefüttertes, aber noch nicht transkribiertes Audio. Bezugspunkt ist der Beginn des
@@ -1948,9 +2002,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   private func nextFeedStep(
     expectedTrackKey: String,
     fedLocalSeconds: Double,
-    trackGlobalOffset: Double
+    trackGlobalOffset: Double,
+    generation: UInt
   ) -> FeedStep {
-    guard isTeleprompterModeActive else { return .trackChanged }
+    // Veraltete Generation: der Feed gehört zu einer abgeschalteten Session und hört hier auf.
+    guard sessionIsCurrent(generation) else { return .trackChanged }
     if feedRestartRequested {
       feedRestartRequested = false
       return .restartAtPlayback

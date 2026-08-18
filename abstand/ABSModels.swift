@@ -568,7 +568,8 @@ struct ABSPodcastEpisodeListItem: Identifiable, Hashable, Codable {
   let duration: Double
   let publishedAt: Int64?
 
-  var id: String { episodeId }
+  /// Stabil über Sendungen hinweg — `episodeId` allein kann in gemischten Listen kollidieren.
+  var id: String { progressLookupKey }
 
   /// Getrimmt — muss exakt zu `ABSUserMediaProgress.progressLookupKey` passen (dort ebenfalls getrimmt),
   /// sonst divergieren Fortschritts-Lookup und Dedupe-Key bei Whitespace in IDs.

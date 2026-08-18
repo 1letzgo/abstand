@@ -10,6 +10,8 @@ struct MainRootView: View {
   @State private var activatedTabs: Set<AppModel.MainTab> = [.start]
   @State private var libraryRelayoutEpoch = 0
   @State private var podcastsRelayoutEpoch = 0
+  /// Eine Destination am Katalog-Stack — nicht pro Lazy-Zeile (`isPresented` kommt dort oft nicht an).
+  @State private var podcastDetailEpisode: ABSPodcastEpisodeListItem?
 
   var body: some View {
     let _ = model.appearanceThemeRevision
@@ -110,6 +112,7 @@ struct MainRootView: View {
       podcastsRelayoutEpoch += 1
       booksLibraryToolbarState.resetForAccountSwitch()
       podcastCatalogToolbarState.resetForAccountSwitch()
+      podcastDetailEpisode = nil
     }
     .onChange(of: model.nowPlayingSheetDismissCounter) { _, _ in
       // UIKit-Overlay-Dismiss kann die Katalog-ScrollViews aus dem Layout bringen.
@@ -646,6 +649,9 @@ struct MainRootView: View {
   private var podcastsTabRoot: some View {
     PodcastCatalogTabShell(toolbarState: podcastCatalogToolbarState) {
       podcastCatalogScrollView
+        .navigationDestination(item: $podcastDetailEpisode) { episode in
+          PodcastEpisodeDetailView(episode: episode)
+        }
     }
     .id("podcast-catalog-tab-\(model.accountSessionEpoch)")
     .onAppear { podcastCatalogToolbarState.attach(model) }
@@ -795,7 +801,11 @@ struct MainRootView: View {
           items: episodes,
           spacing: AppTheme.Layout.withinSectionSpacing
         ) { episode in
-          LibraryPodcastListCard(episode: episode, model: model)
+          LibraryPodcastListCard(
+            episode: episode,
+            model: model,
+            onOpenDetail: { podcastDetailEpisode = episode }
+          )
             .task(id: episode.progressLookupKey) {
               if showId == nil {
                 await model.loadMorePodcastsIfNeeded(currentItemId: episode.id)
@@ -805,7 +815,11 @@ struct MainRootView: View {
       } else {
         LibraryPodcastCardsFlow {
           ForEach(episodes, id: \.progressLookupKey) { episode in
-            LibraryPodcastListCard(episode: episode, model: model)
+            LibraryPodcastListCard(
+              episode: episode,
+              model: model,
+              onOpenDetail: { podcastDetailEpisode = episode }
+            )
               .task(id: episode.progressLookupKey) {
                 if showId == nil {
                   await model.loadMorePodcastsIfNeeded(currentItemId: episode.id)
