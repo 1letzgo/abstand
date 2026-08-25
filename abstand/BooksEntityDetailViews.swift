@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 // MARK: - Entity detail (author / series / narrator)
 
@@ -412,10 +413,9 @@ struct BooksEntityDetailView: View {
     }
     guard let url else { return }
 
-    var req = URLRequest(url: url)
-    req.setValue("Bearer \(model.token)", forHTTPHeaderField: "Authorization")
+    let req = AbstandHTTPSession.authorizedRequest(url: url, token: model.token)
     do {
-      let (data, resp) = try await URLSession.shared.data(for: req)
+      let (data, resp) = try await AbstandHTTPSession.coverAndCache.data(for: req)
       guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
         let image = UIImage(data: data)
       else { return }
@@ -423,7 +423,12 @@ struct BooksEntityDetailView: View {
         headerCoverImageForTint = image
         headerTintColor = coverDominantBackgroundTint(from: image)
       }
-    } catch {}
+    } catch is CancellationError {
+      // Abbruch ist normal — kein Log.
+    } catch {
+      AppLog.library.warning(
+        "Entity header cover fetch failed: \(error.localizedDescription, privacy: .public)")
+    }
   }
 }
 

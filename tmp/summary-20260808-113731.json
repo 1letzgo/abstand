@@ -1,4 +1,0 @@
-{
-  "summary": "Vollständige Code-Analyse des Home-Tabs und Caching-Mechanismus: View-Hierarchie (HomeTabRootView → StartDashboardView → Regale/Carousels), AppModel-Properties (startShelves, progressByItemId, …), Bootstrap-Pfad (init → scheduleHomeLaunchRestoreFromLocalStore → bootstrapFromStoredCredentials → performDeferredBootstrapNetworkRefresh), SwiftData-Cache via LocalLibraryStore/LocalHomeShelvesSnapshot (kein LibraryDiskCache mehr). Continue Listening wird beim Kaltstart aus LocalHomeShelvesSnapshot + LocalProgress rekonstruiert; /personalized kommt erst beim Netz-Refresh.",
-  "current_status": "Analyse abgeschlossen, keine Code-Änderungen. Home-Tab ist local-first mit SwiftData-Snapshot pro Bibliothek; Netzwerk-Refresh (personalized + items-in-progress + authorize) läuft deferred/parallel nach Bootstrap."
-}

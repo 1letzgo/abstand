@@ -1,4 +1,0 @@
-{
-  "summary": "Podcast-Listenzeilen öffneten Details unzuverlässig, weil jede LazyVStack-Zeile ein eigenes navigationDestination(isPresented:) hatte und nur die Textspalte tappable war. Destination liegt jetzt einmal am Katalog-Stack (podcastDetailEpisode), die ganze Karte öffnet Details (Play-Cover bleibt Button), Identifiable-id ist progressLookupKey statt episodeId.",
-  "current_status": "Podcast-Listen-Navigation gefixt (MainRootView, LibraryCardViews, ABSModels). Manuell prüfen: Podcast-Tab in Listen-Darstellung, Folgen weit unten und aus verschiedenen Shows antippen."
-}

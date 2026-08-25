@@ -1,4 +1,0 @@
-{
-  "summary": "Plan „Server Settings Libraries“ vollständig umgesetzt: gemeinsame ServerAdminMetricTile für gleich hohe User-Summary-Karten; Libraries als Unterview (ServerLibrariesListView) wie Users; ABSLibraryStatsResponse um longest/largest/authors erweitert; libraryDetail + episode-downloads API/Wrapper; Library-Detail typspezifisch (Book vs Podcast) mit Genres, Authors, Longest/Largest, Folders/Issues/Provider und optional Episode-Downloads. xcodebuild iPhone 17: BUILD SUCCEEDED.",
-  "current_status": "Settings → Server: Users-Kartenhöhe und Libraries-Unterview inkl. angereichertem Library-Detail sind fertig und bauen grün. Manueller Sim-Test (Book- vs Podcast-Library, Scan, Pull-to-Refresh) steht noch aus."
-}

@@ -81,8 +81,7 @@ enum CoverImageCache {
       return cached
     }
     guard let coverURL, !token.isEmpty else { return nil }
-    var req = URLRequest(url: coverURL)
-    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    let req = AbstandHTTPSession.authorizedRequest(url: coverURL, token: token)
     do {
       let (data, resp) = try await AbstandHTTPSession.coverAndCache.data(for: req)
       guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),

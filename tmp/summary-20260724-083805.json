@@ -1,4 +1,0 @@
-{
-  "summary": "Thorough race-condition review of AppModel progress sync, catalog reload, and LocalStore persist. Highest risks: clearInMemorySessionState wiping discarded/finished UserDefaults keys for the old account on switch; persistProgressToLocalStoreNow TOCTOU vs fire-and-forget replaceAllProgress; parallel authorize without generation allowing stale mediaProgress after discard reconcile; concurrent reloadLibrary/catalog restore without serial tokens; home-shelf and libraries persist without generation. accountSessionEpoch is incremented but unused as a guard.",
-  "current_status": "Review-only; no code changes. Findings ordered by severity with line evidence in AppModel.swift / LocalLibraryStore.swift for a follow-up fix pass."
-}

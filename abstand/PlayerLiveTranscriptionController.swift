@@ -2037,7 +2037,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   }
 
   private nonisolated static func streamHeaderOptions(token: String) -> [String: Any] {
-    ["AVURLAssetHTTPHeaderFieldsKey": ["Authorization": "Bearer \(token)"]]
+    AbstandHTTPSession.authorizedAssetHeaders(token: token)
   }
 
   private nonisolated static func sampleBufferToPCMBuffer(_ sample: CMSampleBuffer) -> AVAudioPCMBuffer? {

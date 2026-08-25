@@ -1,4 +1,0 @@
-{
-  "summary": "Compilerfehler in LibraryCardViews.swift behoben: openDetails bekam den Methodenverweis openEpisodeDetail im Ternary, Swift konnte den Typ nicht ableiten. Jetzt expliziter Closure { openEpisodeDetail() }, analog zu den Buchzeilen.",
-  "current_status": "Podcast-Listenzeile sollte wieder bauen. Continue-Listening-Reihenfolge und Podcast-Listen-Navigation aus den vorherigen Fixes sind weiterhin uncommitted."
-}

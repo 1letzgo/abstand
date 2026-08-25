@@ -1,4 +1,0 @@
-{
-  "summary": "Race-Condition in startTeleprompterMode behoben: Modus/Busy werden vor teardownForFreshStart gesetzt (playBook sieht den Disable-Guard), teleprompterIntentGeneration bricht den Start ab wenn disable() während des Awaits lief, playbackDidStop ignoriert veraltete Stops. finishTeleprompterMode räumt isPreparing/isSessionBusy mit ab.",
-  "current_status": "Teleprompter-Teardown-Race in PlayerLiveTranscriptionController.swift gefixt; Änderung uncommitted. Manueller Sim-/Geräte-Test des Read-Along-Starts bei Buchwechsel steht noch aus."
-}
