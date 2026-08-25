@@ -169,6 +169,9 @@ enum CoverDominantTintSeed {
 }
 
 /// Cover → Kartenfarbe (Cache, lokales Cover, optional Netz) für Continue-Hero und Home-Mini-Karten.
+/// Achtung Main-Thread: `syncUIImage` (Disk-Read) und `coverAverageRGB` (Pixel-Analyse, Hero-Größe)
+/// sind teuer — beides läuft bewusst in `Task.detached`, nicht auf dem MainActor (Launch-Jank).
+/// Die sync aufrufbaren Seeds (View-`init`) beschränken sich auf die winzigen Tint-JSONs.
 @MainActor
 enum CoverDerivedTintLoader {
   /// Disk-Tint zuerst; sonst Cover aus Memory/Disk (Scope inkl. Hero); erst dann Netz.
@@ -196,33 +199,15 @@ enum CoverDerivedTintLoader {
     )
   }
 
+  /// Billiger Sync-Pfad (View-`init`-Seeds): nur persistierte Tint-JSON lesen — kleine Datei,
+  /// kein Bild-I/O, keine Pixel-Analyse. Bild-basierte Ableitung läuft über `loadColor`/`colorFromNetwork`.
   static func colorFromDiskOrCoverCache(
     account: URL?,
     itemId: String,
     cacheScopeId: String? = nil,
     revision: Int = 0
   ) -> Color? {
-    if let c = ContinueHeroTintCache.load(account: account, itemId: itemId, revision: revision) {
-      return c
-    }
-    let scope = cacheScopeId ?? itemId
-    let primaryKey = CoverImageCache.cacheKey(scopeId: scope, revision: revision)
-    let thumbnailKey = CoverImageCache.cacheKey(scopeId: itemId, revision: revision)
-    guard let account else { return nil }
-    let img =
-      CoverImageCache.syncUIImage(itemId: primaryKey, account: account)
-      ?? (primaryKey != thumbnailKey
-        ? CoverImageCache.syncUIImage(itemId: thumbnailKey, account: account) : nil)
-    guard let img, let avg = coverAverageRGB(from: img) else { return nil }
-    ContinueHeroTintCache.save(
-      account: account,
-      itemId: itemId,
-      revision: revision,
-      red: Double(avg.0),
-      green: Double(avg.1),
-      blue: Double(avg.2)
-    )
-    return continueListeningCardTint(fromAverageRed: avg.0, green: avg.1, blue: avg.2)
+    ContinueHeroTintCache.load(account: account, itemId: itemId, revision: revision)
   }
 
   static func colorFromNetwork(
@@ -233,34 +218,30 @@ enum CoverDerivedTintLoader {
     coverURL: URL?,
     token: String
   ) async -> Color? {
-    let scope = cacheScopeId ?? itemId
-    let cacheKey = CoverImageCache.cacheKey(scopeId: scope, revision: revision)
-    if CoverImageCache.syncUIImage(itemId: cacheKey, account: account) != nil {
-      // Cover liegt schon lokal — Farbe aus Cache ableiten (nicht nil zurückgeben).
-      return colorFromDiskOrCoverCache(
-        account: account, itemId: itemId, cacheScopeId: cacheScopeId, revision: revision)
-    }
-    // Thumbnail-Cache als zweiter Treffer — kein Netz, wenn die Liste das Cover schon hat.
-    let thumbnailKey = CoverImageCache.cacheKey(scopeId: itemId, revision: revision)
-    if cacheKey != thumbnailKey,
-      CoverImageCache.syncUIImage(itemId: thumbnailKey, account: account) != nil
+    // Liegt das Cover schon lokal (Memory/Disk, Scope inkl. Hero/Thumbnail)? → Farbe off-main ableiten.
+    if let c = await colorFromLocalImage(
+      account: account, itemId: itemId, cacheScopeId: cacheScopeId, revision: revision)
     {
-      return colorFromDiskOrCoverCache(
-        account: account, itemId: itemId, cacheScopeId: cacheScopeId, revision: revision)
+      return c
     }
     guard let coverURL else { return nil }
-    var req = URLRequest(url: coverURL)
-    if !token.isEmpty {
-      req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    }
+    let req = AbstandHTTPSession.authorizedRequest(url: coverURL, token: token)
+    let payload: (data: Data, response: URLResponse)?
     do {
-      let (data, resp) = try await AbstandHTTPSession.coverAndCache.data(for: req)
+      payload = try await AbstandHTTPSession.coverAndCache.data(for: req)
+    } catch {
+      return nil
+    }
+    guard let (data, resp) = payload else { return nil }
+    let cacheKey = CoverImageCache.cacheKey(scopeId: cacheScopeId ?? itemId, revision: revision)
+    // Decode + Pixel-Analyse + Persistenz off-main — dieselben Bytes wie `CoverImageView` speichern,
+    // damit es beim nächsten Öffnen denselben Key trifft (kein zweiter Download).
+    return await Task.detached(priority: .userInitiated) { () -> Color? in
       guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
         let image = UIImage(data: data),
         let avg = coverAverageRGB(from: image)
       else { return nil }
       if let account {
-        // Dieselben Bytes wie `CoverImageView` persistieren — kein zweiter Download beim nächsten Öffnen.
         try? CoverImageCache.saveToDisk(account: account, itemId: cacheKey, data: data)
         CoverImageCache.storeMemory(itemId: cacheKey, image: image)
         ContinueHeroTintCache.save(
@@ -273,8 +254,35 @@ enum CoverDerivedTintLoader {
         )
       }
       return continueListeningCardTint(fromAverageRed: avg.0, green: avg.1, blue: avg.2)
-    } catch {
-      return nil
-    }
+    }.value
+  }
+
+  /// Lokales Bild (Memory/Disk) → Farbe. Schwerer Teil (Disk-Read, Decode, `coverAverageRGB`)
+  /// läuft off-main; nur das Ergebnis kommt zurück auf den MainActor.
+  private static func colorFromLocalImage(
+    account: URL?,
+    itemId: String,
+    cacheScopeId: String?,
+    revision: Int
+  ) async -> Color? {
+    guard let account else { return nil }
+    let primaryKey = CoverImageCache.cacheKey(scopeId: cacheScopeId ?? itemId, revision: revision)
+    let thumbnailKey = CoverImageCache.cacheKey(scopeId: itemId, revision: revision)
+    return await Task.detached(priority: .userInitiated) { () -> Color? in
+      let img =
+        CoverImageCache.syncUIImage(itemId: primaryKey, account: account)
+        ?? (primaryKey != thumbnailKey
+          ? CoverImageCache.syncUIImage(itemId: thumbnailKey, account: account) : nil)
+      guard let img, let avg = coverAverageRGB(from: img) else { return nil }
+      ContinueHeroTintCache.save(
+        account: account,
+        itemId: itemId,
+        revision: revision,
+        red: Double(avg.0),
+        green: Double(avg.1),
+        blue: Double(avg.2)
+      )
+      return continueListeningCardTint(fromAverageRed: avg.0, green: avg.1, blue: avg.2)
+    }.value
   }
 }

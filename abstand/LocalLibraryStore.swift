@@ -942,6 +942,24 @@ enum LocalLibraryQueries {
     return (items, state.total, (items.count + 39) / 40)
   }
 
+  /// Sync-Gegenstück zu `LocalLibraryStore.fetchAuthors` für den Main-Context-Restore-Pfad
+  /// (SwiftData-Vollmigration: Browse-Domäne etappenweise in die Query-Schicht ziehen).
+  static func authors(
+    context: ModelContext, libraryId: String, sortField: String, descending: Bool
+  ) -> (items: [ABSLibraryAuthorListItem], total: Int, nextPage: Int)? {
+    var stateDescriptor = FetchDescriptor<LocalAuthorListState>(predicate: #Predicate { $0.libraryId == libraryId })
+    stateDescriptor.fetchLimit = 1
+    guard let state = (try? context.fetch(stateDescriptor))?.first,
+      state.sortField == sortField, state.descending == descending
+    else { return nil }
+    let predicate = #Predicate<LocalAuthor> { $0.libraryId == libraryId }
+    let rows =
+      (try? context.fetch(FetchDescriptor(predicate: predicate, sortBy: [SortDescriptor(\.sortRank)]))) ?? []
+    guard !rows.isEmpty else { return nil }
+    let items = rows.map { $0.toItem() }
+    return (items, state.total, (items.count + 49) / 50)
+  }
+
   static func collections(
     context: ModelContext, libraryId: String
   ) -> (items: [ABSLibraryCollectionListItem], total: Int)? {

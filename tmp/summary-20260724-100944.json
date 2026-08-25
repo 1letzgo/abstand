@@ -1,4 +1,0 @@
-{
-  "summary": "M4B-Progress zeigt jetzt Prozent statt Spinner: schlanker Socket.IO-Client (ABSAdminSocketClient) lauscht auf Admin-Event task_progress; Progress-UI und Book-Detail-Menü zeigen „Converting 42%“.",
-  "current_status": "Convert-% live per WebSocket; Item-Poll bleibt Fallback für Fertig-Erkennung. Build iPhone 17 grün."
-}

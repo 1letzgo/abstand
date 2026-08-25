@@ -1,4 +1,0 @@
-{
-  "summary": "Play-Pillen auf Continue Listening und New Episodes (sowie Library-Cover-Cards) nutzen jetzt dieselbe Play↔Pause-Logik wie Book/Episode-Detail: aktiver Titel zeigt Pause, Tap pausiert/resumiert; sonst Start. Hilfsfunktion continueHeroPlayPillToggle, Icon reagiert auf player.isPlaying. Build iPhone 17 grün.",
-  "current_status": "Home Continue Listening + New Episodes Play-Buttons mit Play/Pause-State; M4B-Progress-Isolation und Home-Regale unverändert."
-}

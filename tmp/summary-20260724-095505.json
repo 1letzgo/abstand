@@ -1,4 +1,0 @@
-{
-  "summary": "Settings → Server → Tools: Convert to M4B eingebaut — Liste nicht-M4B-Bücher, Convert starten/abbrechen, Progress-Manager (Poll ohne Socket), Delete media cache (POST /cache/items/purge). API/AppModel/UI fertig, Build iPhone 17 grün.",
-  "current_status": "M4B-Server-Tools in der Root-Server-Unterview nutzbar; Prozent-Progress fehlt serverseitig ohne WebSocket (indeterminate + Fertig-Erkennung per Item-Poll)."
-}

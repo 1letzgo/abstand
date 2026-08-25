@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 
 /// Server-Cover-Auflösung: ABS skaliert `/api/items/:id/cover` (Default sonst 400 px).
 enum CoverImageTier {
@@ -218,10 +219,8 @@ struct CoverImageView: View {
       }
     }
 
-    var req = URLRequest(url: url)
-    if requiresAuthorization, !token.isEmpty {
-      req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    }
+    let req = AbstandHTTPSession.authorizedRequest(
+      url: url, token: requiresAuthorization ? token : nil)
     do {
       let (data, resp) = try await AbstandHTTPSession.coverAndCache.data(for: req)
       try Task.checkCancellation()
@@ -236,6 +235,10 @@ struct CoverImageView: View {
         guard !Task.isCancelled, cacheScopeId == scopeId else { return }
         image = ui
       }
-    } catch {}
+    } catch is CancellationError {
+      // Abbruch ist normal (View weg / neues Cover) — kein Log.
+    } catch {
+      AppLog.library.warning("Cover fetch failed: \(error.localizedDescription, privacy: .public)")
+    }
   }
 }

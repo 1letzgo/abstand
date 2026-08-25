@@ -2270,6 +2270,6 @@ private extension Array {
 
 private extension AVURLAsset {
   static func httpHeaderOptions(token: String) -> [String: Any] {
-    ["AVURLAssetHTTPHeaderFieldsKey": ["Authorization": "Bearer \(token)"]]
+    AbstandHTTPSession.authorizedAssetHeaders(token: token)
   }
 }

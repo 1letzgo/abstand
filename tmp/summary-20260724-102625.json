@@ -1,4 +1,0 @@
-{
-  "summary": "M4B-Menü-Flackern in Book Detail behoben: %-Updates laufen nur noch über den separaten M4BEncodeProgressStore (nicht mehr über @Published m4bEncodeJobs). ServerM4BProgressView beobachtet den Store per @ObservedObject und zeigt weiterhin Prozent; Book Detail bleibt bei statischem „Converting…“. Combine-Import ergänzt, Build iPhone 17 grün.",
-  "current_status": "M4B-Conversion inkl. Progress-Isolation fertig; More-Menü sollte während laufender Konvertierung nicht mehr flackern. Manueller Smoke-Test im Simulator empfohlen."
-}

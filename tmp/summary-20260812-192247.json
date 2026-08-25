@@ -1,4 +1,0 @@
-{
-  "summary": "Bugbot-Review der Branch-Änderungen ausgeführt. Ein Medium-Finding in PlayerLiveTranscriptionController.swift:320: startTeleprompterMode setzt nach teardownForFreshStart den Teleprompter-Modus wieder auf true und startet enableTask, ohne zu prüfen, ob während des Teardowns ein disable() lief. Kein Fix vorgenommen.",
-  "current_status": "Live-Transkription/Teleprompter-Änderungen in PlayerLiveTranscriptionController.swift sind uncommitted; Bugbot hat eine Race-Condition beim Teardown identifiziert, die noch nicht behoben ist."
-}

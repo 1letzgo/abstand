@@ -1,4 +1,0 @@
-{
-  "summary": "Bugfix für verlorene Fortschritte beim Offline-Wechsel: prepareForOfflineHomeMode hat Session-Flush wegen mayUseServerNetwork==false übersprungen und pendingListenSeconds beim tearDown/suspend verworfen. Jetzt Flush trotz Offline-UI, synchroner Progress-Persist, Parken der Rest-Hörzeit, korrekter Podcast-Progress-Key, und sofortige lokale Sicherung bei Netzverlust. Build iPhone 17 erfolgreich.",
-  "current_status": "Offline-Progress-Verlust behoben und gebaut; bereit für manuellen Test (Offline während Wiedergabe, dann wieder online und Continue/Position prüfen)."
-}

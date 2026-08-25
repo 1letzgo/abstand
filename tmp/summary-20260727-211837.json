@@ -1,4 +1,0 @@
-{
-  "summary": "Change Password: textContentType gesetzt (Current=.password, New+Confirm=.newPassword) und read-only Username-Zeile für Password AutoFill ergänzt, damit Apples Strong Password auch Confirm füllt.",
-  "current_status": "Strong-Password-AutoFill für Change Password korrigiert; übrige Features unverändert."
-}

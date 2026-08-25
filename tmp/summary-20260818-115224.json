@@ -1,4 +1,0 @@
-{
-  "summary": "Continue Listening hat nach Play-Start die Reihenfolge nicht aktualisiert, weil das Carousel nur ID-Mitgliedschaft beobachtet hat und der Filter fertige Titel entfernt, aber nicht nach lastUpdate sortiert hat. Carousel nutzt jetzt die lastUpdate-Rangfolge (ohne Tick-Jitter), Filter sortiert mit, Library-Check erlaubt alle aktiven Bibliotheken.",
-  "current_status": "Continue-Listening-Reihenfolge nach Wiedergabestart sollte wieder nach vorne rutschen. Manuell prüfen: Home, drittes Buch in Continue starten, Karte muss auf Position 1."
-}

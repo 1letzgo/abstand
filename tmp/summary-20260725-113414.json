@@ -1,4 +1,0 @@
-{
-  "summary": "Series-Suche im Edit-Metadata läuft nur noch bei aktiver Nutzereingabe (onChange), nicht mehr beim Prefill vorhandener Titel; Spinner entfällt beim Öffnen. Vorschlagsauswahl unterdrückt die Folgesuche. Build iPhone 17 grün.",
-  "current_status": "Series-Autocomplete nur bei Tippen; Prefill ohne Spinner/Suche."
-}

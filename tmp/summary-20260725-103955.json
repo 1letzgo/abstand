@@ -1,4 +1,0 @@
-{
-  "summary": "Padding unter der Play-Pille (continueHeroMetadataExtraBottomPadding) von 16 auf 10 reduziert — entspricht dem linken/horizontalen Inset (libraryRowCardInset). Gilt für Continue Listening und Cover-Cards inkl. New Episodes.",
-  "current_status": "Home Play-Pillen mit Play/Pause; unteres Padding an linkes Padding angeglichen."
-}
