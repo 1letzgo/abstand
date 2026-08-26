@@ -185,6 +185,8 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Nach Laden: sofort abspielen oder nur positionieren (App-Start).
   private var shouldAutoPlayAfterLoad = true
 
+  /// Neues Medium fertig geladen (Tracks stehen) — z. B. für die Transkript-Vorproduktion.
+  var onActiveMediaPrepared: (() -> Void)?
   /// Wird bei jedem periodischen Player-Tick aufgerufen (z. B. Smart-Download).
   var onPlaybackTick: (() -> Void)?
   /// Letzter Track eines Hörbuchs zu Ende (keine Podcast-Folge).
@@ -1036,6 +1038,7 @@ final class PlaybackController: NSObject, ObservableObject {
     guard !mediaTracks.isEmpty else { throw ABSPlaybackError.noTracks }
     tracks = mediaTracks
     rebuildTrackStarts()
+    defer { onActiveMediaPrepared?() }
     let manifestDur = manifest?.totalDuration.flatMap { $0 > 0 ? $0 : nil }
     totalDuration =
       manifestDur
@@ -2237,6 +2240,29 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Lokale Track-Dateien, die einen globalen Zeitbereich berühren — z. B. für einen
   /// eigenständigen On-device-Recap. Anders als der Live-Teleprompter berücksichtigt
   /// dies auch Track-Grenzen innerhalb des angeforderten Bereichs.
+  /// Alle lokalen Tracks des aktiven Downloads — Grundlage für die Hintergrund-Vorproduktion
+  /// von Read-Along-Transkripten (`PlayerTranscriptPrefetcher`).
+  func localTranscriptionTrackSources() -> [PlayerTranscriptTrackSource] {
+    guard
+      activeBook != nil,
+      isUsingLocalTrackFiles,
+      let root = localRoot,
+      tracks.count == trackStarts.count
+    else { return [] }
+    let manifest = ABSDownloadManifest.load(from: root)
+    return tracks.enumerated().compactMap { index, track in
+      guard
+        let url = Self.resolvedLocalTrackURL(root: root, trackIndex: track.index, manifest: manifest)
+      else { return nil }
+      return PlayerTranscriptTrackSource(
+        trackIndex: index,
+        assetURL: url,
+        globalOffset: trackStarts[index],
+        duration: track.duration
+      )
+    }
+  }
+
   func makeLocalTranscriptionAudioContexts(
     overlapping globalRange: ClosedRange<Double>
   ) -> [PlayerTranscriptionAudioContext] {

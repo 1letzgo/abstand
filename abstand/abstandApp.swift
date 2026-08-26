@@ -94,12 +94,15 @@ private struct AppRootContainer: View {
         // Cache-first: Listen stehen bereits aus der lokalen DB — hier nur die DB still
         // fortschreiben, wenn der letzte Server-Abgleich zu lange her ist.
         model.refreshCatalogsIfStaleOnForeground()
+        // Transkript-Vorproduktion läuft ausschließlich im Vordergrund.
+        model.transcriptPrefetcher.scheduleIfNeeded()
       } else if phase == .background {
         // Nur Teleprompter beenden. Die Audio-Session bleibt unangetastet — iOS hält die
         // laufende Wiedergabe über `.playback` + `audio`-Background-Mode selbst am Leben.
         // `.inactive` bewusst ausgenommen: das feuert auch bei Control Center, App-Switcher
         // oder Anruf-Banner, wo die App gleich wieder aktiv ist.
         model.player.handleEnterBackground()
+        model.transcriptPrefetcher.stop()
       }
     }
     .alert("Connecting ABS Server", isPresented: serverConnectionAlertPresented) {

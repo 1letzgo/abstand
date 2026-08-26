@@ -490,6 +490,17 @@ final class AppModel: ObservableObject {
   @Published var smartDownloadOnWiFi: Bool = AppModel.initialSmartDownloadOnWiFi() {
     didSet { UserDefaults.standard.set(smartDownloadOnWiFi, forKey: Keys.smartDlAutoWifi) }
   }
+  /// Read-Along-Transkripte für heruntergeladene Bücher im Vordergrund vorproduzieren.
+  @Published var readAlongPrefetchEnabled: Bool = UserDefaults.standard.bool(
+    forKey: Keys.readAlongPrefetch
+  ) {
+    didSet {
+      UserDefaults.standard.set(readAlongPrefetchEnabled, forKey: Keys.readAlongPrefetch)
+      guard oldValue != readAlongPrefetchEnabled else { return }
+      transcriptPrefetcher.setEnabled(readAlongPrefetchEnabled)
+    }
+  }
+  let transcriptPrefetcher = PlayerTranscriptPrefetcher()
   /// Lokale Downloads entfernen, sobald Hörbuch oder Podcast-Folge als fertig markiert ist.
   @Published var smartDownloadRemoveWhenFinished: Bool = AppModel.initialSmartDownloadRemoveWhenFinished() {
     didSet {
@@ -1115,6 +1126,14 @@ final class AppModel: ObservableObject {
       }
     }
     floatingChrome.bind(model: self)
+    transcriptPrefetcher.configure(player: player)
+    transcriptPrefetcher.setEnabled(readAlongPrefetchEnabled)
+    player.onActiveMediaPrepared = { [weak self] in
+      guard let self, self.readAlongPrefetchEnabled else { return }
+      // Neues Buch: Vorproduktion am neuen Titel neu aufsetzen.
+      self.transcriptPrefetcher.stop()
+      self.transcriptPrefetcher.scheduleIfNeeded()
+    }
     let accountBootstrap = Self.bootstrapStoredAccountsState()
     storedAccounts = accountBootstrap.accounts
     activeAccountKey = accountBootstrap.activeKey

@@ -56,28 +56,6 @@ enum PlayerLiveTranscriptionError: LocalizedError {
   }
 }
 
-private actor PlayerRecapTranscriptCollector {
-  private var segments: [String] = []
-
-  func append(_ raw: String) {
-    let segment = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !segment.isEmpty else { return }
-    guard let last = segments.last else {
-      segments.append(segment)
-      return
-    }
-    if segment == last || last.hasPrefix(segment) { return }
-    if segment.hasPrefix(last) {
-      segments[segments.count - 1] = segment
-    } else {
-      segments.append(segment)
-    }
-  }
-
-  var text: String {
-    segments.joined(separator: " ")
-  }
-}
 
 /// Ein Wort (oder Leerzeichen) mit Zeitfenster für Highlight / Scroll.
 struct PlayerTranscriptWord: Identifiable, Equatable {
@@ -410,10 +388,12 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       return
     }
 
-    let contexts = player.makeLocalTranscriptionAudioContexts(
-      overlapping: max(0, end - 300)...end
-    )
-    guard !contexts.isEmpty else {
+    let recapRange = max(0, end - 300)...end
+    let sources = player.localTranscriptionTrackSources().filter {
+      $0.globalRange.upperBound >= recapRange.lowerBound
+        && $0.globalRange.lowerBound <= recapRange.upperBound
+    }
+    guard !sources.isEmpty else {
       recapText = nil
       recapErrorMessage = String(
         localized: "The last five minutes of audio are unavailable for transcription.",
@@ -423,11 +403,15 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     }
 
     isGeneratingRecap = true
+    PlayerTranscriptLibrary.beginPriorityWork()
     recapText = nil
     recapErrorMessage = nil
     recapFallbackNotice = nil
     recapShowsTranscript = false
-    defer { isGeneratingRecap = false }
+    defer {
+      isGeneratingRecap = false
+      PlayerTranscriptLibrary.endPriorityWork()
+    }
 
     let generation = UUID()
     let timeoutTask = Task { @MainActor [weak self] in
@@ -464,9 +448,12 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       try await ensureSpeechModel(locale: locale)
       guard currentRecapGeneration == generation, isGeneratingRecap else { return }
 
-      let transcript = try await transcribeRecapAudio(
-        contexts: contexts,
-        globalRange: max(0, end - 300)...end,
+      // Read-Along-Cache mitbenutzen: Was der Teleprompter (oder die Vorproduktion) schon
+      // transkribiert hat, wird gelesen statt erneut durch die Spracherkennung geschickt.
+      let transcript = try await PlayerTranscriptLibrary.transcriptText(
+        bookId: bookId ?? "",
+        sources: sources,
+        globalRange: recapRange,
         locale: locale
       )
       guard currentRecapGeneration == generation, isGeneratingRecap else { return }
@@ -551,111 +538,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     recapPlaybackTime = nil
   }
 
-  private func transcribeRecapAudio(
-    contexts: [PlayerTranscriptionAudioContext],
-    globalRange: ClosedRange<Double>,
-    locale: Locale
-  ) async throws -> String {
-    let transcriber = SpeechTranscriber(
-      locale: locale,
-      transcriptionOptions: [],
-      reportingOptions: [],
-      attributeOptions: []
-    )
-    let analyzer = SpeechAnalyzer(modules: [transcriber])
-    guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
-      throw PlayerLiveTranscriptionError.conversionFailed
-    }
 
-    let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
-    try await analyzer.start(inputSequence: stream)
-    let collector = PlayerRecapTranscriptCollector()
-    let resultTask = Task {
-      for try await result in transcriber.results where result.isFinal {
-        await collector.append(String(result.text.characters))
-      }
-    }
-
-    do {
-      try await feedRecapAudio(
-        contexts: contexts,
-        globalRange: globalRange,
-        targetFormat: format,
-        input: continuation
-      )
-      continuation.finish()
-      try await analyzer.finalizeAndFinishThroughEndOfInput()
-      _ = try await resultTask.value
-      return await collector.text
-    } catch {
-      continuation.finish()
-      resultTask.cancel()
-      try? await analyzer.finalizeAndFinishThroughEndOfInput()
-      throw error
-    }
-  }
-
-  private func feedRecapAudio(
-    contexts: [PlayerTranscriptionAudioContext],
-    globalRange: ClosedRange<Double>,
-    targetFormat: AVAudioFormat,
-    input: AsyncStream<AnalyzerInput>.Continuation
-  ) async throws {
-    for context in contexts {
-      let localStart = max(0, globalRange.lowerBound - context.trackGlobalOffset)
-      let localEnd = max(localStart, globalRange.upperBound - context.trackGlobalOffset)
-      guard localEnd > localStart else { continue }
-
-      let asset = AVURLAsset(url: context.assetURL)
-      let tracks = try await asset.loadTracks(withMediaType: .audio)
-      guard let audioTrack = tracks.first else {
-        throw PlayerLiveTranscriptionError.audioSourceUnavailable
-      }
-
-      let reader = try AVAssetReader(asset: asset)
-      let output = AVAssetReaderTrackOutput(
-        track: audioTrack,
-        outputSettings: [
-          AVFormatIDKey: kAudioFormatLinearPCM,
-          AVLinearPCMBitDepthKey: 16,
-          AVLinearPCMIsFloatKey: false,
-          AVLinearPCMIsBigEndianKey: false,
-          AVLinearPCMIsNonInterleaved: false,
-        ]
-      )
-      output.alwaysCopiesSampleData = false
-      guard reader.canAdd(output) else { throw PlayerLiveTranscriptionError.conversionFailed }
-      reader.add(output)
-      reader.timeRange = CMTimeRange(
-        start: CMTime(seconds: localStart, preferredTimescale: 600),
-        duration: CMTime(seconds: localEnd - localStart, preferredTimescale: 600)
-      )
-      guard reader.startReading() else {
-        throw reader.error ?? PlayerLiveTranscriptionError.audioSourceUnavailable
-      }
-
-      var converter: PlayerTranscriptionAudioConverter?
-      var bufferCount = 0
-      while reader.status == .reading, !Task.isCancelled {
-        guard let sample = output.copyNextSampleBuffer() else { continue }
-        guard let buffer = Self.sampleBufferToPCMBuffer(sample) else { continue }
-        if converter == nil {
-          converter = PlayerTranscriptionAudioConverter(
-            sourceFormat: buffer.format,
-            targetFormat: targetFormat
-          )
-        }
-        guard let converter else { throw PlayerLiveTranscriptionError.conversionFailed }
-        input.yield(AnalyzerInput(buffer: try converter.convert(buffer, to: targetFormat)))
-        bufferCount += 1
-        if bufferCount & 15 == 0 { await Task.yield() }
-      }
-      if Task.isCancelled { throw CancellationError() }
-      guard reader.status == .completed else {
-        throw reader.error ?? PlayerLiveTranscriptionError.audioSourceUnavailable
-      }
-    }
-  }
 
   /// Modus beenden und Session vollständig stoppen (idempotent).
   func disable(resetError: Bool = true) async {
@@ -898,6 +781,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     productionStartLocalTime = start
     productionThroughLocalTime = start
     isProducingTranscript = true
+    // Hintergrund-Vorproduktion pausiert, solange der Teleprompter selbst produziert.
+    PlayerTranscriptLibrary.beginPriorityWork()
 
     productionTask = Task { @MainActor [weak self] in
       guard let self else { return }
@@ -905,6 +790,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       var pending: [PlayerTranscriptTrackCache.Word] = []
       var lastPersistThrough = start
       defer {
+        PlayerTranscriptLibrary.endPriorityWork()
         if self.sessionIsCurrent(generation), self.activeContext?.trackIndex == trackIndex {
           self.isProducingTranscript = false
         }
@@ -1009,7 +895,14 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     words: [PlayerTranscriptTrackCache.Word],
     bookId: String
   ) {
-    guard end > start, !bookId.isEmpty, var cache = trackCache else { return }
+    guard end > start, !bookId.isEmpty, let context = activeContext else { return }
+    // Frisch von Platte lesen statt den eigenen Stand fortzuschreiben: Recap und
+    // Hintergrund-Vorproduktion schreiben in dieselbe Datei und dürfen sich nicht überschreiben.
+    var cache =
+      PlayerTranscriptLibrary.cache(
+        bookId: bookId, trackIndex: context.trackIndex, locale: context.locale)
+      ?? PlayerTranscriptTrackCache(
+        localeIdentifier: context.locale.identifier(.bcp47), trackIndex: context.trackIndex)
     cache.insert(
       segment: PlayerTranscriptTrackCache.Segment(start: start, end: end, words: words))
     trackCache = cache
@@ -1385,20 +1278,4 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     return min(1, max(0, (globalTime - line.globalStart) / span))
   }
 
-  private nonisolated static func sampleBufferToPCMBuffer(_ sample: CMSampleBuffer) -> AVAudioPCMBuffer? {
-    guard let desc = CMSampleBufferGetFormatDescription(sample) else { return nil }
-    guard let asbdPtr = CMAudioFormatDescriptionGetStreamBasicDescription(desc) else { return nil }
-    guard let format = AVAudioFormat(streamDescription: asbdPtr) else { return nil }
-    let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sample))
-    guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return nil }
-    buffer.frameLength = frameCount
-    let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
-      sample,
-      at: 0,
-      frameCount: Int32(frameCount),
-      into: buffer.mutableAudioBufferList
-    )
-    guard status == noErr else { return nil }
-    return buffer
-  }
 }

@@ -659,6 +659,25 @@ struct SettingsHubRootView: View {
     return parts.isEmpty ? nil : parts.joined(separator: " · ")
   }
 
+  /// Status der Transkript-Vorproduktion (läuft nur im Vordergrund).
+  private var readAlongPrefetchSubtitle: String {
+    guard model.readAlongPrefetchEnabled else {
+      return String(
+        localized:
+          "Transcribes downloaded audiobooks while the app is open, so read along and recap start instantly.",
+        comment: "Read along prefetch hint")
+    }
+    if let reason = model.transcriptPrefetcher.pausedReason { return reason }
+    if model.transcriptPrefetcher.isRunning {
+      let total = model.transcriptPrefetcher.totalTracks
+      let done = model.transcriptPrefetcher.preparedTracks
+      return String(
+        format: String(localized: "Preparing… %d of %d tracks", comment: "Read along prefetch state"),
+        done, total)
+    }
+    return String(localized: "Up to date for the current audiobook.", comment: "Read along prefetch state")
+  }
+
   @ViewBuilder
   private func settingsHubSectionBody(_ section: SettingsHubSection) -> some View {
     LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
@@ -683,6 +702,20 @@ struct SettingsHubRootView: View {
                 title: "Remove download when finished",
                 isOn: $model.smartDownloadRemoveWhenFinished
               )
+            }
+            AbstandGroupedCard {
+              VStack(alignment: .leading, spacing: 4) {
+                SettingsCardToggleRow(
+                  icon: "text.bubble",
+                  title: "Prepare read along in background",
+                  isOn: $model.readAlongPrefetchEnabled
+                )
+                Text(readAlongPrefetchSubtitle)
+                  .font(.caption)
+                  .foregroundStyle(AppTheme.textSecondary)
+                  .fixedSize(horizontal: false, vertical: true)
+                  .padding(.bottom, 6)
+              }
             }
             NavigationLink {
               SettingsDownloadsManageView()

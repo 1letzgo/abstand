@@ -36,6 +36,7 @@ extension AppModel {
   /// Früher: kombinierter `CatalogItemsSort`-RawValue (Migration einmalig).
   static let legacyCatalogItemsSort = "abstand_catalog_items_sort"
   static let smartDlAutoWifi = "abstand_smart_dl_auto_wifi"
+  static let readAlongPrefetch = "abstand_read_along_prefetch"
   static let smartDlRemoveWhenFinished = "abstand_smart_dl_remove_when_finished"
   /// Nur Home mit „Heruntergeladen“; andere Tabs ausgeblendet.
   static let offlineHomeMode = "abstand_offline_home_mode"
