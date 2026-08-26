@@ -816,10 +816,20 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
   /// Nach Tab-Wechsel: gespeicherte Offset-Position erneut setzen → Lazy-Inhalte layouten.
   private func reapplyScrollPosition(for sectionID: ID) {
     let saved = sectionScrollPositions[sectionID]
-    sectionScrollPositions[sectionID] = nil
+    // Ohne abgeschaltete Animation animiert SwiftUI beide Schritte (auf Anfang, zurück) —
+    // sichtbar als Wackeln der Liste. Der Zwischenschritt soll gar nicht wahrnehmbar sein.
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction) {
+      sectionScrollPositions[sectionID] = nil
+    }
     Task { @MainActor in
       try? await Task.sleep(nanoseconds: 32_000_000)
-      sectionScrollPositions[sectionID] = saved ?? ScrollPosition(edge: .top)
+      var restore = Transaction()
+      restore.disablesAnimations = true
+      withTransaction(restore) {
+        sectionScrollPositions[sectionID] = saved ?? ScrollPosition(edge: .top)
+      }
     }
   }
 

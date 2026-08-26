@@ -129,6 +129,10 @@ final class PlaybackController: NSObject, ObservableObject {
   private var timeObserver: Any?
   /// Read-Along: häufigere Position-Updates für flüssigeres Teleprompter-Scrollen.
   private var readAlongHighFrequencyTicks = false
+  /// Read-Along-Modus möchte hohe Tick-Rate …
+  private var readAlongModeWantsHighFrequencyTicks = false
+  /// … tatsächlich genutzt wird sie nur, solange der Vollbild-Player sichtbar ist.
+  private var isNowPlayingUIVisible = false
   private var endObserver: NSObjectProtocol?
   private var statusObserver: NSKeyValueObservation?
   /// `timeControlStatus`: System/andere App kann pausieren ohne unsere `pause()` — UI angleichen.
@@ -1161,8 +1165,24 @@ final class PlaybackController: NSObject, ObservableObject {
 
   /// Zeit-Observer-Intervall für Read-Along (0,08 s) vs. normal (0,35 s).
   func setReadAlongHighFrequencyTicks(_ active: Bool) {
-    guard readAlongHighFrequencyTicks != active else { return }
-    readAlongHighFrequencyTicks = active
+    guard readAlongModeWantsHighFrequencyTicks != active else { return }
+    readAlongModeWantsHighFrequencyTicks = active
+    applyTickRate()
+  }
+
+  /// Der Teleprompter rendert nur im geöffneten Vollbild-Player. Ist er zu, reichen die
+  /// normalen Ticks — 12,5 Hz statt 60 Hz sparen Rechenzeit und lassen vor allem die
+  /// Schließen-Animation nicht gegen den Tick-Strom anlaufen.
+  func setNowPlayingUIVisible(_ visible: Bool) {
+    guard isNowPlayingUIVisible != visible else { return }
+    isNowPlayingUIVisible = visible
+    applyTickRate()
+  }
+
+  private func applyTickRate() {
+    let wanted = readAlongModeWantsHighFrequencyTicks && isNowPlayingUIVisible
+    guard readAlongHighFrequencyTicks != wanted else { return }
+    readAlongHighFrequencyTicks = wanted
     guard player != nil else { return }
     installPeriodicTimeObserver()
   }

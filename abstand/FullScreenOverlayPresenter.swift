@@ -13,6 +13,8 @@ import UIKit
 /// aber beim Herunterziehen wird die App dahinter sichtbar statt einer leeren Fläche.
 struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerRepresentable {
   @Binding var isPresented: Bool
+  /// Nach abgeschlossener Dismiss-Animation — für Aufräumarbeiten, die währenddessen ruckeln.
+  var onDismissCompleted: (() -> Void)?
   @ViewBuilder var overlayContent: () -> OverlayContent
 
   func makeUIViewController(context: Context) -> UIViewController {
@@ -35,11 +37,14 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
     }
   }
 
-  func makeCoordinator() -> Coordinator { Coordinator(isPresented: $isPresented) }
+  func makeCoordinator() -> Coordinator {
+    Coordinator(isPresented: $isPresented, onDismissCompleted: onDismissCompleted)
+  }
 
   @MainActor
   final class Coordinator: NSObject, UIAdaptivePresentationControllerDelegate {
     private let isPresented: Binding<Bool>
+    private let onDismissCompleted: (() -> Void)?
     private var hostingController: UIHostingController<OverlayContent>?
     private var presentingController: UIHostingController<OverlayContent>?
     private weak var presentationAnchor: UIViewController?
@@ -47,8 +52,9 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
     private var isDismissing = false
     private var presentationRetryScheduled = false
 
-    init(isPresented: Binding<Bool>) {
+    init(isPresented: Binding<Bool>, onDismissCompleted: (() -> Void)?) {
       self.isPresented = isPresented
+      self.onDismissCompleted = onDismissCompleted
     }
 
     func present(_ content: OverlayContent, from anchor: UIViewController) {
@@ -132,6 +138,7 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
         guard let self else { return }
         self.hostingController = nil
         self.isDismissing = false
+        self.onDismissCompleted?()
         guard self.isPresented.wrappedValue,
           let content = self.pendingContent ?? hostingController?.rootView,
           let anchor = self.presentationAnchor
@@ -151,6 +158,7 @@ struct FullScreenOverlayPresenter<OverlayContent: View>: UIViewControllerReprese
       isDismissing = false
       pendingContent = nil
       isPresented.wrappedValue = false
+      onDismissCompleted?()
     }
   }
 }

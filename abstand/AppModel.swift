@@ -293,6 +293,10 @@ final class AppModel: ObservableObject {
   @Published var mediaCatalogKind: MediaCatalogKind = .audiobooks
   @Published private(set) var nowPlayingSheetPresentationCounter: UInt = 0
   @Published private(set) var nowPlayingSheetDismissCounter: UInt = 0
+  /// Erhöht, **nachdem** die UIKit-Dismiss-Animation durch ist. Aufräumarbeiten an den
+  /// Katalog-ScrollViews hängen hieran — während der Animation kosten sie Frames und
+  /// lassen die Inhalte dahinter sichtbar springen.
+  @Published private(set) var nowPlayingSheetDismissCompletedCounter: UInt = 0
   @Published var isLoadingLibrary = false
   @Published var isLoadingPodcasts = false
   @Published var errorMessage: String? {
@@ -8427,6 +8431,11 @@ final class AppModel: ObservableObject {
   func requestDismissNowPlayingSheet() {
     Self.debugLog.log("requestDismissNowPlayingSheet CALLED")
     nowPlayingSheetDismissCounter &+= 1
+  }
+
+  /// Vom `FullScreenOverlayPresenter` nach abgeschlossener Dismiss-Animation gemeldet.
+  func notifyNowPlayingSheetDismissCompleted() {
+    nowPlayingSheetDismissCompletedCounter &+= 1
   }
 
   /// Nach `play` / `playPodcastEpisode`: nur wenn online und Setting aktiv.

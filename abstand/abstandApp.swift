@@ -53,7 +53,10 @@ private struct AppRootContainer: View {
           // `model.player` fehlte hier zunächst: Absturz ("No ObservableObject of type
           // PlaybackController found"), sobald eine Unteransicht (z. B. Read-Along-Button,
           // Sleep-Timer-Popover) per `@EnvironmentObject private var player` darauf zugreift.
-          FullScreenOverlayPresenter(isPresented: $nowPlayingSheetPresented) {
+          FullScreenOverlayPresenter(
+            isPresented: $nowPlayingSheetPresented,
+            onDismissCompleted: { model.notifyNowPlayingSheetDismissCompleted() }
+          ) {
             NowPlayingDetailView()
               .environmentObject(model)
               .environmentObject(model.player)
@@ -63,6 +66,9 @@ private struct AppRootContainer: View {
         }
         .onChange(of: model.nowPlayingSheetPresentationCounter) { _, _ in
           nowPlayingSheetPresented = true
+        }
+        .onChange(of: nowPlayingSheetPresented) { _, presented in
+          model.player.setNowPlayingUIVisible(presented)
         }
         .onChange(of: model.nowPlayingSheetDismissCounter) { _, _ in
           nowPlayingSheetPresented = false
