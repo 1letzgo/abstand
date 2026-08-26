@@ -339,6 +339,13 @@ struct BookDetailView: View {
     let discardEnabled = (canDiscardListeningProgress || canResetEbookProgress) && model.isNetworkReachable
     let storageId = model.downloadStorageIdForLibraryItem(d.id) ?? d.id
 
+    if let shareURL = model.serverWebURL(forLibraryItemId: d.id) {
+      ShareLink(item: shareURL, subject: Text(d.displayTitle)) {
+        Image(systemName: "square.and.arrow.up")
+      }
+      .accessibilityLabel(String(localized: "Share", comment: "Accessibility"))
+    }
+
     DetailToolbarDownloadItem(
       storageId: storageId,
       onStartDownload: { model.startDownload(book: d) },

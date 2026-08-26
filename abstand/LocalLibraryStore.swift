@@ -55,6 +55,38 @@ actor LocalLibraryStore {
     try modelContext.save()
   }
 
+  /// Einzelne Zeilen per `progressLookupKey` aktualisieren/anlegen — für laufende Wiedergabe.
+  /// `replaceAllProgress` (Delete-All + Re-Insert) bleibt dem vollen Server-Sync vorbehalten; während der
+  /// Wiedergabe schreibt der Tick alle paar Sekunden und würde sonst jedes Mal die ganze Tabelle umwälzen.
+  func upsertProgress(_ list: [ABSUserMediaProgress]) throws {
+    guard !list.isEmpty else { return }
+    for p in list {
+      let key = p.progressLookupKey
+      var descriptor = FetchDescriptor<LocalProgress>(
+        predicate: #Predicate { $0.progressLookupKey == key }
+      )
+      descriptor.fetchLimit = 1
+      if let existing = try modelContext.fetch(descriptor).first {
+        existing.apply(p)
+      } else {
+        modelContext.insert(LocalProgress(p))
+      }
+    }
+    try modelContext.save()
+  }
+
+  /// Progress-Zeilen löschen, die im aktuellen Server-/Memory-Stand nicht mehr vorkommen.
+  /// Gegenstück zu `upsertProgress` für den vollen Abgleich ohne Delete-All.
+  func pruneProgress(keeping keys: Set<String>) throws {
+    let rows = try modelContext.fetch(FetchDescriptor<LocalProgress>())
+    var removed = false
+    for row in rows where !keys.contains(row.progressLookupKey) {
+      modelContext.delete(row)
+      removed = true
+    }
+    if removed { try modelContext.save() }
+  }
+
   func fetchAllProgress() throws -> [ABSUserMediaProgress] {
     try modelContext.fetch(FetchDescriptor<LocalProgress>()).map { $0.toABSUserMediaProgress() }
   }
@@ -1126,10 +1158,11 @@ enum LocalLibraryQueries {
 /// Cover/eBook-Lokaldaten bleiben dateibasiert und laufen unabhängig vom SwiftData-Store weiter.
 @MainActor
 enum LocalLibraryStoreManager {
-  private static let fm = FileManager.default
+  // `FileManager.default` ist für diese Datei-Operationen thread-safe (Strict Concurrency).
+  nonisolated(unsafe) private static let fm = FileManager.default
 
   private static var baseDir: URL {
-    let app = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    let app = URL.applicationSupportDirectory
     return app.appendingPathComponent("ABStandLocalStore", isDirectory: true)
   }
 

@@ -23,5 +23,15 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<!-- Selbst gehostete Audiobookshelf-Server laufen im LAN meist ohne TLS (http://192.168.x.x:13378).
+	     `NSAllowsLocalNetworking` erlaubt Klartext ausschließlich für lokale Adressen/`.local`;
+	     Verbindungen ins Internet bleiben unter der normalen ATS-Regel (HTTPS erzwungen). -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>abstand connects to your Audiobookshelf server on the local network to stream and download your library.</string>
 </dict>
 </plist>

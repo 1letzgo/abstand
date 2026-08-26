@@ -364,7 +364,7 @@ struct ABSPodcastDirectorySearchHit: Decodable, Identifiable, Hashable {
 
 // MARK: - Paging
 
-struct ABSPage<T: Decodable>: Decodable {
+struct ABSPage<T: Decodable & Sendable>: Decodable, Sendable {
   let results: [T]
   let total: Int
   let page: Int

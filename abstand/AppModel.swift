@@ -903,6 +903,8 @@ final class AppModel: ObservableObject {
   private var homeShelvesPersistGeneration: UInt64 = 0
   private var bookmarksPersistGeneration: UInt64 = 0
   private let pathMonitor = NWPathMonitor()
+  /// 401-Beobachter aus `init` — in `deinit` abmelden (nicht isoliert erreichbar).
+  nonisolated(unsafe) private var sessionUnauthorizedObserver: NSObjectProtocol?
   private let pathMonitorQueue = DispatchQueue(label: "de.letzgo.abstand.network")
 
   private static let smartDownloadWiFiListenThresholdSeconds: Double = 180
@@ -978,13 +980,17 @@ final class AppModel: ObservableObject {
     // Zentrale 401-Erkennung (ABSAPIClient wirft `.unauthorized` und postet hierher) —
     // statt stiller Auth-Fails in einzelnen Call-Sites. Reaktion: prominent loggen;
     // Client wird beim nächsten Request über `restoreServerClientIfNeeded()` neu aufgebaut.
-    NotificationCenter.default.addObserver(
+    sessionUnauthorizedObserver = NotificationCenter.default.addObserver(
       forName: .abstandSessionUnauthorized, object: nil, queue: .main
     ) { [weak self] _ in
-      guard let self else { return }
-      AppLog.bootstrap.fault(
-        "401 from server — token rejected (serverURL=\(self.serverURL, privacy: .public))")
-      self.objectWillChange.send()
+      // Der Block läuft auf `.main`, ist für den Compiler aber ein `@Sendable`-Closure —
+      // MainActor-Zustand deshalb explizit über `MainActor.assumeIsolated` lesen.
+      MainActor.assumeIsolated {
+        guard let self else { return }
+        AppLog.bootstrap.fault(
+          "401 from server — token rejected (serverURL=\(self.serverURL, privacy: .private))")
+        self.objectWillChange.send()
+      }
     }
     // Player-Ticks nicht pauschal an `AppModel` — Floating-Bar hat `FloatingPlayerChromeController`.
     // Nur Mini-Player-Einblendung (Scroll-Inset) bei aktivem Titel.
@@ -1138,15 +1144,15 @@ final class AppModel: ObservableObject {
 
   deinit {
     pathMonitor.cancel()
+    if let sessionUnauthorizedObserver {
+      NotificationCenter.default.removeObserver(sessionUnauthorizedObserver)
+    }
   }
 
   /// Abgleich `downloadedItemIds` mit Disk: ungültige IDs entfernen **und** vorhandene Ordner
   /// des aktiven Accounts entdecken (sonst bleibt Continue offline leer, wenn UserDefaults veraltet ist).
   func reconcileDownloadedItemIdsWithDisk() {
-    guard let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-      return
-    }
-    let downloadsRoot = base.appendingPathComponent("Downloads", isDirectory: true)
+    let downloadsRoot = URL.documentsDirectory.appendingPathComponent("Downloads", isDirectory: true)
     guard FileManager.default.fileExists(atPath: downloadsRoot.path) else {
       if !downloadedItemIds.isEmpty {
         downloadedItemIds = []
@@ -2672,14 +2678,17 @@ final class AppModel: ObservableObject {
     homeShelvesPersistGeneration &+= 1
     let generation = homeShelvesPersistGeneration
     Task.detached(priority: .utility) { [weak self] in
-      let stillCurrent = await MainActor.run { self?.homeShelvesPersistGeneration == generation }
+      // `self` einmal in ein `let` binden — eine `var`-Capture in nebenläufigem Code ist unter
+      // Strict Concurrency nicht prüfbar (Swift 6: Fehler).
+      let model = self
+      let stillCurrent = await MainActor.run { model?.homeShelvesPersistGeneration == generation }
       guard stillCurrent == true else { return }
       do { try await store.replaceHomeShelves(libraryId: libraryId, sections: sections) } catch {
         AppLog.library.warning("LocalStore replaceHomeShelves failed: \(error.localizedDescription, privacy: .public)")
       }
-      let stillCurrentAfter = await MainActor.run { self?.homeShelvesPersistGeneration == generation }
+      let stillCurrentAfter = await MainActor.run { model?.homeShelvesPersistGeneration == generation }
       if stillCurrentAfter != true {
-        await MainActor.run { self?.persistHomeShelvesToLocalStore() }
+        await MainActor.run { model?.persistHomeShelvesToLocalStore() }
       }
     }
   }
@@ -6274,7 +6283,7 @@ final class AppModel: ObservableObject {
     return stats.sorted { $0.tag.localizedStandardCompare($1.tag) == .orderedAscending }
   }
 
-  private struct BrowseFacetFilterFetchRow<T> {
+  private struct BrowseFacetFilterFetchRow<T: Sendable>: Sendable {
     let name: String
     let value: T
   }
@@ -9785,7 +9794,7 @@ final class AppModel: ObservableObject {
     if markPendingServerSync {
       pendingLocalProgressSyncKeys.insert(p.progressLookupKey)
     }
-    persistProgressToLocalStore()
+    persistProgressRowToLocalStore(p)
     syncContinueListeningShelvesWithProgress()
     // Offline: `syncContinueListeningShelvesWithProgress()` filtert nur — ein gerade gestarteter
     // Download-Titel käme sonst erst nach einem kompletten Regal-Neuaufbau in „Continue listening“.
@@ -10195,6 +10204,14 @@ final class AppModel: ObservableObject {
       startShelves = newShelves
       recomputeStartBooksUnion(from: newShelves)
     }
+  }
+
+  /// Web-Adresse des Titels auf dem eigenen Audiobookshelf-Server (`/item/<id>`) — für `ShareLink`.
+  /// `nil` ohne konfigurierten Server; der Link ist nur für Nutzer desselben Servers sinnvoll.
+  func serverWebURL(forLibraryItemId libraryItemId: String) -> URL? {
+    let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !id.isEmpty, let base = ABSAPIClient.normalizeServerURL(serverURL) else { return nil }
+    return base.appendingPathComponent("item").appendingPathComponent(id)
   }
 
   func cacheAccountURL() -> URL? {
@@ -11470,14 +11487,17 @@ final class AppModel: ObservableObject {
     bookmarksPersistGeneration &+= 1
     let generation = bookmarksPersistGeneration
     Task.detached(priority: .utility) { [weak self] in
-      let stillCurrent = await MainActor.run { self?.bookmarksPersistGeneration == generation }
+      // `self` einmal in ein `let` binden — eine `var`-Capture in nebenläufigem Code ist unter
+      // Strict Concurrency nicht prüfbar (Swift 6: Fehler).
+      let model = self
+      let stillCurrent = await MainActor.run { model?.bookmarksPersistGeneration == generation }
       guard stillCurrent == true else { return }
       do { try await store.replaceAllBookmarks(list) } catch {
         AppLog.library.warning("LocalStore replaceAllBookmarks failed: \(error.localizedDescription, privacy: .public)")
       }
-      let stillCurrentAfter = await MainActor.run { self?.bookmarksPersistGeneration == generation }
+      let stillCurrentAfter = await MainActor.run { model?.bookmarksPersistGeneration == generation }
       if stillCurrentAfter != true {
-        await MainActor.run { self?.persistBookmarksToLocalStore() }
+        await MainActor.run { model?.persistBookmarksToLocalStore() }
       }
     }
   }
@@ -12001,15 +12021,34 @@ final class AppModel: ObservableObject {
       setHasCachedLaunchArtifacts(true)
     }
     Task.detached(priority: .utility) { [weak self] in
-      let stillCurrent = await MainActor.run { self?.progressPersistGeneration == generation }
+      // `self` einmal in ein `let` binden — eine `var`-Capture in nebenläufigem Code ist unter
+      // Strict Concurrency nicht prüfbar (Swift 6: Fehler).
+      let model = self
+      let stillCurrent = await MainActor.run { model?.progressPersistGeneration == generation }
       guard stillCurrent == true else { return }
       do { try await store.replaceAllProgress(list) } catch {
         AppLog.library.warning("LocalStore replaceAllProgress failed: \(error.localizedDescription, privacy: .public)")
       }
       // Nach Write erneut prüfen — sonst überschreibt dieser Write einen neueren Now-Persist.
-      let stillCurrentAfter = await MainActor.run { self?.progressPersistGeneration == generation }
+      let stillCurrentAfter = await MainActor.run { model?.progressPersistGeneration == generation }
       if stillCurrentAfter != true {
-        await MainActor.run { self?.persistProgressToLocalStore() }
+        await MainActor.run { model?.persistProgressToLocalStore() }
+      }
+    }
+  }
+
+  /// Einzelne Progress-Zeile schreiben (Wiedergabe-Tick). Kein `replaceAllProgress` — das löscht die
+  /// gesamte Tabelle und legt sie neu an, was bei Ticks alle paar Sekunden dauerhaft Schreiblast erzeugt.
+  /// Die Generation wird trotzdem hochgezählt: ein parallel laufender Voll-Persist merkt so, dass er
+  /// überholt wurde, und schreibt den aktuellen Snapshot danach erneut.
+  private func persistProgressRowToLocalStore(_ progress: ABSUserMediaProgress) {
+    guard let store = currentLocalLibraryStore() else { return }
+    progressPersistGeneration &+= 1
+    setHasCachedLaunchArtifacts(true)
+    Task.detached(priority: .utility) {
+      do { try await store.upsertProgress([progress]) } catch {
+        AppLog.library.warning(
+          "LocalStore upsertProgress failed: \(error.localizedDescription, privacy: .public)")
       }
     }
   }

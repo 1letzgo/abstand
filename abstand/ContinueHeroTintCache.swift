@@ -7,7 +7,8 @@ import UIKit
 /// (`continueListeningCardTint`) wird palette-abhängig beim Lesen angewandt.
 /// Neuer Ordner `heroTintAvg`: alte gemischte `heroTints`-Caches werden ignoriert.
 enum ContinueHeroTintCache {
-  private static let fm = FileManager.default
+  // `FileManager.default` ist für diese Datei-Operationen thread-safe (Strict Concurrency).
+  nonisolated(unsafe) private static let fm = FileManager.default
   private static let subdir = "heroTintAvg"
 
   private struct Payload: Codable {
@@ -49,6 +50,8 @@ enum ContinueHeroTintCache {
     return (p.r, p.g, p.b)
   }
 
+  /// Palettenabhängig — deshalb MainActor (liest `AppTheme.palette`).
+  @MainActor
   static func load(account: URL?, itemId: String, revision: Int = 0) -> Color? {
     guard let rgb = loadRGB(account: account, itemId: itemId, revision: revision) else { return nil }
     return continueListeningCardTint(
@@ -77,7 +80,8 @@ enum ContinueHeroTintCache {
 /// Durchschnitts-RGB ist dagegen stabil und wird beim Seed mit der aktuellen Palette verrechnet.
 /// Beim ersten Detail-Aufruf geschrieben, beim zweiten sofort da (kein Cover-Fetch/CIAreaAverage).
 enum DetailCoverAverageRGBCache {
-  private static let fm = FileManager.default
+  // `FileManager.default` ist für diese Datei-Operationen thread-safe (Strict Concurrency).
+  nonisolated(unsafe) private static let fm = FileManager.default
   private static let subdir = "detailCoverAvgRGB"
 
   private struct Payload: Codable {
@@ -133,6 +137,8 @@ enum CoverDominantTintSeed {
     let averageRGB: (r: Double, g: Double, b: Double)?
   }
 
+  /// Palettenabhängig — deshalb MainActor (liest `AppTheme.palette`).
+  @MainActor
   static func resolve(
     account: URL?,
     itemId: String,
@@ -236,7 +242,9 @@ enum CoverDerivedTintLoader {
     let cacheKey = CoverImageCache.cacheKey(scopeId: cacheScopeId ?? itemId, revision: revision)
     // Decode + Pixel-Analyse + Persistenz off-main — dieselben Bytes wie `CoverImageView` speichern,
     // damit es beim nächsten Öffnen denselben Key trifft (kein zweiter Download).
-    return await Task.detached(priority: .userInitiated) { () -> Color? in
+    // Off-main nur die Pixel-Analyse; die palettenabhängige Farbe entsteht danach auf dem MainActor
+    // (`AppTheme.palette` ist MainActor-Zustand und darf sich währenddessen ändern).
+    let averageRGB = await Task.detached(priority: .userInitiated) { () -> (CGFloat, CGFloat, CGFloat)? in
       guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
         let image = UIImage(data: data),
         let avg = coverAverageRGB(from: image)
@@ -253,8 +261,11 @@ enum CoverDerivedTintLoader {
           blue: Double(avg.2)
         )
       }
-      return continueListeningCardTint(fromAverageRed: avg.0, green: avg.1, blue: avg.2)
+      return avg
     }.value
+    guard let averageRGB else { return nil }
+    return continueListeningCardTint(
+      fromAverageRed: averageRGB.0, green: averageRGB.1, blue: averageRGB.2)
   }
 
   /// Lokales Bild (Memory/Disk) → Farbe. Schwerer Teil (Disk-Read, Decode, `coverAverageRGB`)
@@ -268,7 +279,7 @@ enum CoverDerivedTintLoader {
     guard let account else { return nil }
     let primaryKey = CoverImageCache.cacheKey(scopeId: cacheScopeId ?? itemId, revision: revision)
     let thumbnailKey = CoverImageCache.cacheKey(scopeId: itemId, revision: revision)
-    return await Task.detached(priority: .userInitiated) { () -> Color? in
+    let averageRGB = await Task.detached(priority: .userInitiated) { () -> (CGFloat, CGFloat, CGFloat)? in
       let img =
         CoverImageCache.syncUIImage(itemId: primaryKey, account: account)
         ?? (primaryKey != thumbnailKey
@@ -282,7 +293,10 @@ enum CoverDerivedTintLoader {
         green: Double(avg.1),
         blue: Double(avg.2)
       )
-      return continueListeningCardTint(fromAverageRed: avg.0, green: avg.1, blue: avg.2)
+      return avg
     }.value
+    guard let averageRGB else { return nil }
+    return continueListeningCardTint(
+      fromAverageRed: averageRGB.0, green: averageRGB.1, blue: averageRGB.2)
   }
 }

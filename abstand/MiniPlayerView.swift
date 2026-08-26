@@ -1150,6 +1150,8 @@ private struct FullPlayerTransportRowChrome: View, Equatable {
       }
       .buttonStyle(AbstandProminentButtonStyle(capsule: true))
       .disabled(!snapshot.hasActiveBook)
+      // Haptik am Systemstandard: Impuls beim Wechsel Play/Pause, nicht bei jedem Tick.
+      .sensoryFeedback(.impact(weight: .light), trigger: snapshot.isPlaying)
       .accessibilityLabel(
         isBusy
           ? String(localized: "Loading", comment: "Accessibility")

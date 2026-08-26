@@ -49,6 +49,20 @@ final class LocalProgress {
     ebookLocation = p.ebookLocation
   }
 
+  /// Bestehende Zeile auf den neuen Stand ziehen (Upsert-Pfad, siehe `LocalLibraryStore.upsertProgress`).
+  func apply(_ p: ABSUserMediaProgress) {
+    mediaProgressServerId = p.mediaProgressServerId
+    libraryItemId = p.libraryItemId
+    episodeId = p.episodeId
+    duration = p.duration
+    progress = p.progress
+    currentTime = p.currentTime
+    isFinished = p.isFinished
+    lastUpdate = p.lastUpdate
+    ebookProgress = p.ebookProgress
+    ebookLocation = p.ebookLocation
+  }
+
   func toABSUserMediaProgress() -> ABSUserMediaProgress {
     ABSUserMediaProgress(
       mediaProgressServerId: mediaProgressServerId,

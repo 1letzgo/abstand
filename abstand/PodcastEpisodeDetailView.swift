@@ -209,6 +209,13 @@ struct PodcastEpisodeDetailView: View {
     let discardEnabled = canDiscardProgress && model.isNetworkReachable
     let sid = model.podcastEpisodeOfflineStorageId(episode)
 
+    if let shareURL = model.serverWebURL(forLibraryItemId: episode.libraryItemId) {
+      ShareLink(item: shareURL, subject: Text(episode.episodeTitle)) {
+        Image(systemName: "square.and.arrow.up")
+      }
+      .accessibilityLabel(String(localized: "Share", comment: "Accessibility"))
+    }
+
     DetailToolbarDownloadItem(
       storageId: sid,
       onStartDownload: { model.startDownloadPodcastEpisode(episode) },

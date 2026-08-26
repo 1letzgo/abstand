@@ -34,11 +34,13 @@ final class DownloadManager: ObservableObject {
   @Published private(set) var progress: Double = 0
   /// Wartende Downloads (FIFO). `activeItemId`/`progress` beschreiben weiterhin nur den aktiven Lauf.
   @Published private(set) var queuedItemIds: [String] = []
+  /// Zähler abgeschlossener Downloads — Trigger für Haptik/Feedback in der UI (`sensoryFeedback`).
+  @Published private(set) var completedDownloadCount: Int = 0
 
   private var task: Task<Void, Never>?
 
   private static let trackDownloadMaxAttempts = 3
-  private static let wipFilename = "download-wip.json"
+  nonisolated private static let wipFilename = "download-wip.json"
 
   private var downloadRunId: Int = 0
 
@@ -89,7 +91,7 @@ final class DownloadManager: ObservableObject {
 
   /// Wurzel `…/Downloads` (ohne Item-ID).
   private func downloadsRootURL() throws -> URL {
-    let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+    let base = URL.documentsDirectory
     return base.appendingPathComponent("Downloads", isDirectory: true)
   }
 
@@ -160,6 +162,7 @@ final class DownloadManager: ObservableObject {
     guard runId == downloadRunId else { return }
     activeItemId = nil
     progress = 1
+    completedDownloadCount &+= 1
     completion?(true)
     startNextQueuedDownload()
   }
@@ -340,7 +343,7 @@ final class DownloadManager: ObservableObject {
           // Disk-I/O off-Main — nur Ergebnis zurück auf MainActor.
           let prepared = try await Task.detached(priority: .utility) { [id, resolvedEp] in
             let fm = FileManager.default
-            let base = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let base = URL.documentsDirectory
             let root = base.appendingPathComponent("Downloads", isDirectory: true)
             try fm.createDirectory(at: root, withIntermediateDirectories: true)
             var rootURL = root

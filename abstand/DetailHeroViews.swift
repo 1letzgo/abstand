@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 
+@MainActor
 func coverDominantBackgroundTint(from image: UIImage) -> Color {
   guard let (r, g, b) = coverAverageRGB(from: image) else { return AppTheme.background }
   return coverDominantBackgroundTint(fromAverageRed: r, green: g, blue: b)
@@ -8,6 +9,7 @@ func coverDominantBackgroundTint(from image: UIImage) -> Color {
 
 /// Cover-Durchschnitts-RGB (z. B. aus `DetailCoverAverageRGBCache`) → getönter Detail-Hintergrund.
 /// Palette-abhängig — deshalb wird der rohe RGB gecacht und hier je aktueller Palette verrechnet.
+@MainActor
 func coverDominantBackgroundTint(fromAverageRed r: CGFloat, green g: CGFloat, blue b: CGFloat) -> Color {
   if AppTheme.palette.isDarkLike {
     let mix: CGFloat = 0.34
@@ -36,11 +38,13 @@ func coverDominantBackgroundTint(fromAverageRed r: CGFloat, green g: CGFloat, bl
 
 /// Continue-Listening-Karten: spürbar stärkere Cover-Tönung als Detail/Player
 /// (`coverDominantBackgroundTint` mix 0.34 / weight 0.3).
+@MainActor
 func continueListeningCardTint(from image: UIImage) -> Color {
   guard let (r, g, b) = coverAverageRGB(from: image) else { return AppTheme.card }
   return continueListeningCardTint(fromAverageRed: r, green: g, blue: b)
 }
 
+@MainActor
 func continueListeningCardTint(fromAverageRed r: CGFloat, green g: CGFloat, blue b: CGFloat) -> Color {
   if AppTheme.palette.isDarkLike {
     let mix: CGFloat = 0.62
@@ -74,6 +78,7 @@ func continueListeningCardTint(fromAverageRed r: CGFloat, green g: CGFloat, blue
 /// nachbilden und leicht abdunkeln (Verhältnis Papier → Karte der Light-Palette, ~0.93).
 /// Ohne echten Cover-Tint (Fallback = Palette-Hintergrund) konvergiert das Ergebnis auf die
 /// normale Palette-`card`-Fläche.
+@MainActor
 func detailSectionCardTint(forBackgroundTint tint: Color) -> Color {
   guard let t = colorRGBComponents(of: tint) else { return AppTheme.card }
 
@@ -100,6 +105,7 @@ func detailSectionCardTint(forBackgroundTint tint: Color) -> Color {
 
 /// Aktiver Panel-Steuerbutton auf Cover-Tint-Hintergrund: gleiche Farbfamilie wie
 /// `detailSectionCardTint`, aber stärker abgesetzt — Auswahl ohne Appearance-Akzent.
+@MainActor
 func detailSectionControlActiveTint(forCardTint card: Color) -> Color {
   guard let t = colorRGBComponents(of: card) else { return card }
 

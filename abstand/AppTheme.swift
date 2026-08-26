@@ -2,6 +2,9 @@ import SwiftUI
 import UIKit
 
 /// Zentrale Farben und Abstände für die gesamte App.
+/// UIKit-Appearance-Proxies und der mutierbare Paletten-/Accent-Zustand gehören auf den MainActor —
+/// ohne diese Isolation ist `AppTheme` global veränderlicher Zustand ohne Schutz (Strict Concurrency).
+@MainActor
 enum AppTheme {
   private(set) static var palette: AppColorPalette = AppColorPalette.derived(
     from: defaultAccent, isDarkLike: true)
@@ -45,14 +48,14 @@ enum AppTheme {
   }
 
   /// Dark-Mode-Akzent (Standard Gelb).
-  static let defaultAccent = Color(red: 251 / 255, green: 192 / 255, blue: 45 / 255)
+  nonisolated static let defaultAccent = Color(red: 251 / 255, green: 192 / 255, blue: 45 / 255)
   /// Light-Mode-Akzent (Standard #00374A).
-  static let defaultLightAccent = Color(red: 0 / 255, green: 55 / 255, blue: 74 / 255)
+  nonisolated static let defaultLightAccent = Color(red: 0 / 255, green: 55 / 255, blue: 74 / 255)
   /// Aktuelle Akzentfarbe (Standard: Gelb; überschreibbar in Einstellungen → Appearance).
   /// In SwiftUI-Views bevorzugt `Color.accentColor` (folgt `.tint` am Root). `AppTheme.accent` für UIKit/Charts.
   private(set) static var accent: Color = defaultAccent
-  static let danger = Color(red: 0.92, green: 0.32, blue: 0.32)
-  static let success = Color(red: 0.35, green: 0.82, blue: 0.55)
+  nonisolated static let danger = Color(red: 0.92, green: 0.32, blue: 0.32)
+  nonisolated static let success = Color(red: 0.35, green: 0.82, blue: 0.55)
 
   /// Home-Browse „Expanding Dock“ — Layout; Farben über `Colors` aus Palette + Akzent.
   enum ExpandingDock {

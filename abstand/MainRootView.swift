@@ -19,6 +19,8 @@ struct MainRootView: View {
     return tabViewBody
       .tint(model.appearanceAccentColor)
       .themeAccentFromAppModel(model)
+      // Abgeschlossener Download — einmaliges System-Feedback statt stiller Zustandsänderung.
+      .sensoryFeedback(.success, trigger: model.downloads.completedDownloadCount)
       .background {
         AppThemeScreenBackground(ignoresSafeArea: true)
       }

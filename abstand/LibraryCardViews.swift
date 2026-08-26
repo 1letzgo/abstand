@@ -1371,6 +1371,10 @@ private func facetBrowseTileCardChrome<Leading: View>(
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
   }
   .frame(height: FacetBrowseTileMetrics.tileHeight)
+  // Kachelhöhe ist Teil der Grid-Mathematik (siehe `AbstandFixedBrowseStripSectionsLayout`) und darf
+  // nicht mitwachsen. Statt den Text abzuschneiden: Skalierung bis `accessibility1` zulassen und dort
+  // deckeln — ohne Deckel kollidiert die größte AX-Stufe mit der festen Höhe.
+  .dynamicTypeSize(...DynamicTypeSize.accessibility1)
   .clipShape(cardShape)
   .abstandCardElevation(.standard)
   .overlay(alignment: .topTrailing) {
@@ -1632,11 +1636,14 @@ struct PodcastShowRowCard: View {
 
 // MARK: - Library row layout (Cover bündig links/oben/unten)
 
+/// Liest `AppTheme` (MainActor-Zustand) und liefert View-Bausteine — gehört damit auf den MainActor.
+@MainActor
 enum LibraryRowLayout {
-  static let coverSide = AppTheme.Layout.libraryRowCoverSide
-  static let cornerRadius = AppTheme.Layout.libraryRowCornerRadius
-  static let cardInset = AppTheme.Layout.libraryRowCardInset
-  static let textInset = AppTheme.Layout.libraryRowTextInset
+  // Reine Layout-Konstanten — nonisolated, damit sie auch außerhalb des MainActors lesbar bleiben.
+  nonisolated static let coverSide = AppTheme.Layout.libraryRowCoverSide
+  nonisolated static let cornerRadius = AppTheme.Layout.libraryRowCornerRadius
+  nonisolated static let cardInset = AppTheme.Layout.libraryRowCardInset
+  nonisolated static let textInset = AppTheme.Layout.libraryRowTextInset
 
   static var cardShape: RoundedRectangle {
     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -1657,6 +1664,9 @@ enum LibraryRowLayout {
     content()
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .frame(height: metadataMinHeight(showsProgressBar: showsProgressBar))
+      // Feste Texthöhe neben dem Cover — wie bei der Facet-Kachel bis `accessibility1` skalieren
+      // und dort deckeln, statt bei den größten AX-Stufen Titel/Meta zu beschneiden.
+      .dynamicTypeSize(...DynamicTypeSize.accessibility1)
       .padding(.top, textInset)
       .padding(.trailing, textInset)
       .padding(.bottom, bodyBottomInset(showsProgressBar: showsProgressBar))

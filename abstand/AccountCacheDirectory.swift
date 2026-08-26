@@ -5,10 +5,11 @@ import Foundation
 /// außerhalb der SwiftData-Vollmigration. Pfadschema unverändert aus dem früheren JSON-Katalog-Cache
 /// übernommen, damit bestehende Downloads/Cover/eBooks nach Entfernen des JSON-Katalogcaches erreichbar bleiben.
 enum AccountCacheDirectory {
-  private static let fm = FileManager.default
+  // `FileManager.default` ist für diese Datei-Operationen thread-safe (Strict Concurrency).
+  nonisolated(unsafe) private static let fm = FileManager.default
 
   private static var baseDir: URL {
-    let app = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    let app = URL.applicationSupportDirectory
     return app.appendingPathComponent("ABStandLibraryCache", isDirectory: true)
   }
 

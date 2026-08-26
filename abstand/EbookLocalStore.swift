@@ -182,7 +182,8 @@ struct EbookDownloadMeta: Codable {
 
 /// Lokale E-Book-Dateien (EPUB/PDF) pro Account; Lesestand pro angemeldetem User.
 enum EbookLocalStore {
-  private static let fm = FileManager.default
+  // `FileManager.default` ist für diese Datei-Operationen thread-safe (Strict Concurrency).
+  nonisolated(unsafe) private static let fm = FileManager.default
   private static var activeAccount: URL?
   private static var activeUserId: String?
 

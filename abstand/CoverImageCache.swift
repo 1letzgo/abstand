@@ -4,10 +4,12 @@ import UIKit
 
 /// Cover-Bilder unter `…/accounts/<sha>/covers/`; Dateiname = SHA256(itemId).
 enum CoverImageCache {
-  private static let fm = FileManager.default
+  // `FileManager.default` ist für diese Datei-Operationen thread-safe (Strict Concurrency).
+  nonisolated(unsafe) private static let fm = FileManager.default
   private static let subdir = "covers"
   /// Kosten in dekodierten Bytes (nicht Dateigröße) — begrenzt reales Speicherwachstum bei langen Scroll-Sessions.
-  private static let memory: NSCache<NSString, UIImage> = {
+  // `NSCache` ist selbst thread-safe (Strict Concurrency).
+  nonisolated(unsafe) private static let memory: NSCache<NSString, UIImage> = {
     let cache = NSCache<NSString, UIImage>()
     cache.countLimit = 300
     cache.totalCostLimit = 100 * 1024 * 1024
