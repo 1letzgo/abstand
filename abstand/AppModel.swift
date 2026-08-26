@@ -4011,6 +4011,7 @@ final class AppModel: ObservableObject {
     sessionUserType = ""
     UserDefaults.standard.removeObject(forKey: Keys.sessionUserId)
     EbookLocalStore.updateActiveSession(account: clearCredentials ? nil : cacheAccountURL(), userId: nil)
+    PlayerTranscriptCacheStore.updateActiveAccount(clearCredentials ? nil : cacheAccountURL())
     listeningStats = nil
     listeningStatsFetchedAt = nil
     listeningAchievementsRebuildTask?.cancel()
@@ -9598,6 +9599,9 @@ final class AppModel: ObservableObject {
     downloads.deleteDownload(itemId: bookId)
     downloadedItemIds.remove(bookId)
     pendingDownloadCatalog.removeValue(forKey: bookId)
+    // Read-Along-Transkripte gehören zum Download — ohne Audio sind sie nicht mehr nutzbar.
+    PlayerTranscriptCacheStore.removeAll(
+      account: PlayerTranscriptCacheStore.activeAccount, bookId: bookId)
     persistDownloads()
   }
 
@@ -10387,6 +10391,7 @@ final class AppModel: ObservableObject {
     guard !uid.isEmpty, let account = cacheAccountURL() else { return }
     sessionUserId = uid
     EbookLocalStore.updateActiveSession(account: account, userId: uid)
+    PlayerTranscriptCacheStore.updateActiveAccount(account)
   }
 
   /// Bücher-Katalog + Home-Regale aus dem letzten Server-Stand (Tab-Wechsel / Bibliothekswahl).
@@ -10552,6 +10557,7 @@ final class AppModel: ObservableObject {
     sessionUserType = user.type ?? "user"
     UserDefaults.standard.set(user.id, forKey: Keys.sessionUserId)
     EbookLocalStore.updateActiveSession(account: cacheAccountURL(), userId: user.id)
+    PlayerTranscriptCacheStore.updateActiveAccount(cacheAccountURL())
     applyUserProgress(user.mediaProgress, persistToDisk: persistToDisk)
     applyUserBookmarks(user.bookmarks, persistToDisk: persistToDisk)
     // Frühere fehlgeschlagene Resets: Discard-Keys die den Server-Stand lokal ausblenden reparieren.

@@ -704,6 +704,7 @@ extension AppModel {
     loadDiscardedProgressKeys()
     if let cacheRoot = cacheAccountURL() {
       EbookLocalStore.updateActiveSession(account: cacheRoot, userId: switchedUserId.isEmpty ? nil : switchedUserId)
+      PlayerTranscriptCacheStore.updateActiveAccount(cacheRoot)
     }
     restoreHomeLaunchStateFromLocalStore(libraryIdOverride: account.booksLibraryId)
     isAppBootstrapInProgress = true

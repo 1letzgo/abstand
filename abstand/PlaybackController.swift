@@ -2187,6 +2187,12 @@ final class PlaybackController: NSObject, ObservableObject {
     refreshGlobalFromPlayer()
   }
 
+  /// Dauer des aktuell wiedergegebenen Tracks — Obergrenze für die Transkript-Produktion.
+  var currentTranscriptionTrackDuration: Double {
+    guard currentTrackIndex < tracks.count else { return 0 }
+    return tracks[currentTrackIndex].duration
+  }
+
   func transcriptionLocalPlaybackSeconds(trackGlobalOffset: Double) -> Double {
     max(0, liveGlobalPlaybackPosition - trackGlobalOffset)
   }
