@@ -127,6 +127,11 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Einziger Zugriffspunkt auf `AVAudioSession` — siehe `AudioSessionController`.
   private let audioSession = AudioSessionController.shared
   private var timeObserver: Any?
+  /// AVPlayer, bei dem `timeObserver` registriert ist. `removeTimeObserver` ist nur beim
+  /// **selben** Player erlaubt — sonst wirft AVFoundation eine ObjC-Exception (Absturz).
+  /// Bei Wiedergabewechseln existiert kurzzeitig ein neuer Player, während der alte Observer
+  /// noch gehalten wird; ohne diese Zuordnung wird er am falschen Player abgemeldet.
+  private weak var timeObserverPlayer: AVPlayer?
   /// Read-Along: häufigere Position-Updates für flüssigeres Teleprompter-Scrollen.
   private var readAlongHighFrequencyTicks = false
   /// Read-Along-Modus möchte hohe Tick-Rate …
@@ -785,10 +790,7 @@ final class PlaybackController: NSObject, ObservableObject {
     }
     playSessionId = nil
     apiClient = nil
-    if let timeObserver, let p = player {
-      p.removeTimeObserver(timeObserver)
-    }
-    timeObserver = nil
+    removeTimeObserverIfNeeded()
     if let endObserver {
       NotificationCenter.default.removeObserver(endObserver)
     }
@@ -1187,14 +1189,21 @@ final class PlaybackController: NSObject, ObservableObject {
     installPeriodicTimeObserver()
   }
 
-  private func installPeriodicTimeObserver() {
-    if let timeObserver, let p = player {
-      p.removeTimeObserver(timeObserver)
+  /// Observer beim registrierenden Player abmelden (nie bei einem anderen).
+  private func removeTimeObserverIfNeeded() {
+    if let timeObserver, let owner = timeObserverPlayer {
+      owner.removeTimeObserver(timeObserver)
     }
     timeObserver = nil
+    timeObserverPlayer = nil
+  }
+
+  private func installPeriodicTimeObserver() {
+    removeTimeObserverIfNeeded()
     guard let p = player else { return }
     let seconds = readAlongHighFrequencyTicks ? 0.08 : 0.35
     let interval = CMTime(seconds: seconds, preferredTimescale: 600)
+    timeObserverPlayer = p
     timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
       guard let self else { return }
       MainActor.assumeIsolated {
@@ -1362,10 +1371,7 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   private func replacePlayerItem(_ item: AVPlayerItem, localOffset: Double, play: Bool) {
-    if let timeObserver, let p = player {
-      p.removeTimeObserver(timeObserver)
-    }
-    timeObserver = nil
+    removeTimeObserverIfNeeded()
     if let endObserver {
       NotificationCenter.default.removeObserver(endObserver)
     }
