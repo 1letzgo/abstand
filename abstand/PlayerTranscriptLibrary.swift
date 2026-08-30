@@ -65,19 +65,54 @@ enum PlayerTranscriptLibrary {
     }.value
   }
 
-  nonisolated private static func saveOffMain(
-    _ cache: PlayerTranscriptTrackCache,
-    account: URL?,
-    bookId: String
-  ) async {
-    await Task.detached(priority: .utility) {
-      PlayerTranscriptCacheStore.save(cache, account: account, bookId: bookId)
-    }.value
-  }
 
-  /// Transkriptdatei schreiben (JSON-Kodierung off-main, siehe `cache(bookId:trackIndex:locale:)`).
-  static func save(_ cache: PlayerTranscriptTrackCache, bookId: String) async {
-    await saveOffMain(cache, account: PlayerTranscriptCacheStore.activeAccount, bookId: bookId)
+  /// Zwischenspeichern nach so vielen produzierten Audiosekunden. Liegt hier (nicht im
+  /// UI-Controller): der geteilte Service definiert den Persist-Takt für alle Schreiber.
+  static let transcriptPersistIntervalSeconds: Double = 120
+
+  /// Schreib-Ketten pro Transkriptdatei — serialisiert konkurrierende load→insert→save-Zyklen
+  /// (Teleprompter-Produktion, Recap-Lückenfüllung, Hintergrund-Vorproduktion). Ohne diese
+  /// Serialisierung gewinnt der letzte Schreiber und verwirft die Segmente des anderen.
+  private static var mergeChains: [String: Task<PlayerTranscriptTrackCache, Never>] = [:]
+  private static var mergeChainGenerations: [String: UInt64] = [:]
+  private static var mergeGenerationCounter: UInt64 = 0
+
+  /// Segment atomar in die Transkriptdatei mergen: wartet auf einen laufenden Schreibvorgang
+  /// derselben Datei, dann load→insert→save off-main. Gibt den zusammengeführten Stand zurück.
+  @discardableResult
+  static func mergeAndSave(
+    segment: PlayerTranscriptTrackCache.Segment,
+    bookId: String,
+    trackIndex: Int,
+    locale: Locale
+  ) async -> PlayerTranscriptTrackCache {
+    let localeId = locale.identifier(.bcp47)
+    let account = PlayerTranscriptCacheStore.activeAccount
+    let chainKey = "\(bookId)|\(trackIndex)|\(localeId)"
+    let previous = mergeChains[chainKey]
+    let task = Task<PlayerTranscriptTrackCache, Never> {
+      _ = await previous?.value
+      return await Task.detached(priority: .utility) { () -> PlayerTranscriptTrackCache in
+        var cache =
+          PlayerTranscriptCacheStore.load(
+            account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeId)
+          ?? PlayerTranscriptTrackCache(localeIdentifier: localeId, trackIndex: trackIndex)
+        cache.insert(segment: segment)
+        PlayerTranscriptCacheStore.save(cache, account: account, bookId: bookId)
+        return cache
+      }.value
+    }
+    mergeGenerationCounter &+= 1
+    let generation = mergeGenerationCounter
+    mergeChains[chainKey] = task
+    mergeChainGenerations[chainKey] = generation
+    let merged = await task.value
+    // Nur den eigenen Eintrag räumen — ein inzwischen angehängter Nachfolger bleibt stehen.
+    if mergeChainGenerations[chainKey] == generation {
+      mergeChains.removeValue(forKey: chainKey)
+      mergeChainGenerations.removeValue(forKey: chainKey)
+    }
+    return merged
   }
 
   /// Fehlt im Track noch etwas ab `from`? Liefert die erste offene lokale Sekunde.
@@ -108,24 +143,22 @@ enum PlayerTranscriptLibrary {
     let producer = PlayerTranscriptProducer()
     var pending: [PlayerTranscriptTrackCache.Word] = []
     var through = start
-    var lastPersist = start
-
-    let account = PlayerTranscriptCacheStore.activeAccount
+    // Inkrementell statt kumulativ: jedes Zwischenspeichern schreibt nur das seit dem letzten
+    // Persist Produzierte. Vorher übergab jeder Intervall-Schreibvorgang alle Wörter des Laufs
+    // erneut — Merge- und Schreibkosten wuchsen quadratisch mit der Lauflänge.
+    var segmentStart = start
 
     func persist() async {
-      guard through > start else { return }
-      var cache =
-        await loadOffMain(
-          account: account,
-          bookId: bookId,
-          trackIndex: source.trackIndex,
-          localeIdentifier: locale.identifier(.bcp47)
-        )
-        ?? PlayerTranscriptTrackCache(
-          localeIdentifier: locale.identifier(.bcp47), trackIndex: source.trackIndex)
-      cache.insert(
-        segment: PlayerTranscriptTrackCache.Segment(start: start, end: through, words: pending))
-      await saveOffMain(cache, account: account, bookId: bookId)
+      guard through > segmentStart else { return }
+      await mergeAndSave(
+        segment: PlayerTranscriptTrackCache.Segment(
+          start: segmentStart, end: through, words: pending),
+        bookId: bookId,
+        trackIndex: source.trackIndex,
+        locale: locale
+      )
+      pending.removeAll()
+      segmentStart = through
     }
 
     do {
@@ -141,8 +174,7 @@ enum PlayerTranscriptLibrary {
         // Der Aufrufer darf hier abbrechen (Vorrang-Arbeit, Stromsparmodus, heißes Gerät) —
         // das Bisherige wird im `catch` gesichert, nichts geht verloren.
         try onBatch?(batch)
-        if through - lastPersist >= PlayerLiveTranscriptionController.transcriptPersistIntervalSeconds {
-          lastPersist = through
+        if through - segmentStart >= Self.transcriptPersistIntervalSeconds {
           await persist()
         }
       }
