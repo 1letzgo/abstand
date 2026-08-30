@@ -31,21 +31,53 @@ enum PlayerTranscriptLibrary {
     bookId: String,
     trackIndex: Int,
     locale: Locale
-  ) -> [PlayerTranscriptTrackCache.Word] {
-    cache(bookId: bookId, trackIndex: trackIndex, locale: locale)?.allWords ?? []
+  ) async -> [PlayerTranscriptTrackCache.Word] {
+    await cache(bookId: bookId, trackIndex: trackIndex, locale: locale)?.allWords ?? []
   }
 
+  /// Transkriptdatei lesen. Das JSON eines Tracks ist schnell ein paar hundert Kilobyte —
+  /// Lesen und Dekodieren gehören deshalb vom MainActor herunter, sonst ruckelt die Wiedergabe-UI
+  /// bei jedem Track-Wechsel und bei jedem Zwischenspeichern der Vorproduktion.
   static func cache(
     bookId: String,
     trackIndex: Int,
     locale: Locale
-  ) -> PlayerTranscriptTrackCache? {
-    PlayerTranscriptCacheStore.load(
-      account: PlayerTranscriptCacheStore.activeAccount,
-      bookId: bookId,
-      trackIndex: trackIndex,
-      localeIdentifier: locale.identifier(.bcp47)
-    )
+  ) async -> PlayerTranscriptTrackCache? {
+    let account = PlayerTranscriptCacheStore.activeAccount
+    let localeId = locale.identifier(.bcp47)
+    return await loadOffMain(
+      account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeId)
+  }
+
+  nonisolated private static func loadOffMain(
+    account: URL?,
+    bookId: String,
+    trackIndex: Int,
+    localeIdentifier: String
+  ) async -> PlayerTranscriptTrackCache? {
+    await Task.detached(priority: .utility) {
+      PlayerTranscriptCacheStore.load(
+        account: account,
+        bookId: bookId,
+        trackIndex: trackIndex,
+        localeIdentifier: localeIdentifier
+      )
+    }.value
+  }
+
+  nonisolated private static func saveOffMain(
+    _ cache: PlayerTranscriptTrackCache,
+    account: URL?,
+    bookId: String
+  ) async {
+    await Task.detached(priority: .utility) {
+      PlayerTranscriptCacheStore.save(cache, account: account, bookId: bookId)
+    }.value
+  }
+
+  /// Transkriptdatei schreiben (JSON-Kodierung off-main, siehe `cache(bookId:trackIndex:locale:)`).
+  static func save(_ cache: PlayerTranscriptTrackCache, bookId: String) async {
+    await saveOffMain(cache, account: PlayerTranscriptCacheStore.activeAccount, bookId: bookId)
   }
 
   /// Fehlt im Track noch etwas ab `from`? Liefert die erste offene lokale Sekunde.
@@ -54,9 +86,9 @@ enum PlayerTranscriptLibrary {
     source: PlayerTranscriptTrackSource,
     locale: Locale,
     from: Double
-  ) -> Double? {
+  ) async -> Double? {
     let existing =
-      cache(bookId: bookId, trackIndex: source.trackIndex, locale: locale)
+      await cache(bookId: bookId, trackIndex: source.trackIndex, locale: locale)
       ?? PlayerTranscriptTrackCache(
         localeIdentifier: locale.identifier(.bcp47), trackIndex: source.trackIndex)
     return existing.firstUncoveredTime(from: from, duration: source.duration)
@@ -71,23 +103,29 @@ enum PlayerTranscriptLibrary {
     locale: Locale,
     fromLocalTime start: Double,
     toLocalTime end: Double?,
-    onBatch: ((PlayerTranscriptProductionBatch) -> Void)? = nil
+    onBatch: ((PlayerTranscriptProductionBatch) throws -> Void)? = nil
   ) async throws -> Double {
     let producer = PlayerTranscriptProducer()
     var pending: [PlayerTranscriptTrackCache.Word] = []
     var through = start
     var lastPersist = start
 
-    func persist() {
+    let account = PlayerTranscriptCacheStore.activeAccount
+
+    func persist() async {
       guard through > start else { return }
       var cache =
-        self.cache(bookId: bookId, trackIndex: source.trackIndex, locale: locale)
+        await loadOffMain(
+          account: account,
+          bookId: bookId,
+          trackIndex: source.trackIndex,
+          localeIdentifier: locale.identifier(.bcp47)
+        )
         ?? PlayerTranscriptTrackCache(
           localeIdentifier: locale.identifier(.bcp47), trackIndex: source.trackIndex)
       cache.insert(
         segment: PlayerTranscriptTrackCache.Segment(start: start, end: through, words: pending))
-      PlayerTranscriptCacheStore.save(
-        cache, account: PlayerTranscriptCacheStore.activeAccount, bookId: bookId)
+      await saveOffMain(cache, account: account, bookId: bookId)
     }
 
     do {
@@ -100,17 +138,19 @@ enum PlayerTranscriptLibrary {
             PlayerTranscriptTrackCache.Word(t: $0.text, s: $0.start, e: $0.end)
           })
         through = max(through, batch.processedThrough)
-        onBatch?(batch)
+        // Der Aufrufer darf hier abbrechen (Vorrang-Arbeit, Stromsparmodus, heißes Gerät) —
+        // das Bisherige wird im `catch` gesichert, nichts geht verloren.
+        try onBatch?(batch)
         if through - lastPersist >= PlayerLiveTranscriptionController.transcriptPersistIntervalSeconds {
           lastPersist = through
-          persist()
+          await persist()
         }
       }
-      persist()
+      await persist()
       return through
     } catch {
       // Auch bei Abbruch sichern — die Rechenzeit ist bereits verbraucht.
-      persist()
+      await persist()
       throw error
     }
   }
@@ -135,7 +175,7 @@ enum PlayerTranscriptLibrary {
 
       // Lücken im gewünschten Bereich schließen (höchstens ein Lauf je Lücke).
       var cursor = localStart
-      while let gapStart = firstUncoveredTime(
+      while let gapStart = await firstUncoveredTime(
         bookId: bookId, source: source, locale: locale, from: cursor),
         gapStart < localEnd
       {
@@ -152,7 +192,7 @@ enum PlayerTranscriptLibrary {
         cursor = produced
       }
 
-      let words = cachedWords(bookId: bookId, trackIndex: source.trackIndex, locale: locale)
+      let words = await cachedWords(bookId: bookId, trackIndex: source.trackIndex, locale: locale)
         .filter { $0.e >= localStart && $0.s <= localEnd }
       guard !words.isEmpty else { continue }
       parts.append(words.map(\.t).joined(separator: " "))

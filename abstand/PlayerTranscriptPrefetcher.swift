@@ -23,6 +23,10 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
   private static let idleRecheckSeconds: UInt64 = 5_000_000_000
 
   private var task: Task<Void, Never>?
+  /// Zählt bei jedem Start/Stop hoch. Ein auslaufender alter Lauf darf `task`/`isRunning`
+  /// des neuen nicht mehr zurücksetzen — sonst hielte `scheduleIfNeeded` den Slot für frei
+  /// und zwei Vorproduktionen liefen parallel.
+  private var runGeneration: UInt = 0
   private weak var player: PlaybackController?
   private var isEnabled = false
 
@@ -44,31 +48,44 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
     guard isEnabled, task == nil, let player else { return }
     guard player.isReadAlongDownloadReady, player.activeBook != nil else { return }
     guard SpeechTranscriber.isAvailable else { return }
+    runGeneration &+= 1
+    let generation = runGeneration
     task = Task { @MainActor [weak self] in
-      await self?.run()
-      self?.task = nil
-      self?.isRunning = false
+      await self?.run(generation: generation)
+      guard let self, self.runGeneration == generation else { return }
+      self.task = nil
+      self.isRunning = false
+      self.pausedReason = nil
     }
   }
 
   /// App in den Hintergrund, Buchwechsel, Einstellung aus.
   func stop() {
+    runGeneration &+= 1
     task?.cancel()
     task = nil
     isRunning = false
     pausedReason = nil
   }
 
-  private func run() async {
+  private func run(generation: UInt) async {
+    // Zähler gehören zum Lauf, nicht zur Lebenszeit des Objekts — sonst zeigt die Einstellung
+    // nach ein paar Büchern „37 von 12 Tracks“.
+    preparedTracks = 0
+    totalTracks = 0
     guard let player, let bookId = player.activeBook?.id, !bookId.isEmpty else { return }
 
     // Sprache: nur bereits installierte Modelle — ein Download im Hintergrund wäre eine
     // Überraschung auf fremdem Mobilfunk.
     guard
-      let locale = try? await SpeechTranscriptionLocaleResolver.resolve(
+      let resolution = try? await SpeechTranscriptionLocaleResolver.resolve(
         preferredLanguageTag: player.preferredTranscriptionLanguageTag
-      ).locale
+      )
     else { return }
+    // Nur die Buchsprache vorproduzieren. Bei Fallback wäre das Ergebnis in einer fremden
+    // Sprache transkribiert — stundenlange Rechenzeit für ein unbrauchbares Transkript.
+    guard !resolution.usedFallback else { return }
+    let locale = resolution.locale
     let installed = await SpeechTranscriber.installedLocales
     guard
       installed.contains(where: {
@@ -94,26 +111,33 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
         source.trackIndex == sources[currentIndex].trackIndex
         ? max(0, player.liveGlobalPlaybackPosition - source.globalOffset)
         : 0
-      await prepare(bookId: bookId, source: source, locale: locale, from: from)
+      let completed = await prepare(
+        bookId: bookId, source: source, locale: locale, from: from, generation: generation)
       if Task.isCancelled { return }
-      preparedTracks += 1
+      // Nur zählen, was wirklich durchgelaufen ist — sonst meldet die Einstellung Fortschritt,
+      // den es nicht gibt (abgebrochene oder fehlgeschlagene Tracks).
+      if completed { preparedTracks += 1 }
     }
     isRunning = false
     pausedReason = nil
   }
 
+  /// `true`, wenn der Track vollständig abgedeckt ist.
+  @discardableResult
   private func prepare(
     bookId: String,
     source: PlayerTranscriptTrackSource,
     locale: Locale,
-    from: Double
-  ) async {
+    from: Double,
+    generation: UInt
+  ) async -> Bool {
     var cursor = from
     while !Task.isCancelled {
       guard
-        let gapStart = PlayerTranscriptLibrary.firstUncoveredTime(
+        let gapStart = await PlayerTranscriptLibrary.firstUncoveredTime(
           bookId: bookId, source: source, locale: locale, from: cursor)
-      else { return }
+      else { return true }
+      guard runGeneration == generation else { return false }
 
       // Vorrang und Gerätezustand vor jedem Abschnitt prüfen.
       if let reason = blockingReason() {
@@ -131,17 +155,26 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
           source: source,
           locale: locale,
           fromLocalTime: gapStart,
-          toLocalTime: nil
+          toLocalTime: nil,
+          onBatch: { [weak self] _ in
+            // Ein Track läuft minutenlang. Ohne diese Prüfung zwischendrin liefe die
+            // Vorproduktion weiter, während der Teleprompter startet oder das Gerät heiß wird —
+            // die Pause griffe erst beim nächsten Track.
+            guard let self, self.runGeneration == generation, self.blockingReason() == nil else {
+              throw CancellationError()
+            }
+          }
         )
-        guard produced > gapStart + 0.5 else { return }
+        guard produced > gapStart + 0.5 else { return true }
         cursor = produced
       } catch {
-        guard !AbstandErrorFilter.isBenignCancellation(error) else { return }
+        guard !AbstandErrorFilter.isBenignCancellation(error) else { return false }
         DebugLogCollector.shared.log(
           "readAlong prefetch failed track=\(source.trackIndex): \(error.localizedDescription)")
-        return
+        return false
       }
     }
+    return false
   }
 
   /// `nil`, wenn gearbeitet werden darf.

@@ -508,6 +508,14 @@ struct MainRootView: View {
     )
   }
 
+  /// Titel über der Folgenliste im Podcast-Tab.
+  private func podcastCatalogSectionTitle(showId: String?) -> String {
+    guard let showId else { return "New episodes" }
+    let show = model.podcastShows.first { $0.id == showId }
+    let title = show?.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return title.isEmpty ? "Episodes" : title
+  }
+
   @ViewBuilder
   private func podcastPodcastsTabEpisodesContent(showId: String?) -> some View {
     let _ = model.appearanceThemeRevision
@@ -526,6 +534,10 @@ struct MainRootView: View {
     }()
 
     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      // Überschrift wie in den Browse-Sektionen: „New episodes" für den Sammelbereich,
+      // sonst der Sendungstitel des gewählten Panels.
+      TabContentSectionTitle(title: podcastCatalogSectionTitle(showId: showId))
+
       if listLoading {
         ProgressView()
           .controlSize(.large)
