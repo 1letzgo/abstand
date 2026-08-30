@@ -1,6 +1,8 @@
 import Foundation
 
 /// Baut Teleprompter-Zeilen inkrementell; bei Schriftgrößenwechsel optional komplett neu umbrechen.
+/// Die frühere „volatile"-Unterscheidung (vorläufige Speech-Ergebnisse der Live-Pipeline) ist mit
+/// dem Umbau auf vorproduzierte Transkripte entfallen — es gibt nur noch finalisierte Wörter.
 @MainActor
 final class PlayerTranscriptLineAccumulator {
   private(set) var closedLines: [PlayerTranscriptLine] = []
@@ -31,79 +33,45 @@ final class PlayerTranscriptLineAccumulator {
   }
 
   func appendFinalizedWords(_ incoming: [PlayerTranscriptWord]) {
-    appendWords(incoming, includeVolatile: false, lineVolatile: false)
-  }
-
-  /// Einmalige Zeilen aus Wortliste (z. B. volatiler Teleprompter-Schwanz).
-  static func makeLines(
-    from words: [PlayerTranscriptWord],
-    maxCharactersPerLine limit: Int,
-    volatile: Bool
-  ) -> [PlayerTranscriptLine] {
-    let builder = PlayerTranscriptLineAccumulator()
-    builder.maxCharactersPerLine = limit
-    builder.appendWords(words, includeVolatile: true, lineVolatile: volatile)
-    return builder.publishedLines(volatile: volatile)
-  }
-
-  private func appendWords(
-    _ incoming: [PlayerTranscriptWord],
-    includeVolatile: Bool,
-    lineVolatile: Bool
-  ) {
-    for raw in incoming where includeVolatile || !raw.isVolatile {
-      let word = stabilized(raw, preserveVolatileFlag: lineVolatile)
+    for raw in incoming {
+      let word = stabilized(raw)
       if word.isWhitespaceOnly {
         if !openWords.isEmpty { openWords.append(word) }
         continue
       }
       let add = word.text.count
       if openCharCount > 0, openCharCount + add > maxCharactersPerLine {
-        closeOpenLine(volatile: lineVolatile)
+        closeOpenLine()
       }
       openWords.append(word)
       openCharCount += add
       if endsSentence(in: word.text) {
-        closeOpenLine(volatile: lineVolatile)
+        closeOpenLine()
       }
     }
   }
 
   private var openLineId: String { "line-\(nextLineIndex)" }
 
-  func publishedLines(volatile: Bool = false) -> [PlayerTranscriptLine] {
+  func publishedLines() -> [PlayerTranscriptLine] {
     var all = closedLines
-    if let open = openLineSnapshot(volatile: volatile) { all.append(open) }
+    if let open = openLineSnapshot() { all.append(open) }
     return all
   }
 
-  /// Zeilenzahl ohne Array-Kopie — wird pro Player-Tick abgefragt.
-  var publishedLineCount: Int {
-    closedLines.count + (openWords.contains { !$0.isWhitespaceOnly } ? 1 : 0)
-  }
-
-  /// Älteste Zeilen verwerfen. Ohne Obergrenze wächst `closedLines` über Stunden
-  /// Laufzeit unbegrenzt und jede Veröffentlichung kopiert mehr Daten.
-  /// In Blöcken kürzen, damit `removeFirst` nicht bei jeder neuen Zeile anfällt.
-  func pruneClosedLines(keeping limit: Int, chunk: Int) {
-    guard closedLines.count >= limit + chunk else { return }
-    closedLines.removeFirst(closedLines.count - limit)
-  }
-
-  private func openLineSnapshot(volatile: Bool = false) -> PlayerTranscriptLine? {
+  private func openLineSnapshot() -> PlayerTranscriptLine? {
     let spoken = openWords.filter { !$0.isWhitespaceOnly }
     guard !spoken.isEmpty else { return nil }
     return PlayerTranscriptLine(
-      id: volatile ? "volatile-\(openLineId)" : openLineId,
+      id: openLineId,
       words: openWords,
       globalStart: spoken.first!.globalStart,
-      globalEnd: max(spoken.last!.globalEnd, spoken.first!.globalStart + 0.05),
-      isVolatile: volatile
+      globalEnd: max(spoken.last!.globalEnd, spoken.first!.globalStart + 0.05)
     )
   }
 
-  private func closeOpenLine(volatile: Bool = false) {
-    guard let snapshot = openLineSnapshot(volatile: volatile) else {
+  private func closeOpenLine() {
+    guard let snapshot = openLineSnapshot() else {
       openWords = []
       openCharCount = 0
       return
@@ -114,17 +82,14 @@ final class PlayerTranscriptLineAccumulator {
     openCharCount = 0
   }
 
-  private func stabilized(_ word: PlayerTranscriptWord, preserveVolatileFlag: Bool = false) -> PlayerTranscriptWord {
-    let id = preserveVolatileFlag && word.isVolatile
-      ? "vw-\(nextWordIndex)"
-      : "w-\(nextWordIndex)"
+  private func stabilized(_ word: PlayerTranscriptWord) -> PlayerTranscriptWord {
+    let id = "w-\(nextWordIndex)"
     nextWordIndex += 1
     return PlayerTranscriptWord(
       id: id,
       text: word.text,
       globalStart: word.globalStart,
-      globalEnd: word.globalEnd,
-      isVolatile: preserveVolatileFlag ? word.isVolatile : false
+      globalEnd: word.globalEnd
     )
   }
 

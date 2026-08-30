@@ -140,7 +140,6 @@ enum PlayerTranscriptLibrary {
     toLocalTime end: Double?,
     onBatch: ((PlayerTranscriptProductionBatch) throws -> Void)? = nil
   ) async throws -> Double {
-    let producer = PlayerTranscriptProducer()
     var pending: [PlayerTranscriptTrackCache.Word] = []
     var through = start
     // Inkrementell statt kumulativ: jedes Zwischenspeichern schreibt nur das seit dem letzten
@@ -162,7 +161,7 @@ enum PlayerTranscriptLibrary {
     }
 
     do {
-      for try await batch in producer.transcribe(
+      for try await batch in PlayerTranscriptProducer.transcribe(
         assetURL: source.assetURL, startSeconds: start, endSeconds: end, locale: locale)
       {
         try Task.checkCancellation()

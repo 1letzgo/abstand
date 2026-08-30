@@ -199,7 +199,7 @@ struct CoverImageView: View {
     let scopeId = cacheScopeId
     let key = effectiveCacheKey(for: scopeId)
     guard let url, !scopeId.isEmpty else {
-      guard !Task.isCancelled, cacheScopeId == scopeId else { return }
+      guard !Task.isCancelled else { return }
       image = nil
       return
     }
@@ -217,7 +217,7 @@ struct CoverImageView: View {
       url: url,
       token: requiresAuthorization ? token : nil
     )
-    guard !Task.isCancelled, cacheScopeId == scopeId, let loaded else { return }
+    guard !Task.isCancelled, let loaded else { return }
     image = loaded
     imageKey = key
   }

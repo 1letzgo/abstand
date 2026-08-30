@@ -14,7 +14,6 @@ enum PlayerLiveTranscriptionError: LocalizedError {
   case conversionFailed
   case audioSourceUnavailable
   case streamingPlaybackUnavailable
-  case transcriptionStartupTimedOut
   case transcriptionProgressStalled
 
   var errorDescription: String? {
@@ -44,10 +43,6 @@ enum PlayerLiveTranscriptionError: LocalizedError {
         localized:
           "Read along needs a server stream or a fully downloaded audiobook. Finish the download or go online.",
         comment: "Live transcript error")
-    case .transcriptionStartupTimedOut:
-      return String(
-        localized: "Transcription took too long to start. Try again.",
-        comment: "Live transcript error")
     case .transcriptionProgressStalled:
       return String(
         localized: "Transcription stopped making progress. Try again.",
@@ -63,7 +58,6 @@ struct PlayerTranscriptWord: Identifiable, Equatable {
   let text: String
   let globalStart: Double
   let globalEnd: Double
-  let isVolatile: Bool
 
   var isWhitespaceOnly: Bool {
     text.allSatisfy(\.isWhitespace)
@@ -149,8 +143,9 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   private var trackActivationGeneration: UInt = 0
   private var productionStartLocalTime: Double = 0
   private var productionThroughLocalTime: Double = 0
-  /// Läuft gerade eine Transkript-Produktion? (UI: „wird vorbereitet")
-  @Published private(set) var isProducingTranscript = false
+  /// Läuft gerade eine Transkript-Produktion? Nur interne Steuerung (followPlaybackPosition) —
+  /// bewusst kein @Published, kein View liest den Wert.
+  private var isProducingTranscript = false
 
 
   private weak var boundPlayer: PlaybackController?
@@ -545,14 +540,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     return response.content
   }
 
-  func clearRecap() {
-    recapText = nil
-    recapErrorMessage = nil
-    recapFallbackNotice = nil
-    recapShowsTranscript = false
-    recapBookId = nil
-    recapPlaybackTime = nil
-  }
 
 
 
@@ -785,8 +772,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
         id: "c-\(context.trackIndex)-\(index)",
         text: word.t + " ",
         globalStart: offset + word.s,
-        globalEnd: max(offset + word.s, offset + word.e),
-        isVolatile: false
+        globalEnd: max(offset + word.s, offset + word.e)
       )
     }
     lineAccumulator.rebuildLines(
@@ -824,7 +810,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       // Erst NACH dem self-Guard, gepaart mit dem defer — ein früh deallokierter Controller
       // ließe den Zähler sonst dauerhaft > 0 stehen und die Vorproduktion pausierte für immer.
       PlayerTranscriptLibrary.beginPriorityWork()
-      let producer = PlayerTranscriptProducer()
       var pending: [PlayerTranscriptTrackCache.Word] = []
       // Lauf-lokales Ende: das geteilte `productionThroughLocalTime` gehört nach einem
       // Track-Wechsel schon dem neuen Lauf — der catch-Pfad hier muss mit dem eigenen
@@ -841,7 +826,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       }
 
       do {
-        for try await batch in producer.transcribe(
+        for try await batch in PlayerTranscriptProducer.transcribe(
           assetURL: assetURL, startSeconds: start, endSeconds: nil, locale: locale)
         {
           guard self.sessionIsCurrent(generation),
@@ -907,8 +892,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
         id: "p-\(trackIndex)-\(Int((word.start * 1000).rounded()))-\(index)",
         text: word.text + " ",
         globalStart: offset + word.start,
-        globalEnd: max(offset + word.start, offset + word.end),
-        isVolatile: false
+        globalEnd: max(offset + word.start, offset + word.end)
       )
     }
     guard let firstStart = mapped.first?.globalStart else { return }
@@ -1153,54 +1137,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     lineAccumulator.rebuildLines(from: finalizedWords, maxCharactersPerLine: limit)
     publishWords()
   }
-  func continuousLinePosition(at globalTime: Double) -> Double {
-    let lines = transcriptLines
-    guard !lines.isEmpty else { return 0 }
-    let idx = activeLineIndex(in: lines, at: globalTime)
-    let progress = lineProgress(in: lines, lineIndex: idx, at: globalTime)
-    return Double(idx) + progress
-  }
 
-  func teleprompterRole(forLineIndex index: Int, centerFractional: Double) -> PlayerTeleprompterLineRole {
-    let delta = Double(index) - centerFractional
-    if delta < -0.35 { return .past }
-    if delta > 0.35 { return .upcoming }
-    return .current
-  }
 
-  func teleprompterWindow(at globalTime: Double) -> PlayerTeleprompterWindow {
-    let lines = transcriptLines
-    let centerIdx = activeLineIndex(in: lines, at: globalTime)
-    let progress = lineProgress(in: lines, lineIndex: centerIdx, at: globalTime)
-    var slots: [PlayerTeleprompterSlot] = []
-
-    for delta in -PlayerTeleprompterMetrics.renderedLinesBeforeCenter...PlayerTeleprompterMetrics.renderedLinesBeforeCenter {
-      let idx = centerIdx + delta
-      let role: PlayerTeleprompterLineRole
-      if delta < 0 { role = .past }
-      else if delta > 0 { role = .upcoming }
-      else { role = .current }
-
-      if idx >= 0, idx < lines.count {
-        slots.append(
-          PlayerTeleprompterSlot(
-            id: "slot-\(delta)-\(lines[idx].id)",
-            line: lines[idx],
-            role: role
-          )
-        )
-      } else {
-        slots.append(
-          PlayerTeleprompterSlot(id: "slot-empty-\(delta)", line: nil, role: .empty)
-        )
-      }
-    }
-    return PlayerTeleprompterWindow(
-      slots: slots,
-      centerLineIndex: centerIdx,
-      lineProgress: progress
-    )
-  }
 
   /// Aktuelles Wort zur Wiedergabezeit.
   func activeWord(at globalTime: Double) -> PlayerTranscriptWord? {
@@ -1227,11 +1165,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     activeLineIndex(in: transcriptLines, at: globalTime)
   }
 
-  func lineProgress(at globalTime: Double) -> Double {
-    let lines = transcriptLines
-    let idx = activeLineIndex(in: lines, at: globalTime)
-    return lineProgress(in: lines, lineIndex: idx, at: globalTime)
-  }
 
   /// Teleprompter beim Start an die aktuelle Wiedergabe ausrichten.
   /// Anzeige-Uhr der View auf die Wiedergabezeit setzen. Die frühere Drift-Berechnung

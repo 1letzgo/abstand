@@ -185,7 +185,8 @@ enum PlayerTranscriptCacheStore {
     try? fm.removeItem(at: bookDir(account: account, bookId: bookId))
   }
 
-  /// Gesamtgröße aller Transkripte des Accounts (Einstellungen → Speicher).
+  /// Gesamtgröße aller Transkripte des Accounts — vorgesehen für eine spätere
+  /// Speicher-Anzeige in den Einstellungen (analog `CoverImageCache.totalByteCount`).
   static func totalSizeBytes(account: URL?) -> Int64 {
     guard let account else { return 0 }
     let root = account.appendingPathComponent(subdir, isDirectory: true)

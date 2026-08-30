@@ -27,21 +27,15 @@ enum PlayerTranscriptProducerError: Error {
 }
 
 /// Ein Lauf = ein Track-Bereich. Kein Watchdog, kein Selbstheilen: bricht etwas ab, wirft der
-/// Stream — der Aufrufer startet den Bereich neu oder gibt auf.
-actor PlayerTranscriptProducer {
+/// Stream — der Aufrufer bricht über die Stream-Termination ab (kein eigener Zustand nötig,
+/// deshalb enum statt actor).
+enum PlayerTranscriptProducer {
   /// Audio in Blöcken lesen; nach jedem Block kurz kooperativ abgeben.
   private static let buffersPerYield = 64
 
-  private var task: Task<Void, Never>?
-
-  func cancel() {
-    task?.cancel()
-    task = nil
-  }
-
   /// Transkribiert `[startSeconds, endSeconds)` der Datei und liefert Wort-Batches.
   /// Der Stream endet, wenn der Bereich fertig ist oder der Aufrufer ihn abbricht.
-  nonisolated func transcribe(
+  static func transcribe(
     assetURL: URL,
     startSeconds: Double,
     endSeconds: Double?,
@@ -124,7 +118,7 @@ actor PlayerTranscriptProducer {
     } catch {
       input.finish()
       resultsTask.cancel()
-      try? await analyzer.cancelAndFinishNow()
+      await analyzer.cancelAndFinishNow()
       throw error
     }
   }

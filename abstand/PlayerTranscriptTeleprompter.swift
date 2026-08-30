@@ -7,32 +7,13 @@ struct PlayerTranscriptLine: Identifiable, Equatable {
   let words: [PlayerTranscriptWord]
   let globalStart: Double
   let globalEnd: Double
-  let isVolatile: Bool
 
   var spokenWords: [PlayerTranscriptWord] {
     words.filter { !$0.isWhitespaceOnly }
   }
 }
 
-enum PlayerTeleprompterLineRole: Equatable {
-  case past
-  case current
-  case upcoming
-  case empty
-}
 
-struct PlayerTeleprompterSlot: Identifiable, Equatable {
-  let id: String
-  let line: PlayerTranscriptLine?
-  let role: PlayerTeleprompterLineRole
-}
-
-struct PlayerTeleprompterWindow: Equatable {
-  let slots: [PlayerTeleprompterSlot]
-  let centerLineIndex: Int
-  /// 0…1 Fortschritt in der aktuellen Zeile (für weiches Hochscrollen).
-  let lineProgress: Double
-}
 
 struct PlayerTeleprompterLayout: Equatable {
   let slotHeight: CGFloat
@@ -429,8 +410,7 @@ struct PlayerLiveTranscriptPanelView: View {
                 wordColor(
                   isOnActiveLine: isOnActiveLine,
                   isActive: isActive,
-                  isSelected: isSelected,
-                  isVolatile: word.isVolatile
+                  isSelected: isSelected
                 )
               )
               .underline(isSelected, color: AppTheme.accent)
@@ -450,12 +430,10 @@ struct PlayerLiveTranscriptPanelView: View {
   private func wordColor(
     isOnActiveLine: Bool,
     isActive: Bool,
-    isSelected: Bool,
-    isVolatile: Bool
+    isSelected: Bool
   ) -> Color {
     if isSelected { return AppTheme.accent }
     if isActive { return AppTheme.accent }
-    if isVolatile { return AppTheme.textPrimary.opacity(0.4) }
     let opacity = isOnActiveLine
       ? PlayerTeleprompterMetrics.activeLineTextOpacity
       : PlayerTeleprompterMetrics.inactiveLineTextOpacity
