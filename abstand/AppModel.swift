@@ -5350,23 +5350,12 @@ final class AppModel: ObservableObject {
     guard !targets.isEmpty else { return }
     for target in targets {
       coverPrefetchInFlightKeys.insert(target.key)
-      Task.detached(priority: .userInitiated) { [weak self] in
-        defer { Task { @MainActor [weak self] in self?.coverPrefetchInFlightKeys.remove(target.key) } }
-        if let account, let data = CoverImageCache.loadFromDisk(account: account, itemId: target.key),
-          let ui = UIImage(data: data)
-        {
-          CoverImageCache.storeMemory(itemId: target.key, image: ui)
-          return
-        }
-        let req = AbstandHTTPSession.authorizedRequest(url: target.url, token: authToken)
-        guard let (data, resp) = try? await AbstandHTTPSession.coverAndCache.data(for: req),
-          let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-          let ui = UIImage(data: data)
-        else { return }
-        if let account {
-          try? CoverImageCache.saveToDisk(account: account, itemId: target.key, data: data)
-        }
-        CoverImageCache.storeMemory(itemId: target.key, image: ui)
+      Task { @MainActor [weak self] in
+        // Laden über `CoverImageLoader`: teilt sich Disk-/Netzwerk-Vorgang und Decode mit den
+        // Views, statt parallel dasselbe Cover ein zweites Mal zu holen.
+        _ = await CoverImageLoader.shared.image(
+          key: target.key, account: account, url: target.url, token: authToken)
+        self?.coverPrefetchInFlightKeys.remove(target.key)
       }
     }
   }
@@ -5385,23 +5374,10 @@ final class AppModel: ObservableObject {
         continue
       }
       coverPrefetchInFlightKeys.insert(key)
-      Task.detached(priority: .utility) { [weak self] in
-        defer { Task { @MainActor [weak self] in self?.coverPrefetchInFlightKeys.remove(key) } }
-        if let account, let data = CoverImageCache.loadFromDisk(account: account, itemId: key),
-          let ui = UIImage(data: data)
-        {
-          CoverImageCache.storeMemory(itemId: key, image: ui)
-          return
-        }
-        let req = AbstandHTTPSession.authorizedRequest(url: url, token: authToken)
-        guard let (data, resp) = try? await AbstandHTTPSession.coverAndCache.data(for: req),
-          let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-          let ui = UIImage(data: data)
-        else { return }
-        if let account {
-          try? CoverImageCache.saveToDisk(account: account, itemId: key, data: data)
-        }
-        CoverImageCache.storeMemory(itemId: key, image: ui)
+      Task { @MainActor [weak self] in
+        _ = await CoverImageLoader.shared.image(
+          key: key, account: account, url: url, token: authToken)
+        self?.coverPrefetchInFlightKeys.remove(key)
       }
     }
   }

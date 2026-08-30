@@ -413,22 +413,29 @@ struct BooksEntityDetailView: View {
     }
     guard let url else { return }
 
-    let req = AbstandHTTPSession.authorizedRequest(url: url, token: model.token)
-    do {
-      let (data, resp) = try await AbstandHTTPSession.coverAndCache.data(for: req)
-      guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
-        let image = UIImage(data: data)
-      else { return }
-      await MainActor.run {
-        headerCoverImageForTint = image
-        headerTintColor = coverDominantBackgroundTint(from: image)
-      }
-    } catch is CancellationError {
-      // Abbruch ist normal — kein Log.
-    } catch {
-      AppLog.library.warning(
-        "Entity header cover fetch failed: \(error.localizedDescription, privacy: .public)")
+    // Vorher lud dieser Header sein Cover bei jedem Öffnen neu — ohne Cache, obwohl dasselbe
+    // Bild meist schon in `CoverImageCache` liegt. Jetzt derselbe Key und derselbe Ladevorgang.
+    let scopeId: String
+    let revision: Int
+    if nav.kind == .series, let bookId = model.entityDetailBooks.first?.id {
+      scopeId = "\(bookId)#cover-hero"
+      revision = model.coverImageCacheRevision(forBookId: bookId)
+    } else {
+      scopeId = "entity:\(nav.kind.rawValue):\(nav.entityId)#cover-hero"
+      revision = model.coverImageCacheRevision
     }
+    let key = CoverImageCache.cacheKey(scopeId: scopeId, revision: revision)
+    guard
+      let image = await CoverImageCache.loadHeroImage(
+        itemId: key,
+        account: model.coverImageCacheAccountDirectory(),
+        coverURL: url,
+        token: model.token
+      )
+    else { return }
+    guard !Task.isCancelled else { return }
+    headerCoverImageForTint = image
+    headerTintColor = coverDominantBackgroundTint(from: image)
   }
 }
 

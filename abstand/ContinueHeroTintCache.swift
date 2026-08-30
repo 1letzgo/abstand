@@ -231,38 +231,28 @@ enum CoverDerivedTintLoader {
       return c
     }
     guard let coverURL else { return nil }
-    let req = AbstandHTTPSession.authorizedRequest(url: coverURL, token: token)
-    let payload: (data: Data, response: URLResponse)?
-    do {
-      payload = try await AbstandHTTPSession.coverAndCache.data(for: req)
-    } catch {
-      return nil
-    }
-    guard let (data, resp) = payload else { return nil }
     let cacheKey = CoverImageCache.cacheKey(scopeId: cacheScopeId ?? itemId, revision: revision)
-    // Decode + Pixel-Analyse + Persistenz off-main — dieselben Bytes wie `CoverImageView` speichern,
-    // damit es beim nächsten Öffnen denselben Key trifft (kein zweiter Download).
-    // Off-main nur die Pixel-Analyse; die palettenabhängige Farbe entsteht danach auf dem MainActor
+    // Über den gemeinsamen Loader: derselbe Ladevorgang wie in `CoverImageView` (kein zweiter
+    // Download desselben Covers), Persistenz und Decode inklusive.
+    guard
+      let image = await CoverImageLoader.shared.image(
+        key: cacheKey, account: account, url: coverURL, token: token)
+    else { return nil }
+    // Pixel-Analyse off-main; die palettenabhängige Farbe entsteht danach auf dem MainActor
     // (`AppTheme.palette` ist MainActor-Zustand und darf sich währenddessen ändern).
     let averageRGB = await Task.detached(priority: .userInitiated) { () -> (CGFloat, CGFloat, CGFloat)? in
-      guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
-        let image = UIImage(data: data),
-        let avg = coverAverageRGB(from: image)
-      else { return nil }
-      if let account {
-        try? CoverImageCache.saveToDisk(account: account, itemId: cacheKey, data: data)
-        CoverImageCache.storeMemory(itemId: cacheKey, image: image)
-        ContinueHeroTintCache.save(
-          account: account,
-          itemId: itemId,
-          revision: revision,
-          red: Double(avg.0),
-          green: Double(avg.1),
-          blue: Double(avg.2)
-        )
-      }
-      return avg
+      coverAverageRGB(from: image)
     }.value
+    if let account, let avg = averageRGB {
+      ContinueHeroTintCache.save(
+        account: account,
+        itemId: itemId,
+        revision: revision,
+        red: Double(avg.0),
+        green: Double(avg.1),
+        blue: Double(avg.2)
+      )
+    }
     guard let averageRGB else { return nil }
     return continueListeningCardTint(
       fromAverageRed: averageRGB.0, green: averageRGB.1, blue: averageRGB.2)

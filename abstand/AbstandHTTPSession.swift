@@ -8,7 +8,11 @@ enum AbstandHTTPSession {
     cfg.waitsForConnectivity = true
     cfg.timeoutIntervalForRequest = 30
     cfg.timeoutIntervalForResource = 120
-    cfg.requestCachePolicy = .returnCacheDataElseLoad
+    // Kein `URLCache`: Cover liegen bereits in `CoverImageCache` (eigener Account-Ordner mit
+    // Prune). Der geteilte URLCache hätte dieselben Bytes ein zweites Mal auf der Platte —
+    // in einer Größe, die hier niemand steuert und die der eigene Prune nicht anfasst.
+    cfg.urlCache = nil
+    cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
     return URLSession(configuration: cfg)
   }()
 

@@ -69,9 +69,8 @@ enum CoverImageCache {
     try data.write(to: u, options: .atomic)
   }
 
-  /// Hero-Coverbild holen: erst Memory/Disk-Cache, dann Netzwerk.
-  /// Wird in beide Cache-Tiers geschrieben, sodass `CoverImageView` und die Tint-Extraktion
-  /// denselben Bestand teilen — keine doppelten 1200px-Requests beim Öffnen einer Detail-Seite.
+  /// Hero-Coverbild holen: erst Memory/Disk-Cache, dann Netzwerk — über denselben Koordinator
+  /// wie `CoverImageView`, damit Detailansicht und Tint-Extraktion sich einen Ladevorgang teilen.
   /// `itemId` ist der vollständige Cache-Key (Scope-ID ggf. mit Revision, z. B. `id#cover-hero#r42`).
   static func loadHeroImage(
     itemId: String,
@@ -79,34 +78,24 @@ enum CoverImageCache {
     coverURL: URL?,
     token: String
   ) async -> UIImage? {
-    if let cached = syncUIImage(itemId: itemId, account: account) {
-      return cached
+    if let cached = memoryImage(itemId: itemId) { return cached }
+    guard let coverURL, !token.isEmpty else {
+      return syncUIImage(itemId: itemId, account: account)
     }
-    guard let coverURL, !token.isEmpty else { return nil }
-    let req = AbstandHTTPSession.authorizedRequest(url: coverURL, token: token)
-    do {
-      let (data, resp) = try await AbstandHTTPSession.coverAndCache.data(for: req)
-      guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
-        let image = UIImage(data: data)
-      else { return nil }
-      if let account {
-        try? saveToDisk(account: account, itemId: itemId, data: data)
-      }
-      storeMemory(itemId: itemId, image: image)
-      return image
-    } catch {
-      return nil
-    }
+    return await CoverImageLoader.shared.image(
+      key: itemId, account: account, url: coverURL, token: token)
   }
 
   /// In-Memory leeren (Account-Wechsel); Disk-Cache pro Server bleibt erhalten.
   static func evictMemory() {
     memory.removeAllObjects()
+    Task { await CoverImageLoader.shared.resetMissingCache() }
   }
 
   /// Entfernt alle Cover-Dateien für dieses Konto und leert den In-Memory-Cache.
   static func clearAll(account: URL) {
     memory.removeAllObjects()
+    Task { await CoverImageLoader.shared.resetMissingCache() }
     let dir = coversDir(for: account)
     try? fm.removeItem(at: dir)
     try? fm.createDirectory(at: dir, withIntermediateDirectories: true)

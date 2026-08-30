@@ -186,59 +186,24 @@ struct CoverImageView: View {
     let scopeId = cacheScopeId
     let key = effectiveCacheKey(for: scopeId)
     guard let url, !scopeId.isEmpty else {
-      await MainActor.run {
-        guard !Task.isCancelled, cacheScopeId == scopeId else { return }
-        image = nil
-      }
+      guard !Task.isCancelled, cacheScopeId == scopeId else { return }
+      image = nil
       return
     }
 
     if let cached = CoverImageCache.memoryImage(itemId: key) {
-      await MainActor.run {
-        guard !Task.isCancelled, cacheScopeId == scopeId else { return }
-        image = cached
-      }
+      image = cached
       return
     }
 
-    if let account = cacheAccount {
-      // Disk-Read + Decode off-MainActor — sonst blockiert das den Aufrufer-Thread des `.task`.
-      let diskImage = await Task.detached(priority: .userInitiated) { () -> UIImage? in
-        guard let data = CoverImageCache.loadFromDisk(account: account, itemId: key),
-          let ui = UIImage(data: data)
-        else { return nil }
-        return ui
-      }.value
-      if let diskImage {
-        CoverImageCache.storeMemory(itemId: key, image: diskImage)
-        await MainActor.run {
-          guard !Task.isCancelled, cacheScopeId == scopeId else { return }
-          image = diskImage
-        }
-        return
-      }
-    }
-
-    let req = AbstandHTTPSession.authorizedRequest(
-      url: url, token: requiresAuthorization ? token : nil)
-    do {
-      let (data, resp) = try await AbstandHTTPSession.coverAndCache.data(for: req)
-      try Task.checkCancellation()
-      guard let http = resp as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
-        let ui = UIImage(data: data)
-      else { return }
-      if let account = cacheAccount {
-        try? CoverImageCache.saveToDisk(account: account, itemId: key, data: data)
-      }
-      CoverImageCache.storeMemory(itemId: key, image: ui)
-      await MainActor.run {
-        guard !Task.isCancelled, cacheScopeId == scopeId else { return }
-        image = ui
-      }
-    } catch is CancellationError {
-      // Abbruch ist normal (View weg / neues Cover) — kein Log.
-    } catch {
-      AppLog.library.warning("Cover fetch failed: \(error.localizedDescription, privacy: .public)")
-    }
+    // Ein Ladevorgang je Key für die ganze App (Disk, Netzwerk, Decode) — siehe `CoverImageLoader`.
+    let loaded = await CoverImageLoader.shared.image(
+      key: key,
+      account: cacheAccount,
+      url: url,
+      token: requiresAuthorization ? token : nil
+    )
+    guard !Task.isCancelled, cacheScopeId == scopeId, let loaded else { return }
+    image = loaded
   }
 }
