@@ -231,12 +231,12 @@ struct PlayerLiveTranscriptPanelView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .onAppear {
-      alignTeleprompterToLivePlayback(force: true)
+      alignTeleprompterToLivePlayback()
       syncTeleprompterLayout()
     }
     .onChange(of: transcription.isTeleprompterModeActive) { _, active in
       if active {
-        alignTeleprompterToLivePlayback(force: true)
+        alignTeleprompterToLivePlayback()
         syncTeleprompterLayout()
       }
     }
@@ -250,12 +250,12 @@ struct PlayerLiveTranscriptPanelView: View {
     }
     .onChange(of: transcription.isTeleprompterReady) { _, ready in
       if ready {
-        alignTeleprompterToLivePlayback(force: true)
+        alignTeleprompterToLivePlayback()
       }
     }
     .onChange(of: transcription.isEnabled) { _, enabled in
       if enabled {
-        alignTeleprompterToLivePlayback(force: true)
+        alignTeleprompterToLivePlayback()
       }
     }
     .onChange(of: viewportSize) { _, _ in
@@ -342,10 +342,10 @@ struct PlayerLiveTranscriptPanelView: View {
   }
 
   /// Teleprompter an Live-Wiedergabe ausrichten und Uhr zurücksetzen.
-  private func alignTeleprompterToLivePlayback(force: Bool) {
+  private func alignTeleprompterToLivePlayback() {
     player.syncGlobalPositionFromPlayer()
     let live = player.liveGlobalPlaybackPosition
-    transcription.syncTeleprompterToPlayback(at: live, force: force)
+    transcription.syncTeleprompterToPlayback(at: live)
     playbackClock.hardReset(to: live)
   }
 

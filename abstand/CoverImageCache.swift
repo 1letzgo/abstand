@@ -80,7 +80,10 @@ enum CoverImageCache {
   ) async -> UIImage? {
     if let cached = memoryImage(itemId: itemId) { return cached }
     guard let coverURL, !token.isEmpty else {
-      return syncUIImage(itemId: itemId, account: account)
+      // Disk-Read + Decode off-main — die Aufrufer sind MainActor-Views.
+      return await Task.detached(priority: .userInitiated) {
+        syncUIImage(itemId: itemId, account: account)
+      }.value
     }
     return await CoverImageLoader.shared.image(
       key: itemId, account: account, url: coverURL, token: token)

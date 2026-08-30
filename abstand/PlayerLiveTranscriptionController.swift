@@ -155,8 +155,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   private weak var boundPlayer: PlaybackController?
 
-  /// Letzte Wiedergabezeit mit aktivem Teleprompter (für Start-Abgleich).
-  private var lastTeleprompterPlaybackTime: Double = 0
   /// Erste Player-Ticks nach Enable: Position erneut syncen (Seek nach App-Start).
   private var pendingStartupSyncTicks = 0
   /// Laufender Start-Task — bei `disable()` abbrechen, damit kein Zombie-Session bleibt.
@@ -310,7 +308,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
       setSessionRunning(true)
       pendingStartupSyncTicks = 15
-      syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition, force: true)
+      syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition)
       // Start erfolgreich abgeschlossen — kein hängender Task mehr für Recovery-Prüfungen.
       enableTask = nil
     } catch {
@@ -572,9 +570,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     }
 
 
-    if let player = boundPlayer {
-      lastTeleprompterPlaybackTime = player.liveGlobalPlaybackPosition
-    }
 
     sessionGeneration &+= 1
     finishTeleprompterMode(resetContent: true)
@@ -629,7 +624,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     refreshTeleprompterReadiness()
     if pendingStartupSyncTicks > 0 {
       pendingStartupSyncTicks -= 1
-      syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition, force: true)
+      syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition)
     }
   }
 
@@ -773,7 +768,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     let playbackLocal = player.transcriptionLocalPlaybackSeconds(
       trackGlobalOffset: context.trackGlobalOffset)
     startProduction(fromLocalTime: playbackLocal - Self.preRollSeconds, generation: generation)
-    syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition, force: true)
+    syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition)
   }
 
   /// Gecachte Wörter (lokale Track-Zeit) in die Anzeige übernehmen (globale Hörbuchzeit).
@@ -1133,7 +1128,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     guard ready != isTeleprompterReady else { return }
     isTeleprompterReady = ready
     if ready {
-      syncTeleprompterToPlayback(at: playback, force: true)
+      syncTeleprompterToPlayback(at: playback)
     }
   }
 
@@ -1239,39 +1234,14 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   }
 
   /// Teleprompter beim Start an die aktuelle Wiedergabe ausrichten.
-  func syncTeleprompterToPlayback(at playbackGlobalTime: Double, force: Bool = false) {
-    let playback = max(0, playbackGlobalTime)
-
-    let transcriptImplied = impliedTranscriptCenterTime(near: playback)
-    let driftFromTranscript = abs(playback - transcriptImplied)
-    let driftFromLastSession =
-      lastTeleprompterPlaybackTime > 0
-      ? abs(playback - lastTeleprompterPlaybackTime)
-      : 0
-
-    let needsJump =
-      force
-      || driftFromTranscript > 0.5
-      || driftFromLastSession > 0.5
-
-    teleprompterSyncedPlaybackTime = playback
-    lastTeleprompterPlaybackTime = playback
-    if needsJump || !transcriptLines.isEmpty {
-      teleprompterSyncGeneration &+= 1
-    }
-    publishWords()
-  }
-
-  /// Mitte der Zeile/Wortposition, die der Teleprompter ohne Sync anzeigen würde.
-  private func impliedTranscriptCenterTime(near playback: Double) -> Double {
-    if let word = activeWord(at: playback) {
-      return (word.globalStart + word.globalEnd) * 0.5
-    }
-    let lines = transcriptLines
-    guard !lines.isEmpty else { return 0 }
-    let idx = activeLineIndex(in: lines, at: playback)
-    let line = lines[idx]
-    return (line.globalStart + line.globalEnd) * 0.5
+  /// Anzeige-Uhr der View auf die Wiedergabezeit setzen. Die frühere Drift-Berechnung
+  /// (impliedTranscriptCenterTime / lastTeleprompterPlaybackTime / needsJump) war wirkungslos —
+  /// jeder Aufrufer erzwang den Sync ohnehin — und ist entfernt. Kein `publishWords()` hier:
+  /// die Zeilen ändern sich durch einen Sync nicht, nur die Bereitschaft wird nachgezogen.
+  func syncTeleprompterToPlayback(at playbackGlobalTime: Double) {
+    teleprompterSyncedPlaybackTime = max(0, playbackGlobalTime)
+    teleprompterSyncGeneration &+= 1
+    refreshTeleprompterReadiness()
   }
 
   /// Fortlaufende Zeilenposition (Ganzzahl = Zeilenanfang, Nachkomma = Fortschritt in der Zeile).

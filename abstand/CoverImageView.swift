@@ -87,6 +87,9 @@ struct CoverImageView: View {
   var contentMode: CoverImageContentMode = .fill
 
   @State private var image: UIImage?
+  /// Cache-Key, zu dem `image` gehört — unterscheidet „gleiches Cover, erneut erschienen"
+  /// (behalten, kein Flicker) von „Zelle mit anderem Item wiederverwendet" (leeren).
+  @State private var imageKey: String?
 
   private var loadIdentity: String {
     "\(cacheScopeId)|\(url?.absoluteString ?? "")|\(cacheRevision)"
@@ -136,7 +139,17 @@ struct CoverImageView: View {
     .clipped()
     .contentShape(Rectangle())
     .task(id: loadIdentity) {
-      image = CoverImageCache.memoryImage(itemId: effectiveCacheKey(for: cacheScopeId))
+      let key = effectiveCacheKey(for: cacheScopeId)
+      if let cached = CoverImageCache.memoryImage(itemId: key) {
+        image = cached
+        imageKey = key
+      } else if imageKey != key {
+        // Anderes Item in wiederverwendeter Zelle: fremdes Cover nicht stehen lassen.
+        image = nil
+        imageKey = nil
+      }
+      // Gleicher Key ohne Memory-Treffer (evictiert): Bild behalten — `load()` liefert
+      // denselben Stand gleich nach, ohne Platzhalter-Flicker beim Wiedererscheinen.
       await load()
     }
   }
@@ -193,6 +206,7 @@ struct CoverImageView: View {
 
     if let cached = CoverImageCache.memoryImage(itemId: key) {
       image = cached
+      imageKey = key
       return
     }
 
@@ -205,5 +219,6 @@ struct CoverImageView: View {
     )
     guard !Task.isCancelled, cacheScopeId == scopeId, let loaded else { return }
     image = loaded
+    imageKey = key
   }
 }
