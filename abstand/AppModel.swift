@@ -173,11 +173,6 @@ final class AppModel: ObservableObject {
   @Published var searchSeries: [ABSSearchSeriesRow] = []
   @Published var searchTags: [ABSSearchNamedCount] = []
   @Published var searchGenres: [ABSSearchNamedCount] = []
-  @Published var podcastSearchAuthors: [ABSSearchAuthorRow] = []
-  @Published var podcastSearchNarrators: [ABSSearchNarratorRow] = []
-  @Published var podcastSearchSeries: [ABSSearchSeriesRow] = []
-  @Published var podcastSearchTags: [ABSSearchNamedCount] = []
-  @Published var podcastSearchGenres: [ABSSearchNamedCount] = []
   /// Podcast-Tab Katalog-Suche (Shows + Episoden innerhalb der Podcast-Bibliothek).
   @Published var podcastLibrarySearchText: String = ""
   @Published var podcastLibrarySearchShows: [ABSBook] = []
@@ -6792,7 +6787,7 @@ final class AppModel: ObservableObject {
 
   private func rssFeedUrlForPodcastShow(libraryItemId: String) async -> String? {
     if let s = podcastShows.first(where: { $0.id == libraryItemId }),
-      let u = normalizedPodcastFeedURL(s.media.metadata.feedUrl)
+      let u = Self.normalizedPodcastFeedURL(s.media.metadata.feedUrl)
     {
       return u
     }
@@ -6801,14 +6796,10 @@ final class AppModel: ObservableObject {
       let data = try await c.itemResponseData(id: libraryItemId, expanded: true)
       if let u = Self.extractPodcastFeedURL(fromItemJSON: data) { return u }
       let full = try ABSJSON.decoder().decode(ABSBook.self, from: data)
-      return normalizedPodcastFeedURL(full.media.metadata.feedUrl)
+      return Self.normalizedPodcastFeedURL(full.media.metadata.feedUrl)
     } catch {
       return nil
     }
-  }
-
-  private func normalizedPodcastFeedURL(_ raw: String?) -> String? {
-    Self.normalizedPodcastFeedURL(raw)
   }
 
   /// ABS liefert `feedUrl` oder `feedURL` in `media.metadata` (vgl. Server `Podcast.getAbsMetadataJson`).
@@ -6817,7 +6808,7 @@ final class AppModel: ObservableObject {
     func pick(from dict: [String: Any]?) -> String? {
       guard let dict else { return nil }
       for key in ["feedUrl", "feedURL", "feed_url"] {
-        if let raw = dict[key] as? String, let u = normalizedPodcastFeedURL(raw) { return u }
+        if let raw = dict[key] as? String, let u = Self.normalizedPodcastFeedURL(raw) { return u }
       }
       return nil
     }
@@ -6913,11 +6904,6 @@ final class AppModel: ObservableObject {
 
   func clearPodcastSearchResults() {
     podcastSearchBooks = []
-    podcastSearchAuthors = []
-    podcastSearchNarrators = []
-    podcastSearchSeries = []
-    podcastSearchTags = []
-    podcastSearchGenres = []
   }
 
   func clearPodcastLibrarySearchResults() {

@@ -25,7 +25,12 @@ actor LocalLibraryStore {
       meta = row
     }
     backfillEbookCatalogFlagsIfNeeded(meta: meta)
-    try? modelContext.save()
+    // Fehlgeschlagener Schreibtest darf nicht stumm bleiben — Store ist dann faktisch read-only.
+    do {
+      try modelContext.save()
+    } catch {
+      AppLog.bootstrap.error("SwiftData markOpened save failed: \(error.localizedDescription, privacy: .public)")
+    }
   }
 
   /// Einmalig nach Update: `catalogHasEbook`/`catalogHasSupplementaryEbook` aus gespeichertem Blob berechnen.

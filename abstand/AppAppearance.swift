@@ -17,7 +17,7 @@ enum AppearanceMode: String, CaseIterable, Identifiable, Hashable {
     }
   }
 
-  private static let storageKey = "abstand_appearance_mode"
+  private static let storageKey = AppModel.Keys.appearanceMode
 
   static func load(from defaults: UserDefaults = .standard) -> AppearanceMode {
     guard let raw = defaults.string(forKey: storageKey),
@@ -65,7 +65,7 @@ enum LibraryBookCardStyle: String, CaseIterable, Identifiable, Hashable {
     }
   }
 
-  private static let storageKey = "abstand_library_book_card_style"
+  private static let storageKey = AppModel.Keys.libraryBookCardStyle
 
   static func load(from defaults: UserDefaults = .standard) -> LibraryBookCardStyle {
     guard let raw = defaults.string(forKey: storageKey),
@@ -93,7 +93,7 @@ enum LibraryPodcastCardStyle: String, CaseIterable, Identifiable, Hashable {
     }
   }
 
-  private static let storageKey = "abstand_library_podcast_card_style"
+  private static let storageKey = AppModel.Keys.libraryPodcastCardStyle
 
   static func load(from defaults: UserDefaults = .standard) -> LibraryPodcastCardStyle {
     guard let raw = defaults.string(forKey: storageKey),
@@ -109,7 +109,7 @@ enum LibraryPodcastCardStyle: String, CaseIterable, Identifiable, Hashable {
 
 /// Zielsprache für Teleprompter-Wortübersetzung (Quelle = Buch-/Transkriptsprache).
 enum TranslationTargetLanguage {
-  private static let storageKey = "abstand_translation_target_language"
+  private static let storageKey = AppModel.Keys.translationTargetLanguageCode
 
   /// Häufige Zielsprachen für Picker in Settings und Wort-Sheet.
   static let selectableLanguageCodes: [String] = [
