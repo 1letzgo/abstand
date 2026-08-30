@@ -147,6 +147,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   private var activeTrackDuration: Double = 0
   private var productionTask: Task<Void, Never>?
   private var isActivatingTrack = false
+  /// Entwertet nach dem Cache-Load-await eine ältere, überholte Track-Aktivierung.
+  private var trackActivationGeneration: UInt = 0
   private var productionStartLocalTime: Double = 0
   private var productionThroughLocalTime: Double = 0
   /// Läuft gerade eine Transkript-Produktion? (UI: „wird vorbereitet")
@@ -561,7 +563,12 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     sessionGeneration &+= 1
     finishTeleprompterMode(resetContent: true)
 
-    stopSessionTask?.cancel()
+    // Alten Stop-Lauf abwarten statt nur canceln — zwei überlappende `stopSession()`
+    // räumen sich sonst gegenseitig `trackCache`/`activeContext` unter den Füßen weg.
+    if let pendingStop = stopSessionTask {
+      pendingStop.cancel()
+      await pendingStop.value
+    }
     let stopTask = Task { @MainActor [weak self] in
       guard let self else { return }
       await self.stopSession()
@@ -713,21 +720,33 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     player: PlaybackController,
     generation: UInt
   ) async {
-    productionTask?.cancel()
-    productionTask = nil
-    activeContext = context
-    activeTrackKey = player.transcriptionTrackKey
-    activeTrackDuration = player.currentTranscriptionTrackDuration
-    finalizedWords = []
-    lineAccumulator.reset()
+    // Alten Produktions-Task erst abwarten: sein catch-Pfad persistiert noch — solange gehören
+    // `activeContext`/`trackCache` dem alten Track. Ohne das Warten landeten dessen Wörter in
+    // der Cache-Datei des neuen Tracks.
+    if let running = productionTask {
+      running.cancel()
+      productionTask = nil
+      await running.value
+    }
+    trackActivationGeneration &+= 1
+    let activation = trackActivationGeneration
 
     let bookId = activeTranscriptionBookId ?? ""
     let localeId = context.locale.identifier(.bcp47)
+    let trackKey = player.transcriptionTrackKey
+    let trackDuration = player.currentTranscriptionTrackDuration
     // Datei-I/O und JSON-Dekodierung off-main — ein Track-Transkript ist schnell mehrere
     // hundert Kilobyte, und dieser Pfad läuft mitten in der Wiedergabe.
     let loaded = await PlayerTranscriptLibrary.cache(
       bookId: bookId, trackIndex: context.trackIndex, locale: context.locale)
-    guard sessionIsCurrent(generation), activeContext?.trackIndex == context.trackIndex else { return }
+    guard sessionIsCurrent(generation), trackActivationGeneration == activation else { return }
+    // Kontext und Cache atomar setzen — vorher zeigt `followPlaybackPosition` noch auf den
+    // alten Track und `covers()` rechnet nicht gegen die falsche Datei.
+    activeContext = context
+    activeTrackKey = trackKey
+    activeTrackDuration = trackDuration
+    finalizedWords = []
+    lineAccumulator.reset()
     trackCache =
       loaded ?? PlayerTranscriptTrackCache(localeIdentifier: localeId, trackIndex: context.trackIndex)
 
@@ -789,6 +808,10 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       let producer = PlayerTranscriptProducer()
       var pending: [PlayerTranscriptTrackCache.Word] = []
       var lastPersistThrough = start
+      // Lauf-lokales Ende: das geteilte `productionThroughLocalTime` gehört nach einem
+      // Track-Wechsel schon dem neuen Lauf — der catch-Pfad hier muss mit dem eigenen
+      // Stand persistieren, nicht mit dem des Nachfolgers.
+      var through = start
       defer {
         PlayerTranscriptLibrary.endPriorityWork()
         if self.sessionIsCurrent(generation), self.activeContext?.trackIndex == trackIndex {
@@ -812,17 +835,20 @@ final class PlayerLiveTranscriptionController: ObservableObject {
               })
             self.appendProducedWords(batch.words, trackIndex: trackIndex)
           }
-          self.productionThroughLocalTime = max(self.productionThroughLocalTime, batch.processedThrough)
+          through = max(through, batch.processedThrough)
+          self.productionThroughLocalTime = through
 
           // Zwischenspeichern: ein Absturz oder App-Wechsel soll die Rechenzeit nicht verlieren.
-          if self.productionThroughLocalTime - lastPersistThrough >= Self.transcriptPersistIntervalSeconds {
-            lastPersistThrough = self.productionThroughLocalTime
+          if through - lastPersistThrough >= Self.transcriptPersistIntervalSeconds {
+            lastPersistThrough = through
             await self.persistProducedSegment(
-              start: start, end: self.productionThroughLocalTime, words: pending, bookId: bookId)
+              start: start, end: through, words: pending, bookId: bookId,
+              trackIndex: trackIndex, locale: locale)
           }
         }
         await self.persistProducedSegment(
-          start: start, end: self.productionThroughLocalTime, words: pending, bookId: bookId)
+          start: start, end: through, words: pending, bookId: bookId,
+          trackIndex: trackIndex, locale: locale)
         // Lauf durch, aber kein einziges Wort — sonst bliebe die Karte dauerhaft im Ladezustand.
         if pending.isEmpty, self.transcriptLines.isEmpty, self.sessionIsCurrent(generation) {
           await self.failTeleprompterSession(.transcriptionProgressStalled, generation: generation)
@@ -830,7 +856,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       } catch {
         // Auch bei Abbruch sichern — sonst ist die bereits verbrauchte Rechenzeit verloren.
         await self.persistProducedSegment(
-          start: start, end: self.productionThroughLocalTime, words: pending, bookId: bookId)
+          start: start, end: through, words: pending, bookId: bookId,
+          trackIndex: trackIndex, locale: locale)
         guard !AbstandErrorFilter.isBenignCancellation(error) else { return }
         DebugLogCollector.shared.log(
           "readAlong production failed: \(error.localizedDescription)")
@@ -889,24 +916,31 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   }
 
   /// Produzierten Bereich in den Cache legen und auf Platte schreiben.
+  /// `trackIndex`/`locale` sind die beim **Produktionsstart** eingefangenen Werte — nicht
+  /// `activeContext`, der bei einem Track-Wechsel bereits auf den neuen Track zeigen kann,
+  /// während der gecancelte alte Lauf hier noch seinen Rest sichert.
   private func persistProducedSegment(
     start: Double,
     end: Double,
     words: [PlayerTranscriptTrackCache.Word],
-    bookId: String
+    bookId: String,
+    trackIndex: Int,
+    locale: Locale
   ) async {
-    guard end > start, !bookId.isEmpty, let context = activeContext else { return }
+    guard end > start, !bookId.isEmpty else { return }
     // Frisch von Platte lesen statt den eigenen Stand fortzuschreiben: Recap und
     // Hintergrund-Vorproduktion schreiben in dieselbe Datei und dürfen sich nicht überschreiben.
     // Lesen, Einfügen und Schreiben laufen off-main (`PlayerTranscriptLibrary`).
     var cache =
-      await PlayerTranscriptLibrary.cache(
-        bookId: bookId, trackIndex: context.trackIndex, locale: context.locale)
+      await PlayerTranscriptLibrary.cache(bookId: bookId, trackIndex: trackIndex, locale: locale)
       ?? PlayerTranscriptTrackCache(
-        localeIdentifier: context.locale.identifier(.bcp47), trackIndex: context.trackIndex)
+        localeIdentifier: locale.identifier(.bcp47), trackIndex: trackIndex)
     cache.insert(
       segment: PlayerTranscriptTrackCache.Segment(start: start, end: end, words: words))
-    trackCache = cache
+    // Anzeige-Cache nur fortschreiben, wenn der Track noch der aktive ist.
+    if activeContext?.trackIndex == trackIndex {
+      trackCache = cache
+    }
     await PlayerTranscriptLibrary.save(cache, bookId: bookId)
   }
 
