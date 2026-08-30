@@ -3401,21 +3401,23 @@ private struct DownloadManageSavedRow: View {
 
 private struct DebugLogExportView: View {
   @EnvironmentObject private var model: AppModel
-  @ObservedObject private var collector = DebugLogCollector.shared
   @State private var showShareSheet = false
   @State private var shareText = ""
+  /// Snapshot statt Live-Binding: der Collector publiziert bewusst nicht mehr
+  /// (kein objectWillChange aus heißen Playback-Pfaden) — Refresh holt den Stand.
+  @State private var entries: [DebugLogCollector.Entry] = []
 
   var body: some View {
     ServerAdminSection(title: "Debug Log") {
       AbstandGroupedCard {
         VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          Text("\(collector.entries.count) entries")
+          Text("\(entries.count) entries")
             .font(.subheadline)
             .foregroundStyle(model.appearancePalette.textSecondary)
 
           HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
             Button {
-              shareText = collector.exportText
+              shareText = DebugLogCollector.shared.exportText
               showShareSheet = true
             } label: {
               Label("Export", systemImage: "square.and.arrow.up")
@@ -3423,8 +3425,17 @@ private struct DebugLogExportView: View {
             .buttonStyle(.bordered)
             .tint(model.appearanceAccentColor)
 
+            Button {
+              entries = DebugLogCollector.shared.entries
+            } label: {
+              Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .tint(model.appearanceAccentColor)
+
             Button(role: .destructive) {
-              collector.clear()
+              DebugLogCollector.shared.clear()
+              entries = []
             } label: {
               Label("Clear", systemImage: "trash")
             }
@@ -3433,7 +3444,7 @@ private struct DebugLogExportView: View {
         }
       }
 
-      if collector.entries.isEmpty {
+      if entries.isEmpty {
         Text("No log entries yet.")
           .font(.subheadline)
           .foregroundStyle(model.appearancePalette.textSecondary)
@@ -3441,7 +3452,7 @@ private struct DebugLogExportView: View {
       } else {
         AbstandGroupedCard {
           VStack(alignment: .leading, spacing: 4) {
-            ForEach(collector.entries.suffix(50)) { entry in
+            ForEach(entries.suffix(50)) { entry in
               Text(entry.message)
                 .font(.caption.monospaced())
                 .foregroundStyle(model.appearancePalette.textSecondary)
@@ -3451,6 +3462,7 @@ private struct DebugLogExportView: View {
         }
       }
     }
+    .onAppear { entries = DebugLogCollector.shared.entries }
     .sheet(isPresented: $showShareSheet) {
       ShareSheet(items: [shareText])
     }

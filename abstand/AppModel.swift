@@ -8885,12 +8885,8 @@ final class AppModel: ObservableObject {
       await dismissPlayer(idlePlaceholder: false)
     }
     requestDismissNowPlayingSheet()
-    let dbgEpCount2 = podcastEpisodes.count
-    let dbgFiltCount2 = podcastFilteredEpisodes.count
-    let dbgChrome2 = floatingChrome.gate.chromeVisible
-    let dbgInset2 = nowPlayingAccessoryScrollBottomInset
-    let dbgActiveBook = player.activeBook?.id ?? "nil"
-    Self.debugLog.log("finishMarkFinishedLocally AFTER dismiss wasPlaying=\(wasPlaying) episodes=\(dbgEpCount2) filtered=\(dbgFiltCount2) chromeVisible=\(dbgChrome2) inset=\(dbgInset2) activeBook=\(dbgActiveBook)")
+    // Argumente direkt in der Autoclosure — bei abgeschaltetem Sammeln kostet der Aufruf nichts.
+    Self.debugLog.log("finishMarkFinishedLocally AFTER dismiss wasPlaying=\(wasPlaying) episodes=\(self.podcastEpisodes.count) filtered=\(self.podcastFilteredEpisodes.count) chromeVisible=\(self.floatingChrome.gate.chromeVisible) inset=\(self.nowPlayingAccessoryScrollBottomInset) activeBook=\(self.player.activeBook?.id ?? "nil")")
     if let bid = clearLastPlayedIfBookId,
       UserDefaults.standard.string(forKey: Keys.lastPlayedItemId) == bid
     {
@@ -9130,13 +9126,8 @@ final class AppModel: ObservableObject {
   }
 
   func markPodcastEpisodeFinished(_ episode: ABSPodcastEpisodeListItem) async {
-    let dbgWasPlaying = player.activeBook?.id == episode.libraryItemId && player.activePlaybackEpisodeId == episode.episodeId
-    let dbgEpCount = podcastEpisodes.count
-    let dbgFiltCount = podcastFilteredEpisodes.count
-    let dbgChrome = floatingChrome.gate.chromeVisible
-    let dbgInset = nowPlayingAccessoryScrollBottomInset
-    let dbgTab = String(describing: mainTab)
-    Self.debugLog.log("markPodcastEpisodeFinished START wasPlaying=\(dbgWasPlaying) episodes=\(dbgEpCount) filtered=\(dbgFiltCount) tab=\(dbgTab) chromeVisible=\(dbgChrome) inset=\(dbgInset)")
+    // Argumente direkt in der Autoclosure — bei abgeschaltetem Sammeln kostet der Aufruf nichts.
+    Self.debugLog.log("markPodcastEpisodeFinished START wasPlaying=\(self.player.activeBook?.id == episode.libraryItemId && self.player.activePlaybackEpisodeId == episode.episodeId) episodes=\(self.podcastEpisodes.count) filtered=\(self.podcastFilteredEpisodes.count) tab=\(String(describing: self.mainTab)) chromeVisible=\(self.floatingChrome.gate.chromeVisible) inset=\(self.nowPlayingAccessoryScrollBottomInset)")
     ensureLocalProgressLoaded()
     let wasPlaying =
       player.activeBook?.id == episode.libraryItemId && player.activePlaybackEpisodeId == episode.episodeId
