@@ -469,13 +469,22 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       // Nur falls keine Buchsprache vorliegt, fällt die Ausgabe auf die Transkriptions-Locale.
       let outputLocale = ABSBook.locale(fromABSMetadataLanguage: languageTag) ?? locale
       let recapLanguage = outputLocale.identifier(.bcp47)
-      // LLM-Zusammenfassung versuchen — schlägt sie fehl (leer, Filter-Blockade, Timeout),
-      //Fallback aufs rohe Transkript, damit der Nutzer nie mit nichts dasteht.
-      let summary = try? await generateRecapSummary(
-        model: model,
-        transcript: transcript,
-        recapLanguage: recapLanguage
-      )
+      // LLM-Zusammenfassung versuchen — schlägt sie fehl (leer, Filter-Blockade),
+      // Fallback aufs rohe Transkript, damit der Nutzer nie mit nichts dasteht.
+      // Ein Abbruch (Timeout / neuer Versuch) ist dagegen KEIN Inhaltsproblem und darf
+      // nicht als „Summary unavailable" mit Roh-Transkript enden — er wirft weiter.
+      let summary: String?
+      do {
+        summary = try await generateRecapSummary(
+          model: model,
+          transcript: transcript,
+          recapLanguage: recapLanguage
+        )
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        summary = nil
+      }
       guard currentRecapGeneration == generation, isGeneratingRecap else { return }
 
       let trimmed = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -494,7 +503,16 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       recapBookId = bookId
       recapPlaybackTime = end
     } catch is CancellationError {
-      // Timeout oder neuer Recap-Versuch — Fehler bereits von timeoutTask gesetzt.
+      // Timeout oder neuer Recap-Versuch. Der Timeout-Task setzt die Meldung nur bei
+      // passender Generation — jeder andere Abbruch bekäme sonst ein leeres Sheet.
+      if currentRecapGeneration == generation,
+        recapText == nil, recapErrorMessage == nil, !recapShowsTranscript
+      {
+        recapErrorMessage = String(
+          localized: "Recap was interrupted. Please try again.",
+          comment: "Read along recap error"
+        )
+      }
     } catch {
       recapText = nil
       recapErrorMessage = (error as? LocalizedError)?.errorDescription
@@ -581,6 +599,9 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   /// Modus-Flags zurücksetzen (ohne async Stop — nur intern).
   private func finishTeleprompterMode(resetContent: Bool) {
+    // Restliche Startup-Sync-Ticks der beendeten Session dürfen nach einem Neustart
+    // keine zusätzlichen Syncs mehr erzwingen.
+    pendingStartupSyncTicks = 0
     isTeleprompterModeActive = false
     setSessionRunning(false)
     isPreparing = false
@@ -801,11 +822,13 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     productionStartLocalTime = start
     productionThroughLocalTime = start
     isProducingTranscript = true
-    // Hintergrund-Vorproduktion pausiert, solange der Teleprompter selbst produziert.
-    PlayerTranscriptLibrary.beginPriorityWork()
 
     productionTask = Task { @MainActor [weak self] in
       guard let self else { return }
+      // Hintergrund-Vorproduktion pausiert, solange der Teleprompter selbst produziert.
+      // Erst NACH dem self-Guard, gepaart mit dem defer — ein früh deallokierter Controller
+      // ließe den Zähler sonst dauerhaft > 0 stehen und die Vorproduktion pausierte für immer.
+      PlayerTranscriptLibrary.beginPriorityWork()
       let producer = PlayerTranscriptProducer()
       var pending: [PlayerTranscriptTrackCache.Word] = []
       // Lauf-lokales Ende: das geteilte `productionThroughLocalTime` gehört nach einem

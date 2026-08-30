@@ -135,11 +135,20 @@ enum PlayerTranscriptCacheStore {
     guard let account, !bookId.isEmpty else { return nil }
     let url = fileURL(
       account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeIdentifier)
-    guard let data = try? Data(contentsOf: url),
-      let cache = try? ABSJSON.decoder().decode(PlayerTranscriptTrackCache.self, from: data),
-      cache.version == PlayerTranscriptTrackCache.currentVersion
-    else { return nil }
-    return cache
+    guard let data = try? Data(contentsOf: url) else { return nil }
+    do {
+      let cache = try ABSJSON.decoder().decode(PlayerTranscriptTrackCache.self, from: data)
+      guard cache.version == PlayerTranscriptTrackCache.currentVersion else {
+        AppLog.playback.warning("transcript cache version mismatch — reproducing track")
+        return nil
+      }
+      return cache
+    } catch {
+      // Korruptes File kostet Minuten Neuproduktion — das darf nicht spurlos passieren.
+      AppLog.playback.warning(
+        "transcript cache decode failed: \(error.localizedDescription, privacy: .public)")
+      return nil
+    }
   }
 
   static func save(
@@ -154,7 +163,10 @@ enum PlayerTranscriptCacheStore {
       trackIndex: cache.trackIndex,
       localeIdentifier: cache.localeIdentifier
     )
-    guard let data = try? ABSJSON.encoder().encode(cache) else { return }
+    guard let data = try? ABSJSON.encoder().encode(cache) else {
+      AppLog.playback.warning("transcript cache encode failed")
+      return
+    }
     do {
       try data.write(to: url, options: .atomic)
       var fileURL = url
