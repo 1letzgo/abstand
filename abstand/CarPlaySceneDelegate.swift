@@ -8,6 +8,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     didConnect interfaceController: CPInterfaceController
   ) {
     Task { @MainActor in
+      // Kaltstart aus dem Auto: `bind` passiert sonst erst, wenn die Telefon-Oberfläche startet.
+      CarPlayCoordinator.shared.bind(appModel: AppModel.shared)
       CarPlayCoordinator.shared.connect(interfaceController: interfaceController)
     }
   }

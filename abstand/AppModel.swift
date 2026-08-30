@@ -11,6 +11,12 @@ import UIKit
 final class AppModel: ObservableObject {
   // MARK: - Published state
 
+  /// Prozessweite Instanz. Wird die App **nur** von CarPlay gestartet (Head-Unit-Tap, ohne dass
+  /// die Telefon-Oberfläche je erscheint), verbindet sich keine `WindowGroup`-Szene und ein
+  /// `@StateObject` im App-Struct entstünde nie — die CarPlay-Szene hätte dann kein Modell.
+  /// Beide Szenen greifen deshalb auf dieselbe Instanz zu.
+  static let shared = AppModel()
+
   @Published var serverURL: String = UserDefaults.standard.string(forKey: Keys.server) ?? ""
 
   private static let initialCatalogSort: (field: CatalogSortField, descending: Bool) = loadCatalogSortState()

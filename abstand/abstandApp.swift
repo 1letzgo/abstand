@@ -4,7 +4,7 @@ import os
 
 @main
 struct abstandApp: App {
-  @StateObject private var model = AppModel()
+  @StateObject private var model = AppModel.shared
 
   init() {
     let s = AppLog.launchSignposter.beginInterval("appInit")

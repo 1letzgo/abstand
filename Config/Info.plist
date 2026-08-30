@@ -11,6 +11,8 @@
 			<key>CPTemplateApplicationSceneSessionRoleApplication</key>
 			<array>
 				<dict>
+					<key>UISceneClassName</key>
+					<string>CPTemplateApplicationScene</string>
 					<key>UISceneConfigurationName</key>
 					<string>CarPlay</string>
 					<key>UISceneDelegateClassName</key>
