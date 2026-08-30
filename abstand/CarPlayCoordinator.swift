@@ -21,6 +21,11 @@ final class CarPlayCoordinator: NSObject {
   private var cancellables = Set<AnyCancellable>()
   private var connectTask: Task<Void, Never>?
   private var artworkTasks: [String: Task<Void, Never>] = [:]
+  /// Alle Zeilen, die auf dasselbe Cover warten — ein Ladevorgang bedient sie gemeinsam.
+  private var artworkPendingItems: [String: [WeakListItemBox]] = [:]
+  /// Generation pro Key: Nur der Task, dessen Generation noch eingetragen ist, räumt auf.
+  private var artworkTaskGenerations: [String: UInt64] = [:]
+  private var artworkGenerationCounter: UInt64 = 0
   /// Wiederverwendete Listen-Templates — sonst springt die Tab-Auswahl bei jedem Refresh zurück.
   private let continueTemplate = CPListTemplate(title: "Continue", sections: [])
   private let downloadsTemplate = CPListTemplate(title: "Downloads", sections: [])
@@ -90,6 +95,8 @@ final class CarPlayCoordinator: NSObject {
     connectTask = nil
     artworkTasks.values.forEach { $0.cancel() }
     artworkTasks.removeAll()
+    artworkTaskGenerations.removeAll()
+    artworkPendingItems.removeAll()
     tabBarTemplate = nil
     self.interfaceController = nil
   }
@@ -250,18 +257,44 @@ final class CarPlayCoordinator: NSObject {
       item.setImage(cached.carPlayThumbnail())
       return
     }
-    artworkTasks[key]?.cancel()
-    artworkTasks[key] = Task { [weak self, weak item] in
+    // Zeile als Empfänger registrieren (derselbe Titel kann in „Continue“ und „Downloads“ stehen);
+    // freigegebene Zeilen dabei ausmisten, damit die Liste nicht wächst.
+    var waiting = (artworkPendingItems[key] ?? []).filter { $0.item != nil }
+    waiting.append(WeakListItemBox(item))
+    artworkPendingItems[key] = waiting
+
+    // Läuft für den Key schon ein Ladevorgang, bedient er die neue Zeile mit — nicht abbrechen.
+    guard artworkTasks[key] == nil else { return }
+
+    artworkGenerationCounter &+= 1
+    let generation = artworkGenerationCounter
+    artworkTaskGenerations[key] = generation
+    artworkTasks[key] = Task { [weak self] in
       let image = await CoverImageLoader.shared.image(
         key: key,
         account: model.coverImageCacheAccountDirectory(),
         url: url,
         token: model.token
       )
-      guard !Task.isCancelled, let item, let image else { return }
-      item.setImage(image.carPlayThumbnail())
-      self?.artworkTasks.removeValue(forKey: key)
+      guard let self else { return }
+      // Aufräumen in jedem Ausgang (Abbruch, kein Bild, freigegebene Zeilen).
+      defer { self.finishArtworkTask(key: key, generation: generation) }
+      guard !Task.isCancelled, let image else { return }
+      let thumbnail = image.carPlayThumbnail()
+      // Zustellung bleibt auf dem MainActor — CPListItem ist nicht Sendable.
+      for box in self.artworkPendingItems[key] ?? [] {
+        box.item?.setImage(thumbnail)
+      }
     }
+  }
+
+  /// Eintrag nur räumen, wenn er noch zum eigenen Task gehört — ein spät fertiger Alt-Task
+  /// darf einen inzwischen gestarteten neueren Ladevorgang nicht aus `artworkTasks` werfen.
+  private func finishArtworkTask(key: String, generation: UInt64) {
+    guard artworkTaskGenerations[key] == generation else { return }
+    artworkTaskGenerations.removeValue(forKey: key)
+    artworkTasks.removeValue(forKey: key)
+    artworkPendingItems.removeValue(forKey: key)
   }
 
   // MARK: - Now Playing
@@ -299,6 +332,16 @@ final class CarPlayCoordinator: NSObject {
 }
 
 extension CarPlayCoordinator: CPInterfaceControllerDelegate {}
+
+/// Schwache Referenz auf eine CarPlay-Zeile; `CPListItem` ist nicht Sendable, daher MainActor.
+@MainActor
+private final class WeakListItemBox {
+  weak var item: CPListItem?
+
+  init(_ item: CPListItem) {
+    self.item = item
+  }
+}
 
 private extension UIImage {
   /// CarPlay lehnt zu große Bilder ab; auf die vom System gemeldete Maximalgröße bringen.
