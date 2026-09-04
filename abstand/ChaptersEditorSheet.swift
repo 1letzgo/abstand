@@ -3,10 +3,10 @@ import SwiftUI
 /// Kapitel-Editor-Sheet: Audible-Kapitel-Lookup via Audnexus (`GET /api/search/chapters`),
 /// Vorschau inkl. „Branding entfernen"-Option, Apply via `POST /api/items/:id/chapters`.
 /// Vollständige Übernahme von Zeiten + Titeln (keine manuelle Einzeledit). Admin/Root-only.
+/// Chrome (Sektionen, Karten, Felder): `MetadataSheetComponents` — gleiche Sprache wie Buch-Detail.
 struct ChaptersEditorSheet: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.dismiss) private var dismiss
-  @Environment(\.themeAccent) private var themeAccent
 
   let itemId: String
   /// ASIN aus Buch-Metadaten (Prefill).
@@ -32,38 +32,14 @@ struct ChaptersEditorSheet: View {
     ("fr", "FR"), ("jp", "JP"), ("it", "IT"), ("in", "IN"), ("es", "ES"),
   ]
 
+  private var palette: AppColorPalette { model.appearancePalette }
+
   var body: some View {
     NavigationStack {
-      ScrollView {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          lookupHeader
-          if isSearching {
-            ProgressView()
-              .padding(.top, AppTheme.Layout.sectionSpacing)
-              .frame(maxWidth: .infinity)
-          } else if let lookupError {
-            Text(lookupError)
-              .font(.footnote)
-              .foregroundStyle(AppTheme.danger)
-              .frame(maxWidth: .infinity)
-              .padding(.top, AppTheme.Layout.sectionSpacing)
-          } else if let serverError = response?.error {
-            Text(serverError)
-              .font(.footnote)
-              .foregroundStyle(AppTheme.danger)
-              .frame(maxWidth: .infinity)
-              .padding(.top, AppTheme.Layout.sectionSpacing)
-          } else if let resp = response, !resp.chapters.isEmpty {
-            resultsPreview(resp)
-          } else {
-            emptyState
-          }
-        }
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(.top, AppTheme.Layout.tabPaddingTop)
-        .padding(.bottom, AppTheme.Layout.scrollBottomInsetBase)
+      MetadataSheetScrollScreen {
+        lookupSection
+        resultsSection
       }
-      .abstandScrollScreenBackground()
       .navigationTitle("Edit Chapters")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -78,7 +54,7 @@ struct ChaptersEditorSheet: View {
         }
       }
       .onAppear { prefetchASIN() }
-      .alert("Apply failed", isPresented: .constant(applyError != nil)) {
+      .alert("Apply failed", isPresented: applyErrorAlertPresented) {
         Button("OK", role: .cancel) { applyError = nil }
       } message: {
         Text(applyError ?? "")
@@ -87,122 +63,130 @@ struct ChaptersEditorSheet: View {
     .presentationDetents([.large])
   }
 
-  // MARK: Lookup header
+  private var applyErrorAlertPresented: Binding<Bool> {
+    Binding(
+      get: { applyError != nil },
+      set: { if !$0 { applyError = nil } }
+    )
+  }
+
+  // MARK: Lookup
 
   @ViewBuilder
-  private var lookupHeader: some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      VStack(alignment: .leading, spacing: 6) {
-        Text("Audible ASIN")
-          .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
-        TextField("e.g. B08XYZ1234", text: $asinInput)
-          .textFieldStyle(.roundedBorder)
-          .textInputAutocapitalization(.characters)
-          .autocorrectionDisabled()
-          .submitLabel(.search)
-          .onSubmit { Task { await runLookup() } }
-      }
-      HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-        VStack(alignment: .leading, spacing: 6) {
-          Text("Region")
-            .font(.caption)
-            .foregroundStyle(AppTheme.textSecondary)
-          Picker("Region", selection: $region) {
+  private var lookupSection: some View {
+    MetadataSheetSection(title: "Lookup") {
+      MetadataSheetCard {
+        MetadataSheetTextField(
+          title: "Audible ASIN",
+          text: $asinInput,
+          placeholder: "e.g. B08XYZ1234",
+          autocapitalization: .characters,
+          disablesAutocorrection: true,
+          submitLabel: .search,
+          onSubmit: { Task { await runLookup() } }
+        )
+        HStack(alignment: .bottom, spacing: 12) {
+          MetadataSheetMenuPicker(title: "Region", selection: $region) {
             ForEach(regions, id: \.value) { r in
               Text(r.label).tag(r.value)
             }
           }
-          .pickerStyle(.menu)
+          Button {
+            Task { await runLookup() }
+          } label: {
+            Label("Search", systemImage: "magnifyingglass")
+              .labelStyle(.titleAndIcon)
+          }
+          .buttonStyle(AbstandProminentButtonStyle())
+          .disabled(
+            asinInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
         }
-        Spacer()
-        Button {
-          Task { await runLookup() }
-        } label: {
-          Label("Search", systemImage: "magnifyingglass")
-            .labelStyle(.titleAndIcon)
-        }
-        .buttonStyle(AbstandProminentButtonStyle())
-        .disabled(asinInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
       }
     }
   }
 
-  // MARK: Empty state
+  // MARK: Results
+
+  @ViewBuilder
+  private var resultsSection: some View {
+    if isSearching {
+      AbstandLoadingSpinner()
+    } else if let lookupError {
+      MetadataSheetSection(title: "Chapters") {
+        MetadataSheetCard {
+          MetadataSheetInlineNotice(text: lookupError, isError: true)
+        }
+      }
+    } else if let serverError = response?.error {
+      MetadataSheetSection(title: "Chapters") {
+        MetadataSheetCard {
+          MetadataSheetInlineNotice(text: serverError, isError: true)
+        }
+      }
+    } else if let resp = response, !resp.chapters.isEmpty {
+      resultsPreview(resp)
+    } else {
+      emptyState
+    }
+  }
 
   @ViewBuilder
   private var emptyState: some View {
-    VStack(spacing: 10) {
-      Image(systemName: "list.bullet.below.rectangle")
-        .font(.system(size: 40))
-        .foregroundStyle(AppTheme.textSecondary)
-      Text("Enter an Audible ASIN to fetch chapter timings.")
-        .font(.footnote)
-        .foregroundStyle(AppTheme.textSecondary)
-        .multilineTextAlignment(.center)
-    }
-    .frame(maxWidth: .infinity)
-    .padding(.top, AppTheme.Layout.sectionSpacing * 1.5)
+    ContentUnavailableView(
+      "Fetch chapters",
+      systemImage: "list.bullet.below.rectangle",
+      description: Text("Enter an Audible ASIN to fetch chapter timings for this book.")
+    )
+    .padding(.top, AppTheme.Layout.sectionSpacing)
   }
-
-  // MARK: Results preview
 
   @ViewBuilder
   private func resultsPreview(_ resp: ABSAudibleChaptersResponse) -> some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+    MetadataSheetSection(title: "Chapters") {
       // Branding-Toggle nur relevant, wenn der Server Branding-Dauern liefert.
       if resp.brandIntroDurationMs != nil || resp.brandOutroDurationMs != nil {
-        Toggle(isOn: $removeBranding) {
-          VStack(alignment: .leading, spacing: 2) {
-            Text("Remove branding")
-              .font(.subheadline)
-            Text("Strip Audible intro/outro from chapter timings.")
-              .font(.caption)
-              .foregroundStyle(AppTheme.textSecondary)
-          }
+        MetadataSheetCard {
+          MetadataSheetToggleRow(
+            title: "Remove branding",
+            subtitle: "Strip Audible intro/outro from chapter timings.",
+            isOn: $removeBranding
+          )
         }
-        .tint(themeAccent)
       }
 
-      Text("\(previewChapters.count) chapters")
-        .font(.caption)
-        .foregroundStyle(AppTheme.textSecondary)
+      MetadataSheetCard(spacing: AppTheme.Layout.withinSectionSpacing) {
+        Text(previewChapters.count == 1 ? "1 chapter" : "\(previewChapters.count) chapters")
+          .font(.caption.weight(.medium))
+          .foregroundStyle(palette.textSecondary)
 
-      LazyVStack(spacing: 0) {
-        ForEach(Array(previewChapters.enumerated()), id: \.offset) { idx, ch in
-          VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 10) {
-              Text("\(idx + 1)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(AppTheme.textSecondary)
-                .frame(width: 24, alignment: .leading)
-              VStack(alignment: .leading, spacing: 2) {
-                Text(ch.title.isEmpty ? "Chapter \(idx + 1)" : ch.title)
-                  .font(.subheadline)
-                  .foregroundStyle(AppTheme.textPrimary)
-                  .lineLimit(2)
-                Text("\(formatPlaybackTime(ch.start)) – \(formatPlaybackTime(ch.end))")
+        LazyVStack(spacing: 0) {
+          ForEach(Array(previewChapters.enumerated()), id: \.offset) { idx, ch in
+            VStack(alignment: .leading, spacing: 0) {
+              HStack(alignment: .top, spacing: 10) {
+                Text("\(idx + 1)")
                   .font(.caption.monospacedDigit())
-                  .foregroundStyle(AppTheme.textSecondary)
+                  .foregroundStyle(palette.textSecondary)
+                  .frame(width: 24, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(ch.title.isEmpty ? "Chapter \(idx + 1)" : ch.title)
+                    .font(.subheadline)
+                    .foregroundStyle(palette.textPrimary)
+                    .lineLimit(2)
+                  Text("\(formatPlaybackTime(ch.start)) – \(formatPlaybackTime(ch.end))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(palette.textSecondary)
+                }
+                Spacer(minLength: 0)
               }
-              Spacer(minLength: 0)
-            }
-            .padding(.vertical, 8)
-            if idx < previewChapters.count - 1 {
-              Divider().background(AppTheme.textSecondary.opacity(0.15))
+              .padding(.vertical, 8)
+              if idx < previewChapters.count - 1 {
+                MetadataSheetCardDivider()
+              }
             }
           }
         }
       }
-      .padding(AppTheme.Layout.detailSectionCardPadding)
-      .background(AppTheme.card)
-      .clipShape(
-        RoundedRectangle(cornerRadius: AppTheme.Layout.detailSectionCardCornerRadius,
-                         style: .continuous)
-      )
-      .abstandCardElevation(.subtle)
     }
-    .padding(.top, AppTheme.Layout.withinSectionSpacing)
   }
 
   // MARK: Derived chapters (inkl. Branding-Entfernung)

@@ -3,9 +3,11 @@ import SwiftUI
 /// Match-Metadaten-Sheet (absorb-style): Online-Suche über `/api/search/books`,
 /// Trefferliste mit Vorschau, pro-Feld-Auswahl vor dem Apply (`PATCH /api/items/:id/media` + optional Cover).
 /// Nur für Admin-oder-Root-User (`model.isServerAdmin || model.isServerRoot`).
+/// Chrome (Sektionen, Karten, Felder): `MetadataSheetComponents` — gleiche Sprache wie Buch-Detail.
 struct MatchMetadataSheet: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.themeAccent) private var themeAccent
 
   let itemId: String
   let currentTitle: String
@@ -29,32 +31,14 @@ struct MatchMetadataSheet: View {
   /// Nach erfolgreichem Apply erst Unter-Sheet schließen, dann Haupt-Sheet — nicht beides gleichzeitig.
   @State private var dismissSheetAfterFieldSelectionCloses = false
 
+  private var palette: AppColorPalette { model.appearancePalette }
+
   var body: some View {
     NavigationStack {
-      ScrollView {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          searchHeader
-          if isSearching {
-            ProgressView()
-              .padding(.top, AppTheme.Layout.sectionSpacing)
-              .frame(maxWidth: .infinity)
-          } else if let searchError {
-            Text(searchError)
-              .font(.footnote)
-              .foregroundStyle(AppTheme.danger)
-              .padding(.top, AppTheme.Layout.sectionSpacing)
-              .frame(maxWidth: .infinity)
-          } else if results.isEmpty {
-            emptyState
-          } else {
-            resultsList
-          }
-        }
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(.top, AppTheme.Layout.tabPaddingTop)
-        .padding(.bottom, AppTheme.Layout.scrollBottomInsetBase)
+      MetadataSheetScrollScreen {
+        searchSection
+        resultsSection
       }
-      .abstandScrollScreenBackground()
       .navigationTitle("Match Metadata")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -81,50 +65,40 @@ struct MatchMetadataSheet: View {
     .presentationDetents([.large])
   }
 
-  // MARK: Search header
+  // MARK: Search
 
   @ViewBuilder
-  private var searchHeader: some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      VStack(alignment: .leading, spacing: 6) {
-        Text("Title")
-          .font(.caption)
-          .foregroundStyle(model.appearancePalette.textSecondary)
-        TextField("Title", text: $titleQuery)
-          .textFieldStyle(.roundedBorder)
-          .submitLabel(.search)
-          .onSubmit { Task { await runSearch() } }
-      }
-      VStack(alignment: .leading, spacing: 6) {
-        Text("Author")
-          .font(.caption)
-          .foregroundStyle(model.appearancePalette.textSecondary)
-        TextField("Author", text: $authorQuery)
-          .textFieldStyle(.roundedBorder)
-          .submitLabel(.search)
-          .onSubmit { Task { await runSearch() } }
-      }
-      HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-        VStack(alignment: .leading, spacing: 6) {
-          Text("Provider")
-            .font(.caption)
-            .foregroundStyle(model.appearancePalette.textSecondary)
-          Picker("Provider", selection: $provider) {
+  private var searchSection: some View {
+    MetadataSheetSection(title: "Search") {
+      MetadataSheetCard {
+        MetadataSheetTextField(
+          title: "Title",
+          text: $titleQuery,
+          submitLabel: .search,
+          onSubmit: { Task { await runSearch() } }
+        )
+        MetadataSheetTextField(
+          title: "Author",
+          text: $authorQuery,
+          submitLabel: .search,
+          onSubmit: { Task { await runSearch() } }
+        )
+        HStack(alignment: .bottom, spacing: 12) {
+          MetadataSheetMenuPicker(title: "Provider", selection: $provider) {
             ForEach(availableProviders) { p in
               Text(p.text).tag(p.value)
             }
           }
-          .pickerStyle(.menu)
+          Button {
+            Task { await runSearch() }
+          } label: {
+            Label("Search", systemImage: "magnifyingglass")
+              .labelStyle(.titleAndIcon)
+          }
+          .buttonStyle(AbstandProminentButtonStyle())
+          .disabled(
+            titleQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
         }
-        Spacer()
-        Button {
-          Task { await runSearch() }
-        } label: {
-          Label("Search", systemImage: "magnifyingglass")
-            .labelStyle(.titleAndIcon)
-        }
-        .buttonStyle(AbstandProminentButtonStyle())
-        .disabled(titleQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
       }
     }
   }
@@ -142,91 +116,79 @@ struct MatchMetadataSheet: View {
     )
   }
 
-  // MARK: Empty state
-
-  @ViewBuilder
-  private var emptyState: some View {
-    VStack(spacing: 10) {
-      Image(systemName: hasSearched ? "magnifyingglass" : "text.magnifyingglass")
-        .font(.system(size: 40))
-        .foregroundStyle(model.appearancePalette.textSecondary)
-      Text(hasSearched ? "No matches found." : "Search for a book to match metadata.")
-        .font(.footnote)
-        .foregroundStyle(model.appearancePalette.textSecondary)
-        .multilineTextAlignment(.center)
-    }
-    .frame(maxWidth: .infinity)
-    .padding(.top, AppTheme.Layout.sectionSpacing * 1.5)
-  }
-
   // MARK: Results
 
   @ViewBuilder
-  private var resultsList: some View {
-    LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-      ForEach(results) { match in
-        matchCard(match)
-          .onTapGesture { openFieldSelection(for: match) }
+  private var resultsSection: some View {
+    if isSearching {
+      AbstandLoadingSpinner()
+    } else if let searchError {
+      MetadataSheetSection(title: "Results") {
+        MetadataSheetCard {
+          MetadataSheetInlineNotice(text: searchError, isError: true)
+        }
+      }
+    } else if results.isEmpty {
+      emptyState
+    } else {
+      MetadataSheetSection(title: "Results") {
+        LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
+          ForEach(results) { match in
+            Button {
+              openFieldSelection(for: match)
+            } label: {
+              matchCard(match)
+            }
+            .buttonStyle(.plain)
+          }
+        }
       }
     }
-    .padding(.top, AppTheme.Layout.withinSectionSpacing)
+  }
+
+  @ViewBuilder
+  private var emptyState: some View {
+    ContentUnavailableView(
+      hasSearched ? "No matches found" : "Match metadata",
+      systemImage: hasSearched ? "magnifyingglass" : "text.magnifyingglass",
+      description: Text(
+        hasSearched
+          ? "Try another title, author or provider."
+          : "Search a metadata provider, then pick which fields to apply to this book."
+      )
+    )
+    .padding(.top, AppTheme.Layout.sectionSpacing)
   }
 
   @ViewBuilder
   private func matchCard(_ match: ABSMetadataMatch) -> some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+    MetadataSheetCard(spacing: AppTheme.Layout.withinSectionSpacing) {
       HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
-        // Cover (klein)
-        if let url = match.displayCoverURL {
-          AsyncImage(url: url) { phase in
-            switch phase {
-            case .empty:
-              RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius)
-                .fill(model.appearancePalette.card)
-                .overlay { ProgressView() }
-            case .success(let img):
-              img.resizable().scaledToFit()
-            default:
-              RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius)
-                .fill(model.appearancePalette.card)
-                .overlay {
-                  Image(systemName: "book")
-                    .foregroundStyle(model.appearancePalette.textSecondary)
-                }
-            }
-          }
-          .frame(width: 56, height: 80)
-          .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius))
-        } else {
-          RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius)
-            .fill(model.appearancePalette.card)
-            .overlay {
-              Image(systemName: "book")
-                .foregroundStyle(model.appearancePalette.textSecondary)
-            }
-            .frame(width: 56, height: 80)
-        }
-
+        matchCover(match)
         VStack(alignment: .leading, spacing: 4) {
           Text(match.title ?? "—")
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(model.appearancePalette.textPrimary)
+            .foregroundStyle(palette.textPrimary)
             .lineLimit(2)
           if let a = match.displayAuthors {
             Text(a)
               .font(.footnote)
-              .foregroundStyle(model.appearancePalette.textSecondary)
+              .foregroundStyle(palette.textSecondary)
               .lineLimit(1)
           }
           if let n = match.displayNarrator {
             Text("Narrated by \(n)")
               .font(.footnote)
-              .foregroundStyle(model.appearancePalette.textSecondary)
+              .foregroundStyle(palette.textSecondary)
               .lineLimit(1)
           }
           HStack(spacing: 6) {
             if let y = match.displayYear { chip(y) }
-            if let p = match.publisher?.trimmingCharacters(in: .whitespacesAndNewlines), !p.isEmpty { chip(p) }
+            if let p = match.publisher?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !p.isEmpty
+            {
+              chip(p)
+            }
           }
         }
         Spacer(minLength: 0)
@@ -235,35 +197,62 @@ struct MatchMetadataSheet: View {
       if let s = match.displaySeries {
         Text(s)
           .font(.caption)
-          .foregroundStyle(model.appearancePalette.textSecondary)
+          .foregroundStyle(palette.textSecondary)
           .lineLimit(1)
       }
       if let desc = match.displayDescription {
         Text(desc)
           .font(.caption)
-          .foregroundStyle(model.appearancePalette.textSecondary)
+          .foregroundStyle(palette.textSecondary)
           .lineLimit(2)
       }
     }
-    .padding(AppTheme.Layout.detailSectionCardPadding)
-    .background(model.appearancePalette.card)
-    .clipShape(
-      RoundedRectangle(cornerRadius: AppTheme.Layout.detailSectionCardCornerRadius,
-                       style: .continuous)
-    )
-    .abstandCardElevation(.subtle)
     .contentShape(Rectangle())
+  }
+
+  @ViewBuilder
+  private func matchCover(_ match: ABSMetadataMatch) -> some View {
+    let shape = RoundedRectangle(
+      cornerRadius: AppTheme.Layout.chipCornerRadius, style: .continuous)
+    Group {
+      if let url = match.displayCoverURL {
+        AsyncImage(url: url) { phase in
+          switch phase {
+          case .empty:
+            shape.fill(palette.background)
+              .overlay { ProgressView().controlSize(.small).tint(themeAccent) }
+          case .success(let img):
+            img.resizable().scaledToFit()
+          default:
+            coverPlaceholder(shape)
+          }
+        }
+      } else {
+        coverPlaceholder(shape)
+      }
+    }
+    .frame(width: 56, height: 80)
+    .clipShape(shape)
+  }
+
+  @ViewBuilder
+  private func coverPlaceholder(_ shape: RoundedRectangle) -> some View {
+    shape
+      .fill(palette.background)
+      .overlay {
+        Image(systemName: "book")
+          .foregroundStyle(palette.textSecondary)
+      }
   }
 
   @ViewBuilder
   private func chip(_ text: String) -> some View {
     Text(text)
       .font(.caption2)
-      .foregroundStyle(model.appearancePalette.textSecondary)
+      .foregroundStyle(palette.textSecondary)
       .padding(.horizontal, 8)
       .padding(.vertical, 3)
-      .background(model.appearancePalette.background.opacity(0.6))
-      .clipShape(Capsule())
+      .background(palette.background.opacity(0.6), in: Capsule())
   }
 
   // MARK: Field selection sheet
@@ -271,33 +260,38 @@ struct MatchMetadataSheet: View {
   @ViewBuilder
   private func fieldSelectionSheet(for match: ABSMetadataMatch) -> some View {
     NavigationStack {
-      List {
-        Section {
-          // Vorschau des gewählten Treffers.
-          VStack(alignment: .leading, spacing: 4) {
+      MetadataSheetScrollScreen {
+        MetadataSheetSection(title: "Match") {
+          MetadataSheetCard(spacing: 4) {
             Text(match.title ?? "—")
               .font(.subheadline.weight(.semibold))
+              .foregroundStyle(palette.textPrimary)
             if let a = match.displayAuthors {
-              Text(a).font(.footnote).foregroundStyle(model.appearancePalette.textSecondary)
+              Text(a)
+                .font(.footnote)
+                .foregroundStyle(palette.textSecondary)
             }
           }
-          .padding(.vertical, 4)
         }
-        Section("Choose fields to apply") {
-          ForEach(availableFields(for: match)) { field in
-            Toggle(isOn: Binding(
-              get: { selectedFields.contains(field) },
-              set: { isOn in
-                if isOn { selectedFields.insert(field) } else { selectedFields.remove(field) }
-              }
-            )) {
-              VStack(alignment: .leading, spacing: 2) {
-                Text(field.label)
-                  .font(.subheadline)
-                Text(previewText(for: field, in: match))
-                  .font(.caption)
-                  .foregroundStyle(model.appearancePalette.textSecondary)
-                  .lineLimit(2)
+
+        MetadataSheetSection(title: "Fields") {
+          MetadataSheetCard(spacing: 0) {
+            let fields = availableFields(for: match)
+            ForEach(Array(fields.enumerated()), id: \.element) { idx, field in
+              MetadataSheetToggleRow(
+                title: field.label,
+                subtitle: previewText(for: field, in: match),
+                subtitleLineLimit: 2,
+                isOn: Binding(
+                  get: { selectedFields.contains(field) },
+                  set: { isOn in
+                    if isOn { selectedFields.insert(field) } else { selectedFields.remove(field) }
+                  }
+                )
+              )
+              .padding(.vertical, 8)
+              if idx < fields.count - 1 {
+                MetadataSheetCardDivider()
               }
             }
           }
@@ -439,4 +433,3 @@ struct MatchMetadataSheet: View {
     }
   }
 }
-
