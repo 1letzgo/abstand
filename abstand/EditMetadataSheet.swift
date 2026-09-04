@@ -4,6 +4,7 @@ import SwiftUI
 /// Sektion A: manuelle Bearbeitung aller Metadaten-Felder (Save via `PATCH /api/items/:id/media`).
 /// Sektion B: Cover-Suche über `GET /api/search/covers` mit Grid-Vorschau + Apply via `POST /api/items/:id/cover`.
 /// Admin/Root-only (`model.isServerAdmin || model.isServerRoot`).
+/// Chrome (Sektionen, Karten, Felder): `MetadataSheetComponents` — gleiche Sprache wie Buch-Detail.
 struct EditMetadataSheet: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.dismiss) private var dismiss
@@ -61,18 +62,14 @@ struct EditMetadataSheet: View {
     ("fantlab", "FantLab"),
   ]
 
+  private var palette: AppColorPalette { model.appearancePalette }
+
   var body: some View {
     NavigationStack {
-      ScrollView {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
-          metadataSection
-          coverSearchSection
-        }
-        .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-        .padding(.top, AppTheme.Layout.tabPaddingTop)
-        .padding(.bottom, AppTheme.Layout.scrollBottomInsetBase)
+      MetadataSheetScrollScreen {
+        metadataSection
+        coverSearchSection
       }
-      .abstandScrollScreenBackground()
       .navigationTitle("Edit Metadata")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -90,13 +87,13 @@ struct EditMetadataSheet: View {
         seriesSearchTasks = [:]
         seriesSearchBusyRow = nil
       }
-      .alert("Save failed", isPresented: .constant(saveError != nil)) {
+      .alert("Save failed", isPresented: presentedBinding($saveError)) {
         Button("OK", role: .cancel) { saveError = nil }
       } message: { Text(saveError ?? "") }
-      .alert("Apply cover failed", isPresented: .constant(coverApplyError != nil)) {
+      .alert("Apply cover failed", isPresented: presentedBinding($coverApplyError)) {
         Button("OK", role: .cancel) { coverApplyError = nil }
       } message: { Text(coverApplyError ?? "") }
-      .alert("Apply this cover?", isPresented: .constant(pendingCoverURL != nil)) {
+      .alert("Apply this cover?", isPresented: presentedBinding($pendingCoverURL)) {
         Button("Cancel", role: .cancel) { pendingCoverURL = nil }
         Button("Apply") {
           if let url = pendingCoverURL { Task { await applyCover(url: url) } }
@@ -108,71 +105,44 @@ struct EditMetadataSheet: View {
     .presentationDetents([.large])
   }
 
+  /// Alert-Bindung, die auch bei System-Dismiss zurückschreibt (statt `.constant`).
+  private func presentedBinding(_ value: Binding<String?>) -> Binding<Bool> {
+    Binding(
+      get: { value.wrappedValue != nil },
+      set: { if !$0 { value.wrappedValue = nil } }
+    )
+  }
+
   // MARK: Metadata form
 
   @ViewBuilder
   private var metadataSection: some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      sectionLabel("Details")
-      metadataCard {
-        fieldRow("Title", text: $title)
-        fieldRow("Subtitle", text: $subtitle)
-        fieldRow("Author", text: $author, hint: "Comma separated")
-        fieldRow("Narrator", text: $narrator, hint: "Comma separated")
+    MetadataSheetSection(title: "Details") {
+      MetadataSheetCard {
+        MetadataSheetTextField(title: "Title", text: $title)
+        MetadataSheetTextField(title: "Subtitle", text: $subtitle)
+        MetadataSheetTextField(title: "Author", text: $author, hint: "Comma separated")
+        MetadataSheetTextField(title: "Narrator", text: $narrator, hint: "Comma separated")
         seriesEditor
-        fieldRowMultiline("Description", text: $descriptionText)
-        fieldRow("Publisher", text: $publisher)
-        HStack(spacing: 12) {
-          fieldRow("Year", text: $publishedYear).keyboardType(.numberPad)
-          fieldRow("Language", text: $language)
+        MetadataSheetTextField(
+          title: "Description",
+          text: $descriptionText,
+          axis: .vertical,
+          lineLimit: 3...8
+        )
+        MetadataSheetTextField(title: "Publisher", text: $publisher)
+        HStack(alignment: .top, spacing: 12) {
+          MetadataSheetTextField(title: "Year", text: $publishedYear, keyboardType: .numberPad)
+          MetadataSheetTextField(title: "Language", text: $language)
         }
-        fieldRow("Genres", text: $genres, hint: "Comma separated")
-        fieldRow("Tags", text: $tagsText, hint: "Comma separated")
-        fieldRow("ASIN", text: $asin)
-      }
-    }
-  }
-
-  @ViewBuilder
-  private func metadataCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-    VStack(alignment: .leading, spacing: 14) {
-      content()
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(AppTheme.Layout.detailSectionCardPadding)
-    .background(AppTheme.card, in: cardShape)
-    .abstandCardElevation(.subtle)
-  }
-
-  @ViewBuilder
-  private func fieldRow(_ label: String, text: Binding<String>, hint: String? = nil) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      fieldLabel(label, hint: hint)
-      TextField(label, text: text, axis: .horizontal)
-        .textFieldStyle(.roundedBorder)
-    }
-  }
-
-  @ViewBuilder
-  private func fieldRowMultiline(_ label: String, text: Binding<String>) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      fieldLabel(label)
-      TextField(label, text: text, axis: .vertical)
-        .textFieldStyle(.roundedBorder)
-        .lineLimit(3...8)
-    }
-  }
-
-  @ViewBuilder
-  private func fieldLabel(_ label: String, hint: String? = nil) -> some View {
-    HStack(spacing: 6) {
-      Text(label)
-        .font(.caption)
-        .foregroundStyle(AppTheme.textSecondary)
-      if let hint {
-        Text(hint)
-          .font(.caption2)
-          .foregroundStyle(AppTheme.textSecondary.opacity(0.7))
+        MetadataSheetTextField(title: "Genres", text: $genres, hint: "Comma separated")
+        MetadataSheetTextField(title: "Tags", text: $tagsText, hint: "Comma separated")
+        MetadataSheetTextField(
+          title: "ASIN",
+          text: $asin,
+          autocapitalization: .characters,
+          disablesAutocorrection: true
+        )
       }
     }
   }
@@ -180,42 +150,54 @@ struct EditMetadataSheet: View {
   // Series — wiederholbare Zeilen (Name + Sequence); ab 3 Zeichen Server-Suche.
   @ViewBuilder
   private var seriesEditor: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      fieldLabel("Series", hint: "Search from 3 letters")
+    VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.labelToContentSpacing) {
+      MetadataSheetFieldLabel(title: "Series", hint: "Search from 3 letters")
       ForEach(Array(seriesRows.enumerated()), id: \.offset) { idx, _ in
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
           HStack(spacing: 8) {
-            TextField("Series name", text: $seriesRows[idx].name)
-              .textFieldStyle(.roundedBorder)
-              .textInputAutocapitalization(.words)
-              .autocorrectionDisabled()
-              .onChange(of: seriesRows[idx].name) { _, _ in
-                scheduleSeriesSearch(rowIndex: idx)
-              }
-            TextField("#", text: $seriesRows[idx].sequence)
-              .textFieldStyle(.roundedBorder)
-              .frame(width: 64)
-              .keyboardType(.decimalPad)
+            TextField(
+              "",
+              text: $seriesRows[idx].name,
+              prompt: Text("Series name")
+                .foregroundStyle(palette.textSecondary.opacity(0.55))
+            )
+            .font(.body)
+            .foregroundStyle(palette.textPrimary)
+            .tint(themeAccent)
+            .textInputAutocapitalization(.words)
+            .autocorrectionDisabled()
+            .accessibilityLabel("Series name")
+            .metadataSheetFieldChrome()
+            .onChange(of: seriesRows[idx].name) { _, _ in
+              scheduleSeriesSearch(rowIndex: idx)
+            }
+            TextField(
+              "",
+              text: $seriesRows[idx].sequence,
+              prompt: Text("#").foregroundStyle(palette.textSecondary.opacity(0.55))
+            )
+            .font(.body)
+            .foregroundStyle(palette.textPrimary)
+            .tint(themeAccent)
+            .multilineTextAlignment(.center)
+            .keyboardType(.decimalPad)
+            .accessibilityLabel("Series number")
+            .metadataSheetFieldChrome(horizontalPadding: 8)
+            .frame(width: 64)
             Button {
-              seriesSearchTasks[idx]?.cancel()
-              seriesSearchTasks[idx] = nil
-              seriesSearchSuppressRows.insert(idx)
-              if seriesRows.count == 1 {
-                seriesRows[0] = EditSeriesRow()
-              } else {
-                seriesRows.remove(at: idx)
-              }
-              seriesSuggestionsByRow[idx] = nil
-              if seriesSearchBusyRow == idx { seriesSearchBusyRow = nil }
+              removeSeriesRow(idx)
             } label: {
               Image(systemName: "minus.circle")
-                .foregroundStyle(AppTheme.textSecondary)
+                .font(.body)
+                .foregroundStyle(palette.textSecondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Remove series")
           }
           if seriesSearchBusyRow == idx {
             ProgressView()
               .controlSize(.mini)
+              .tint(themeAccent)
               .frame(maxWidth: .infinity, alignment: .leading)
               .padding(.leading, 2)
           } else if let suggestions = seriesSuggestionsByRow[idx], !suggestions.isEmpty {
@@ -227,11 +209,26 @@ struct EditMetadataSheet: View {
         seriesRows.append(EditSeriesRow())
       } label: {
         Label("Add series", systemImage: "plus.circle")
-          .font(.footnote)
+          .font(.footnote.weight(.medium))
       }
       .buttonStyle(.plain)
       .foregroundStyle(themeAccent)
+      .padding(.top, 2)
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private func removeSeriesRow(_ idx: Int) {
+    seriesSearchTasks[idx]?.cancel()
+    seriesSearchTasks[idx] = nil
+    seriesSearchSuppressRows.insert(idx)
+    if seriesRows.count == 1 {
+      seriesRows[0] = EditSeriesRow()
+    } else {
+      seriesRows.remove(at: idx)
+    }
+    seriesSuggestionsByRow[idx] = nil
+    if seriesSearchBusyRow == idx { seriesSearchBusyRow = nil }
   }
 
   @ViewBuilder
@@ -248,27 +245,28 @@ struct EditMetadataSheet: View {
         } label: {
           Text(name)
             .font(.subheadline)
-            .foregroundStyle(AppTheme.textPrimary)
+            .foregroundStyle(palette.textPrimary)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, MetadataSheetMetrics.fieldInsetH)
             .padding(.vertical, 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         if name != suggestions.last {
-          Divider()
-            .overlay(AppTheme.textSecondary.opacity(0.25))
+          MetadataSheetCardDivider()
+            .padding(.horizontal, MetadataSheetMetrics.fieldInsetH)
         }
       }
     }
-    .background(
-      AppTheme.background,
-      in: RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius, style: .continuous)
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius, style: .continuous)
-        .strokeBorder(AppTheme.textSecondary.opacity(0.2), lineWidth: 1)
-    )
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(palette.background, in: MetadataSheetMetrics.fieldShape)
+    .overlay {
+      MetadataSheetMetrics.fieldShape
+        .strokeBorder(
+          palette.textSecondary.opacity(MetadataSheetMetrics.fieldBorderOpacity),
+          lineWidth: 1
+        )
+    }
   }
 
   /// Nur bei aktiver Texteingabe — nicht beim Prefill aus vorhandenen Metadaten.
@@ -326,27 +324,26 @@ struct EditMetadataSheet: View {
 
   @ViewBuilder
   private var coverSearchSection: some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      sectionLabel("Cover")
-      VStack(alignment: .leading, spacing: 8) {
-        HStack(spacing: 8) {
-          TextField("Title", text: $coverTitle)
-            .textFieldStyle(.roundedBorder)
-            .submitLabel(.search)
-            .onSubmit { Task { await runCoverSearch() } }
-          TextField("Author", text: $coverAuthor)
-            .textFieldStyle(.roundedBorder)
-            .submitLabel(.search)
-            .onSubmit { Task { await runCoverSearch() } }
-        }
-        HStack(spacing: 8) {
-          Picker("Provider", selection: $coverProvider) {
+    MetadataSheetSection(title: "Cover") {
+      MetadataSheetCard {
+        MetadataSheetTextField(
+          title: "Title",
+          text: $coverTitle,
+          submitLabel: .search,
+          onSubmit: { Task { await runCoverSearch() } }
+        )
+        MetadataSheetTextField(
+          title: "Author",
+          text: $coverAuthor,
+          submitLabel: .search,
+          onSubmit: { Task { await runCoverSearch() } }
+        )
+        HStack(alignment: .bottom, spacing: 12) {
+          MetadataSheetMenuPicker(title: "Provider", selection: $coverProvider) {
             ForEach(coverProviders, id: \.value) { p in
               Text(p.label).tag(p.value)
             }
           }
-          .pickerStyle(.menu)
-          Spacer()
           Button {
             Task { await runCoverSearch() }
           } label: {
@@ -354,28 +351,33 @@ struct EditMetadataSheet: View {
               .labelStyle(.titleAndIcon)
           }
           .buttonStyle(AbstandProminentButtonStyle())
-          .disabled(coverTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearchingCovers)
+          .disabled(
+            coverTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearchingCovers)
         }
       }
 
-      if isSearchingCovers {
-        ProgressView()
-          .padding(.vertical, AppTheme.Layout.withinSectionSpacing)
-          .frame(maxWidth: .infinity)
-      } else if let coverSearchError {
-        Text(coverSearchError)
-          .font(.footnote)
-          .foregroundStyle(AppTheme.danger)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      } else if coverResults.isEmpty {
-        if hasSearchedCovers {
-          Text("No covers found.")
-            .font(.footnote)
-            .foregroundStyle(AppTheme.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, AppTheme.Layout.withinSectionSpacing)
+      coverResultsContent
+    }
+  }
+
+  @ViewBuilder
+  private var coverResultsContent: some View {
+    if isSearchingCovers {
+      MetadataSheetCard {
+        AbstandLoadingSpinner(controlSize: .regular, verticalPadding: 24)
+      }
+    } else if let coverSearchError {
+      MetadataSheetCard {
+        MetadataSheetInlineNotice(text: coverSearchError, isError: true)
+      }
+    } else if coverResults.isEmpty {
+      if hasSearchedCovers {
+        MetadataSheetCard {
+          MetadataSheetInlineNotice(text: "No covers found.")
         }
-      } else {
+      }
+    } else {
+      MetadataSheetCard {
         coverGrid
       }
     }
@@ -397,43 +399,29 @@ struct EditMetadataSheet: View {
             switch phase {
             case .empty:
               RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius)
-                .fill(AppTheme.card)
-                .overlay { ProgressView() }
+                .fill(palette.background)
+                .overlay { ProgressView().controlSize(.small).tint(themeAccent) }
             case .success(let img):
               img.resizable().scaledToFit()
             default:
               RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius)
-                .fill(AppTheme.card)
+                .fill(palette.background)
                 .overlay {
                   Image(systemName: "photo")
-                    .foregroundStyle(AppTheme.textSecondary)
+                    .foregroundStyle(palette.textSecondary)
                 }
             }
           }
-          .aspectRatio(2/3, contentMode: .fit)
+          .aspectRatio(2 / 3, contentMode: .fit)
           .clipShape(
             RoundedRectangle(cornerRadius: AppTheme.Layout.chipCornerRadius, style: .continuous)
           )
         }
         .buttonStyle(.plain)
         .disabled(isApplyingCover)
+        .accessibilityLabel("Cover option")
       }
     }
-    .padding(.top, 4)
-  }
-
-  // MARK: Common helpers
-
-  @ViewBuilder
-  private func sectionLabel(_ text: String) -> some View {
-    Text(text.uppercased())
-      .font(DetailHeroTypography.metaLabel)
-      .foregroundStyle(AppTheme.textSecondary)
-      .tracking(0.6)
-  }
-
-  private var cardShape: RoundedRectangle {
-    RoundedRectangle(cornerRadius: AppTheme.Layout.detailSectionCardCornerRadius, style: .continuous)
   }
 
   // MARK: Actions
