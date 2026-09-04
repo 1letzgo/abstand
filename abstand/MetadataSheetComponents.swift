@@ -231,56 +231,34 @@ struct MetadataSheetTextField: View {
   }
 }
 
-/// Beschriftetes Auswahlfeld (Provider, Region) — füllt wie die Textfelder die ganze Karte:
-/// Wert links, Chevron am rechten Rand, gleiches Feld-Chrome und dieselbe Höhe.
-/// Bewusst ein `Menu` statt `Picker(.menu)`: der System-Picker zeichnet nur sein kompaktes
-/// Label und lässt den Rest des Feldes leer.
+/// Beschriftetes Auswahlfeld (Provider, Region) — die Auswahl selbst ist die Dropdown-Pill
+/// aus der Custom-Navbar (`AbstandBrowseStripDropdownPill`): Akzent-Kapsel mit Symbol, Wert und
+/// Chevron, über die volle Kartenbreite.
 struct MetadataSheetMenuPicker: View {
-  @EnvironmentObject private var model: AppModel
-  @Environment(\.isEnabled) private var isEnabled
-
   let title: String
+  /// Symbol in der Pill (alle Optionen teilen es, wie die Library-Pill im Browse-Strip).
+  var systemImage: String = "list.bullet"
   @Binding var selection: String
   let options: [(id: String, label: String)]
 
-  private var selectedLabel: String {
-    options.first { $0.id == selection }?.label ?? selection
+  private var items: [AbstandBrowseStripItem] {
+    options.map {
+      AbstandBrowseStripItem(id: $0.id, label: $0.label, systemImage: systemImage)
+    }
   }
 
   var body: some View {
-    let palette = model.appearancePalette
     VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.labelToContentSpacing) {
       MetadataSheetFieldLabel(title: title)
-      Menu {
-        ForEach(options, id: \.id) { option in
-          Button {
-            selection = option.id
-          } label: {
-            // Häkchen für die aktive Wahl — wie in den Menüs der Podcast-Verzeichnissuche.
-            if option.id == selection {
-              Label(option.label, systemImage: "checkmark")
-            } else {
-              Text(option.label)
-            }
-          }
-        }
-      } label: {
-        HStack(spacing: 8) {
-          Text(selectedLabel)
-            .font(.body)
-            .foregroundStyle(palette.textPrimary)
-            .lineLimit(1)
-          Spacer(minLength: 0)
-          Image(systemName: "chevron.up.chevron.down")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(palette.textSecondary)
-        }
-        .contentShape(Rectangle())
-        .metadataSheetFieldChrome()
-      }
-      .accessibilityLabel(title)
-      .accessibilityValue(selectedLabel)
-      .opacity(isEnabled ? 1 : 0.45)
+      AbstandBrowseStripDropdownPill(
+        items: items,
+        selectionID: selection,
+        fallbackSystemImage: systemImage,
+        accessibilityLabel: title,
+        accessibilityHint: "Chooses \(title.lowercased())",
+        onSelect: { selection = $0 }
+      )
+      .frame(maxWidth: .infinity)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }

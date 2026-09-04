@@ -85,6 +85,7 @@ struct MatchMetadataSheet: View {
         )
         MetadataSheetMenuPicker(
           title: "Provider",
+          systemImage: "globe",
           selection: $provider,
           options: availableProviders.map { (id: $0.value, label: $0.text) }
         )
