@@ -286,18 +286,3 @@ struct MetadataSheetToggleRow: View {
     .abstandThemeRefresh()
   }
 }
-
-/// Inline-Hinweis (leere Trefferliste, Fehlermeldung) innerhalb einer Sektion.
-struct MetadataSheetInlineNotice: View {
-  @EnvironmentObject private var model: AppModel
-  let text: String
-  var isError = false
-
-  var body: some View {
-    Text(text)
-      .font(.footnote)
-      .foregroundStyle(isError ? AppTheme.danger : model.appearancePalette.textSecondary)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .abstandThemeRefresh()
-  }
-}

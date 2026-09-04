@@ -114,13 +114,13 @@ struct ChaptersEditorSheet: View {
     } else if let lookupError {
       MetadataSheetSection(title: "Chapters") {
         MetadataSheetCard {
-          MetadataSheetInlineNotice(text: lookupError, isError: true)
+          AbstandInlineNotice(text: lookupError, isError: true)
         }
       }
     } else if let serverError = response?.error {
       MetadataSheetSection(title: "Chapters") {
         MetadataSheetCard {
-          MetadataSheetInlineNotice(text: serverError, isError: true)
+          AbstandInlineNotice(text: serverError, isError: true)
         }
       }
     } else if let resp = response, !resp.chapters.isEmpty {

@@ -368,12 +368,12 @@ struct EditMetadataSheet: View {
       }
     } else if let coverSearchError {
       MetadataSheetCard {
-        MetadataSheetInlineNotice(text: coverSearchError, isError: true)
+        AbstandInlineNotice(text: coverSearchError, isError: true)
       }
     } else if coverResults.isEmpty {
       if hasSearchedCovers {
         MetadataSheetCard {
-          MetadataSheetInlineNotice(text: "No covers found.")
+          AbstandInlineNotice(text: "No covers found.")
         }
       }
     } else {

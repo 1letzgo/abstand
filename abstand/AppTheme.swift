@@ -1025,6 +1025,23 @@ struct AbstandLabeledTextField: View {
   }
 }
 
+/// Kurzer Hinweis (leere Liste, Fehlermeldung) innerhalb einer Karte oder Sektion.
+/// Einheitlich in Sheets, Settings und Admin-Ansichten statt handgebauter `Text`-Varianten.
+struct AbstandInlineNotice: View {
+  @EnvironmentObject private var model: AppModel
+  let text: String
+  var isError = false
+
+  var body: some View {
+    Text(text)
+      .font(.footnote)
+      .foregroundStyle(isError ? AppTheme.danger : model.appearancePalette.textSecondary)
+      .fixedSize(horizontal: false, vertical: true)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .abstandThemeRefresh()
+  }
+}
+
 /// Zentrierter Lade-Spinner in Listen/Sheets.
 struct AbstandLoadingSpinner: View {
   @Environment(\.themeAccent) private var themeAccent

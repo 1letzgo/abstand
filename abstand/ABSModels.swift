@@ -548,6 +548,229 @@ struct ABSPodcastRssFeedEpisodeDraft: Identifiable, Hashable {
   }
 }
 
+/// Vollständige Feed-Vorschau einer **noch nicht abonnierten** Sendung (`POST /api/podcasts/feed`).
+/// Liefert Sendungsinfos (Beschreibung, Kategorien, Sprache …) und alle Folgen des Feeds —
+/// also auch die, die noch nicht in der Bibliothek liegen.
+struct ABSPodcastFeedPreview: Hashable {
+  var title: String
+  var author: String?
+  var descriptionPlain: String?
+  var imageUrl: String?
+  var categories: [String]
+  var language: String?
+  var explicit: Bool
+  /// `episodic` / `serial` (iTunes-Feedtyp).
+  var type: String?
+  var feedUrl: String?
+  var pageUrl: String?
+  var publishedAt: Int64?
+  var episodes: [ABSPodcastFeedPreviewEpisode]
+
+  var episodeCount: Int { episodes.count }
+
+  /// Neueste Folge des Feeds (Liste ist absteigend sortiert).
+  var latestEpisodePublishedAt: Int64? {
+    episodes.compactMap(\.publishedAt).filter { $0 > 0 }.max()
+  }
+
+  /// Gesamtlaufzeit aller Folgen mit bekannter Dauer (`nil`, wenn der Feed keine Dauern liefert).
+  var totalDurationSeconds: Double? {
+    let known = episodes.compactMap(\.durationSeconds).filter { $0 > 0 }
+    guard !known.isEmpty else { return nil }
+    return known.reduce(0, +)
+  }
+
+  static func from(feedApiResponse data: Data) throws -> ABSPodcastFeedPreview {
+    let root = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any]
+    let podcast = root?["podcast"] as? [String: Any]
+    let meta = podcast?["metadata"] as? [String: Any] ?? [:]
+
+    let rawTitle = ABSPodcastFeedPreview.string(meta["title"]) ?? ""
+    let description =
+      absPlainText(fromHTML: ABSPodcastFeedPreview.string(meta["descriptionPlain"]))
+        .nilIfEmpty
+      ?? absPlainText(fromHTML: ABSPodcastFeedPreview.string(meta["description"])).nilIfEmpty
+
+    var categories: [String] = []
+    if let list = meta["categories"] as? [String] {
+      categories = list
+    } else if let list = meta["genres"] as? [String] {
+      categories = list
+    }
+    categories = categories
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+
+    let episodesRaw = podcast?["episodes"] as? [[String: Any]] ?? []
+    var episodes: [ABSPodcastFeedPreviewEpisode] = []
+    episodes.reserveCapacity(episodesRaw.count)
+    for (index, ep) in episodesRaw.enumerated() {
+      episodes.append(ABSPodcastFeedPreviewEpisode(json: ep, fallbackIndex: index))
+    }
+    episodes.sort {
+      let pa = $0.publishedAt ?? 0
+      let pb = $1.publishedAt ?? 0
+      if pa != pb { return pa > pb }
+      return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+    }
+
+    return ABSPodcastFeedPreview(
+      title: rawTitle.trimmingCharacters(in: .whitespacesAndNewlines),
+      author: ABSPodcastFeedPreview.string(meta["author"]),
+      descriptionPlain: description,
+      imageUrl: ABSPodcastFeedPreview.string(meta["image"]) ?? ABSPodcastFeedPreview.string(meta["imageUrl"]),
+      categories: categories,
+      language: ABSPodcastFeedPreview.string(meta["language"]),
+      explicit: ABSPodcastFeedPreview.bool(meta["explicit"]) ?? false,
+      type: ABSPodcastFeedPreview.string(meta["type"]),
+      feedUrl: ABSPodcastFeedPreview.string(meta["feedUrl"]),
+      pageUrl: ABSPodcastFeedPreview.string(meta["link"]) ?? ABSPodcastFeedPreview.string(meta["itunesPageUrl"]),
+      publishedAt: ABSPodcastFeedEpisodeParsing.millis(from: meta["pubDate"]),
+      episodes: episodes
+    )
+  }
+
+  fileprivate static func string(_ value: Any?) -> String? {
+    guard let s = value as? String else { return nil }
+    let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+    return t.isEmpty ? nil : t
+  }
+
+  fileprivate static func bool(_ value: Any?) -> Bool? {
+    switch value {
+    case let b as Bool: return b
+    case let n as Int: return n != 0
+    case let s as String:
+      switch s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+      case "true", "yes", "1": return true
+      case "false", "no", "0": return false
+      default: return nil
+      }
+    default: return nil
+    }
+  }
+}
+
+/// Eine Folge aus der Feed-Vorschau — reine Anzeige (kein Download-Payload).
+struct ABSPodcastFeedPreviewEpisode: Identifiable, Hashable {
+  let id: String
+  let title: String
+  let subtitle: String?
+  let descriptionPlain: String?
+  let publishedAt: Int64?
+  let durationSeconds: Double?
+  let season: String?
+  let episodeNumber: String?
+  /// `full` / `trailer` / `bonus`.
+  let episodeType: String?
+  let explicit: Bool
+
+  init(json ep: [String: Any], fallbackIndex: Int) {
+    let rawTitle = ABSPodcastFeedPreview.string(ep["title"]) ?? ""
+    let resolvedTitle = rawTitle.isEmpty ? "Episode \(fallbackIndex + 1)" : rawTitle
+    title = resolvedTitle
+    // GUIDs fehlen in manchen Feeds — dann Index + Titel als stabiler Listenschlüssel.
+    id = ABSPodcastFeedPreview.string(ep["guid"])
+      ?? ABSPodcastFeedPreview.string(ep["id"])
+      ?? "feed-episode-\(fallbackIndex)-\(resolvedTitle)"
+    subtitle = absPlainText(fromHTML: ABSPodcastFeedPreview.string(ep["subtitle"])).nilIfEmpty
+    descriptionPlain =
+      absPlainText(fromHTML: ABSPodcastFeedPreview.string(ep["descriptionPlain"])).nilIfEmpty
+      ?? absPlainText(fromHTML: ABSPodcastFeedPreview.string(ep["description"])).nilIfEmpty
+    publishedAt =
+      ABSPodcastFeedEpisodeParsing.millis(from: ep["publishedAt"])
+      ?? ABSPodcastFeedEpisodeParsing.millis(from: ep["pubDate"])
+    durationSeconds = ABSPodcastFeedEpisodeParsing.durationSeconds(from: ep["duration"])
+    season = ABSPodcastFeedPreview.string(ep["season"])
+    episodeNumber = ABSPodcastFeedPreview.string(ep["episode"])
+      ?? (ep["episode"] as? Int).map { String($0) }
+    episodeType = ABSPodcastFeedPreview.string(ep["episodeType"])
+    explicit = ABSPodcastFeedPreview.bool(ep["explicit"]) ?? false
+  }
+
+  /// „S2 · E14“ — nur was der Feed liefert.
+  var numberingLabel: String? {
+    var parts: [String] = []
+    if let season, !season.isEmpty { parts.append("S\(season)") }
+    if let episodeNumber, !episodeNumber.isEmpty { parts.append("E\(episodeNumber)") }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
+  }
+
+  /// Nur nicht-reguläre Typen anzeigen (Trailer, Bonus).
+  var specialTypeLabel: String? {
+    guard let t = episodeType?.lowercased(), t != "full" else { return nil }
+    return t.capitalized
+  }
+}
+
+/// Gemeinsames Parsing für Feed-Zeitstempel und -Dauern (RSS liefert beides in vielen Formaten).
+enum ABSPodcastFeedEpisodeParsing {
+  static func millis(from value: Any?) -> Int64? {
+    switch value {
+    case let n as Int64: return normalizedMillis(n)
+    case let n as Int: return normalizedMillis(Int64(n))
+    case let n as Double: return normalizedMillis(Int64(n))
+    case let s as String:
+      let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !t.isEmpty else { return nil }
+      if let i = Int64(t) { return normalizedMillis(i) }
+      if let date = rfc822Date(from: t) { return Int64(date.timeIntervalSince1970 * 1000) }
+      if let date = isoDate(from: t) { return Int64(date.timeIntervalSince1970 * 1000) }
+      return nil
+    default: return nil
+    }
+  }
+
+  /// Sekunden vs. Millisekunden anhand der Größenordnung unterscheiden.
+  private static func normalizedMillis(_ value: Int64) -> Int64? {
+    guard value > 0 else { return nil }
+    return value < 100_000_000_000 ? value * 1000 : value
+  }
+
+  /// `"3600"`, `"01:02:03"` oder `"12:34"`.
+  static func durationSeconds(from value: Any?) -> Double? {
+    switch value {
+    case let n as Double: return n > 0 ? n : nil
+    case let n as Int: return n > 0 ? Double(n) : nil
+    case let s as String:
+      let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !t.isEmpty else { return nil }
+      if t.contains(":") {
+        let parts = t.split(separator: ":").map { Double($0) ?? 0 }
+        let seconds: Double
+        switch parts.count {
+        case 3: seconds = parts[0] * 3600 + parts[1] * 60 + parts[2]
+        case 2: seconds = parts[0] * 60 + parts[1]
+        default: return nil
+        }
+        return seconds > 0 ? seconds : nil
+      }
+      guard let n = Double(t), n > 0 else { return nil }
+      return n
+    default: return nil
+    }
+  }
+
+  private static let rfc822Formatter: DateFormatter = {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
+    return f
+  }()
+
+  private static func rfc822Date(from value: String) -> Date? {
+    rfc822Formatter.date(from: value)
+  }
+
+  private static func isoDate(from value: String) -> Date? {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let d = f.date(from: value) { return d }
+    f.formatOptions = [.withInternetDateTime]
+    return f.date(from: value)
+  }
+}
+
 /// Antwort von `GET /api/podcasts/:id/checknew`.
 struct ABSPodcastCheckNewResponse: Decodable {
   let episodes: [ABSPodcastCheckNewFeedEpisode]

@@ -87,6 +87,11 @@ final class AppModel: ObservableObject {
   private var podcastChartsLoadedCountry: String?
   private var podcastChartsLoadedGenreId: Int?
   @Published private(set) var podcastSubscribeInProgressDirectoryHitId: String?
+  /// Feed-Vorschau je Verzeichnis-Treffer (Add-Podcast → Sendungsdetail), Schlüssel = normalisierte Feed-URL.
+  /// Zeigt Sendungsinfos und alle Feed-Folgen, bevor die Sendung abonniert ist.
+  @Published var podcastDirectoryPreviewByFeedURL: [String: ABSPodcastFeedPreview] = [:]
+  @Published var podcastDirectoryPreviewLoadingFeedURLs: Set<String> = []
+  @Published var podcastDirectoryPreviewErrorByFeedURL: [String: String] = [:]
   /// `nil` = „New“-Ansicht (recent-Feed); gesetzt = nur diese Sendung (`podcastFilteredEpisodes`).
   @Published var podcastSelectedShowId: String?
   @Published var podcastFilteredEpisodes: [ABSPodcastEpisodeListItem] = []
@@ -12239,7 +12244,7 @@ final class AppModel: ObservableObject {
   }
 
   /// Normalisierte Feed-URL für Abgleich Verzeichnis ↔ Bibliothek.
-  private static func normalizedPodcastFeedURL(_ raw: String?) -> String? {
+  static func normalizedPodcastFeedURL(_ raw: String?) -> String? {
     var s = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     guard !s.isEmpty else { return nil }
     if let url = URL(string: s), let host = url.host?.lowercased() {

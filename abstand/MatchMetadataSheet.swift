@@ -125,7 +125,7 @@ struct MatchMetadataSheet: View {
     } else if let searchError {
       MetadataSheetSection(title: "Results") {
         MetadataSheetCard {
-          MetadataSheetInlineNotice(text: searchError, isError: true)
+          AbstandInlineNotice(text: searchError, isError: true)
         }
       }
     } else if results.isEmpty {
