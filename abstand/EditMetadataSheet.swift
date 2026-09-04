@@ -338,21 +338,16 @@ struct EditMetadataSheet: View {
           submitLabel: .search,
           onSubmit: { Task { await runCoverSearch() } }
         )
-        HStack(alignment: .bottom, spacing: 12) {
-          MetadataSheetMenuPicker(title: "Provider", selection: $coverProvider) {
-            ForEach(coverProviders, id: \.value) { p in
-              Text(p.label).tag(p.value)
-            }
-          }
-          Button {
-            Task { await runCoverSearch() }
-          } label: {
-            Label("Search", systemImage: "magnifyingglass")
-              .labelStyle(.titleAndIcon)
-          }
-          .buttonStyle(AbstandProminentButtonStyle())
-          .disabled(
-            coverTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearchingCovers)
+        MetadataSheetMenuPicker(
+          title: "Provider",
+          selection: $coverProvider,
+          options: coverProviders.map { (id: $0.value, label: $0.label) }
+        )
+        MetadataSheetSearchButton(
+          isEnabled: !coverTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !isSearchingCovers
+        ) {
+          Task { await runCoverSearch() }
         }
       }
 

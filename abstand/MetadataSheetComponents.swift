@@ -231,27 +231,75 @@ struct MetadataSheetTextField: View {
   }
 }
 
-/// Beschriftetes Menü-Picker-Feld (Provider, Region) im gleichen Feld-Chrome wie Textfelder.
-struct MetadataSheetMenuPicker<SelectionValue: Hashable, Options: View>: View {
-  @Environment(\.themeAccent) private var themeAccent
+/// Beschriftetes Auswahlfeld (Provider, Region) — füllt wie die Textfelder die ganze Karte:
+/// Wert links, Chevron am rechten Rand, gleiches Feld-Chrome und dieselbe Höhe.
+/// Bewusst ein `Menu` statt `Picker(.menu)`: der System-Picker zeichnet nur sein kompaktes
+/// Label und lässt den Rest des Feldes leer.
+struct MetadataSheetMenuPicker: View {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.isEnabled) private var isEnabled
 
   let title: String
-  @Binding var selection: SelectionValue
-  @ViewBuilder let options: () -> Options
+  @Binding var selection: String
+  let options: [(id: String, label: String)]
+
+  private var selectedLabel: String {
+    options.first { $0.id == selection }?.label ?? selection
+  }
 
   var body: some View {
+    let palette = model.appearancePalette
     VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.labelToContentSpacing) {
       MetadataSheetFieldLabel(title: title)
-      Picker(title, selection: $selection) {
-        options()
+      Menu {
+        ForEach(options, id: \.id) { option in
+          Button {
+            selection = option.id
+          } label: {
+            // Häkchen für die aktive Wahl — wie in den Menüs der Podcast-Verzeichnissuche.
+            if option.id == selection {
+              Label(option.label, systemImage: "checkmark")
+            } else {
+              Text(option.label)
+            }
+          }
+        }
+      } label: {
+        HStack(spacing: 8) {
+          Text(selectedLabel)
+            .font(.body)
+            .foregroundStyle(palette.textPrimary)
+            .lineLimit(1)
+          Spacer(minLength: 0)
+          Image(systemName: "chevron.up.chevron.down")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(palette.textSecondary)
+        }
+        .contentShape(Rectangle())
+        .metadataSheetFieldChrome()
       }
-      .pickerStyle(.menu)
-      .labelsHidden()
-      .tint(themeAccent)
       .accessibilityLabel(title)
-      .metadataSheetFieldChrome(verticalPadding: 4)
+      .accessibilityValue(selectedLabel)
+      .opacity(isEnabled ? 1 : 0.45)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+/// Suchaktion in Metadaten-Karten — volle Kartenbreite unter den Feldern.
+struct MetadataSheetSearchButton: View {
+  var title: String = "Search"
+  var isEnabled: Bool = true
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Label(title, systemImage: "magnifyingglass")
+        .labelStyle(.titleAndIcon)
+        .frame(maxWidth: .infinity)
+    }
+    .buttonStyle(AbstandProminentButtonStyle())
+    .disabled(!isEnabled)
   }
 }
 

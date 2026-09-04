@@ -85,21 +85,16 @@ struct ChaptersEditorSheet: View {
           submitLabel: .search,
           onSubmit: { Task { await runLookup() } }
         )
-        HStack(alignment: .bottom, spacing: 12) {
-          MetadataSheetMenuPicker(title: "Region", selection: $region) {
-            ForEach(regions, id: \.value) { r in
-              Text(r.label).tag(r.value)
-            }
-          }
-          Button {
-            Task { await runLookup() }
-          } label: {
-            Label("Search", systemImage: "magnifyingglass")
-              .labelStyle(.titleAndIcon)
-          }
-          .buttonStyle(AbstandProminentButtonStyle())
-          .disabled(
-            asinInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+        MetadataSheetMenuPicker(
+          title: "Region",
+          selection: $region,
+          options: regions.map { (id: $0.value, label: $0.label) }
+        )
+        MetadataSheetSearchButton(
+          isEnabled: !asinInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !isSearching
+        ) {
+          Task { await runLookup() }
         }
       }
     }
