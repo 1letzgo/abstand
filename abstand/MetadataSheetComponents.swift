@@ -231,15 +231,29 @@ struct MetadataSheetTextField: View {
   }
 }
 
+/// Gemessene Innenbreite einer Metadaten-Karte (für Controls, die keine Breite vorgeschlagen bekommen).
+private struct MetadataSheetContentWidthKey: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
+  }
+}
+
 /// Beschriftetes Auswahlfeld (Provider, Region) — die Auswahl selbst ist die Dropdown-Pill
-/// aus der Custom-Navbar (`AbstandBrowseStripDropdownPill`): Akzent-Kapsel mit Symbol, Wert und
-/// Chevron, über die volle Kartenbreite.
+/// aus der Custom-Navbar (`AbstandBrowseStripDropdownPill`): Akzent-Kapsel mit Symbol, Wert
+/// und Chevron.
+///
+/// `Menu` schlägt seinem Label in einer Karte keine Breite vor, deshalb wird die Kartenbreite
+/// gemessen und der Pill als feste Label-Breite mitgegeben — sonst bliebe die Kapsel auf
+/// Inhaltsbreite statt die Karte zu füllen.
 struct MetadataSheetMenuPicker: View {
   let title: String
   /// Symbol in der Pill (alle Optionen teilen es, wie die Library-Pill im Browse-Strip).
   var systemImage: String = "list.bullet"
   @Binding var selection: String
   let options: [(id: String, label: String)]
+
+  @State private var contentWidth: CGFloat = 0
 
   private var items: [AbstandBrowseStripItem] {
     options.map {
@@ -256,11 +270,18 @@ struct MetadataSheetMenuPicker: View {
         fallbackSystemImage: systemImage,
         accessibilityLabel: title,
         accessibilityHint: "Chooses \(title.lowercased())",
+        labelWidth: contentWidth > 0 ? contentWidth : nil,
         onSelect: { selection = $0 }
       )
-      .frame(maxWidth: .infinity)
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+    .background {
+      GeometryReader { geo in
+        Color.clear.preference(key: MetadataSheetContentWidthKey.self, value: geo.size.width)
+      }
+    }
+    .onPreferenceChange(MetadataSheetContentWidthKey.self) { contentWidth = $0 }
   }
 }
 
