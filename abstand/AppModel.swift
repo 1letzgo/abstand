@@ -98,6 +98,15 @@ final class AppModel: ObservableObject {
   @Published var podcastDirectoryPreviewByFeedURL: [String: ABSPodcastFeedPreview] = [:]
   @Published var podcastDirectoryPreviewLoadingFeedURLs: Set<String> = []
   @Published var podcastDirectoryPreviewErrorByFeedURL: [String: String] = [:]
+  /// Einzeldownload von Feed-Folgen im „Add podcast“-Detail (`download-episodes`).
+  /// Schlüssel = `<normalisierte Feed-URL>|<episode.id>`.
+  @Published var podcastDirectoryEpisodeDownloadInProgressKeys: Set<String> = []
+  /// Auftrag erteilt — der Server lädt asynchron, die Folge taucht erst danach in der Sendung auf.
+  @Published var podcastDirectoryEpisodeDownloadRequestedKeys: Set<String> = []
+  /// Normalisierte Folgentitel je Bibliotheks-Sendung. Eigener Zustand, weil
+  /// `libraryEpisodeMatchingPodcastRssDraft` an `podcastSelectedShowId` hängt und den
+  /// Podcast-Tab-Filter verstellen würde, nur um im Add-Flow „In library“ anzuzeigen.
+  @Published var podcastDirectoryLibraryEpisodeTitlesByShowId: [String: Set<String>] = [:]
   /// `nil` = „New“-Ansicht (recent-Feed); gesetzt = nur diese Sendung (`podcastFilteredEpisodes`).
   @Published var podcastSelectedShowId: String?
   @Published var podcastFilteredEpisodes: [ABSPodcastEpisodeListItem] = []

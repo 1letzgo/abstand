@@ -75,6 +75,10 @@ struct PodcastDirectoryShowView: View {
     .task(id: hit.id) {
       await model.loadPodcastDirectoryPreview(for: hit)
     }
+    // Erst nach dem Abonnieren sinnvoll — deshalb an `isInLibrary` gekoppelt und nicht an `hit.id`.
+    .task(id: libraryShow?.id) {
+      await model.loadPodcastDirectoryLibraryEpisodeTitles(for: hit)
+    }
     .refreshable {
       await model.loadPodcastDirectoryPreview(for: hit, forceReload: true)
     }
@@ -304,6 +308,13 @@ struct PodcastDirectoryShowView: View {
     if let preview, !preview.episodes.isEmpty {
       DetailMetaDisclosure(title: "Episodes", isExpanded: $episodesExpanded) {
         VStack(alignment: .leading, spacing: 0) {
+          if !isInLibrary, model.podcastDirectoryCanDownloadEpisodes {
+            // Ohne Library-Item gibt es kein Ziel für `download-episodes` — das erklärt den
+            // fehlenden Download-Button, statt ihn wirkungslos anzuzeigen.
+            AbstandInlineNotice(
+              text: "Subscribe to this show to download individual episodes to your server.")
+              .padding(.bottom, AppTheme.Layout.rowVerticalPadding)
+          }
           let episodes = visibleEpisodes(from: preview.episodes)
           // Position als Identität — manche Feeds vergeben denselben GUID mehrfach.
           ForEach(Array(episodes.enumerated()), id: \.offset) { idx, episode in
@@ -345,36 +356,75 @@ struct PodcastDirectoryShowView: View {
   @ViewBuilder
   private func episodeRow(_ episode: ABSPodcastFeedPreviewEpisode) -> some View {
     let expanded = expandedEpisodeIds.contains(episode.id)
-    VStack(alignment: .leading, spacing: 4) {
-      Text(episode.title)
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(palette.textPrimary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-      if let meta = episodeMetaLine(episode) {
-        Text(meta)
-          .font(.caption.monospacedDigit())
-          .foregroundStyle(palette.textSecondary)
-      }
-      if let text = episode.descriptionPlain ?? episode.subtitle {
-        Text(text)
-          .font(.caption)
-          .foregroundStyle(palette.textSecondary)
-          .lineLimit(expanded ? nil : 2)
+    HStack(alignment: .top, spacing: AppTheme.Layout.rowSpacing) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
+        Text(episode.title)
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(palette.textPrimary)
           .frame(maxWidth: .infinity, alignment: .leading)
+        if let meta = episodeMetaLine(episode) {
+          Text(meta)
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(palette.textSecondary)
+        }
+        if let text = episode.descriptionPlain ?? episode.subtitle {
+          Text(text)
+            .font(.caption)
+            .foregroundStyle(palette.textSecondary)
+            .lineLimit(expanded ? nil : 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .contentShape(Rectangle())
+      // Tap-Geste bleibt auf der Textspalte — auf der ganzen Zeile würde sie den
+      // Download-Button verschlucken.
+      .onTapGesture {
+        if expanded {
+          expandedEpisodeIds.remove(episode.id)
+        } else {
+          expandedEpisodeIds.insert(episode.id)
+        }
+      }
+      .accessibilityElement(children: .combine)
+      .accessibilityHint(expanded ? "Collapse episode notes" : "Expand episode notes")
+
+      episodeDownloadControl(episode)
     }
-    .padding(.vertical, 8)
+    .padding(.vertical, AppTheme.Layout.rowVerticalPadding)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .contentShape(Rectangle())
-    .onTapGesture {
-      if expanded {
-        expandedEpisodeIds.remove(episode.id)
+  }
+
+  /// Einzeldownload einer Feed-Folge auf den Server. Sichtbar nur für Server-Verwalter und nur
+  /// bei abonnierter Sendung — Audiobookshelf kennt Folgen ausschließlich innerhalb eines
+  /// Library-Items, ohne Abo gibt es kein Ziel für den Download.
+  @ViewBuilder
+  private func episodeDownloadControl(_ episode: ABSPodcastFeedPreviewEpisode) -> some View {
+    if isInLibrary, model.podcastDirectoryCanDownloadEpisodes, episode.canDownloadToServer,
+      let key = model.podcastDirectoryEpisodeKey(for: episode, hit: hit)
+    {
+      if model.podcastDirectoryEpisodeIsInLibrary(episode, hit: hit) {
+        Image(systemName: "checkmark.circle.fill")
+          .font(.title3)
+          .foregroundStyle(model.appearanceAccentColor)
+          .accessibilityLabel("Episode already in library")
+      } else if model.podcastDirectoryEpisodeDownloadInProgressKeys.contains(key) {
+        ProgressView()
+          .controlSize(.small)
+          .accessibilityLabel("Requesting download")
       } else {
-        expandedEpisodeIds.insert(episode.id)
+        Button {
+          Task { await model.downloadPodcastDirectoryEpisode(episode, hit: hit) }
+        } label: {
+          Image(systemName: "arrow.down.circle")
+            .font(.title3)
+            .foregroundStyle(themeAccent)
+        }
+        .buttonStyle(.plain)
+        .disabled(!model.isNetworkReachable)
+        .accessibilityLabel("Download episode to server")
       }
     }
-    .accessibilityElement(children: .combine)
-    .accessibilityHint(expanded ? "Collapse episode notes" : "Expand episode notes")
   }
 
   /// „Sep 2, 2026 · 48 min · S2 · E14 · Trailer“ — nur was der Feed liefert.

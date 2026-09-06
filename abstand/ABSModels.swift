@@ -664,6 +664,10 @@ struct ABSPodcastFeedPreviewEpisode: Identifiable, Hashable {
   /// `full` / `trailer` / `bonus`.
   let episodeType: String?
   let explicit: Bool
+  /// Rohes Folgenobjekt aus der Feed-Antwort — unverändert als Payload für
+  /// `POST /api/podcasts/:id/download-episodes`. Der Server erwartet dort genau die Felder,
+  /// die er selbst geliefert hat; nachgebaute Objekte werden abgelehnt.
+  let episodePayloadJSON: Data
 
   init(json ep: [String: Any], fallbackIndex: Int) {
     let rawTitle = ABSPodcastFeedPreview.string(ep["title"]) ?? ""
@@ -686,6 +690,17 @@ struct ABSPodcastFeedPreviewEpisode: Identifiable, Hashable {
       ?? (ep["episode"] as? Int).map { String($0) }
     episodeType = ABSPodcastFeedPreview.string(ep["episodeType"])
     explicit = ABSPodcastFeedPreview.bool(ep["explicit"]) ?? false
+    episodePayloadJSON =
+      (JSONSerialization.isValidJSONObject(ep)
+        ? try? JSONSerialization.data(withJSONObject: ep) : nil) ?? Data()
+  }
+
+  /// Ohne Payload kann die Folge nicht auf den Server geladen werden (defektes Feed-Objekt).
+  var canDownloadToServer: Bool { !episodePayloadJSON.isEmpty }
+
+  /// Vergleichsform für „liegt schon in der Bibliothek“ — Feeds schreiben Titel uneinheitlich.
+  var normalizedTitleKey: String {
+    title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
   }
 
   /// „S2 · E14“ — nur was der Feed liefert.
