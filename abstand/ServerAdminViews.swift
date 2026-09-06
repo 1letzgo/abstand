@@ -3402,49 +3402,39 @@ private struct DebugLogExportView: View {
             subtitle: entries.count == 1 ? "1 entry" : "\(entries.count) entries"
           )
           SettingsCardDivider()
-          Button {
-            shareText = DebugLogCollector.shared.exportText
-            showShareSheet = true
-          } label: {
-            SettingsCardActionRow(
-              icon: "square.and.arrow.up",
-              title: "Export log",
-              trailingIcon: "chevron.right",
-              isEnabled: !entries.isEmpty
-            )
-            .contentShape(Rectangle())
+          // Die drei Aktionen bleiben nebeneinander in einer Zeile — sie sind gleichrangig
+          // und kurz; einzelne Zeilen mit Chevron würden hier mehr Platz als Inhalt kosten.
+          HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
+            Button {
+              shareText = DebugLogCollector.shared.exportText
+              showShareSheet = true
+            } label: {
+              Label("Export", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(.bordered)
+            .tint(model.appearanceAccentColor)
+            .disabled(entries.isEmpty)
+
+            // Der Collector publiziert bewusst nicht mehr (kein objectWillChange aus heißen
+            // Playback-Pfaden) — der Stand wird hier explizit nachgeladen.
+            Button {
+              entries = DebugLogCollector.shared.entries
+            } label: {
+              Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .tint(model.appearanceAccentColor)
+
+            Button(role: .destructive) {
+              DebugLogCollector.shared.clear()
+              entries = []
+            } label: {
+              Label("Clear", systemImage: "trash")
+            }
+            .buttonStyle(.bordered)
+            .disabled(entries.isEmpty)
           }
-          .buttonStyle(.plain)
-          .disabled(entries.isEmpty)
-          SettingsCardDivider()
-          // Der Collector publiziert bewusst nicht mehr (kein objectWillChange aus heißen
-          // Playback-Pfaden) — der Stand wird hier explizit nachgeladen.
-          Button {
-            entries = DebugLogCollector.shared.entries
-          } label: {
-            SettingsCardActionRow(
-              icon: "arrow.clockwise",
-              title: "Refresh",
-              trailingIcon: "chevron.right"
-            )
-            .contentShape(Rectangle())
-          }
-          .buttonStyle(.plain)
-          SettingsCardDivider()
-          Button {
-            DebugLogCollector.shared.clear()
-            entries = []
-          } label: {
-            SettingsCardActionRow(
-              icon: "trash",
-              title: "Clear log",
-              tint: AppTheme.danger,
-              isEnabled: !entries.isEmpty
-            )
-            .contentShape(Rectangle())
-          }
-          .buttonStyle(.plain)
-          .disabled(entries.isEmpty)
+          .settingsCardRowFrame()
         }
       }
 
