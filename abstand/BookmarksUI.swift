@@ -35,7 +35,6 @@ struct BookmarksDisclosure: View {
       AudiobookBookmarkListView(libraryItemId: libraryItemId, onJump: onJump)
     }
     .tint(model.appearanceAccentColor)
-    .abstandThemeRefresh()
   }
 }
 
@@ -60,7 +59,7 @@ struct AudiobookBookmarkListView: View {
             : "Bookmarks are unavailable offline."
         )
         .font(.body)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
         .multilineTextAlignment(.leading)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -74,7 +73,7 @@ struct AudiobookBookmarkListView: View {
               onDelete: { confirmDelete = mark }
             )
             if mark.id != marks.last?.id {
-              Divider().background(AppTheme.textSecondary.opacity(0.15))
+              Divider().background(model.appearancePalette.textSecondary.opacity(0.15))
             }
           }
         }
@@ -103,6 +102,7 @@ struct AudiobookBookmarkListView: View {
 }
 
 private struct AudiobookBookmarkRow: View {
+  @EnvironmentObject private var model: AppModel
   let mark: ABSAudioBookmark
   let showsDelete: Bool
   let onJump: (ABSAudioBookmark) -> Void
@@ -116,11 +116,11 @@ private struct AudiobookBookmarkRow: View {
         VStack(alignment: .leading, spacing: 4) {
           Text(mark.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "—" : mark.title)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(AppTheme.textPrimary)
+            .foregroundStyle(model.appearancePalette.textPrimary)
             .multilineTextAlignment(.leading)
           Text(formatPlaybackTime(Double(mark.time)))
             .font(.caption.monospacedDigit())
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
       }

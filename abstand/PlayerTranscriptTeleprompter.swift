@@ -132,6 +132,7 @@ enum PlayerTeleprompterMetrics {
 // MARK: - View
 
 struct PlayerLiveTranscriptPanelView: View {
+  @EnvironmentObject private var model: AppModel
   @Environment(\.appearanceThemeRevision) private var themeRevision
   @ObservedObject var player: PlaybackController
   @ObservedObject var transcription: PlayerLiveTranscriptionController
@@ -203,11 +204,11 @@ struct PlayerLiveTranscriptPanelView: View {
       if let notice = transcription.localeFallbackNotice {
         Text(notice)
           .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
           .lineLimit(2)
           .padding(10)
           .frame(maxWidth: .infinity, alignment: .leading)
-          .background(AppTheme.card.opacity(0.9))
+          .background(model.appearancePalette.card.opacity(0.9))
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -245,7 +246,6 @@ struct PlayerLiveTranscriptPanelView: View {
     .onChange(of: userFontSize) { _, _ in
       syncTeleprompterLayout()
     }
-    .abstandThemeRefresh()
   }
 
   private func syncTeleprompterLayout() {
@@ -287,7 +287,7 @@ struct PlayerLiveTranscriptPanelView: View {
       if !loadingHintText.isEmpty {
         Text(loadingHintText)
           .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
           .multilineTextAlignment(.center)
       }
     }
@@ -437,7 +437,7 @@ struct PlayerLiveTranscriptPanelView: View {
     let opacity = isOnActiveLine
       ? PlayerTeleprompterMetrics.activeLineTextOpacity
       : PlayerTeleprompterMetrics.inactiveLineTextOpacity
-    return AppTheme.textPrimary.opacity(opacity)
+    return model.appearancePalette.textPrimary.opacity(opacity)
   }
 }
 

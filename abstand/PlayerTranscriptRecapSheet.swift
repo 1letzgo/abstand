@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Ergebnis der lokalen Recap-Transkription innerhalb der Vollplayer-Cover-Karte.
 struct PlayerTranscriptRecapCard: View {
+  @EnvironmentObject private var model: AppModel
   @ObservedObject var transcription: PlayerLiveTranscriptionController
 
   var body: some View {
@@ -9,16 +10,16 @@ struct PlayerTranscriptRecapCard: View {
       HStack(alignment: .firstTextBaseline, spacing: 6) {
         Text(String(localized: "Last 5 minutes", comment: "Read along recap title"))
           .font(.caption.weight(.bold))
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
           .textCase(.uppercase)
           .tracking(0.6)
         if transcription.recapShowsTranscript {
           Text(String(localized: "transcript", comment: "Read along recap transcript badge"))
             .font(.caption2.weight(.medium))
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(AppTheme.card.opacity(0.9), in: Capsule())
+            .background(model.appearancePalette.card.opacity(0.9), in: Capsule())
         }
       }
 
@@ -27,7 +28,7 @@ struct PlayerTranscriptRecapCard: View {
           VStack(spacing: 12) {
             ProgressView()
             Text(String(localized: "Creating on-device recap…", comment: "Read along recap progress"))
-              .foregroundStyle(AppTheme.textSecondary)
+              .foregroundStyle(model.appearancePalette.textSecondary)
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let recap = transcription.recapText, !recap.isEmpty {
@@ -39,11 +40,11 @@ struct PlayerTranscriptRecapCard: View {
           if let notice = transcription.recapFallbackNotice {
             Text(notice)
               .font(.caption)
-              .foregroundStyle(AppTheme.textSecondary)
+              .foregroundStyle(model.appearancePalette.textSecondary)
               .lineLimit(2)
               .padding(10)
               .frame(maxWidth: .infinity, alignment: .leading)
-              .background(AppTheme.card.opacity(0.9))
+              .background(model.appearancePalette.card.opacity(0.9))
           }
         } else if let error = transcription.recapErrorMessage {
           ContentUnavailableView(
@@ -54,11 +55,11 @@ struct PlayerTranscriptRecapCard: View {
           if let notice = transcription.recapFallbackNotice {
             Text(notice)
               .font(.caption)
-              .foregroundStyle(AppTheme.textSecondary)
+              .foregroundStyle(model.appearancePalette.textSecondary)
               .lineLimit(2)
               .padding(10)
               .frame(maxWidth: .infinity, alignment: .leading)
-              .background(AppTheme.card.opacity(0.9))
+              .background(model.appearancePalette.card.opacity(0.9))
           }
         } else {
           ContentUnavailableView(

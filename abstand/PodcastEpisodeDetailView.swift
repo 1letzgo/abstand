@@ -225,7 +225,7 @@ struct PodcastEpisodeDetailView: View {
     DetailToolbarResetProgressItem(enabled: discardEnabled) {
       confirmDiscardEpisodeProgress = true
     }
-    .tint(discardEnabled ? AppTheme.danger : AppTheme.textSecondary)
+    .tint(discardEnabled ? AppTheme.danger : model.appearancePalette.textSecondary)
   }
 
   private var coverSection: some View {

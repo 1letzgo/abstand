@@ -7,7 +7,7 @@ extension MainRootView {
   var booksBrowseOfflineHint: some View {
     Text("Connect to the network to load this list.")
       .font(.subheadline)
-      .foregroundStyle(AppTheme.textSecondary)
+      .foregroundStyle(model.appearancePalette.textSecondary)
       .padding(.vertical, 8)
   }
 
