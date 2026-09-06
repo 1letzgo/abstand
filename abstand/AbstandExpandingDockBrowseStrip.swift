@@ -108,6 +108,10 @@ struct AbstandBrowseStripDropdownPill: View {
   var fallbackSystemImage: String = "books.vertical.fill"
   var accessibilityLabel: String = "Menu"
   var accessibilityHint: String = ""
+  /// Feste Label-Breite. `Menu` schlägt seinem Label nicht in jedem Kontext eine Breite vor —
+  /// im `HStack` des Browse-Strips verteilt der Stack, in einer Karte bleibt die Kapsel sonst
+  /// auf Inhaltsbreite. Dort die gemessene Kartenbreite durchreichen.
+  var labelWidth: CGFloat? = nil
   let onSelect: (String) -> Void
 
   private var dockColors: AppTheme.ExpandingDock.Colors {
@@ -150,6 +154,7 @@ struct AbstandBrowseStripDropdownPill: View {
       .foregroundStyle(dockColors.activeForeground)
       .padding(.horizontal, 14)
       .frame(maxWidth: .infinity)
+      .frame(width: labelWidth)
       .frame(height: AppTheme.ExpandingDock.activeHeight)
       .background {
         Capsule(style: .continuous)

@@ -85,21 +85,17 @@ struct ChaptersEditorSheet: View {
           submitLabel: .search,
           onSubmit: { Task { await runLookup() } }
         )
-        HStack(alignment: .bottom, spacing: 12) {
-          MetadataSheetMenuPicker(title: "Region", selection: $region) {
-            ForEach(regions, id: \.value) { r in
-              Text(r.label).tag(r.value)
-            }
-          }
-          Button {
-            Task { await runLookup() }
-          } label: {
-            Label("Search", systemImage: "magnifyingglass")
-              .labelStyle(.titleAndIcon)
-          }
-          .buttonStyle(AbstandProminentButtonStyle())
-          .disabled(
-            asinInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+        MetadataSheetMenuPicker(
+          title: "Region",
+          systemImage: "globe",
+          selection: $region,
+          options: regions.map { (id: $0.value, label: $0.label) }
+        )
+        MetadataSheetSearchButton(
+          isEnabled: !asinInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !isSearching
+        ) {
+          Task { await runLookup() }
         }
       }
     }
@@ -114,13 +110,13 @@ struct ChaptersEditorSheet: View {
     } else if let lookupError {
       MetadataSheetSection(title: "Chapters") {
         MetadataSheetCard {
-          MetadataSheetInlineNotice(text: lookupError, isError: true)
+          AbstandInlineNotice(text: lookupError, isError: true)
         }
       }
     } else if let serverError = response?.error {
       MetadataSheetSection(title: "Chapters") {
         MetadataSheetCard {
-          MetadataSheetInlineNotice(text: serverError, isError: true)
+          AbstandInlineNotice(text: serverError, isError: true)
         }
       }
     } else if let resp = response, !resp.chapters.isEmpty {

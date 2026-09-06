@@ -43,6 +43,8 @@ struct PodcastAddFromSearchView: View {
   @Environment(\.themeAccent) private var themeAccent
   @State private var query: String = ""
   @State private var source: PodcastAddSource = .search
+  /// Getippter Treffer → Sendungsdetail mit Feed-Infos und allen Folgen.
+  @State private var previewHit: ABSPodcastDirectorySearchHit?
 
   var body: some View {
     VStack(spacing: 0) {
@@ -72,9 +74,12 @@ struct PodcastAddFromSearchView: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    .background(AppTheme.background)
+    .background(model.appearancePalette.background)
     .navigationTitle("Add podcast")
     .navigationBarTitleDisplayMode(.inline)
+    .navigationDestination(item: $previewHit) { hit in
+      PodcastDirectoryShowView(hit: hit)
+    }
     .task {
       if model.podcastShows.isEmpty {
         await model.reloadPodcastShowsCatalog()
@@ -91,6 +96,10 @@ struct PodcastAddFromSearchView: View {
     }
     .onAppear {
       model.syncPodcastDirectoryEffectiveCountry()
+      // Frisch geöffnet (kein Rücksprung aus dem Sendungsdetail): alte Treffer verwerfen.
+      if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        model.clearPodcastDirectorySearch()
+      }
       if source == .charts {
         Task { await model.loadPodcastCharts() }
       }
@@ -119,6 +128,9 @@ struct PodcastAddFromSearchView: View {
       }
     }
     .onDisappear {
+      // Beim Push aufs Sendungsdetail feuert `onDisappear` ebenfalls — dann Suche/Charts
+      // behalten, sonst steht die Liste nach dem Zurück leer da.
+      guard previewHit == nil else { return }
       query = ""
       model.clearPodcastDirectorySearch()
       model.clearPodcastCharts()
@@ -127,20 +139,22 @@ struct PodcastAddFromSearchView: View {
   }
 
   private var podcastSearchField: some View {
-    HStack(spacing: 8) {
+    let palette = model.appearancePalette
+    return HStack(spacing: 8) {
       Image(systemName: "magnifyingglass")
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(palette.textSecondary)
       TextField("Search Apple Podcasts", text: $query)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(palette.textPrimary)
+        .tint(themeAccent)
       if !query.isEmpty {
         Button {
           query = ""
           model.clearPodcastDirectorySearch()
         } label: {
           Image(systemName: "xmark.circle.fill")
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(palette.textSecondary)
         }
         .buttonStyle(.plain)
       }
@@ -205,9 +219,11 @@ struct PodcastAddFromSearchView: View {
     ScrollView {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
         ForEach(hits) { hit in
-          PodcastDirectoryHitRow(hit: hit) {
-            Task { await model.subscribeToPodcastDirectoryHit(hit) }
-          }
+          PodcastDirectoryHitRow(
+            hit: hit,
+            onOpen: { previewHit = hit },
+            onSubscribe: { Task { await model.subscribeToPodcastDirectoryHit(hit) } }
+          )
         }
       }
       .padding(.horizontal, AppTheme.Layout.tabPaddingH)
@@ -236,11 +252,11 @@ private struct PodcastChartsCategoryPillStrip: View {
           } label: {
             Text(category.title)
               .font(.subheadline.weight(.medium))
-              .foregroundStyle(selected ? accent : AppTheme.textPrimary)
+              .foregroundStyle(selected ? accent : model.appearancePalette.textPrimary)
               .lineLimit(1)
               .padding(.horizontal, 14)
               .padding(.vertical, 8)
-              .background(AppTheme.card, in: Capsule(style: .continuous))
+              .background(model.appearancePalette.card, in: Capsule(style: .continuous))
               .overlay {
                 Capsule(style: .continuous)
                   .strokeBorder(selected ? accent : Color.clear, lineWidth: 2)
@@ -262,57 +278,80 @@ private struct PodcastChartsCategoryPillStrip: View {
 private struct PodcastDirectoryHitRow: View {
   @EnvironmentObject private var model: AppModel
   let hit: ABSPodcastDirectorySearchHit
+  /// Ganze Karte öffnet die Sendung (Feed-Infos + alle Folgen), wie Library-Zeilen ihr Detail.
+  let onOpen: () -> Void
   let onSubscribe: () -> Void
 
   var body: some View {
     let palette = model.appearancePalette
-    return HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
-      LibraryRowLayout.coverSlot {
-        LibraryRowLayout.rowCoverImage(
-          url: hit.cover.flatMap(URL.init(string:)),
-          token: model.token,
-          itemId: "podcast-dir:\(hit.id)",
-          cacheAccount: model.coverImageCacheAccountDirectory(),
-          cacheRevision: model.coverImageCacheRevision,
-          requiresAuthorization: false
-        )
-        .accessibilityHidden(true)
-      }
+    return LibraryRowLayout.libraryRowCardChrome(
+      cardColor: palette.card,
+      showsBottomProgressBar: false,
+      progressValue: 0,
+      openDetails: onOpen
+    ) {
+      HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
+        LibraryRowLayout.coverSlot {
+          LibraryRowLayout.rowCoverImage(
+            url: hit.cover.flatMap(URL.init(string:)),
+            token: model.token,
+            itemId: "podcast-dir:\(hit.id)",
+            cacheAccount: model.coverImageCacheAccountDirectory(),
+            cacheRevision: model.coverImageCacheRevision,
+            requiresAuthorization: false
+          )
+          .accessibilityHidden(true)
+        }
 
-      LibraryRowLayout.metadataColumn(showsProgressBar: false) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text(hit.title)
-            .font(.headline.weight(.semibold))
-            .foregroundStyle(palette.textPrimary)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .minimumScaleFactor(0.85)
-            .fixedSize(horizontal: false, vertical: true)
-          if let a = hit.artistName, !a.isEmpty {
-            Text(a)
-              .font(.subheadline)
-              .foregroundStyle(palette.textSecondary)
+        LibraryRowLayout.metadataColumn(showsProgressBar: false) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(hit.title)
+              .font(.headline.weight(.semibold))
+              .foregroundStyle(palette.textPrimary)
               .lineLimit(1)
-          }
-          Spacer(minLength: 0)
-          LibraryRowLayout.metadataFooter {
-            if let n = hit.trackCount, n > 0 {
-              Text("\(n) episodes")
-                .font(.subheadline.monospacedDigit())
+              .truncationMode(.tail)
+              .minimumScaleFactor(0.85)
+              .fixedSize(horizontal: false, vertical: true)
+            if let a = hit.artistName, !a.isEmpty {
+              Text(a)
+                .font(.subheadline)
                 .foregroundStyle(palette.textSecondary)
+                .lineLimit(1)
             }
-          } trailing: {
-            subscribeControl
+            if let context = contextLine {
+              Text(context)
+                .font(.caption)
+                .foregroundStyle(palette.textSecondary)
+                .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            LibraryRowLayout.metadataFooter {
+              if let n = hit.trackCount, n > 0 {
+                Text("\(n) episodes")
+                  .font(.subheadline.monospacedDigit())
+                  .foregroundStyle(palette.textSecondary)
+              }
+            } trailing: {
+              subscribeControl
+            }
           }
         }
       }
     }
-    .background(palette.card)
-    .clipShape(LibraryRowLayout.cardShape)
-    .overlay {
-      LibraryRowLayout.cardShape.strokeBorder(palette.textSecondary.opacity(0.22), lineWidth: 1)
-    }
-    .abstandCardElevation(.standard)
+    .accessibilityElement(children: .contain)
+    .accessibilityHint("Opens show details")
+    .abstandThemeRefresh()
+  }
+
+  /// Genres und Explicit-Kennzeichnung aus dem Verzeichnis — bisher ungenutzte Treffer-Daten.
+  private var contextLine: String? {
+    var parts: [String] = []
+    let genres = (hit.genres ?? [])
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+    if !genres.isEmpty { parts.append(genres.prefix(2).joined(separator: " · ")) }
+    if hit.explicit == true { parts.append("Explicit") }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
   }
 
   @ViewBuilder

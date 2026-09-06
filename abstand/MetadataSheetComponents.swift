@@ -231,27 +231,74 @@ struct MetadataSheetTextField: View {
   }
 }
 
-/// Beschriftetes Menü-Picker-Feld (Provider, Region) im gleichen Feld-Chrome wie Textfelder.
-struct MetadataSheetMenuPicker<SelectionValue: Hashable, Options: View>: View {
-  @Environment(\.themeAccent) private var themeAccent
+/// Gemessene Innenbreite einer Metadaten-Karte (für Controls, die keine Breite vorgeschlagen bekommen).
+private struct MetadataSheetContentWidthKey: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
+  }
+}
 
+/// Beschriftetes Auswahlfeld (Provider, Region) — die Auswahl selbst ist die Dropdown-Pill
+/// aus der Custom-Navbar (`AbstandBrowseStripDropdownPill`): Akzent-Kapsel mit Symbol, Wert
+/// und Chevron.
+///
+/// `Menu` schlägt seinem Label in einer Karte keine Breite vor, deshalb wird die Kartenbreite
+/// gemessen und der Pill als feste Label-Breite mitgegeben — sonst bliebe die Kapsel auf
+/// Inhaltsbreite statt die Karte zu füllen.
+struct MetadataSheetMenuPicker: View {
   let title: String
-  @Binding var selection: SelectionValue
-  @ViewBuilder let options: () -> Options
+  /// Symbol in der Pill (alle Optionen teilen es, wie die Library-Pill im Browse-Strip).
+  var systemImage: String = "list.bullet"
+  @Binding var selection: String
+  let options: [(id: String, label: String)]
+
+  @State private var contentWidth: CGFloat = 0
+
+  private var items: [AbstandBrowseStripItem] {
+    options.map {
+      AbstandBrowseStripItem(id: $0.id, label: $0.label, systemImage: systemImage)
+    }
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.labelToContentSpacing) {
       MetadataSheetFieldLabel(title: title)
-      Picker(title, selection: $selection) {
-        options()
-      }
-      .pickerStyle(.menu)
-      .labelsHidden()
-      .tint(themeAccent)
-      .accessibilityLabel(title)
-      .metadataSheetFieldChrome(verticalPadding: 4)
+      AbstandBrowseStripDropdownPill(
+        items: items,
+        selectionID: selection,
+        fallbackSystemImage: systemImage,
+        accessibilityLabel: title,
+        accessibilityHint: "Chooses \(title.lowercased())",
+        labelWidth: contentWidth > 0 ? contentWidth : nil,
+        onSelect: { selection = $0 }
+      )
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+    .background {
+      GeometryReader { geo in
+        Color.clear.preference(key: MetadataSheetContentWidthKey.self, value: geo.size.width)
+      }
+    }
+    .onPreferenceChange(MetadataSheetContentWidthKey.self) { contentWidth = $0 }
+  }
+}
+
+/// Suchaktion in Metadaten-Karten — volle Kartenbreite unter den Feldern.
+struct MetadataSheetSearchButton: View {
+  var title: String = "Search"
+  var isEnabled: Bool = true
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Label(title, systemImage: "magnifyingglass")
+        .labelStyle(.titleAndIcon)
+        .frame(maxWidth: .infinity)
+    }
+    .buttonStyle(AbstandProminentButtonStyle())
+    .disabled(!isEnabled)
   }
 }
 
@@ -284,20 +331,5 @@ struct MetadataSheetToggleRow: View {
     }
     .tint(themeAccent)
     .abstandThemeRefresh()
-  }
-}
-
-/// Inline-Hinweis (leere Trefferliste, Fehlermeldung) innerhalb einer Sektion.
-struct MetadataSheetInlineNotice: View {
-  @EnvironmentObject private var model: AppModel
-  let text: String
-  var isError = false
-
-  var body: some View {
-    Text(text)
-      .font(.footnote)
-      .foregroundStyle(isError ? AppTheme.danger : model.appearancePalette.textSecondary)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .abstandThemeRefresh()
   }
 }

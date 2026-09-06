@@ -83,21 +83,17 @@ struct MatchMetadataSheet: View {
           submitLabel: .search,
           onSubmit: { Task { await runSearch() } }
         )
-        HStack(alignment: .bottom, spacing: 12) {
-          MetadataSheetMenuPicker(title: "Provider", selection: $provider) {
-            ForEach(availableProviders) { p in
-              Text(p.text).tag(p.value)
-            }
-          }
-          Button {
-            Task { await runSearch() }
-          } label: {
-            Label("Search", systemImage: "magnifyingglass")
-              .labelStyle(.titleAndIcon)
-          }
-          .buttonStyle(AbstandProminentButtonStyle())
-          .disabled(
-            titleQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+        MetadataSheetMenuPicker(
+          title: "Provider",
+          systemImage: "globe",
+          selection: $provider,
+          options: availableProviders.map { (id: $0.value, label: $0.text) }
+        )
+        MetadataSheetSearchButton(
+          isEnabled: !titleQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !isSearching
+        ) {
+          Task { await runSearch() }
         }
       }
     }
@@ -125,7 +121,7 @@ struct MatchMetadataSheet: View {
     } else if let searchError {
       MetadataSheetSection(title: "Results") {
         MetadataSheetCard {
-          MetadataSheetInlineNotice(text: searchError, isError: true)
+          AbstandInlineNotice(text: searchError, isError: true)
         }
       }
     } else if results.isEmpty {

@@ -338,21 +338,17 @@ struct EditMetadataSheet: View {
           submitLabel: .search,
           onSubmit: { Task { await runCoverSearch() } }
         )
-        HStack(alignment: .bottom, spacing: 12) {
-          MetadataSheetMenuPicker(title: "Provider", selection: $coverProvider) {
-            ForEach(coverProviders, id: \.value) { p in
-              Text(p.label).tag(p.value)
-            }
-          }
-          Button {
-            Task { await runCoverSearch() }
-          } label: {
-            Label("Search", systemImage: "magnifyingglass")
-              .labelStyle(.titleAndIcon)
-          }
-          .buttonStyle(AbstandProminentButtonStyle())
-          .disabled(
-            coverTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearchingCovers)
+        MetadataSheetMenuPicker(
+          title: "Provider",
+          systemImage: "photo.on.rectangle.angled",
+          selection: $coverProvider,
+          options: coverProviders.map { (id: $0.value, label: $0.label) }
+        )
+        MetadataSheetSearchButton(
+          isEnabled: !coverTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !isSearchingCovers
+        ) {
+          Task { await runCoverSearch() }
         }
       }
 
@@ -368,12 +364,12 @@ struct EditMetadataSheet: View {
       }
     } else if let coverSearchError {
       MetadataSheetCard {
-        MetadataSheetInlineNotice(text: coverSearchError, isError: true)
+        AbstandInlineNotice(text: coverSearchError, isError: true)
       }
     } else if coverResults.isEmpty {
       if hasSearchedCovers {
         MetadataSheetCard {
-          MetadataSheetInlineNotice(text: "No covers found.")
+          AbstandInlineNotice(text: "No covers found.")
         }
       }
     } else {

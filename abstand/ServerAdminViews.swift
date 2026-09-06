@@ -116,15 +116,27 @@ private struct SettingsCardToggleRow: View {
   @Environment(\.themeAccent) private var themeAccent
   let icon: String
   let title: String
+  /// Erklärzeile unter dem Titel (statt loser `Text`-Blöcke neben der Zeile).
+  var subtitle: String? = nil
   @Binding var isOn: Bool
 
   var body: some View {
+    let palette = model.appearancePalette
     HStack(spacing: 12) {
       SettingsCardIcon(systemName: icon)
       Toggle(isOn: $isOn) {
-        Text(title)
-          .font(.body)
-          .foregroundStyle(model.appearancePalette.textPrimary)
+        VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 4) {
+          Text(title)
+            .font(.body)
+            .foregroundStyle(palette.textPrimary)
+          if let subtitle {
+            Text(subtitle)
+              .font(.caption)
+              .foregroundStyle(palette.textSecondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
       .tint(themeAccent)
     }
@@ -199,6 +211,7 @@ private struct SettingsCardPickerRow: View {
   let title: String
   @Binding var selection: String
   let options: [(id: String, label: String)]
+  var isEnabled: Bool = true
 
   var body: some View {
     HStack(spacing: 12) {
@@ -215,8 +228,10 @@ private struct SettingsCardPickerRow: View {
       .pickerStyle(.menu)
       .labelsHidden()
       .tint(model.appearanceAccentColor)
+      .disabled(!isEnabled)
     }
     .settingsCardRowFrame()
+    .opacity(isEnabled ? 1 : 0.45)
   }
 }
 
@@ -451,34 +466,104 @@ private struct SettingsCardAutoDownloadIntervalRow: View {
   }
 }
 
+/// Aktionszeile in einer Settings-Karte (Clear cache, Log out, Unsubscribe, …).
+/// `tint` färbt Symbol + Titel (z. B. `AppTheme.danger`), `isBusy` ersetzt das Endsymbol
+/// durch einen Spinner — damit sehen alle Aktionszeilen der App gleich aus.
 private struct SettingsCardActionRow: View {
   @EnvironmentObject private var model: AppModel
   let icon: String
   let title: String
-  let subtitle: String?
-  let trailingIcon: String
+  var subtitle: String? = nil
+  var trailingIcon: String? = nil
+  var tint: Color? = nil
   var isEnabled: Bool = true
+  var isBusy: Bool = false
 
   var body: some View {
+    let palette = model.appearancePalette
+    HStack(spacing: 12) {
+      SettingsCardIcon(systemName: icon, tint: tint)
+      VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 4) {
+        Text(title)
+          .font(.body.weight(.medium))
+          .foregroundStyle(tint ?? palette.textPrimary)
+        if let subtitle {
+          Text(subtitle)
+            .font(.caption)
+            .foregroundStyle(palette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      Spacer(minLength: 0)
+      if isBusy {
+        ProgressView()
+          .controlSize(.small)
+          .tint(model.appearanceAccentColor)
+      } else if let trailingIcon {
+        Image(systemName: trailingIcon)
+          .foregroundStyle(palette.textSecondary)
+      }
+    }
+    .settingsCardCompactRowFrame(alignment: .leading)
+    .opacity(isEnabled ? 1 : 0.45)
+  }
+}
+
+/// Reine Anzeigezeile (Wert, Status) — gleiche Metrik wie Nav-/Aktionszeilen.
+private struct SettingsCardInfoRow: View {
+  @EnvironmentObject private var model: AppModel
+  let icon: String
+  let title: String
+  var subtitle: String? = nil
+  var trailingIcon: String? = nil
+  var trailingTint: Color? = nil
+
+  var body: some View {
+    let palette = model.appearancePalette
     HStack(spacing: 12) {
       SettingsCardIcon(systemName: icon)
       VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 4) {
         Text(title)
           .font(.body.weight(.medium))
-          .foregroundStyle(model.appearancePalette.textPrimary)
+          .foregroundStyle(palette.textPrimary)
         if let subtitle {
           Text(subtitle)
             .font(.caption)
-            .foregroundStyle(model.appearancePalette.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
+            .foregroundStyle(palette.textSecondary)
+            .lineLimit(2)
         }
       }
       Spacer(minLength: 0)
-      Image(systemName: trailingIcon)
-        .foregroundStyle(model.appearancePalette.textSecondary)
+      if let trailingIcon {
+        Image(systemName: trailingIcon)
+          .foregroundStyle(trailingTint ?? palette.textSecondary)
+      }
     }
     .settingsCardCompactRowFrame(alignment: .leading)
-    .opacity(isEnabled ? 1 : 0.45)
+  }
+}
+
+/// Leerzustand innerhalb einer Settings-Karte (Titel + Erklärung) — statt loser `Text`-Zeilen.
+private struct SettingsCardEmptyState: View {
+  @EnvironmentObject private var model: AppModel
+  let title: String
+  var message: String? = nil
+
+  var body: some View {
+    let palette = model.appearancePalette
+    VStack(alignment: .leading, spacing: 4) {
+      Text(title)
+        .font(.body)
+        .foregroundStyle(palette.textPrimary)
+      if let message {
+        Text(message)
+          .font(.caption)
+          .foregroundStyle(palette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .settingsCardCompactRowFrame(alignment: .leading)
   }
 }
 
@@ -893,26 +978,14 @@ struct SettingsAccountView: View {
                 guard !model.isActiveStoredAccount(account) else { return }
                 Task { await model.switchToAccount(account.accountKey) }
               } label: {
-                HStack(spacing: 12) {
-                  SettingsCardIcon(
-                    systemName: model.isActiveStoredAccount(account) ? "person.crop.circle.fill" : "person.crop.circle"
-                  )
-                  VStack(alignment: .leading, spacing: 2) {
-                    Text(account.displayUsername)
-                      .font(.body.weight(.medium))
-                      .foregroundStyle(model.appearancePalette.textPrimary)
-                    Text(account.displayServerHost)
-                      .font(.caption)
-                      .foregroundStyle(model.appearancePalette.textPrimary)
-                      .lineLimit(1)
-                  }
-                  Spacer(minLength: 0)
-                  if model.isActiveStoredAccount(account) {
-                    Image(systemName: "checkmark.circle.fill")
-                      .foregroundStyle(model.appearanceAccentColor)
-                  }
-                }
-                .settingsCardCompactRowFrame(alignment: .leading)
+                SettingsCardInfoRow(
+                  icon: model.isActiveStoredAccount(account)
+                    ? "person.crop.circle.fill" : "person.crop.circle",
+                  title: account.displayUsername,
+                  subtitle: account.displayServerHost,
+                  trailingIcon: model.isActiveStoredAccount(account) ? "checkmark.circle.fill" : nil,
+                  trailingTint: model.appearanceAccentColor
+                )
                 .contentShape(Rectangle())
               }
               .buttonStyle(.plain)
@@ -927,14 +1000,8 @@ struct SettingsAccountView: View {
             Button {
               showAddAccount = true
             } label: {
-              HStack(spacing: 12) {
-                SettingsCardIcon(systemName: "plus.circle.fill")
-                Text("Add account")
-                  .font(.body.weight(.medium))
-                  .foregroundStyle(model.appearancePalette.textPrimary)
-                Spacer(minLength: 0)
-              }
-              .settingsCardCompactRowFrame()
+              SettingsCardActionRow(icon: "plus.circle.fill", title: "Add account")
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(model.isSwitchingAccount)
@@ -973,10 +1040,7 @@ struct SettingsAccountView: View {
 
         AbstandGroupedCard {
           if model.sortedBookLibraries.isEmpty {
-            Text("No book libraries on this server.")
-              .font(.subheadline)
-              .foregroundStyle(model.appearancePalette.textSecondary)
-              .settingsCardCompactRowFrame(alignment: .leading)
+            SettingsCardEmptyState(title: "No book libraries on this server.")
           } else {
             SettingsCardPickerRow(
               icon: "books.vertical.fill",
@@ -1004,10 +1068,7 @@ struct SettingsAccountView: View {
 
         AbstandGroupedCard {
           if model.sortedPodcastLibraries.isEmpty {
-            Text("No podcast libraries on this server.")
-              .font(.subheadline)
-              .foregroundStyle(model.appearancePalette.textSecondary)
-              .settingsCardCompactRowFrame(alignment: .leading)
+            SettingsCardEmptyState(title: "No podcast libraries on this server.")
           } else {
             SettingsCardPickerRow(
               icon: "mic.fill",
@@ -1056,15 +1117,12 @@ struct SettingsAccountView: View {
           Button {
             model.logout()
           } label: {
-            HStack(spacing: 12) {
-              SettingsCardIcon(
-                systemName: "rectangle.portrait.and.arrow.right", tint: AppTheme.danger)
-              Text("Log out")
-                .font(.body.weight(.medium))
-                .foregroundStyle(AppTheme.danger)
-              Spacer(minLength: 0)
-            }
-            .settingsCardCompactRowFrame()
+            SettingsCardActionRow(
+              icon: "rectangle.portrait.and.arrow.right",
+              title: "Log out",
+              tint: AppTheme.danger
+            )
+            .contentShape(Rectangle())
           }
           .buttonStyle(.plain)
         }
@@ -1102,57 +1160,60 @@ struct SettingsChangePasswordView: View {
 
   var body: some View {
     ServerAdminScrollScreen {
-      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-        AbstandGroupedCard {
-          VStack(alignment: .leading, spacing: 0) {
-            // Reihenfolge für System-AutoFill: Current → Username → New → Confirm.
-            SettingsCardSecureFieldRow(
-              icon: "lock.fill",
-              title: "Current password",
-              text: $currentPassword,
-              textContentType: .password
-            )
-            if !model.sessionUsername.isEmpty {
+      ServerAdminSection(title: "Password") {
+        LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+          AbstandGroupedCard {
+            VStack(alignment: .leading, spacing: 0) {
+              // Reihenfolge für System-AutoFill: Current → Username → New → Confirm.
+              SettingsCardSecureFieldRow(
+                icon: "lock.fill",
+                title: "Current password",
+                text: $currentPassword,
+                textContentType: .password
+              )
+              if !model.sessionUsername.isEmpty {
+                SettingsCardDivider()
+                SettingsCardUsernameAutofillRow(username: model.sessionUsername)
+              }
               SettingsCardDivider()
-              SettingsCardUsernameAutofillRow(username: model.sessionUsername)
+              SettingsCardSecureFieldRow(
+                icon: "lock.open.fill",
+                title: "New password",
+                text: $newPassword,
+                placeholder: model.isServerRoot ? "Optional" : "Required",
+                textContentType: .newPassword
+              )
+              SettingsCardDivider()
+              SettingsCardSecureFieldRow(
+                icon: "lock.fill",
+                title: "Confirm password",
+                text: $confirmPassword,
+                placeholder: model.isServerRoot ? "Optional" : "Required",
+                textContentType: .newPassword
+              )
             }
-            SettingsCardDivider()
-            SettingsCardSecureFieldRow(
-              icon: "lock.open.fill",
-              title: "New password",
-              text: $newPassword,
-              placeholder: model.isServerRoot ? "Optional" : "Required",
-              textContentType: .newPassword
-            )
-            SettingsCardDivider()
-            SettingsCardSecureFieldRow(
-              icon: "lock.fill",
-              title: "Confirm password",
-              text: $confirmPassword,
-              placeholder: model.isServerRoot ? "Optional" : "Required",
-              textContentType: .newPassword
-            )
           }
-        }
 
-        Button {
-          Task { await submit() }
-        } label: {
-          HStack(spacing: 8) {
-            if busy {
-              ProgressView()
-                .tint(model.appearancePalette.foregroundOnAccent(model.appearanceAccentColor))
+          Button {
+            Task { await submit() }
+          } label: {
+            HStack(spacing: 8) {
+              if busy {
+                ProgressView()
+                  .tint(model.appearancePalette.foregroundOnAccent(model.appearanceAccentColor))
+              }
+              Text("Save password")
             }
-            Text("Save password")
           }
-        }
-        .buttonStyle(AbstandPrimaryButtonStyle())
-        .disabled(!submitEnabled)
+          .buttonStyle(AbstandPrimaryButtonStyle())
+          .disabled(!submitEnabled)
 
-        if let statusMessage {
-          Text(statusMessage)
-            .font(.footnote)
-            .foregroundStyle(statusIsError ? AppTheme.danger : AppTheme.success)
+          if let statusMessage {
+            Text(statusMessage)
+              .font(.footnote)
+              .foregroundStyle(statusIsError ? AppTheme.danger : AppTheme.success)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
         }
       }
     }
@@ -1239,18 +1300,13 @@ private struct SettingsPlaybackContent: View {
           )
         }
         AbstandGroupedCard {
-          VStack(alignment: .leading, spacing: 4) {
-            SettingsCardToggleRow(
-              icon: "text.bubble",
-              title: "Prepare transcripts in background",
-              isOn: $model.readAlongPrefetchEnabled
-            )
-            Text(teleprompterPrefetchSubtitle)
-              .font(.caption)
-              .foregroundStyle(AppTheme.textSecondary)
-              .fixedSize(horizontal: false, vertical: true)
-              .padding(.bottom, 6)
-          }
+          // `subtitle` der vereinheitlichten Zeile statt eigenem Text-Block darunter.
+          SettingsCardToggleRow(
+            icon: "text.bubble",
+            title: "Prepare transcripts in background",
+            subtitle: teleprompterPrefetchSubtitle,
+            isOn: $model.readAlongPrefetchEnabled
+          )
         }
       }
     }
@@ -1299,18 +1355,14 @@ struct SettingsAppearanceView: View {
             Button {
               model.resetAppearanceAccentToDefault()
             } label: {
-              HStack(spacing: 12) {
-                SettingsCardIcon(systemName: "arrow.counterclockwise")
-                Text("Reset to default")
-                  .font(.body.weight(.medium))
-                  .foregroundStyle(model.appearancePalette.textPrimary)
-                Spacer(minLength: 0)
-              }
-              .settingsCardRowFrame()
+              SettingsCardActionRow(
+                icon: "arrow.counterclockwise",
+                title: "Reset to default",
+                isEnabled: !model.appearanceAccentMatchesDefault
+              )
             }
             .buttonStyle(.plain)
             .disabled(model.appearanceAccentMatchesDefault)
-            .opacity(model.appearanceAccentMatchesDefault ? 0.45 : 1)
           }
         }
       }
@@ -1497,8 +1549,7 @@ struct ServerUsersListView: View {
   var body: some View {
     Group {
       if loading && users.isEmpty {
-        ProgressView()
-          .tint(model.appearanceAccentColor)
+        AbstandLoadingSpinner()
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if let loadError, users.isEmpty {
         ContentUnavailableView(
@@ -1613,15 +1664,9 @@ struct ServerUserDetailView: View {
     ServerAdminScrollScreen {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         if loading && detail == nil {
-          ProgressView()
-            .tint(model.appearanceAccentColor)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 40)
+          AbstandLoadingSpinner(verticalPadding: 40)
         } else if let loadError, detail == nil {
-          Text(loadError)
-            .font(.subheadline)
-            .foregroundStyle(model.appearancePalette.textSecondary)
-            .frame(maxWidth: .infinity)
+          AbstandInlineNotice(text: loadError, isError: true)
             .padding(.vertical, 32)
         } else if let detail {
           headerBlock(detail)
@@ -1749,8 +1794,8 @@ struct ServerUserListeningSessionsView: View {
   var body: some View {
     Group {
       if loading && sessions.isEmpty {
-        ProgressView()
-          .tint(model.appearanceAccentColor)
+        AbstandLoadingSpinner()
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if let loadError, sessions.isEmpty {
         ContentUnavailableView(
           "No sessions",
@@ -1966,13 +2011,9 @@ struct ServerLibraryDetailView: View {
             .foregroundStyle(model.appearancePalette.textSecondary)
         }
         if loading && stats == nil && detail == nil {
-          ProgressView()
-            .tint(model.appearanceAccentColor)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 40)
+          AbstandLoadingSpinner(verticalPadding: 40)
         } else if let loadError, stats == nil && detail == nil {
-          Text(loadError)
-            .foregroundStyle(model.appearancePalette.textSecondary)
+          AbstandInlineNotice(text: loadError, isError: true)
         } else {
           if let stats {
             ServerAdminSection(title: "Overview") {
@@ -2297,9 +2338,7 @@ private struct ServerM4BProgressContent: View {
     ServerAdminScrollScreen {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         if let purgeMessage {
-          Text(purgeMessage)
-            .font(.caption)
-            .foregroundStyle(model.appearancePalette.textSecondary)
+          AbstandInlineNotice(text: purgeMessage)
         }
 
         ServerAdminSection(title: "Media Cache") {
@@ -2307,26 +2346,15 @@ private struct ServerM4BProgressContent: View {
             confirmPurgeCache = true
           } label: {
             AbstandGroupedCard {
-              HStack(spacing: 12) {
-                Image(systemName: "trash")
-                  .font(.body.weight(.semibold))
-                  .foregroundStyle(AppTheme.danger)
-                  .frame(width: 28, alignment: .center)
-                VStack(alignment: .leading, spacing: 4) {
-                  Text("Delete media cache")
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(model.appearancePalette.textPrimary)
-                  Text("Clears /metadata/cache/items (originals after M4B merge).")
-                    .font(.caption)
-                    .foregroundStyle(model.appearancePalette.textSecondary)
-                }
-                Spacer(minLength: 0)
-                if purgeBusy {
-                  ProgressView()
-                    .controlSize(.small)
-                }
-              }
-              .settingsCardCompactRowFrame(alignment: .leading)
+              SettingsCardActionRow(
+                icon: "trash",
+                title: "Delete media cache",
+                subtitle: "Clears /metadata/cache/items (originals after M4B merge).",
+                tint: AppTheme.danger,
+                isEnabled: model.isNetworkReachable && !purgeBusy,
+                isBusy: purgeBusy
+              )
+              .contentShape(Rectangle())
             }
           }
           .buttonStyle(.plain)
@@ -2335,9 +2363,12 @@ private struct ServerM4BProgressContent: View {
 
         ServerAdminSection(title: "Conversions") {
           if activeJobs.isEmpty && recentJobs.isEmpty {
-            Text("No conversions yet. Start one from a book’s More menu.")
-              .font(.subheadline)
-              .foregroundStyle(model.appearancePalette.textSecondary)
+            AbstandGroupedCard {
+              SettingsCardEmptyState(
+                title: "No conversions yet.",
+                message: "Start one from a book’s More menu."
+              )
+            }
           } else {
             LazyVStack(spacing: 8) {
               ForEach(activeJobs) { job in
@@ -2455,8 +2486,7 @@ struct ServerAdminPodcastShowsListView: View {
   var body: some View {
     Group {
       if model.podcastShowsLoading, model.podcastShows.isEmpty {
-        ProgressView()
-          .tint(model.appearanceAccentColor)
+        AbstandLoadingSpinner()
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if model.podcastShows.isEmpty {
         ContentUnavailableView(
@@ -2630,15 +2660,9 @@ private struct ServerAdminPodcastRssSection: View {
         }
 
         if loading, drafts.isEmpty, libraryOnly.isEmpty, unavailable == nil {
-          ProgressView()
-            .controlSize(.large)
-            .tint(model.appearanceAccentColor)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 32)
+          AbstandLoadingSpinner(verticalPadding: 32)
         } else if drafts.isEmpty, libraryOnly.isEmpty, unavailable == nil {
-          Text("No episodes found in the feed.")
-            .font(.subheadline)
-            .foregroundStyle(model.appearancePalette.textSecondary)
+          AbstandInlineNotice(text: "No episodes found in the feed.")
         } else {
           ForEach(drafts) { draft in
             PodcastRssFeedDraftRow(
@@ -2783,11 +2807,7 @@ struct PodcastShowAutoDownloadSettingsContent: View {
     AbstandGroupedCard {
       Group {
         if model.podcastAutoDownloadSettingsShowId != showId {
-          ProgressView()
-            .controlSize(.small)
-            .tint(model.appearanceAccentColor)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 24)
+          AbstandLoadingSpinner(controlSize: .small, verticalPadding: 24)
         } else {
           VStack(alignment: .leading, spacing: 0) {
             SettingsCardToggleRow(
@@ -2889,30 +2909,17 @@ private struct PodcastShowTranscriptionLanguageSettingsContent: View {
     AbstandGroupedCard {
       Group {
         if model.podcastShowTranscriptionLanguageShowId != showId {
-          ProgressView()
-            .controlSize(.small)
-            .tint(model.appearanceAccentColor)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 24)
+          AbstandLoadingSpinner(controlSize: .small, verticalPadding: 24)
         } else {
-          VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 12) {
-              SettingsCardIcon(systemName: "captions.bubble")
-              Text("Language")
-                .font(.body.weight(.medium))
-                .foregroundStyle(model.appearancePalette.textPrimary)
-              Spacer(minLength: 0)
-              Picker("Language", selection: selection) {
-                ForEach(PodcastShowTranscriptionLanguage.allCases) { language in
-                  Text(language.title).tag(language.rawValue)
-                }
-              }
-              .labelsHidden()
-              .pickerStyle(.menu)
-              .disabled(!model.isNetworkReachable || model.podcastShowTranscriptionLanguageSaving)
-            }
-          }
-          .settingsCardRowFrame()
+          SettingsCardPickerRow(
+            icon: "captions.bubble",
+            title: "Language",
+            selection: selection,
+            options: PodcastShowTranscriptionLanguage.allCases.map {
+              (id: $0.rawValue, label: $0.title)
+            },
+            isEnabled: model.isNetworkReachable && !model.podcastShowTranscriptionLanguageSaving
+          )
         }
       }
     }
@@ -2946,21 +2953,14 @@ private struct ServerAdminPodcastSettingsSection: View {
             Button {
               Task { await model.checkAndDownloadNewPodcastEpisodes(showId: showId) }
             } label: {
-              HStack(spacing: 12) {
-                SettingsCardIcon(systemName: "arrow.clockwise.circle")
-                Text("Check & download new episodes")
-                  .font(.body.weight(.medium))
-                  .foregroundStyle(model.appearancePalette.textPrimary)
-                Spacer(minLength: 0)
-                if model.podcastCheckNewInProgressShowId == showId {
-                  ProgressView()
-                    .controlSize(.small)
-                    .tint(model.appearanceAccentColor)
-                }
-              }
-              .settingsCardRowFrame()
-              .opacity(
-                model.isNetworkReachable && model.podcastCheckNewInProgressShowId != showId ? 1 : 0.45)
+              SettingsCardActionRow(
+                icon: "arrow.clockwise.circle",
+                title: "Check & download new episodes",
+                isEnabled: model.isNetworkReachable
+                  && model.podcastCheckNewInProgressShowId != showId,
+                isBusy: model.podcastCheckNewInProgressShowId == showId
+              )
+              .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!model.isNetworkReachable || model.podcastCheckNewInProgressShowId == showId)
@@ -2971,18 +2971,16 @@ private struct ServerAdminPodcastSettingsSection: View {
           Button {
             onRemove()
           } label: {
-            HStack(spacing: 12) {
-              SettingsCardIcon(systemName: "minus.circle", tint: AppTheme.danger)
-              Text("Unsubscribe")
-                .font(.body.weight(.medium))
-                .foregroundStyle(AppTheme.danger)
-              Spacer(minLength: 0)
-            }
-            .settingsCardCompactRowFrame()
+            SettingsCardActionRow(
+              icon: "minus.circle",
+              title: "Unsubscribe",
+              tint: AppTheme.danger,
+              isEnabled: model.isNetworkReachable
+            )
+            .contentShape(Rectangle())
           }
           .buttonStyle(.plain)
           .disabled(!model.isNetworkReachable)
-          .opacity(model.isNetworkReachable ? 1 : 0.45)
         }
       }
     }
@@ -3087,33 +3085,20 @@ private struct SettingsDownloadsManageView: View {
     ServerAdminSection(title: "Saved offline") {
       if rows.isEmpty {
         AbstandGroupedCard {
-          VStack(alignment: .leading, spacing: 4) {
-            Text("No downloads yet.")
-              .font(.body)
-              .foregroundStyle(model.appearancePalette.textPrimary)
-            Text("Downloads appear here once you save an audiobook or episode offline.")
-              .font(.caption)
-              .foregroundStyle(model.appearancePalette.textSecondary)
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.vertical, 6)
+          SettingsCardEmptyState(
+            title: "No downloads yet.",
+            message: "Downloads appear here once you save an audiobook or episode offline."
+          )
         }
       } else {
         LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
           if totalBytes > 0 {
             AbstandGroupedCard {
-              HStack(spacing: 12) {
-                SettingsCardIcon(systemName: "internaldrive")
-                VStack(alignment: .leading, spacing: 2) {
-                  Text("Total storage")
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(model.appearancePalette.textPrimary)
-                  Text(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))
-                    .font(.caption)
-                    .foregroundStyle(model.appearancePalette.textSecondary)
-                }
-                Spacer(minLength: 0)
-              }
+              SettingsCardInfoRow(
+                icon: "internaldrive",
+                title: "Total storage",
+                subtitle: ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
+              )
             }
           }
           ForEach(rows) { row in
@@ -3410,45 +3395,66 @@ private struct DebugLogExportView: View {
   var body: some View {
     ServerAdminSection(title: "Debug Log") {
       AbstandGroupedCard {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          Text("\(entries.count) entries")
-            .font(.subheadline)
-            .foregroundStyle(model.appearancePalette.textSecondary)
-
-          HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-            Button {
-              shareText = DebugLogCollector.shared.exportText
-              showShareSheet = true
-            } label: {
-              Label("Export", systemImage: "square.and.arrow.up")
-            }
-            .buttonStyle(.bordered)
-            .tint(model.appearanceAccentColor)
-
-            Button {
-              entries = DebugLogCollector.shared.entries
-            } label: {
-              Label("Refresh", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.bordered)
-            .tint(model.appearanceAccentColor)
-
-            Button(role: .destructive) {
-              DebugLogCollector.shared.clear()
-              entries = []
-            } label: {
-              Label("Clear", systemImage: "trash")
-            }
-            .buttonStyle(.bordered)
+        VStack(alignment: .leading, spacing: 0) {
+          SettingsCardInfoRow(
+            icon: "doc.text.magnifyingglass",
+            title: "Collected entries",
+            subtitle: entries.count == 1 ? "1 entry" : "\(entries.count) entries"
+          )
+          SettingsCardDivider()
+          Button {
+            shareText = DebugLogCollector.shared.exportText
+            showShareSheet = true
+          } label: {
+            SettingsCardActionRow(
+              icon: "square.and.arrow.up",
+              title: "Export log",
+              trailingIcon: "chevron.right",
+              isEnabled: !entries.isEmpty
+            )
+            .contentShape(Rectangle())
           }
+          .buttonStyle(.plain)
+          .disabled(entries.isEmpty)
+          SettingsCardDivider()
+          // Der Collector publiziert bewusst nicht mehr (kein objectWillChange aus heißen
+          // Playback-Pfaden) — der Stand wird hier explizit nachgeladen.
+          Button {
+            entries = DebugLogCollector.shared.entries
+          } label: {
+            SettingsCardActionRow(
+              icon: "arrow.clockwise",
+              title: "Refresh",
+              trailingIcon: "chevron.right"
+            )
+            .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          SettingsCardDivider()
+          Button {
+            DebugLogCollector.shared.clear()
+            entries = []
+          } label: {
+            SettingsCardActionRow(
+              icon: "trash",
+              title: "Clear log",
+              tint: AppTheme.danger,
+              isEnabled: !entries.isEmpty
+            )
+            .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .disabled(entries.isEmpty)
         }
       }
 
       if entries.isEmpty {
-        Text("No log entries yet.")
-          .font(.subheadline)
-          .foregroundStyle(model.appearancePalette.textSecondary)
-          .padding(.vertical, 8)
+        AbstandGroupedCard {
+          SettingsCardEmptyState(
+            title: "No log entries yet.",
+            message: "Entries appear here while the app runs."
+          )
+        }
       } else {
         AbstandGroupedCard {
           VStack(alignment: .leading, spacing: 4) {
