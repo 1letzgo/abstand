@@ -184,11 +184,7 @@ struct BookChapterListView: View {
     let chapters = (book.media.chapters ?? []).sorted { $0.start < $1.start }
     Group {
       if chapters.isEmpty {
-        Text("No chapters available.")
-          .font(.caption)
-          .foregroundStyle(AppTheme.textSecondary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.vertical, 6)
+        AbstandSectionEmptyState(text: "No chapters available.")
       } else {
         VStack(alignment: .leading, spacing: 0) {
           ForEach(Array(chapters.enumerated()), id: \.element.id) { idx, chapter in

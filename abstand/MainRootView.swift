@@ -341,18 +341,11 @@ struct MainRootView: View {
         catalogFilterBanner
       }
       if model.isLoadingLibrary, rows.isEmpty {
-        ProgressView()
-          .controlSize(.large)
-          .tint(model.appearanceAccentColor)
-          .padding(.vertical, 32)
-          .frame(maxWidth: .infinity)
+        AbstandLoadingSpinner()
       } else if rows.isEmpty {
         // Empty-State (wie eBooks/Podcasts) — verhindert den „weißen" View, wenn die Liste
         // nach Filterwechsel, „Mark as finished" oder Progress-Sync leer wird.
-        Text("No books match the current filter.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.vertical, 8)
+        AbstandSectionEmptyState(text: "No books match the current filter.")
       } else if model.libraryBookCardStyle.usesMultiColumnGrid {
         libraryHeroMultiColumnBookRows(books: rows)
       } else {
@@ -539,25 +532,15 @@ struct MainRootView: View {
       TabContentSectionTitle(title: podcastCatalogSectionTitle(showId: showId))
 
       if listLoading {
-        ProgressView()
-          .controlSize(.large)
-          .tint(model.appearanceAccentColor)
-          .padding(.vertical, 32)
-          .frame(maxWidth: .infinity)
+        AbstandLoadingSpinner()
       } else if episodes.isEmpty {
         // Leerzustand — Bibliothek hat keine Folgen für diese Sendung bzw. der Feed ist leer.
         if isShowPane {
-          Text("No episodes in the library for this show.")
-            .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
-            .padding(.vertical, 8)
+          AbstandSectionEmptyState(text: "No episodes in the library for this show.")
         } else {
-          Text(
-            "No episodes in the list. Pull to refresh or check your network."
+          AbstandSectionEmptyState(
+            text: "No episodes in the list. Pull to refresh or check your network."
           )
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.vertical, 8)
         }
       }
 
@@ -599,11 +582,7 @@ struct MainRootView: View {
         model.isLoadingPodcastShowEpisodes,
         !episodes.isEmpty
       {
-        ProgressView()
-          .controlSize(.small)
-          .tint(model.appearanceAccentColor)
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 8)
+        AbstandLoadingSpinner(controlSize: .small, verticalPadding: 8)
       }
     }
   }

@@ -119,6 +119,22 @@ enum AppTheme {
     /// Kategoriezeile ↔ erste Zeile / Karten innerhalb eines Blocks.
     /// Etwas Luft für Karten-Schatten zwischen Zeilen/Blöcken.
     static let withinSectionSpacing: CGFloat = 10
+
+    // MARK: Basis-Abstände
+    // Die drei Werte decken den Großteil der früher literalen `spacing:`-Angaben ab.
+    // Reihenfolge der Wahl: `rowSpacing` (Icon ↔ Text in einer Zeile), `stackSpacing`
+    // (zusammengehörige Elemente untereinander), `tightSpacing` (Titel ↔ Untertitel).
+
+    /// Horizontal in einer Zeile: Icon/Cover ↔ Textspalte ↔ Trailing-Control.
+    static let rowSpacing: CGFloat = 12
+    /// Vertikal zwischen eng zusammengehörigen Elementen (Buttons, Chips, Meta-Zeilen).
+    static let stackSpacing: CGFloat = 8
+    /// Titel ↔ direkt zugehöriger Untertitel/Wert.
+    static let tightSpacing: CGFloat = 4
+    /// Vertikaler Innenabstand einer Inhaltszeile ohne Kartenrahmen.
+    static let rowVerticalPadding: CGFloat = 8
+    /// Leerzustand/Platzhalter innerhalb eines Scroll-Bereichs (vertikal, mittig).
+    static let emptyStateVerticalPadding: CGFloat = 32
     /// Buch-/Folgen-Detail: Titelblock → Play.
     static let detailPlayButtonTopPadding: CGFloat = 10
     /// Buch-/Folgen-Detail: Play → Metadaten (ohne Trennlinie).
@@ -635,7 +651,7 @@ extension View {
       .toolbarBackground(.hidden, for: .tabBar)
   }
 
-  /// Mindesthöhe für eine Zeile in `AbstandGroupedCard` / `StatsGroupedListCard`.
+  /// Mindesthöhe für eine Zeile in `AbstandGroupedCard`.
   func abstandCardListRowFrame(alignment: Alignment = .leading) -> some View {
     frame(
       maxWidth: .infinity,
@@ -1116,6 +1132,9 @@ extension View {
 }
 
 /// Kategoriezeile über Browse-Strips und Listen (Home, Library, Podcasts, Stats).
+/// Sektionsüberschrift — **die** Implementierung für alle Tabs, Settings-Sektionen und
+/// Detailbereiche. Vorher existierten drei identische Varianten (`ServerAdminSectionLabel`,
+/// handgebaute `.title3.bold()`-Texte).
 struct TabContentSectionTitle: View {
   @EnvironmentObject private var model: AppModel
   let title: String
@@ -1127,6 +1146,62 @@ struct TabContentSectionTitle: View {
       .foregroundStyle(model.appearancePalette.textPrimary)
       .frame(maxWidth: .infinity, alignment: .leading)
       .accessibilityAddTraits(.isHeader)
+  }
+}
+
+/// Leerzustand **innerhalb einer Karte** (`AbstandGroupedCard`) — Titel plus optionale
+/// Erklärzeile. Lag früher als `private SettingsCardEmptyState` in `ServerAdminViews.swift`
+/// und war damit außerhalb der Einstellungen nicht nutzbar.
+struct AbstandCardEmptyState: View {
+  @EnvironmentObject private var model: AppModel
+  let title: String
+  var message: String? = nil
+
+  var body: some View {
+    let palette = model.appearancePalette
+    VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
+      Text(title)
+        .font(.body)
+        .foregroundStyle(palette.textPrimary)
+      if let message {
+        Text(message)
+          .font(.caption)
+          .foregroundStyle(palette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .abstandCardListRowFrame(alignment: .leading)
+  }
+}
+
+/// Leerzustand **innerhalb** einer Sektion oder Liste — eine Zeile Text, kein Symbol.
+///
+/// Abgrenzung (App-Regel):
+/// - ganzer Screen/Panel leer → `ContentUnavailableView` (System-Optik, Symbol + Titel)
+/// - Sektion innerhalb eines Screens leer → `AbstandSectionEmptyState`
+/// - Leerzustand in einer Karte → `AbstandCardEmptyState`
+///
+/// Ersetzt die früher an ~14 Stellen kopierte Kombination aus `Text` + `.subheadline`
+/// + `textSecondary` + wechselndem vertikalen Padding.
+struct AbstandSectionEmptyState: View {
+  @EnvironmentObject private var model: AppModel
+  let text: String
+  /// `true` in Scroll-Bereichen ohne umgebende Sektion (großzügigeres Padding).
+  var isStandalone: Bool = false
+
+  var body: some View {
+    Text(text)
+      .font(.subheadline)
+      .foregroundStyle(model.appearancePalette.textSecondary)
+      .fixedSize(horizontal: false, vertical: true)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(
+        .vertical,
+        isStandalone
+          ? AppTheme.Layout.emptyStateVerticalPadding
+          : AppTheme.Layout.rowVerticalPadding
+      )
   }
 }
 

@@ -352,7 +352,7 @@ struct ListeningAchievementCard: View {
   private var regularCardBody: some View {
     let palette = model.appearancePalette
     let contentBottom = 14 + Self.progressBarHeight
-    return VStack(alignment: .leading, spacing: 0) {
+    let content = VStack(alignment: .leading, spacing: 0) {
       HStack(alignment: .top, spacing: Self.rowSpacing) {
         achievementIcon(size: 21, slotWidth: Self.iconSlotWidth)
 
@@ -385,14 +385,13 @@ struct ListeningAchievementCard: View {
       bottomProgressSlot
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(palette.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-    .abstandCardElevation(.standard)
+    // Kein Karteninnenabstand — der Rumpf bringt sein eigenes Padding mit.
+    return AbstandGroupedCard(horizontalPadding: 0, verticalPadding: 0) { content }
   }
 
   private var compactCardBody: some View {
     let palette = model.appearancePalette
-    return VStack(alignment: .leading, spacing: 0) {
+    let content = VStack(alignment: .leading, spacing: 0) {
       VStack(alignment: .leading, spacing: Self.compactRowSpacing) {
         HStack(alignment: .top, spacing: Self.compactRowSpacing) {
           achievementIcon(size: 17, slotWidth: Self.compactIconSlotWidth)
@@ -427,9 +426,8 @@ struct ListeningAchievementCard: View {
       bottomProgressSlot
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(palette.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-    .abstandCardElevation(.standard)
+    // Kein Karteninnenabstand — der Rumpf bringt sein eigenes Padding mit.
+    return AbstandGroupedCard(horizontalPadding: 0, verticalPadding: 0) { content }
   }
 
   private var bottomProgressSlot: some View {

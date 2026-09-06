@@ -313,17 +313,9 @@ struct BooksEntityDetailView: View {
     let isEmpty = seriesSections.isEmpty && standalone.isEmpty
 
     if !entityDetailIsCurrent || (model.entityDetailLoading && isEmpty) {
-      ProgressView()
-        .controlSize(.large)
-        .tint(model.appearanceAccentColor)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 32)
+      AbstandLoadingSpinner()
     } else if isEmpty {
-      Text("No books found.")
-        .font(.subheadline)
-        .foregroundStyle(AppTheme.textSecondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 8)
+      AbstandSectionEmptyState(text: "No books found.")
     } else {
       VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         ForEach(seriesSections) { section in
@@ -347,17 +339,9 @@ struct BooksEntityDetailView: View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       entityDetailSectionHeading("Books")
       if !entityDetailIsCurrent || (model.entityDetailLoading && model.entityDetailBooks.isEmpty) {
-        ProgressView()
-          .controlSize(.large)
-          .tint(model.appearanceAccentColor)
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 32)
+        AbstandLoadingSpinner()
       } else if model.entityDetailBooks.isEmpty {
-        Text("No books found.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.vertical, 8)
+        AbstandSectionEmptyState(text: "No books found.")
       } else {
         LibraryBookCardsFlow {
           ForEach(model.entityDetailBooks) { book in

@@ -71,9 +71,7 @@ struct SearchTabRootView: View {
         .multilineTextAlignment(.center)
         .padding(24)
     } else if model.isLoadingLibrary || model.isLoadingPodcasts, !hasAnyResults {
-      ProgressView()
-        .frame(maxWidth: .infinity)
-        .padding()
+      AbstandLoadingSpinner()
     } else if !hasAnyResults {
       Text("No results.")
         .font(.subheadline)

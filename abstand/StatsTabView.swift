@@ -32,15 +32,6 @@ enum SettingsStatsCategory: String, CaseIterable, Identifiable {
   }
 }
 
-/// Mehrere Listenzeilen in einer Karte (wie Settings), ohne Abstand zwischen den Zeilen.
-private struct StatsGroupedListCard<Content: View>: View {
-  @ViewBuilder var content: () -> Content
-
-  var body: some View {
-    AbstandGroupedCard(horizontalPadding: 0, verticalPadding: 0, content: content)
-  }
-}
-
 private struct StatsListRowDivider: View {
   @EnvironmentObject private var model: AppModel
 
@@ -128,24 +119,16 @@ struct StatsDetailScrollScreen<Content: View>: View {
         }
 
         if model.listeningStatsLoading, model.listeningStats == nil {
-          ProgressView()
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 48)
+          AbstandLoadingSpinner()
         } else if let stats = model.listeningStats {
           content(stats)
         } else if !model.isNetworkReachable {
-          Text(
-            "No saved statistics. Connect to the server to load and cache your listening data."
+          AbstandSectionEmptyState(
+            text: "No saved statistics. Connect to the server to load and cache your listening data.",
+            isStandalone: true
           )
-          .font(.subheadline)
-          .foregroundStyle(model.appearancePalette.textSecondary)
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 32)
         } else {
-          Text("No statistics loaded.")
-            .foregroundStyle(model.appearancePalette.textSecondary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 32)
+          AbstandSectionEmptyState(text: "No statistics loaded.", isStandalone: true)
         }
       }
       .padding(.horizontal, AppTheme.Layout.tabPaddingH)
@@ -166,19 +149,17 @@ struct StatsOfflineCacheBanner: View {
 
   var body: some View {
     let palette = model.appearancePalette
-    HStack(alignment: .top, spacing: 10) {
-      Image(systemName: "icloud.slash")
-        .foregroundStyle(model.appearanceAccentColor)
-      Text("Offline — cached \(StatsLayout.cacheDateFormatter.string(from: fetchedAt)).")
-        .font(.caption)
-        .foregroundStyle(palette.textSecondary)
-        .fixedSize(horizontal: false, vertical: true)
+    // Abweichendes Padding (12/12) bewusst durchgereicht — Banner-Optik bleibt identisch.
+    AbstandGroupedCard(horizontalPadding: 12, verticalPadding: 12) {
+      HStack(alignment: .top, spacing: 10) {
+        Image(systemName: "icloud.slash")
+          .foregroundStyle(model.appearanceAccentColor)
+        Text("Offline — cached \(StatsLayout.cacheDateFormatter.string(from: fetchedAt)).")
+          .font(.caption)
+          .foregroundStyle(palette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
     }
-    .padding(12)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(palette.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-    .abstandCardElevation(.standard)
   }
 }
 
@@ -229,9 +210,7 @@ struct StatsTimelineHubSectionView: View {
   var body: some View {
     StatsContentSection(title: "Timeline", showsTitle: showsSectionTitle) {
       if model.listeningStatsLoading, model.listeningStats == nil {
-        ProgressView()
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 24)
+        AbstandLoadingSpinner(verticalPadding: 24)
       } else if let stats = model.listeningStats {
         ListeningMonthHeatmapCard(
           stats: stats,
@@ -254,11 +233,10 @@ struct StatsTopListenedSectionView: View {
     let columns = StatsLayout.detailListColumns(isRegularWidth: horizontalSizeClass == .regular)
     return StatsContentSection(title: "Top 10", showsTitle: showsSectionTitle) {
       if topItems.isEmpty {
-        Text("No listening history for individual titles yet.")
-          .font(.subheadline)
-          .foregroundStyle(model.appearancePalette.textSecondary)
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 32)
+        AbstandSectionEmptyState(
+          text: "No listening history for individual titles yet.",
+          isStandalone: true
+        )
       } else {
         LazyVGrid(columns: columns, spacing: AppTheme.Layout.withinSectionSpacing) {
           ForEach(Array(topItems.enumerated()), id: \.element.id) { index, row in
@@ -285,11 +263,7 @@ struct StatsSessionsSectionView: View {
     let columns = StatsLayout.detailListColumns(isRegularWidth: horizontalSizeClass == .regular)
     return StatsContentSection(title: "Sessions", showsTitle: showsSectionTitle) {
       if sessions.isEmpty {
-        Text("No listening sessions yet.")
-          .font(.subheadline)
-          .foregroundStyle(model.appearancePalette.textSecondary)
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 32)
+        AbstandSectionEmptyState(text: "No listening sessions yet.", isStandalone: true)
       } else {
         LazyVGrid(columns: columns, spacing: AppTheme.Layout.withinSectionSpacing) {
           ForEach(sessions) { session in

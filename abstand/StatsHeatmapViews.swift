@@ -82,24 +82,24 @@ struct ListeningMonthHeatmapCard: View {
   }
 
   private var calendarCard: some View {
-    Group {
-      if cardWidth > 1 {
-        calendarHeatmapContent(cardWidth: cardWidth)
-      } else {
-        Color.clear
-          .frame(height: MonthHeatmapLayout.estimatedCalendarCardHeight(containerWidth: 320, rowCount: 6))
+    // Kein Karteninnenabstand — der Heatmap-Inhalt bringt sein eigenes Padding mit.
+    AbstandGroupedCard(horizontalPadding: 0, verticalPadding: 0) {
+      Group {
+        if cardWidth > 1 {
+          calendarHeatmapContent(cardWidth: cardWidth)
+        } else {
+          Color.clear
+            .frame(height: MonthHeatmapLayout.estimatedCalendarCardHeight(containerWidth: 320, rowCount: 6))
+        }
       }
+      .frame(maxWidth: .infinity)
+      .background(
+        GeometryReader { geo in
+          Color.clear
+            .preference(key: HeatmapCardWidthKey.self, value: geo.size.width)
+        }
+      )
     }
-    .frame(maxWidth: .infinity)
-    .background(
-      GeometryReader { geo in
-        Color.clear
-          .preference(key: HeatmapCardWidthKey.self, value: geo.size.width)
-      }
-    )
-    .background(model.appearancePalette.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-    .abstandCardElevation(.standard)
     .onPreferenceChange(HeatmapCardWidthKey.self) { cardWidth = $0 }
   }
 
@@ -405,26 +405,22 @@ private struct StatsTimelineMetricCard: View {
 
   var body: some View {
     let palette = model.appearancePalette
-    VStack(alignment: .leading, spacing: 4) {
-      Text(title)
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(palette.textSecondary)
-        .textCase(.uppercase)
-        .lineLimit(2)
-        .minimumScaleFactor(0.85)
-      Text(value)
-        .font(.headline.weight(.bold))
-        .foregroundStyle(palette.textPrimary)
-        .minimumScaleFactor(0.7)
-        .lineLimit(1)
+    AbstandGroupedCard {
+      VStack(alignment: .leading, spacing: 4) {
+        Text(title)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(palette.textSecondary)
+          .textCase(.uppercase)
+          .lineLimit(2)
+          .minimumScaleFactor(0.85)
+        Text(value)
+          .font(.headline.weight(.bold))
+          .foregroundStyle(palette.textPrimary)
+          .minimumScaleFactor(0.7)
+          .lineLimit(1)
+      }
+      .abstandCardListRowFrame()
     }
-    .abstandCardListRowFrame()
-    .padding(.horizontal, AppTheme.Layout.settingsCardInsetHPadding)
-    .padding(.vertical, AppTheme.Layout.settingsCardInsetVPadding)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(palette.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-    .abstandCardElevation(.standard)
   }
 }
 

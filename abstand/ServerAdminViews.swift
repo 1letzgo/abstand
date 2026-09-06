@@ -21,19 +21,6 @@ private struct ServerAdminScrollScreen<Content: View>: View {
   }
 }
 
-private struct ServerAdminSectionLabel: View {
-  @EnvironmentObject private var model: AppModel
-  let title: String
-
-  var body: some View {
-    Text(title)
-      .font(.title3)
-      .bold()
-      .foregroundStyle(model.appearancePalette.textPrimary)
-      .frame(maxWidth: .infinity, alignment: .leading)
-  }
-}
-
 /// Wie `Form`-Section in App Settings: enger Abstand Überschrift → Inhalt, `sectionSpacing` nur zwischen Blöcken.
 private struct ServerAdminSection<Content: View>: View {
   let title: String
@@ -41,7 +28,7 @@ private struct ServerAdminSection<Content: View>: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      ServerAdminSectionLabel(title: title)
+      TabContentSectionTitle(title: title)
       content()
     }
   }
@@ -292,21 +279,17 @@ private struct SettingsMetricCard: View {
         .lineLimit(1)
     }
 
-    HStack(alignment: .center, spacing: 12) {
-      Image(systemName: icon)
-        .font(.title3)
-        .foregroundStyle(resolvedTint)
-        .frame(width: 26, alignment: .center)
-      textColumn
-      Spacer(minLength: 0)
+    AbstandGroupedCard {
+      HStack(alignment: .center, spacing: 12) {
+        Image(systemName: icon)
+          .font(.title3)
+          .foregroundStyle(resolvedTint)
+          .frame(width: 26, alignment: .center)
+        textColumn
+        Spacer(minLength: 0)
+      }
+      .abstandCardListRowFrame()
     }
-    .abstandCardListRowFrame()
-    .padding(.horizontal, AppTheme.Layout.settingsCardInsetHPadding)
-    .padding(.vertical, AppTheme.Layout.settingsCardInsetVPadding)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(model.appearancePalette.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-    .abstandCardElevation(.standard)
   }
 }
 
@@ -319,25 +302,23 @@ private struct ServerAdminMetricTile: View {
 
   var body: some View {
     let palette = model.appearancePalette
-    VStack(spacing: 6) {
-      Text(value.isEmpty ? "—" : value)
-        .font(.title2.weight(.bold))
-        .foregroundStyle(valueColor ?? palette.textPrimary)
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
-      Text(label)
-        .font(.caption)
-        .foregroundStyle(palette.textSecondary)
-        .multilineTextAlignment(.center)
-        .lineLimit(2)
-        .minimumScaleFactor(0.85)
+    // Abweichende Paddings (8/14) bewusst durchgereicht — Kachel-Optik bleibt identisch.
+    AbstandGroupedCard(horizontalPadding: 8, verticalPadding: 14) {
+      VStack(spacing: 6) {
+        Text(value.isEmpty ? "—" : value)
+          .font(.title2.weight(.bold))
+          .foregroundStyle(valueColor ?? palette.textPrimary)
+          .lineLimit(1)
+          .minimumScaleFactor(0.7)
+        Text(label)
+          .font(.caption)
+          .foregroundStyle(palette.textSecondary)
+          .multilineTextAlignment(.center)
+          .lineLimit(2)
+          .minimumScaleFactor(0.85)
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-    .padding(.vertical, 14)
-    .padding(.horizontal, 8)
-    .background(palette.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-    .abstandCardElevation(.standard)
   }
 }
 
@@ -543,29 +524,6 @@ private struct SettingsCardInfoRow: View {
   }
 }
 
-/// Leerzustand innerhalb einer Settings-Karte (Titel + Erklärung) — statt loser `Text`-Zeilen.
-private struct SettingsCardEmptyState: View {
-  @EnvironmentObject private var model: AppModel
-  let title: String
-  var message: String? = nil
-
-  var body: some View {
-    let palette = model.appearancePalette
-    VStack(alignment: .leading, spacing: 4) {
-      Text(title)
-        .font(.body)
-        .foregroundStyle(palette.textPrimary)
-      if let message {
-        Text(message)
-          .font(.caption)
-          .foregroundStyle(palette.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .settingsCardCompactRowFrame(alignment: .leading)
-  }
-}
 
 private func startShelfSettingsIcon(category: String) -> String {
   ABSStartShelfLocalization.stripSystemImage(category: category)
@@ -1040,7 +998,7 @@ struct SettingsAccountView: View {
 
         AbstandGroupedCard {
           if model.sortedBookLibraries.isEmpty {
-            SettingsCardEmptyState(title: "No book libraries on this server.")
+            AbstandCardEmptyState(title: "No book libraries on this server.")
           } else {
             SettingsCardPickerRow(
               icon: "books.vertical.fill",
@@ -1068,7 +1026,7 @@ struct SettingsAccountView: View {
 
         AbstandGroupedCard {
           if model.sortedPodcastLibraries.isEmpty {
-            SettingsCardEmptyState(title: "No podcast libraries on this server.")
+            AbstandCardEmptyState(title: "No podcast libraries on this server.")
           } else {
             SettingsCardPickerRow(
               icon: "mic.fill",
@@ -1664,7 +1622,7 @@ struct ServerUserDetailView: View {
     ServerAdminScrollScreen {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         if loading && detail == nil {
-          AbstandLoadingSpinner(verticalPadding: 40)
+          AbstandLoadingSpinner()
         } else if let loadError, detail == nil {
           AbstandInlineNotice(text: loadError, isError: true)
             .padding(.vertical, 32)
@@ -2011,7 +1969,7 @@ struct ServerLibraryDetailView: View {
             .foregroundStyle(model.appearancePalette.textSecondary)
         }
         if loading && stats == nil && detail == nil {
-          AbstandLoadingSpinner(verticalPadding: 40)
+          AbstandLoadingSpinner()
         } else if let loadError, stats == nil && detail == nil {
           AbstandInlineNotice(text: loadError, isError: true)
         } else {
@@ -2364,7 +2322,7 @@ private struct ServerM4BProgressContent: View {
         ServerAdminSection(title: "Conversions") {
           if activeJobs.isEmpty && recentJobs.isEmpty {
             AbstandGroupedCard {
-              SettingsCardEmptyState(
+              AbstandCardEmptyState(
                 title: "No conversions yet.",
                 message: "Start one from a book’s More menu."
               )
@@ -3085,7 +3043,7 @@ private struct SettingsDownloadsManageView: View {
     ServerAdminSection(title: "Saved offline") {
       if rows.isEmpty {
         AbstandGroupedCard {
-          SettingsCardEmptyState(
+          AbstandCardEmptyState(
             title: "No downloads yet.",
             message: "Downloads appear here once you save an audiobook or episode offline."
           )
@@ -3440,7 +3398,7 @@ private struct DebugLogExportView: View {
 
       if entries.isEmpty {
         AbstandGroupedCard {
-          SettingsCardEmptyState(
+          AbstandCardEmptyState(
             title: "No log entries yet.",
             message: "Entries appear here while the app runs."
           )

@@ -12,12 +12,7 @@ extension MainRootView {
   }
 
   var booksBrowseCenteredProgress: some View {
-    ProgressView()
-      .controlSize(.extraLarge)
-      .tint(model.appearanceAccentColor)
-      .scaleEffect(1.35)
-      .padding(.vertical, 48)
-      .frame(maxWidth: .infinity)
+    AbstandLoadingSpinner()
   }
 
   func booksBrowseCountLine(count: Int?) -> String? {
@@ -32,10 +27,7 @@ extension MainRootView {
       } else if model.browseAuthorsLoading && model.browseAuthors.isEmpty {
         booksBrowseCenteredProgress
       } else if model.browseAuthors.isEmpty {
-        Text("No authors found.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.vertical, 8)
+        AbstandSectionEmptyState(text: "No authors found.")
       } else {
         ForEach(model.browseAuthors) { author in
           Button {
@@ -63,10 +55,7 @@ extension MainRootView {
       } else if model.browseNarratorsLoading && model.browseNarrators.isEmpty {
         booksBrowseCenteredProgress
       } else if model.browseNarrators.isEmpty {
-        Text("No narrators found.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.vertical, 8)
+        AbstandSectionEmptyState(text: "No narrators found.")
       } else {
         LazyVGrid(columns: columns, alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
           ForEach(model.browseNarrators) { narrator in
@@ -94,10 +83,7 @@ extension MainRootView {
       } else if model.browseSeriesLoading && model.browseSeries.isEmpty {
         booksBrowseCenteredProgress
       } else if model.browseSeries.isEmpty {
-        Text("No series found.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.vertical, 8)
+        AbstandSectionEmptyState(text: "No series found.")
       } else {
         ForEach(model.browseSeries) { series in
           Button {
@@ -127,10 +113,7 @@ extension MainRootView {
       } else if model.browseCollectionsLoading && model.browseCollections.isEmpty {
         booksBrowseCenteredProgress
       } else if model.browseCollections.isEmpty {
-        Text("No collections found.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.vertical, 8)
+        AbstandSectionEmptyState(text: "No collections found.")
       } else {
         LazyVGrid(columns: columns, alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
           ForEach(model.browseCollections) { collection in
@@ -164,10 +147,7 @@ extension MainRootView {
       } else if model.browseTagsLoading && model.browseTags.isEmpty {
         booksBrowseCenteredProgress
       } else if model.browseTags.isEmpty {
-        Text("No tags found.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.vertical, 8)
+        AbstandSectionEmptyState(text: "No tags found.")
       } else {
         LazyVGrid(columns: columns, alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
           ForEach(model.browseTags) { tag in
@@ -197,10 +177,7 @@ extension MainRootView {
       } else if model.browseGenresLoading && model.browseGenres.isEmpty {
         booksBrowseCenteredProgress
       } else if model.browseGenres.isEmpty {
-        Text("No genres found.")
-          .font(.subheadline)
-          .foregroundStyle(AppTheme.textSecondary)
-          .padding(.vertical, 8)
+        AbstandSectionEmptyState(text: "No genres found.")
       } else {
         LazyVGrid(columns: columns, alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
           ForEach(model.browseGenres) { genre in
