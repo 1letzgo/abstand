@@ -729,8 +729,6 @@ struct SettingsHubRootView: View {
             }
             NavigationLink {
               SettingsDownloadsManageView()
-                .navigationTitle("Downloads")
-                .toolbarTitleDisplayMode(.inline)
             } label: {
               AbstandGroupedCard {
                 ServerAdminNavRow(
@@ -1402,7 +1400,7 @@ struct SettingsAppearanceHomeView: View {
     .navigationTitle("Home")
     .themeAccentFromAppModel(model)
     .abstandThemeRefresh()
-    .toolbarTitleDisplayMode(.inlineLarge)
+    .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
     .onAppear {
       model.refreshStartSettingsCategoryListLabels()
@@ -1538,7 +1536,7 @@ struct ServerUsersListView: View {
     }
     .background(model.appearancePalette.background.ignoresSafeArea())
     .navigationTitle("Users")
-    .toolbarTitleDisplayMode(.inlineLarge)
+    .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
     .refreshable { await reload() }
     .task { await reload() }
@@ -1635,7 +1633,7 @@ struct ServerUserDetailView: View {
       }
     }
     .navigationTitle(username)
-    .toolbarTitleDisplayMode(.inlineLarge)
+    .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
     .navigationDestination(isPresented: $showSessions) {
       ServerUserListeningSessionsView(userId: userId, username: username)
@@ -1860,7 +1858,7 @@ struct ServerLibrariesListView: View {
     }
     .background(model.appearancePalette.background.ignoresSafeArea())
     .navigationTitle("Libraries")
-    .toolbarTitleDisplayMode(.inlineLarge)
+    .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
     .refreshable {
       await model.reloadSettingsTab()
@@ -2353,7 +2351,7 @@ private struct ServerM4BProgressContent: View {
       }
     }
     .navigationTitle("M4B Converter")
-    .toolbarTitleDisplayMode(.inlineLarge)
+    .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
     .alert("Delete media cache?", isPresented: $confirmPurgeCache) {
       Button("Cancel", role: .cancel) {}
@@ -2968,7 +2966,8 @@ private struct SettingsDownloadsManageView: View {
     }
     .themeAccentFromAppModel(model)
     .abstandThemeRefresh()
-    .toolbarTitleDisplayMode(.inlineLarge)
+    .navigationTitle("Downloads")
+    .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
     .task { await reload() }
     .onReceive(model.$downloadedItemIds) { _ in

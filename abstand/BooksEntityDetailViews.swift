@@ -103,6 +103,8 @@ struct BooksEntityDetailView: View {
     }
     .scrollContentBackground(.hidden)
     .abstandDetailScrollBackground(detailScrollBackgroundColor)
+    .navigationTitle("")
+    .toolbarTitleDisplayMode(.inline)
     .task(id: nav.id) {
       if !model.entityDetailMatches(nav) {
         model.prepareEntityDetail(for: nav)
