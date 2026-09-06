@@ -431,10 +431,11 @@ final class DownloadManager: ObservableObject {
           let baseDoneW = doneW
           // Intra-Track-Fortschritt: `fraction` (0…1) vom Delegate → interpoliert in den Gesamtfortschritt.
           // Throttling über `lastProgressEmit`, damit nicht jedes Byte-Event einen Main-Actor-Hop auslöst.
-          let progressSink: @Sendable (Double) -> Void = { [weak self] fraction in
-            guard let self else { return }
-            Task { @MainActor [weak self] in
-              guard let self else { return }
+          // Kein `[weak self]`: Der umgebende Download-Task (`task = Task { @MainActor in … }`)
+          // hält `self` ohnehin stark, solange der Download läuft — eine schwache Capture wäre
+          // hier wirkungslos und weicht vom implizit starken Verweis des äußeren Scopes ab.
+          let progressSink: @Sendable (Double) -> Void = { fraction in
+            Task { @MainActor in
               let now = Date()
               if now.timeIntervalSince(self.lastIntraTrackEmit) < 0.08 { return }
               self.lastIntraTrackEmit = now
