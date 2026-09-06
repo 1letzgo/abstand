@@ -69,7 +69,7 @@ struct PodcastRssFeedDraftRow: View {
               .fixedSize(horizontal: false, vertical: true)
             LibraryRowCollapsedMetaLine(label: "Show", value: showTitle)
             Spacer(minLength: 0)
-            HStack(spacing: 8) {
+            HStack(spacing: AppTheme.Layout.inlineSpacing) {
               Text(publishedCaption)
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(palette.textSecondary)
@@ -402,6 +402,7 @@ struct PodcastEpisodeRowCard: View {
           } overlay: {
             Image(systemName: "play.fill")
               .font(.caption2.weight(.semibold))
+              // Bewusst Weiß statt Palette: liegt auf der dunklen Badge-Kapsel über beliebigem Cover-Artwork.
               .foregroundStyle(.white)
               .frame(width: 18, height: 18)
               .background(model.appearancePalette.coverPlayBadgeBackground)
@@ -471,7 +472,7 @@ struct PodcastEpisodeRowCard: View {
   @ViewBuilder
   private func podcastEpisodeExpandedBlock(_ d: ABSPodcastEpisodeExpandedDetail) -> some View {
     let palette = model.appearancePalette
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
       Divider().background(palette.textSecondary.opacity(0.2))
       podcastMetaRowShowFilter(episode: d.episode)
       podcastMetaRowHostAuthorFilter(detail: d)
@@ -499,7 +500,7 @@ struct PodcastEpisodeRowCard: View {
   private func podcastEpisodeExpandedActionRow(episode: ABSPodcastEpisodeListItem) -> some View {
     let rowProgress = live.progress
     let isFinished = rowProgress?.isFinished == true
-    return HStack(spacing: 8) {
+    return HStack(spacing: AppTheme.Layout.inlineSpacing) {
       Group {
         if live.isDownloading {
           ZStack {
@@ -566,7 +567,7 @@ struct PodcastEpisodeRowCard: View {
     let palette = model.appearancePalette
     let authors = detail.showAuthors
     let line = detail.episode.authorLine.trimmingCharacters(in: .whitespacesAndNewlines)
-    return HStack(alignment: .top, spacing: 10) {
+    return HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
       Text("HOST / AUTHOR")
         .font(.caption.weight(.bold))
         .foregroundStyle(palette.textSecondary)
@@ -614,7 +615,7 @@ struct PodcastEpisodeRowCard: View {
   private func podcastMetaRowShowFilter(episode: ABSPodcastEpisodeListItem) -> some View {
     let palette = model.appearancePalette
     let title = episode.showTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-    return HStack(alignment: .top, spacing: 10) {
+    return HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
       Text("SHOW")
         .font(.caption.weight(.bold))
         .foregroundStyle(palette.textSecondary)
@@ -642,7 +643,7 @@ struct PodcastEpisodeRowCard: View {
 
   private func podcastMetaRow(_ k: String, _ v: String) -> some View {
     let palette = model.appearancePalette
-    return HStack(alignment: .top, spacing: 10) {
+    return HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
       Text(k.uppercased())
         .font(.caption.weight(.bold))
         .foregroundStyle(palette.textSecondary)
@@ -829,14 +830,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
         .accessibilityLabel(episode.episodeTitle)
         .accessibilityHint(opensDetailOnTap ? "Opens episode details." : "")
 
-        LinearGradient(
-          stops: [
-            .init(color: .black.opacity(0.45), location: 0),
-            .init(color: .black.opacity(0), location: 1),
-          ],
-          startPoint: .bottom,
-          endPoint: .top
-        )
+        AppTheme.coverScrimGradient
         .frame(height: 72)
         .frame(maxWidth: .infinity)
         .allowsHitTesting(false)
@@ -992,14 +986,7 @@ struct ContinueListeningHeroBookCard: View {
         .accessibilityLabel(book.displayTitle)
         .accessibilityHint("Informationen öffnen")
 
-        LinearGradient(
-          stops: [
-            .init(color: .black.opacity(0.45), location: 0),
-            .init(color: .black.opacity(0), location: 1),
-          ],
-          startPoint: .bottom,
-          endPoint: .top
-        )
+        AppTheme.coverScrimGradient
         .frame(height: min(72, h * 0.28))
         .frame(maxWidth: .infinity)
         .allowsHitTesting(false)
@@ -1196,14 +1183,7 @@ struct ContinueListeningHeroPodcastCard: View {
         .accessibilityLabel(episode.episodeTitle)
         .accessibilityHint("Informationen öffnen")
 
-        LinearGradient(
-          stops: [
-            .init(color: .black.opacity(0.45), location: 0),
-            .init(color: .black.opacity(0), location: 1),
-          ],
-          startPoint: .bottom,
-          endPoint: .top
-        )
+        AppTheme.coverScrimGradient
         .frame(height: min(72, h * 0.28))
         .frame(maxWidth: .infinity)
         .allowsHitTesting(false)
@@ -1383,6 +1363,7 @@ private func facetBrowseTileCardChrome<Leading: View>(
         Text("\(c) Books")
           .font(.caption2.weight(.semibold))
           .monospacedDigit()
+          // Bewusst Weiß statt Palette: liegt auf der dunklen Pill-Kapsel (`coverPlayBadgeBackground`), nicht auf Kartenfläche.
           .foregroundStyle(.white)
           .lineLimit(1)
       }
@@ -1798,8 +1779,8 @@ enum LibraryRowLayout {
     @ViewBuilder leading: () -> Leading,
     @ViewBuilder trailing: () -> Trailing
   ) -> some View {
-    HStack(alignment: .center, spacing: 8) {
-      HStack(spacing: 8) {
+    HStack(alignment: .center, spacing: AppTheme.Layout.inlineSpacing) {
+      HStack(spacing: AppTheme.Layout.inlineSpacing) {
         leading()
       }
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -2182,6 +2163,7 @@ private struct LibraryHeroBookRowCard: View {
       ContinueListeningHeroCoverPill {
         Image(systemName: systemImage)
           .font(ContinueListeningHeroCoverPillMetrics.iconFont)
+          // Bewusst Weiß statt Palette: liegt auf der dunklen Pill-Kapsel (`coverPlayBadgeBackground`), nicht auf Kartenfläche.
           .foregroundStyle(.white)
       }
       .accessibilityLabel(book.isPlayableAudiobook ? "Playable as audiobook" : "eBook")
@@ -2195,6 +2177,7 @@ private struct LibraryHeroBookRowCard: View {
       ContinueListeningHeroCoverPill {
         Image(systemName: "book.closed.fill")
           .font(ContinueListeningHeroCoverPillMetrics.iconFont)
+          // Bewusst Weiß statt Palette: liegt auf der dunklen Pill-Kapsel (`coverPlayBadgeBackground`), nicht auf Kartenfläche.
           .foregroundStyle(.white)
       }
       .accessibilityLabel("eBook available")
@@ -2403,14 +2386,7 @@ private struct LibraryHeroBookRowCard: View {
       .accessibilityHint(opensDetailOnTap ? "Opens book details." : "")
 
       if showsProgressChrome {
-        LinearGradient(
-          stops: [
-            .init(color: .black.opacity(0.45), location: 0),
-            .init(color: .black.opacity(0), location: 1),
-          ],
-          startPoint: .bottom,
-          endPoint: .top
-        )
+        AppTheme.coverScrimGradient
         .frame(height: 72)
         .frame(maxWidth: .infinity)
         .allowsHitTesting(false)
@@ -2418,6 +2394,7 @@ private struct LibraryHeroBookRowCard: View {
         Group {
           if usesEbookMetrics, live.isPreparingEbook {
             ProgressView()
+              // Bewusst Weiß statt Palette: Balken sitzt auf dem Cover-Scrim über beliebigem Artwork.
               .tint(.white)
               .frame(maxWidth: .infinity)
               .frame(height: barH)
@@ -2461,6 +2438,7 @@ private struct LibraryCoverCornerBadge: View {
   var body: some View {
     Image(systemName: systemImage)
       .font(.caption2.weight(.semibold))
+      // Bewusst Weiß statt Palette: liegt auf der dunklen Badge-Kapsel über beliebigem Cover-Artwork.
       .foregroundStyle(.white)
       .frame(width: 18, height: 18)
       .background(model.appearancePalette.coverPlayBadgeBackground)
@@ -2769,7 +2747,7 @@ struct BookRowCard: View {
     let isQueued = d.id == book.id ? live.isQueued : model.downloads.queuedItemIds.contains(d.id)
     let downloadProgress = d.id == book.id ? live.downloadProgress : model.downloads.progress
 
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
       Divider().background(AppTheme.textSecondary.opacity(0.2))
       expandedAuthorRow(metadata: m)
       expandedNarratorRow(metadata: m)
@@ -2781,7 +2759,7 @@ struct BookRowCard: View {
         "Description",
         absPlainText(fromHTML: m.descriptionPlain ?? m.description).nilIfEmpty ?? "—")
 
-      HStack(spacing: 8) {
+      HStack(spacing: AppTheme.Layout.inlineSpacing) {
         Group {
           if isDownloading {
             ZStack {
@@ -2918,7 +2896,7 @@ struct BookRowCard: View {
   private func expandedAuthorRow(metadata: ABSBookMediaMetadata) -> some View {
     if let authors = metadata.authors, !authors.isEmpty {
       libraryMetaLabeledRow(title: "Author") {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
           ForEach(authors, id: \.id) { author in
             Button {
               applyAuthorFilterForActiveCatalog(authorId: author.id, displayName: author.name)
@@ -2965,7 +2943,7 @@ struct BookRowCard: View {
       metaRow("Narrator", "—")
     } else {
       libraryMetaLabeledRow(title: "Narrator") {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
           ForEach(names, id: \.self) { name in
             Button {
               applyNarratorFilterForActiveCatalog(narratorName: name)
@@ -2987,7 +2965,7 @@ struct BookRowCard: View {
   private func expandedSeriesRow(metadata: ABSBookMediaMetadata) -> some View {
     if let seriesList = metadata.series, !seriesList.isEmpty {
       libraryMetaLabeledRow(title: "Series") {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
           ForEach(seriesList, id: \.id) { s in
             Button {
               applySeriesFilterForActiveCatalog(seriesId: s.id, displayName: s.name)
@@ -3011,7 +2989,7 @@ struct BookRowCard: View {
     title: String,
     @ViewBuilder content: () -> Content
   ) -> some View {
-    HStack(alignment: .top, spacing: 10) {
+    HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
       Text(title.uppercased())
         .font(.caption.weight(.bold))
         .foregroundStyle(AppTheme.textSecondary)
@@ -3022,7 +3000,7 @@ struct BookRowCard: View {
   }
 
   private func metaRow(_ k: String, _ v: String) -> some View {
-    HStack(alignment: .top, spacing: 10) {
+    HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
       Text(k.uppercased())
         .font(.caption.weight(.bold))
         .foregroundStyle(AppTheme.textSecondary)

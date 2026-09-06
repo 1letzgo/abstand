@@ -21,6 +21,22 @@ enum AppTheme {
   static var cardShadow: Color { palette.cardShadow }
   static var coverPlayBadgeBackground: Color { palette.coverPlayBadgeBackground }
 
+  /// Lesbarkeits-Scrim am unteren Rand von Cover-Bildern (Titel, Fortschritt, Badges).
+  /// Bewusst hart schwarz und **nicht** paletten-abhängig: Cover-Artwork kann jede
+  /// beliebige Farbe und Helligkeit haben, deshalb muss der Verlauf unabhängig von
+  /// Light/Dark-Theme und Accent verdunkeln. Höhe/Ausrichtung setzt die Aufrufstelle
+  /// (`.frame(height:)`); der Verlauf läuft von unten (dunkel) nach oben (transparent).
+  nonisolated static var coverScrimGradient: LinearGradient {
+    LinearGradient(
+      stops: [
+        .init(color: .black.opacity(0.45), location: 0),
+        .init(color: .black.opacity(0), location: 1),
+      ],
+      startPoint: .bottom,
+      endPoint: .top
+    )
+  }
+
   /// Schatten-Metriken (Farbe kommt aus `AppColorPalette`).
   enum CardElevation {
     /// Browse-Icon-Kacheln, kleine Chips.
