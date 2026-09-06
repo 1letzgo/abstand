@@ -57,12 +57,12 @@ private struct ServerAdminNavRow: View {
   var body: some View {
     let _ = themeRevision
     let palette = model.appearancePalette
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       Image(systemName: icon)
         .font(.body.weight(.semibold))
         .foregroundStyle(themeAccent)
-        .frame(width: 28, alignment: .center)
-      VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 4) {
+        .frame(width: AppTheme.Layout.settingsIconColumnWidth, alignment: .center)
+      VStack(alignment: .leading, spacing: subtitle == nil ? 0 : AppTheme.Layout.tightSpacing) {
         Text(title)
           .font(.body.weight(.medium))
           .foregroundStyle(palette.textPrimary)
@@ -94,7 +94,7 @@ private struct SettingsCardIcon: View {
     Image(systemName: systemName)
       .font(.body.weight(.semibold))
       .foregroundStyle(tint ?? themeAccent)
-      .frame(width: 28, alignment: .center)
+      .frame(width: AppTheme.Layout.settingsIconColumnWidth, alignment: .center)
   }
 }
 
@@ -109,10 +109,10 @@ private struct SettingsCardToggleRow: View {
 
   var body: some View {
     let palette = model.appearancePalette
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       SettingsCardIcon(systemName: icon)
       Toggle(isOn: $isOn) {
-        VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 4) {
+        VStack(alignment: .leading, spacing: subtitle == nil ? 0 : AppTheme.Layout.tightSpacing) {
           Text(title)
             .font(.body)
             .foregroundStyle(palette.textPrimary)
@@ -140,7 +140,7 @@ private struct SettingsCardAppearanceModeRow: View {
   var body: some View {
     let _ = themeRevision
     VStack(alignment: .leading, spacing: 10) {
-      HStack(spacing: 12) {
+      HStack(spacing: AppTheme.Layout.rowSpacing) {
         SettingsCardIcon(systemName: "circle.lefthalf.filled")
         Text("Appearance")
           .font(.body)
@@ -169,7 +169,7 @@ private struct SettingsCardColorPickerRow: View {
   let title: String
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       SettingsCardIcon(systemName: icon)
       Text(title)
         .font(.body)
@@ -201,7 +201,7 @@ private struct SettingsCardPickerRow: View {
   var isEnabled: Bool = true
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       SettingsCardIcon(systemName: icon)
       Text(title)
         .font(.body)
@@ -235,7 +235,7 @@ private struct SettingsSkipSecondsPickerRow: View {
   }
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       SettingsCardIcon(systemName: rowIcon)
       Text(title)
         .font(.body)
@@ -266,7 +266,7 @@ private struct SettingsMetricCard: View {
 
   var body: some View {
     let palette = model.appearancePalette
-    let textColumn = VStack(alignment: .leading, spacing: 4) {
+    let textColumn = VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
       Text(title)
         .font(.caption.weight(.semibold))
         .foregroundStyle(palette.textSecondary)
@@ -280,11 +280,11 @@ private struct SettingsMetricCard: View {
     }
 
     AbstandGroupedCard {
-      HStack(alignment: .center, spacing: 12) {
+      HStack(alignment: .center, spacing: AppTheme.Layout.rowSpacing) {
         Image(systemName: icon)
           .font(.title3)
           .foregroundStyle(resolvedTint)
-          .frame(width: 26, alignment: .center)
+          .frame(width: AppTheme.Layout.settingsIconColumnWidth, alignment: .center)
         textColumn
         Spacer(minLength: 0)
       }
@@ -333,7 +333,7 @@ private struct SettingsCardSecureFieldRow: View {
   var textContentType: UITextContentType? = nil
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       SettingsCardIcon(systemName: icon)
       Text(title)
         .font(.body)
@@ -363,7 +363,7 @@ private struct SettingsCardUsernameAutofillRow: View {
   let username: String
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       SettingsCardIcon(systemName: "person.fill")
       Text("Username")
         .font(.body)
@@ -404,7 +404,7 @@ private struct SettingsCardStepperRow: View {
   let range: ClosedRange<Int>
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       SettingsCardIcon(systemName: icon)
       Text(title)
         .font(.body)
@@ -428,7 +428,7 @@ private struct SettingsCardAutoDownloadIntervalRow: View {
   @Binding var selection: PodcastAutoDownloadInterval
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       SettingsCardIcon(systemName: "clock.arrow.circlepath")
       Text("Interval")
         .font(.body)
@@ -462,9 +462,9 @@ private struct SettingsCardActionRow: View {
 
   var body: some View {
     let palette = model.appearancePalette
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       SettingsCardIcon(systemName: icon, tint: tint)
-      VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 4) {
+      VStack(alignment: .leading, spacing: subtitle == nil ? 0 : AppTheme.Layout.tightSpacing) {
         Text(title)
           .font(.body.weight(.medium))
           .foregroundStyle(tint ?? palette.textPrimary)
@@ -501,9 +501,9 @@ private struct SettingsCardInfoRow: View {
 
   var body: some View {
     let palette = model.appearancePalette
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       SettingsCardIcon(systemName: icon)
-      VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 4) {
+      VStack(alignment: .leading, spacing: subtitle == nil ? 0 : AppTheme.Layout.tightSpacing) {
         Text(title)
           .font(.body.weight(.medium))
           .foregroundStyle(palette.textPrimary)
@@ -1155,7 +1155,7 @@ struct SettingsChangePasswordView: View {
           Button {
             Task { await submit() }
           } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: AppTheme.Layout.inlineSpacing) {
               if busy {
                 ProgressView()
                   .tint(model.appearancePalette.foregroundOnAccent(model.appearanceAccentColor))
@@ -1429,7 +1429,7 @@ private struct SettingsHomeShelfCard: View {
 
   var body: some View {
     AbstandGroupedCard {
-      HStack(spacing: 12) {
+      HStack(spacing: AppTheme.Layout.rowSpacing) {
         SettingsCardIcon(systemName: startShelfSettingsIcon(category: category))
         Toggle(isOn: isOn) {
           Text(title)
@@ -1519,7 +1519,7 @@ struct ServerUsersListView: View {
         ServerAdminScrollScreen {
           LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
             ServerAdminSection(title: "Users") {
-              LazyVStack(spacing: 8) {
+              LazyVStack(spacing: AppTheme.Layout.stackSpacing) {
                 ForEach(users) { user in
                   NavigationLink {
                     ServerUserDetailView(userId: user.id, username: user.username)
@@ -1565,7 +1565,7 @@ private struct ServerUserListRow: View {
   let isOnline: Bool
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       Circle()
         .fill(isOnline ? AppTheme.success : model.appearancePalette.textSecondary.opacity(0.35))
         .frame(width: 8, height: 8)
@@ -1625,7 +1625,7 @@ struct ServerUserDetailView: View {
           AbstandLoadingSpinner()
         } else if let loadError, detail == nil {
           AbstandInlineNotice(text: loadError, isError: true)
-            .padding(.vertical, 32)
+            .padding(.vertical, AppTheme.Layout.emptyStateVerticalPadding)
         } else if let detail {
           headerBlock(detail)
           summaryStrip
@@ -1645,7 +1645,7 @@ struct ServerUserDetailView: View {
   }
 
   private func headerBlock(_ detail: ABSAdminUserDetail) -> some View {
-    HStack(spacing: 8) {
+    HStack(spacing: AppTheme.Layout.inlineSpacing) {
       Text(detail.lastSeenCaption)
         .font(.subheadline)
         .foregroundStyle(model.appearancePalette.textSecondary)
@@ -1665,11 +1665,11 @@ struct ServerUserDetailView: View {
   private var summaryStrip: some View {
     LazyVGrid(
       columns: [
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
+        GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
+        GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing),
       ],
-      spacing: 10
+      spacing: AppTheme.Layout.withinSectionSpacing
     ) {
       ServerAdminMetricTile(
         value: "\(inProgressCount)",
@@ -1764,10 +1764,10 @@ struct ServerUserListeningSessionsView: View {
         ContentUnavailableView("No sessions", systemImage: "clock")
       } else {
         ServerAdminScrollScreen {
-          LazyVStack(spacing: 8) {
+          LazyVStack(spacing: AppTheme.Layout.stackSpacing) {
             ForEach(sessions) { session in
               AbstandGroupedCard {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
                   Text(session.libraryItemId.isEmpty ? session.id : session.libraryItemId)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(model.appearancePalette.textPrimary)
@@ -1831,7 +1831,7 @@ struct ServerLibrariesListView: View {
                 .foregroundStyle(model.appearancePalette.textSecondary)
             }
             ServerAdminSection(title: "Libraries") {
-              LazyVStack(spacing: 8) {
+              LazyVStack(spacing: AppTheme.Layout.stackSpacing) {
                 ForEach(sortedLibraries) { lib in
                   NavigationLink {
                     ServerLibraryDetailView(library: lib)
@@ -1910,12 +1910,12 @@ private struct ServerLibraryListRow: View {
   }
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       Image(systemName: iconName)
         .font(.body.weight(.semibold))
         .foregroundStyle(model.appearanceAccentColor)
-        .frame(width: 28, alignment: .center)
-      VStack(alignment: .leading, spacing: 4) {
+        .frame(width: AppTheme.Layout.settingsIconColumnWidth, alignment: .center)
+      VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
         Text(library.name)
           .font(.body.weight(.medium))
           .foregroundStyle(model.appearancePalette.textPrimary)
@@ -2018,8 +2018,8 @@ struct ServerLibraryDetailView: View {
       (tracksLabel, "\(stats.numAudioTrack)"),
     ]
     return LazyVGrid(
-      columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
-      spacing: 10
+      columns: [GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing), GridItem(.flexible(), spacing: AppTheme.Layout.withinSectionSpacing)],
+      spacing: AppTheme.Layout.withinSectionSpacing
     ) {
       ForEach(items, id: \.0) { row in
         ServerAdminMetricTile(value: row.1, label: row.0)
@@ -2164,7 +2164,7 @@ struct ServerLibraryDetailView: View {
   }
 
   private func metaRow(title: String, value: String) -> some View {
-    HStack(alignment: .top, spacing: 12) {
+    HStack(alignment: .top, spacing: AppTheme.Layout.rowSpacing) {
       Text(title)
         .font(.subheadline)
         .foregroundStyle(model.appearancePalette.textSecondary)
@@ -2191,7 +2191,7 @@ struct ServerLibraryDetailView: View {
                   .font(.body.weight(.medium))
                   .foregroundStyle(model.appearancePalette.textPrimary)
                   .lineLimit(2)
-                HStack(spacing: 8) {
+                HStack(spacing: AppTheme.Layout.inlineSpacing) {
                   if let podcast = row.podcastTitle, !podcast.isEmpty {
                     Text(podcast)
                       .font(.caption)
@@ -2328,7 +2328,7 @@ private struct ServerM4BProgressContent: View {
               )
             }
           } else {
-            LazyVStack(spacing: 8) {
+            LazyVStack(spacing: AppTheme.Layout.stackSpacing) {
               ForEach(activeJobs) { job in
                 AbstandGroupedCard {
                   m4bJobRow(job)
@@ -2366,8 +2366,8 @@ private struct ServerM4BProgressContent: View {
   }
 
   private func m4bJobRow(_ job: ServerM4BEncodeJob) -> some View {
-    HStack(spacing: 12) {
-      VStack(alignment: .leading, spacing: 4) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
         Text(job.title)
           .font(.body.weight(.medium))
           .foregroundStyle(model.appearancePalette.textPrimary)
@@ -2376,7 +2376,7 @@ private struct ServerM4BProgressContent: View {
           .font(.caption)
           .foregroundStyle(model.appearancePalette.textSecondary)
           .lineLimit(1)
-        HStack(spacing: 8) {
+        HStack(spacing: AppTheme.Layout.inlineSpacing) {
           Text(jobStatusLabel(job))
             .font(.caption.weight(.semibold))
             .foregroundStyle(jobStatusColor(job))
@@ -2675,8 +2675,8 @@ private struct ServerAdminPodcastLibraryEpisodeRow: View {
   }
 
   var body: some View {
-    HStack(alignment: .center, spacing: 12) {
-      VStack(alignment: .leading, spacing: 4) {
+    HStack(alignment: .center, spacing: AppTheme.Layout.rowSpacing) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
         Text(episode.episodeTitle)
           .font(.body.weight(.medium))
           .foregroundStyle(model.appearancePalette.textPrimary)
@@ -2698,7 +2698,7 @@ private struct ServerAdminPodcastLibraryEpisodeRow: View {
       .disabled(!model.isNetworkReachable)
       .accessibilityLabel("Delete episode from library")
     }
-    .padding(14)
+    .padding(AppTheme.Layout.detailSectionCardPadding)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(model.appearancePalette.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.libraryRowCornerRadius, style: .continuous))
@@ -3193,7 +3193,7 @@ private struct DownloadManageActiveRow: View {
   }
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       // Cover (quadratisch, 44 pt) — falls Library-ID bekannt; sonst Platzhalter-Icon.
       if let lid = entry?.libraryItemId {
         ZStack {
@@ -3216,7 +3216,7 @@ private struct DownloadManageActiveRow: View {
         )
       }
 
-      VStack(alignment: .leading, spacing: 4) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
         Text(titleText)
           .font(.body.weight(.medium))
           .foregroundStyle(model.appearancePalette.textPrimary)
@@ -3269,7 +3269,7 @@ private struct DownloadManageSavedRow: View {
   @State private var confirmDelete = false
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       // Cover (quadratisch, 44 pt) — serverseitig gecacht, funktioniert dank CoverImageCache auch offline.
       ZStack {
         model.appearancePalette.cardShadow
@@ -3369,8 +3369,7 @@ private struct DebugLogExportView: View {
             } label: {
               Label("Export", systemImage: "square.and.arrow.up")
             }
-            .buttonStyle(.bordered)
-            .tint(model.appearanceAccentColor)
+            .buttonStyle(AbstandProminentButtonStyle())
             .disabled(entries.isEmpty)
 
             // Der Collector publiziert bewusst nicht mehr (kein objectWillChange aus heißen
@@ -3380,8 +3379,7 @@ private struct DebugLogExportView: View {
             } label: {
               Label("Refresh", systemImage: "arrow.clockwise")
             }
-            .buttonStyle(.bordered)
-            .tint(model.appearanceAccentColor)
+            .buttonStyle(AbstandProminentButtonStyle())
 
             Button(role: .destructive) {
               DebugLogCollector.shared.clear()
@@ -3389,7 +3387,10 @@ private struct DebugLogExportView: View {
             } label: {
               Label("Clear", systemImage: "trash")
             }
-            .buttonStyle(.bordered)
+            // Destruktiv: Der Prominent-Style zieht seine Füllung aus `themeAccent`,
+            // daher hier lokal auf Danger umgestellt (kein `.tint`).
+            .environment(\.themeAccent, AppTheme.danger)
+            .buttonStyle(AbstandProminentButtonStyle())
             .disabled(entries.isEmpty)
           }
           .settingsCardRowFrame()

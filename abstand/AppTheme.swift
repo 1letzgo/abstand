@@ -129,10 +129,15 @@ enum AppTheme {
     static let rowSpacing: CGFloat = 12
     /// Vertikal zwischen eng zusammengehörigen Elementen (Buttons, Chips, Meta-Zeilen).
     static let stackSpacing: CGFloat = 8
+    /// Horizontal zwischen eng zusammengehörigen Elementen einer Zeile (Status + Text,
+    /// Spinner + Label) — enger als `rowSpacing`, das die Spalten einer Kartenzeile trennt.
+    static let inlineSpacing: CGFloat = 8
     /// Titel ↔ direkt zugehöriger Untertitel/Wert.
     static let tightSpacing: CGFloat = 4
     /// Vertikaler Innenabstand einer Inhaltszeile ohne Kartenrahmen.
     static let rowVerticalPadding: CGFloat = 8
+    /// Breite der Icon-Spalte in Settings-/Admin-Kartenzeilen (Symbole bleiben untereinander bündig).
+    static let settingsIconColumnWidth: CGFloat = 28
     /// Leerzustand/Platzhalter innerhalb eines Scroll-Bereichs (vertikal, mittig).
     static let emptyStateVerticalPadding: CGFloat = 32
     /// Buch-/Folgen-Detail: Titelblock → Play.
