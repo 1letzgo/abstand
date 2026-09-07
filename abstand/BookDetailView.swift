@@ -196,7 +196,8 @@ struct BookDetailView: View {
           ChaptersEditorSheet(
             itemId: bookId,
             currentASIN: (detail ?? book).media.metadata.asin,
-            mediaDuration: (detail ?? book).media.duration
+            mediaDuration: (detail ?? book).media.duration,
+            bookLanguage: (detail ?? book).media.metadata.language
           )
         case .edit:
           EditMetadataSheet(

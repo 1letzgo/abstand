@@ -13,10 +13,14 @@ struct ChaptersEditorSheet: View {
   let currentASIN: String?
   /// Medien-Gesamtdauer in Sekunden — Fallback für das `end` des letzten Kapitels.
   let mediaDuration: Double?
+  /// Buchsprache aus den Metadaten — Vorauswahl der Audible-Region.
+  var bookLanguage: String?
 
   // Lookup-State
   @State private var asinInput: String = ""
   @State private var region: String = "us"
+  /// Nur einmal vorwählen: eine spätere Auswahl des Nutzers darf `onAppear` nicht überschreiben.
+  @State private var didPreselectRegion = false
   @State private var response: ABSAudibleChaptersResponse?
   @State private var isSearching = false
   @State private var lookupError: String?
@@ -233,7 +237,47 @@ struct ChaptersEditorSheet: View {
     if asinInput.isEmpty {
       asinInput = currentASIN ?? ""
     }
+    if !didPreselectRegion {
+      didPreselectRegion = true
+      if let preselected = Self.audibleRegion(forLanguage: bookLanguage),
+        regions.contains(where: { $0.value == preselected })
+      {
+        region = preselected
+      }
+    }
   }
+
+  /// Audible betreibt je Region einen eigenen Katalog — die Kapitel eines deutschen Hörbuchs
+  /// liegen nur im DE-Store. Die Buchsprache ist der beste Hinweis darauf, den die Metadaten
+  /// hergeben. ABS speichert `language` als Freitext („German", „de", „en-GB"), deshalb wird
+  /// tolerant geparst; ohne Treffer bleibt es bei der bisherigen Vorgabe US.
+  static func audibleRegion(forLanguage raw: String?) -> String? {
+    let value =
+      raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    guard !value.isEmpty else { return nil }
+    let parts = value
+      .components(separatedBy: CharacterSet(charactersIn: "-_ "))
+      .filter { !$0.isEmpty }
+    guard let language = parts.first else { return nil }
+    // Regionale Variante zuerst: „en-GB" gehört in den UK-Store, nicht in den US-Store.
+    if parts.count > 1, let country = countryRegions[parts[1]] { return country }
+    return languageRegions[language]
+  }
+
+  private static let languageRegions: [String: String] = [
+    "en": "us", "eng": "us", "english": "us",
+    "de": "de", "deu": "de", "ger": "de", "german": "de", "deutsch": "de",
+    "fr": "fr", "fra": "fr", "fre": "fr", "french": "fr", "francais": "fr", "français": "fr",
+    "it": "it", "ita": "it", "italian": "it", "italiano": "it",
+    "es": "es", "spa": "es", "spanish": "es", "espanol": "es", "español": "es",
+    "ja": "jp", "jpn": "jp", "japanese": "jp",
+  ]
+
+  /// Länderkürzel, für die Audible einen eigenen Store betreibt (aus der Regionsliste oben).
+  private static let countryRegions: [String: String] = [
+    "us": "us", "gb": "gb", "uk": "gb", "de": "de", "ca": "ca",
+    "au": "au", "fr": "fr", "jp": "jp", "it": "it", "in": "in", "es": "es",
+  ]
 
   private func runLookup() async {
     let asin = asinInput.trimmingCharacters(in: .whitespacesAndNewlines)
