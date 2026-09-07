@@ -87,7 +87,6 @@ struct ChaptersEditorSheet: View {
         )
         MetadataSheetMenuPicker(
           title: "Region",
-          systemImage: "globe",
           selection: $region,
           options: regions.map { (id: $0.value, label: $0.label) }
         )

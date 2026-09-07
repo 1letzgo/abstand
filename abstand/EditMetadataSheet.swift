@@ -340,7 +340,6 @@ struct EditMetadataSheet: View {
         )
         MetadataSheetMenuPicker(
           title: "Provider",
-          systemImage: "photo.on.rectangle.angled",
           selection: $coverProvider,
           options: coverProviders.map { (id: $0.value, label: $0.label) }
         )

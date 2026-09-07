@@ -214,7 +214,8 @@ private struct SettingsCardPickerRow: View {
       }
       .pickerStyle(.menu)
       .labelsHidden()
-      .tint(model.appearanceAccentColor)
+      // Neutral statt akzentfarben: die Zeile zeigt einen Zustand, sie ruft nicht zur Tat auf.
+      .tint(model.appearancePalette.textPrimary)
       .disabled(!isEnabled)
     }
     .settingsCardRowFrame()
@@ -248,7 +249,8 @@ private struct SettingsSkipSecondsPickerRow: View {
       }
       .pickerStyle(.menu)
       .labelsHidden()
-      .tint(model.appearanceAccentColor)
+      // Neutral statt akzentfarben: die Zeile zeigt einen Zustand, sie ruft nicht zur Tat auf.
+      .tint(model.appearancePalette.textPrimary)
     }
     .settingsCardRowFrame()
   }
@@ -441,7 +443,8 @@ private struct SettingsCardAutoDownloadIntervalRow: View {
       }
       .pickerStyle(.menu)
       .labelsHidden()
-      .tint(model.appearanceAccentColor)
+      // Neutral statt akzentfarben: die Zeile zeigt einen Zustand, sie ruft nicht zur Tat auf.
+      .tint(model.appearancePalette.textPrimary)
     }
     .settingsCardRowFrame()
   }

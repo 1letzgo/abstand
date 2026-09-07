@@ -232,56 +232,35 @@ struct MetadataSheetTextField: View {
 }
 
 /// Gemessene Innenbreite einer Metadaten-Karte (für Controls, die keine Breite vorgeschlagen bekommen).
-private struct MetadataSheetContentWidthKey: PreferenceKey {
-  static let defaultValue: CGFloat = 0
-  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-    value = max(value, nextValue())
-  }
-}
-
-/// Beschriftetes Auswahlfeld (Provider, Region) — die Auswahl selbst ist die Dropdown-Pill
-/// aus der Custom-Navbar (`AbstandBrowseStripDropdownPill`): Akzent-Kapsel mit Symbol, Wert
-/// und Chevron.
-///
-/// `Menu` schlägt seinem Label in einer Karte keine Breite vor, deshalb wird die Kartenbreite
-/// gemessen und der Pill als feste Label-Breite mitgegeben — sonst bliebe die Kapsel auf
-/// Inhaltsbreite statt die Karte zu füllen.
+/// Auswahl-Zeile in einer Metadaten-Karte. Bewusst die Settings-Bauform (Titel links,
+/// natives Menü rechts) statt der Browse-Strip-Kapsel: die war vollflächig akzentgefüllt und
+/// zog in einem Sheet, dessen Aktionen darunter liegen, mehr Aufmerksamkeit auf sich als der
+/// eigentliche Button. Der Tint bleibt deshalb neutral — ein Dropdown ist kein Aufruf zur Tat.
 struct MetadataSheetMenuPicker: View {
+  @EnvironmentObject private var model: AppModel
+
   let title: String
-  /// Symbol in der Pill (alle Optionen teilen es, wie die Library-Pill im Browse-Strip).
-  var systemImage: String = "list.bullet"
   @Binding var selection: String
   let options: [(id: String, label: String)]
 
-  @State private var contentWidth: CGFloat = 0
-
-  private var items: [AbstandBrowseStripItem] {
-    options.map {
-      AbstandBrowseStripItem(id: $0.id, label: $0.label, systemImage: systemImage)
-    }
-  }
-
   var body: some View {
-    VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.labelToContentSpacing) {
-      MetadataSheetFieldLabel(title: title)
-      AbstandBrowseStripDropdownPill(
-        items: items,
-        selectionID: selection,
-        fallbackSystemImage: systemImage,
-        accessibilityLabel: title,
-        accessibilityHint: "Chooses \(title.lowercased())",
-        labelWidth: contentWidth > 0 ? contentWidth : nil,
-        onSelect: { selection = $0 }
-      )
-      .frame(maxWidth: .infinity, alignment: .leading)
+    let palette = model.appearancePalette
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
+      Text(title)
+        .font(.body)
+        .foregroundStyle(palette.textPrimary)
+      Spacer(minLength: AppTheme.Layout.inlineSpacing)
+      Picker(title, selection: $selection) {
+        ForEach(options, id: \.id) { opt in
+          Text(opt.label).tag(opt.id)
+        }
+      }
+      .pickerStyle(.menu)
+      .labelsHidden()
+      .tint(palette.textPrimary)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background {
-      GeometryReader { geo in
-        Color.clear.preference(key: MetadataSheetContentWidthKey.self, value: geo.size.width)
-      }
-    }
-    .onPreferenceChange(MetadataSheetContentWidthKey.self) { contentWidth = $0 }
+    .abstandThemeRefresh()
   }
 }
 
