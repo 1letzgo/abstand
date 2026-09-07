@@ -945,6 +945,7 @@ final class AppModel: ObservableObject {
   private var smartDlLastTickAt: Date?
   private var smartDlFiredForCurrentKey = false
   private var downloadBackgroundTaskId: UIBackgroundTaskIdentifier = .invalid
+  private var playbackCompletionBackgroundTaskId: UIBackgroundTaskIdentifier = .invalid
   /// `logout` / init: kein Tab-Wechsel oder Sync bei programmatischer Änderung von `offlineHomeMode`.
   private var suppressOfflineModeSideEffects = false
   /// Nach Abschalten des Offline-Modus ohne Netz: erneuter Sync, sobald `NWPathMonitor` wieder „satisfied“ meldet.
@@ -8857,7 +8858,9 @@ final class AppModel: ObservableObject {
     guard let bookId = player.activeBook?.id,
       player.activePlaybackEpisodeId == nil
     else { return }
-    await markFinished(bookId: bookId)
+    await withPlaybackCompletionBackgroundTask {
+      await markFinished(bookId: bookId)
+    }
   }
 
   /// Podcast-Folge bis zum Ende gehört: lokal fertig (Offline) bzw. inkl. Server-Sync.
@@ -8869,7 +8872,9 @@ final class AppModel: ObservableObject {
       Self.debugLog.log("handlePodcastEpisodePlaybackCompleted GUARD FAILED — no active episode")
       return
     }
-    await markPodcastEpisodeFinished(episode)
+    await withPlaybackCompletionBackgroundTask {
+      await markPodcastEpisodeFinished(episode)
+    }
   }
 
   private func wasCurrentPlaybackForBook(_ bookId: String) -> Bool {
@@ -9393,6 +9398,31 @@ final class AppModel: ObservableObject {
     guard downloadBackgroundTaskId != .invalid else { return }
     UIApplication.shared.endBackgroundTask(downloadBackgroundTaskId)
     downloadBackgroundTaskId = .invalid
+  }
+
+  private func endPlaybackCompletionBackgroundExecution() {
+    guard playbackCompletionBackgroundTaskId != .invalid else { return }
+    UIApplication.shared.endBackgroundTask(playbackCompletionBackgroundTaskId)
+    playbackCompletionBackgroundTaskId = .invalid
+  }
+
+  /// Der Fertig-Pfad braucht im Hintergrund ausdrücklich Laufzeit: Mit dem letzten Sample endet
+  /// die Audio-Ausnahme, die App verliert ihren Grund zu laufen und wird binnen Sekunden
+  /// suspendiert. `markFinished` besteht aber aus mehreren await-Schritten (Position sichern,
+  /// Play-Session schließen, PATCH, `authorize`) — ohne Background-Task bricht das mittendrin ab:
+  /// das Buch bleibt „angefangen" und der Player zeigt es weiter an.
+  private func withPlaybackCompletionBackgroundTask(_ body: () async -> Void) async {
+    if playbackCompletionBackgroundTaskId == .invalid {
+      playbackCompletionBackgroundTaskId = UIApplication.shared.beginBackgroundTask(
+        withName: "de.letzgo.abstand.playback-completion"
+      ) { [weak self] in
+        Task { @MainActor [weak self] in
+          self?.endPlaybackCompletionBackgroundExecution()
+        }
+      }
+    }
+    await body()
+    endPlaybackCompletionBackgroundExecution()
   }
 
   private func beginDownloadBackgroundExecution() {
