@@ -333,10 +333,11 @@ struct MainRootView: View {
   private var booksCatalogBookListBody: some View {
     let rows = model.booksForDisplay()
     return LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      // Bei mehreren Aktiven steht der Name in der fixierten Picker-Pill.
-      if model.activeBookLibraries.count <= 1, let lib = model.booksCatalogLibrary {
-        TabContentSectionTitle(title: lib.name)
-      }
+      // Immer „Books" — wie „New episodes" im Podcast-Tab. Vorher stand hier der
+      // Bibliotheksname, und nur bei genau einer aktiven Bibliothek: die Liste bekam ihre
+      // Überschrift also je nach Kontoeinstellung oder gar nicht. Welche Bibliothek gemeint
+      // ist, sagt ohnehin die Picker-Pill darüber.
+      TabContentSectionTitle(title: "Books")
       if model.isLibraryCatalogFiltered {
         catalogFilterBanner
       }
