@@ -2,9 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- CarPlay-Audio-Entitlement für Simulator-Tests: com.apple.developer.carplay-audio = true.
-	     Deaktiviert, damit signierte Geräte-Builds/TestFlight nicht an fehlender Apple-Freigabe
-	     scheitern. Erst wieder aktivieren, wenn Apple die Freigabe erteilt hat
-	     (https://developer.apple.com/contact/carplay/) oder für reine Simulator-Tests. -->
+	<!-- CarPlay-Audio: von Apple für dieses Team freigegeben (https://developer.apple.com/contact/carplay/).
+	     Ohne die Freigabe scheitert bereits die Signierung — der Schlüssel darf also nicht
+	     spekulativ gesetzt werden. Die zugehörige Scene steht in Config/Info.plist
+	     (CPTemplateApplicationSceneSessionRoleApplication → CarPlaySceneDelegate). -->
+	<key>com.apple.developer.carplay-audio</key>
+	<true/>
 </dict>
 </plist>
