@@ -225,9 +225,30 @@ enum AppTheme {
       )
     }
 
-    static func continueHeroCardTotalHeight(forCardWidth width: CGFloat) -> CGFloat {
-      width + continueHeroMetadataBlockHeight
+    /// Eine Karte je Reihe, volle Streifenbreite — ohne Max-Kappe, die Karte soll den
+    /// Viewport genau ausfüllen. Die Kappen oben gelten weiter für mehrspaltige Regale.
+    static func continueHeroFullWidthCardWidth(forViewportWidth viewport: CGFloat) -> CGFloat {
+      guard viewport > 0 else { return continueHeroCardWidth }
+      return max(continueHeroCardMinWidth, viewport)
     }
+
+    /// Obergrenze der Coverfläche in der Continue-Karte. Bei voller Kartenbreite wäre ein
+    /// quadratisches Cover auf dem iPhone rund 390pt hoch; mit Textblock stünde die Karte
+    /// höher als der sichtbare Bereich des Home-Tabs und verdeckte alle folgenden Regale.
+    /// Darüber hinaus steht das Cover `.fit` auf dem Cover-Tint — wie ein breites Banner.
+    static let continueHeroCoverDisplayMaxHeight: CGFloat = 260
+
+    static func continueHeroCoverHeight(forCardWidth width: CGFloat) -> CGFloat {
+      min(width, continueHeroCoverDisplayMaxHeight)
+    }
+
+    static func continueHeroCardTotalHeight(forCardWidth width: CGFloat) -> CGFloat {
+      continueHeroCoverHeight(forCardWidth: width) + continueHeroMetadataBlockHeight
+    }
+
+    /// Seitenpunkte unter dem Karussell.
+    static let continueHeroPageDotSize: CGFloat = 7
+    static let continueHeroPageDotSpacing: CGFloat = 7
 
     /// Home sekundäre Regale: Cover-only (Compact 3½, Regular +2).
     static let homeShelfCoverVisibleCardsCompact: CGFloat = 3.5
