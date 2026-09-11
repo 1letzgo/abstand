@@ -238,14 +238,14 @@ private struct ContinueCarouselViewportWidthKey: PreferenceKey {
 
 /// Feste Reihenfolge solange sich die `lastUpdate`-Rangfolge nicht ändert
 /// (kein Neu-Sortieren bei Fortschritt-Ticks der bereits vordersten Karte).
-/// Eine Karte je Reihe über die volle Streifenbreite, einrastend, mit Seitenpunkten darunter.
+/// Kartenbreite adaptiv über `horizontalSizeClass` (Compact 1½, Regular +2, mit Max-Breite).
 struct ContinueListeningHeroCarousel: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let shelf: ABSStartShelfSection
 
   @State private var rows: [ABSStartShelfMergedRow] = []
   @State private var viewportWidth: CGFloat = 0
-  @State private var currentRowID: ABSStartShelfMergedRow.ID?
 
 /// Reihenfolge nach `lastUpdate`, aber nicht bei jedem Fortschritt-Tick.
 /// Nur IDs zu beobachten reicht nicht: nach einem Play-Start bleiben dieselben Titel
@@ -259,7 +259,10 @@ private var orderSignature: String {
 }
 
   private var cardWidth: CGFloat {
-    AppTheme.Layout.continueHeroFullWidthCardWidth(forViewportWidth: viewportWidth)
+    AppTheme.Layout.continueHeroCardWidth(
+      forViewportWidth: viewportWidth,
+      horizontalSizeClass: horizontalSizeClass
+    )
   }
 
   private var cardTotalHeight: CGFloat {
@@ -267,29 +270,22 @@ private var orderSignature: String {
   }
 
   var body: some View {
-    VStack(spacing: AppTheme.Layout.stackSpacing) {
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
-          ForEach(rows) { row in
-            switch row {
-            case .book(let book):
-              ContinueListeningHeroBookCard(book: book, model: model, cardWidth: cardWidth)
-            case .podcastEpisode(let episode):
-              ContinueListeningHeroPodcastCard(episode: episode, model: model, cardWidth: cardWidth)
-            }
+    AbstandHorizontalBrowseStripScroll(
+      appliesHorizontalContentInset: false,
+      verticalContentPadding: 0
+    ) {
+      HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
+        ForEach(rows) { row in
+          switch row {
+          case .book(let book):
+            ContinueListeningHeroBookCard(book: book, model: model, cardWidth: cardWidth)
+          case .podcastEpisode(let episode):
+            ContinueListeningHeroPodcastCard(episode: episode, model: model, cardWidth: cardWidth)
           }
         }
-        .scrollTargetLayout()
       }
-      .scrollContentBackground(.hidden)
-      // Eine Karte je Reihe: der Streifen rastet auf der Karte ein, statt frei auszulaufen.
-      .scrollTargetBehavior(.viewAligned)
-      .scrollPosition(id: $currentRowID)
-      .frame(height: cardTotalHeight)
-      .abstandHorizontalScrollRow()
-
-      pageIndicator
     }
+    .frame(height: cardTotalHeight)
     .background {
       GeometryReader { geo in
         Color.clear.preference(key: ContinueCarouselViewportWidthKey.self, value: geo.size.width)
@@ -298,44 +294,6 @@ private var orderSignature: String {
     .onPreferenceChange(ContinueCarouselViewportWidthKey.self) { viewportWidth = $0 }
     .onAppear { rebuildRows() }
     .onChange(of: orderSignature) { _, _ in rebuildRows() }
-    .abstandThemeRefresh()
-  }
-
-  /// Position im Streifen — ohne Peek der Nachbarkarte ist sonst nicht erkennbar,
-  /// dass überhaupt weitere Titel folgen.
-  @ViewBuilder
-  private var pageIndicator: some View {
-    if rows.count > 1 {
-      let palette = model.appearancePalette
-      let accent = model.appearanceAccentColor
-      HStack(spacing: AppTheme.Layout.continueHeroPageDotSpacing) {
-        ForEach(rows) { row in
-          Circle()
-            .fill(row.id == activeRowID ? accent : palette.textSecondary.opacity(0.3))
-            .frame(
-              width: AppTheme.Layout.continueHeroPageDotSize,
-              height: AppTheme.Layout.continueHeroPageDotSize
-            )
-        }
-      }
-      .frame(maxWidth: .infinity)
-      .animation(.easeInOut(duration: 0.2), value: activeRowID)
-      .accessibilityElement()
-      .accessibilityLabel("Page \(activePageNumber) of \(rows.count)")
-    }
-  }
-
-  /// `scrollPosition` meldet erst nach der ersten Bewegung etwas — bis dahin ist die
-  /// erste Karte sichtbar, und der erste Punkt muss gefüllt sein.
-  private var activeRowID: ABSStartShelfMergedRow.ID? {
-    currentRowID ?? rows.first?.id
-  }
-
-  private var activePageNumber: Int {
-    guard let activeRowID, let index = rows.firstIndex(where: { $0.id == activeRowID }) else {
-      return 1
-    }
-    return index + 1
   }
 
   private func rebuildRows() {

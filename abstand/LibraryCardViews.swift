@@ -954,7 +954,7 @@ struct ContinueListeningHeroBookCard: View {
 
   var body: some View {
     let w = cardWidth
-    let h = AppTheme.Layout.continueHeroCoverHeight(forCardWidth: w)
+    let h = cardWidth
     let barH = AppTheme.Layout.libraryRowBottomProgressHeight
     let coverInset = AppTheme.Layout.libraryRowCardInset
     let coverTopRadius = AppTheme.Layout.coverCornerRadius
@@ -1151,7 +1151,7 @@ struct ContinueListeningHeroPodcastCard: View {
 
   var body: some View {
     let w = cardWidth
-    let h = AppTheme.Layout.continueHeroCoverHeight(forCardWidth: w)
+    let h = cardWidth
     let barH = AppTheme.Layout.libraryRowBottomProgressHeight
     let coverInset = AppTheme.Layout.libraryRowCardInset
     let coverTopRadius = AppTheme.Layout.coverCornerRadius
