@@ -229,16 +229,6 @@ enum AppTheme {
       width + continueHeroMetadataBlockHeight
     }
 
-    /// Unscharfes Cover hinter „Continue listening" (wie Home in stashy): reicht nach oben
-    /// bis unter Status- und Navigationsleiste, unten knapp über die Kartenreihe hinaus.
-    static let homeHeroBackdropTopExtension: CGFloat = 500
-    static let homeHeroBackdropBottomExtension: CGFloat = 12
-    /// Feste Bildhöhe, damit das Cover beim Scrollen nicht mit der Sektionshöhe skaliert.
-    static let homeHeroBackdropImageHeight: CGFloat = 1200
-    static let homeHeroBackdropBlurRadius: CGFloat = 40
-    /// Hochskaliert, damit der Blur keine hellen Ränder aus transparenten Kanten zieht.
-    static let homeHeroBackdropScale: CGFloat = 1.3
-
     /// Home sekundäre Regale: Cover-only (Compact 3½, Regular +2).
     static let homeShelfCoverVisibleCardsCompact: CGFloat = 3.5
     static let homeShelfCoverCardMinWidth: CGFloat = 96
