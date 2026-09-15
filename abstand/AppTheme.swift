@@ -798,12 +798,19 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
   let scrollBottomInset: CGFloat
   /// Home-Nav: Trailing-Toolbar bleibt beim Scrollen sichtbar (iOS 26 Scroll-Edge).
   var topScrollEdgeEffectStyle: ScrollEdgeEffectStyle?
+  /// Scroll-Rahmen reicht unter Status- und Navigationsleiste (Inhalt bleibt per Safe-Area-Inset
+  /// eingerückt). Nötig, wenn Inhalt bewusst hinter die Leiste zeichnet — sonst schneidet der
+  /// Scroll dort ab. Nur ohne Browse-Streifen wirksam.
+  var extendsScrollUnderTopBar: Bool = false
   var onRefresh: (() async -> Void)?
   @ViewBuilder var strip: () -> Strip
   @ViewBuilder var sectionBody: (ID) -> Content
 
   @State private var mountedSectionIDs: Set<ID> = []
   @State private var sectionScrollPositions: [ID: ScrollPosition] = [:]
+  /// Oberer Safe-Area-Inset vor `ignoresSafeArea` — der Scroll sieht danach keinen mehr und
+  /// bekommt ihn deshalb explizit zurück, damit der Inhalt unter der Leiste beginnt.
+  @State private var measuredTopSafeInset: CGFloat = 0
 
   var body: some View {
     let screenBackground = model.appearancePalette.background
@@ -818,6 +825,10 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: {
+        measuredTopSafeInset = $0
+      }
+      .ignoresSafeArea(.container, edges: scrollsUnderTopBar ? .top : [])
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .abstandScrollScreenBackground()
@@ -843,6 +854,8 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
       scrollActiveSectionToTop()
     }
   }
+
+  private var scrollsUnderTopBar: Bool { extendsScrollUnderTopBar && !showsStrip }
 
   private func shouldRenderSection(_ sectionID: ID) -> Bool {
     // Die aktive Sektion wird IMMER gerendert — `mountedSectionIDs` steuert nur, ob
@@ -907,6 +920,7 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
         .scrollTargetLayout()
     }
     .contentMargins(.horizontal, AppTheme.Layout.tabPaddingH, for: .scrollContent)
+    .safeAreaPadding(.top, scrollsUnderTopBar ? measuredTopSafeInset : 0)
     .scrollPosition(scrollPositionBinding(for: sectionID))
     .scrollContentBackground(.hidden)
     .background(screenBackground)
