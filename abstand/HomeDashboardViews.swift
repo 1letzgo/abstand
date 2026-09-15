@@ -244,10 +244,16 @@ struct StartDashboardView: View {
 
   @ViewBuilder
   private func startDashboardContinueListeningSection(_ shelf: ABSStartShelfSection) -> some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      TabContentSectionTitle(title: shelf.displayTitle)
-      ContinueListeningHeroCarousel(shelf: shelf)
-    }
+    HomeContinueListeningSection(shelf: shelf, showsBackdrop: isFirstHomeShelf(shelf))
+  }
+
+  /// Der Backdrop reicht 500pt nach oben — nur das oberste Regal darf ihn tragen, sonst läge
+  /// er über den Regalen darüber.
+  private func isFirstHomeShelf(_ shelf: ABSStartShelfSection) -> Bool {
+    model.startShelves(
+      forHomeBrowseSection: ABSStartShelfLocalization.homeBrowseContinueSectionID
+    )
+    .first(where: startDashboardShelfHasVisibleContent)?.id == shelf.id
   }
 
   private var startDashboardAllShelvesDisabledState: some View {
@@ -261,6 +267,55 @@ struct StartDashboardView: View {
 }
 
 // MARK: - Home Continue: Cover-only horizontal rows
+
+/// „Continue listening" mit unscharfem Cover der vordersten Karte dahinter.
+private struct HomeContinueListeningSection: View {
+  @EnvironmentObject private var model: AppModel
+  let shelf: ABSStartShelfSection
+  let showsBackdrop: Bool
+
+  @State private var focusedRowID: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      TabContentSectionTitle(title: shelf.displayTitle)
+      ContinueListeningHeroCarousel(shelf: shelf, focusedRowID: $focusedRowID)
+    }
+    .background {
+      if showsBackdrop, let backdrop {
+        backdrop.equatable()
+      }
+    }
+  }
+
+  private var backdrop: ContinueListeningHeroBackdrop? {
+    let rows = ABSStartShelfMergedRow.merged(
+      books: shelf.books,
+      podcastEpisodes: shelf.podcastEpisodes,
+      progress: model.progressByItemId
+    )
+    // Vor der ersten Wischbewegung meldet `scrollPosition` nichts — dann gilt die erste Karte.
+    guard let row = rows.first(where: { $0.id == focusedRowID }) ?? rows.first else { return nil }
+    switch row {
+    case .book(let book):
+      return ContinueListeningHeroBackdrop(
+        coverURL: model.coverURL(for: book.id),
+        token: model.token,
+        itemId: book.id,
+        cacheAccount: model.coverImageCacheAccountDirectory(),
+        cacheRevision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
+      )
+    case .podcastEpisode(let episode):
+      return ContinueListeningHeroBackdrop(
+        coverURL: model.coverURL(for: episode.libraryItemId),
+        token: model.token,
+        itemId: episode.libraryItemId,
+        cacheAccount: model.coverImageCacheAccountDirectory(),
+        cacheRevision: model.coverImageCacheRevision(forBookId: episode.libraryItemId)
+      )
+    }
+  }
+}
 
 private struct HomeShelfCoverViewportWidthKey: PreferenceKey {
   static var defaultValue: CGFloat = 0

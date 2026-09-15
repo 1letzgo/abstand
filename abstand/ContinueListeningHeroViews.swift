@@ -243,6 +243,8 @@ struct ContinueListeningHeroCarousel: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let shelf: ABSStartShelfSection
+  /// Vorderste sichtbare Karte — steuert das unscharfe Cover hinter der Sektion.
+  @Binding var focusedRowID: String?
 
   @State private var rows: [ABSStartShelfMergedRow] = []
   @State private var viewportWidth: CGFloat = 0
@@ -284,7 +286,9 @@ private var orderSignature: String {
           }
         }
       }
+      .scrollTargetLayout()
     }
+    .scrollPosition(id: $focusedRowID, anchor: .leading)
     .frame(height: cardTotalHeight)
     .background {
       GeometryReader { geo in
@@ -302,5 +306,63 @@ private var orderSignature: String {
       podcastEpisodes: shelf.podcastEpisodes,
       progress: model.progressByItemId
     )
+  }
+}
+
+// MARK: - Home-Backdrop
+
+/// Unscharfes Cover der vordersten Continue-Karte hinter der Sektion, bis unter die Statusleiste
+/// (Muster aus stashy Home). `Equatable`: `scrollPosition` meldet beim Wischen laufend — ohne
+/// den Vergleich würde der safe-area-ignorierende Host bei jedem Einrasten neu aufgebaut, und
+/// das lässt die Statusleiste flackern. Getauscht wird nur das Bild.
+struct ContinueListeningHeroBackdrop: View, Equatable {
+  let coverURL: URL?
+  let token: String
+  let itemId: String
+  let cacheAccount: URL?
+  let cacheRevision: Int
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.itemId == rhs.itemId
+      && lhs.coverURL == rhs.coverURL
+      && lhs.cacheRevision == rhs.cacheRevision
+  }
+
+  var body: some View {
+    let layout = AppTheme.Layout.self
+    GeometryReader { geo in
+      Color.clear
+        .frame(
+          height: geo.size.height + layout.homeHeroBackdropTopExtension
+            + layout.homeHeroBackdropBottomExtension
+        )
+        .overlay(alignment: .bottom) {
+          ZStack {
+            CoverImageView(
+              url: coverURL,
+              token: token,
+              itemId: itemId,
+              cacheAccount: cacheAccount,
+              cacheRevision: cacheRevision,
+              contentMode: .fill
+            )
+            .id(itemId)
+            .transition(.opacity)
+          }
+          .animation(.easeInOut(duration: 0.5), value: itemId)
+          .scaleEffect(layout.homeHeroBackdropScale)
+          .blur(radius: layout.homeHeroBackdropBlurRadius)
+          .frame(maxWidth: .infinity)
+          .frame(height: layout.homeHeroBackdropImageHeight)
+        }
+        .clipped()
+        .offset(y: -layout.homeHeroBackdropTopExtension)
+    }
+    // Die Sektion sitzt im horizontalen Content-Margin des Scrolls — der Hintergrund soll
+    // trotzdem bis an beide Bildschirmkanten reichen.
+    .padding(.horizontal, -layout.tabPaddingH)
+    .ignoresSafeArea(edges: .top)
+    .allowsHitTesting(false)
+    .accessibilityHidden(true)
   }
 }
