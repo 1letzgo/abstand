@@ -272,7 +272,10 @@ private var orderSignature: String {
   }
 
   var body: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
+    AbstandHorizontalBrowseStripScroll(
+      appliesHorizontalContentInset: false,
+      verticalContentPadding: 0
+    ) {
       HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
         ForEach(rows) { row in
           switch row {
@@ -283,21 +286,9 @@ private var orderSignature: String {
           }
         }
       }
+      .scrollTargetLayout()
     }
-    .scrollContentBackground(.hidden)
-    // Vorne ist die Karte unter der Viewport-Mitte — nicht die am linken Rand: am Ende des
-    // Streifens ragt die vorletzte Karte dort noch angeschnitten hinein, bei zwei Titeln
-    // bliebe sonst immer der erste „vorne".
-    .onScrollGeometryChange(for: Int.self) { geo in
-      let stride = cardWidth + AppTheme.Layout.withinSectionSpacing
-      guard stride > 0 else { return 0 }
-      let center = geo.contentOffset.x + geo.containerSize.width / 2
-      return Int((center / stride).rounded(.down))
-    } action: { _, index in
-      updateFocusedRow(index: index)
-    }
-    .abstandHorizontalScrollRow()
-    .abstandThemeRefresh()
+    .scrollPosition(id: $focusedRowID, anchor: .leading)
     .frame(height: cardTotalHeight)
     .background {
       GeometryReader { geo in
@@ -307,12 +298,6 @@ private var orderSignature: String {
     .onPreferenceChange(ContinueCarouselViewportWidthKey.self) { viewportWidth = $0 }
     .onAppear { rebuildRows() }
     .onChange(of: orderSignature) { _, _ in rebuildRows() }
-  }
-
-  private func updateFocusedRow(index: Int) {
-    guard !rows.isEmpty else { return }
-    let id = rows[min(max(index, 0), rows.count - 1)].id
-    if focusedRowID != id { focusedRowID = id }
   }
 
   private func rebuildRows() {

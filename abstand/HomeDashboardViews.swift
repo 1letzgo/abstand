@@ -105,8 +105,6 @@ struct StartDashboardView: View {
       scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
         + model.nowPlayingAccessoryScrollBottomInset,
       topScrollEdgeEffectStyle: .soft,
-      // Das unscharfe Cover hinter „Continue listening" reicht bis unter die Statusleiste.
-      extendsScrollUnderTopBar: true,
       onRefresh: { await model.refreshStartTabPullToRefresh() }
     ) {
       Color.clear
