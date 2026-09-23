@@ -1,5 +1,11 @@
 import SwiftUI
 
+private enum MatchResultCoverMetrics {
+  /// Kleines Cover-Thumbnail in der Trefferliste (2:3-Näherung, fest statt aspectRatio).
+  static let width: CGFloat = 56
+  static let height: CGFloat = 80
+}
+
 /// Match-Metadaten-Sheet (absorb-style): Online-Suche über `/api/search/books`,
 /// Trefferliste mit Vorschau, pro-Feld-Auswahl vor dem Apply (`PATCH /api/items/:id/media` + optional Cover).
 /// Nur für Admin-oder-Root-User (`model.isServerAdmin || model.isServerRoot`).
@@ -160,7 +166,7 @@ struct MatchMetadataSheet: View {
     MetadataSheetCard(spacing: AppTheme.Layout.withinSectionSpacing) {
       HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
         matchCover(match)
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
           Text(match.title ?? "—")
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(palette.textPrimary)
@@ -177,7 +183,7 @@ struct MatchMetadataSheet: View {
               .foregroundStyle(palette.textSecondary)
               .lineLimit(1)
           }
-          HStack(spacing: 6) {
+          HStack(spacing: AppTheme.Layout.compactSpacing) {
             if let y = match.displayYear { chip(y) }
             if let p = match.publisher?.trimmingCharacters(in: .whitespacesAndNewlines),
               !p.isEmpty
@@ -226,7 +232,7 @@ struct MatchMetadataSheet: View {
         coverPlaceholder(shape)
       }
     }
-    .frame(width: 56, height: 80)
+    .frame(width: MatchResultCoverMetrics.width, height: MatchResultCoverMetrics.height)
     .clipShape(shape)
   }
 
@@ -245,8 +251,8 @@ struct MatchMetadataSheet: View {
     Text(text)
       .font(.caption2)
       .foregroundStyle(palette.textSecondary)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 3)
+      .padding(.horizontal, AppTheme.Layout.inlineSpacing)
+      .padding(.vertical, AppTheme.Layout.tightSpacing)
       .background(palette.background.opacity(0.6), in: Capsule())
   }
 
@@ -257,7 +263,7 @@ struct MatchMetadataSheet: View {
     NavigationStack {
       MetadataSheetScrollScreen {
         MetadataSheetSection(title: "Match") {
-          MetadataSheetCard(spacing: 4) {
+          MetadataSheetCard(spacing: AppTheme.Layout.tightSpacing) {
             Text(match.title ?? "—")
               .font(.subheadline.weight(.semibold))
               .foregroundStyle(palette.textPrimary)
@@ -284,7 +290,7 @@ struct MatchMetadataSheet: View {
                   }
                 )
               )
-              .padding(.vertical, 8)
+              .padding(.vertical, AppTheme.Layout.rowVerticalPadding)
               if idx < fields.count - 1 {
                 MetadataSheetCardDivider()
               }

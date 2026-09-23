@@ -69,7 +69,7 @@ struct BooksCatalogFilterToolbarMenu: View, Equatable {
           .foregroundStyle(isSelected ? themeAccent : AppTheme.textSecondary)
         Text(title)
           .foregroundStyle(AppTheme.textPrimary)
-        Spacer(minLength: 8)
+        Spacer(minLength: AppTheme.Layout.inlineSpacing)
         if isSelected {
           Image(systemName: "checkmark")
             .font(.body.weight(.semibold))

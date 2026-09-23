@@ -8,7 +8,7 @@ extension MainRootView {
     Text("Connect to the network to load this list.")
       .font(.subheadline)
       .foregroundStyle(model.appearancePalette.textSecondary)
-      .padding(.vertical, 8)
+      .padding(.vertical, AppTheme.Layout.rowVerticalPadding)
   }
 
   var booksBrowseCenteredProgress: some View {

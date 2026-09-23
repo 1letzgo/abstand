@@ -1,5 +1,10 @@
 import SwiftUI
 
+private enum SessionRangeBarMetrics {
+  /// Höhe des kleinen Fortschrittsbalkens (Sitzungs-Zeitraum in der Kapitel-/Sitzungsliste).
+  static let barHeight: CGFloat = 7
+}
+
 enum ListeningHistoryDateFormatting {
   static let sessionList: DateFormatter = {
     let f = DateFormatter()
@@ -10,18 +15,21 @@ enum ListeningHistoryDateFormatting {
 }
 
 struct ListeningHistoryRow: View {
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   @Environment(\.themeAccent) private var themeAccent
   let session: ABSListeningSession
   let onJump: (ABSListeningSession) -> Void
 
   var body: some View {
+    // Statische AppTheme-Farben neu binden, ohne die Zeile an AppModel zu koppeln.
+    let _ = themeRevision
     let denom = max(session.duration, session.currentTime, session.startTime, 1)
     let rel0 = CGFloat(session.startTime / denom)
     let rel1 = CGFloat(session.currentTime / denom)
     let started = Date(timeIntervalSince1970: Double(session.startedAt) / 1000)
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(alignment: .center, spacing: 10) {
-        VStack(alignment: .leading, spacing: 2) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
+      HStack(alignment: .center, spacing: AppTheme.Layout.withinSectionSpacing) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
           Text(ListeningHistoryDateFormatting.sessionList.string(from: started))
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(AppTheme.textPrimary)
@@ -31,7 +39,7 @@ struct ListeningHistoryRow: View {
           .font(.caption.monospacedDigit())
           .foregroundStyle(AppTheme.textSecondary)
         }
-        Spacer(minLength: 8)
+        Spacer(minLength: AppTheme.Layout.stackSpacing)
         Button {
           onJump(session)
         } label: {
@@ -55,9 +63,9 @@ struct ListeningHistoryRow: View {
             .offset(x: x0)
         }
       }
-      .frame(height: 7)
+      .frame(height: SessionRangeBarMetrics.barHeight)
     }
-    .padding(.vertical, 4)
+    .padding(.vertical, AppTheme.Layout.tightSpacing)
   }
 }
 
@@ -76,9 +84,9 @@ struct ListeningHistorySessionList: View {
           .font(.caption)
           .foregroundStyle(AppTheme.textSecondary)
           .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.vertical, 6)
+          .padding(.vertical, AppTheme.Layout.compactSpacing)
       } else {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.cardPadding) {
           ForEach(sessions) { session in
             ListeningHistoryRow(session: session, onJump: onJumpToSessionStart)
           }
@@ -104,15 +112,18 @@ enum BookChapterPlayState {
 }
 
 struct BookChapterRowView: View {
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   @Environment(\.themeAccent) private var themeAccent
   let chapter: ABSChapter
   let playState: BookChapterPlayState
   let onPlay: () -> Void
 
   var body: some View {
+    // Statische AppTheme-Farben neu binden, ohne die Zeile an AppModel zu koppeln.
+    let _ = themeRevision
     Button(action: onPlay) {
-      HStack(alignment: .top, spacing: 10) {
-        VStack(alignment: .leading, spacing: 4) {
+      HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
           Text(chapter.title)
             .font(.headline)
             .foregroundStyle(AppTheme.textPrimary)
@@ -121,13 +132,13 @@ struct BookChapterRowView: View {
             .font(.caption.monospacedDigit())
             .foregroundStyle(AppTheme.textSecondary)
         }
-        Spacer(minLength: 8)
+        Spacer(minLength: AppTheme.Layout.stackSpacing)
         chapterStatusIcon
         Image(systemName: "play.circle")
           .font(.title3)
           .abstandAccentForeground()
       }
-      .padding(.vertical, 10)
+      .padding(.vertical, AppTheme.Layout.withinSectionSpacing)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
@@ -153,9 +164,12 @@ struct BookChapterRowView: View {
 
 /// Buchbeschreibung (Book Detail + Vollplayer-Panel) — Typografie wie DetailHeroTypography.metaValue.
 struct BookDescriptionPanelView: View {
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   let text: String
 
   var body: some View {
+    // Statische AppTheme-Farben neu binden, ohne die Zeile an AppModel zu koppeln.
+    let _ = themeRevision
     Group {
       if text.isEmpty {
         Text("—")
@@ -176,11 +190,14 @@ struct BookDescriptionPanelView: View {
 
 /// Kapitelliste (Book Detail + Vollplayer-Cover-Panel).
 struct BookChapterListView: View {
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   let book: ABSBook
   let progress: ABSUserMediaProgress?
   let onPlayChapter: (ABSChapter) -> Void
 
   var body: some View {
+    // Statische AppTheme-Farben neu binden, ohne die Zeile an AppModel zu koppeln.
+    let _ = themeRevision
     let chapters = (book.media.chapters ?? []).sorted { $0.start < $1.start }
     Group {
       if chapters.isEmpty {

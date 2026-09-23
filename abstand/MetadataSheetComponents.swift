@@ -105,8 +105,7 @@ struct MetadataSheetCard<Content: View>: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(AppTheme.Layout.detailSectionCardPadding)
-    .background(model.appearancePalette.card, in: MetadataSheetMetrics.cardShape)
-    .abstandCardElevation(.subtle)
+    .abstandCardChrome(model.appearancePalette.card, shape: MetadataSheetMetrics.cardShape, elevation: .subtle)
     .abstandThemeRefresh()
   }
 }
@@ -140,7 +139,7 @@ private struct MetadataSheetFieldChromeModifier: ViewModifier {
       .background(palette.background, in: shape)
       .overlay {
         shape.strokeBorder(
-          palette.textSecondary.opacity(MetadataSheetMetrics.fieldBorderOpacity), lineWidth: 1)
+          palette.textSecondary.opacity(MetadataSheetMetrics.fieldBorderOpacity), lineWidth: AppTheme.Layout.hairlineWidth)
       }
       .abstandThemeRefresh()
   }
@@ -166,7 +165,7 @@ struct MetadataSheetFieldLabel: View {
 
   var body: some View {
     let palette = model.appearancePalette
-    HStack(spacing: 6) {
+    HStack(spacing: AppTheme.Layout.compactSpacing) {
       Text(title)
         .font(.caption.weight(.medium))
         .foregroundStyle(palette.textSecondary)
@@ -294,7 +293,7 @@ struct MetadataSheetToggleRow: View {
   var body: some View {
     let palette = model.appearancePalette
     Toggle(isOn: $isOn) {
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
         Text(title)
           .font(.body)
           .foregroundStyle(palette.textPrimary)

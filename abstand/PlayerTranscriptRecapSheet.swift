@@ -6,8 +6,8 @@ struct PlayerTranscriptRecapCard: View {
   @ObservedObject var transcription: PlayerLiveTranscriptionController
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(alignment: .firstTextBaseline, spacing: 6) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
+      HStack(alignment: .firstTextBaseline, spacing: AppTheme.Layout.compactSpacing) {
         Text(String(localized: "Last 5 minutes", comment: "Read along recap title"))
           .font(.caption.weight(.bold))
           .foregroundStyle(model.appearancePalette.textSecondary)
@@ -17,20 +17,17 @@ struct PlayerTranscriptRecapCard: View {
           Text(String(localized: "transcript", comment: "Read along recap transcript badge"))
             .font(.caption2.weight(.medium))
             .foregroundStyle(model.appearancePalette.textSecondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, AppTheme.Layout.compactSpacing)
+            .padding(.vertical, AppTheme.Layout.hairlineSpacing)
             .background(model.appearancePalette.card.opacity(0.9), in: Capsule())
         }
       }
 
       Group {
         if transcription.isGeneratingRecap {
-          VStack(spacing: 12) {
-            ProgressView()
-            Text(String(localized: "Creating on-device recap…", comment: "Read along recap progress"))
-              .foregroundStyle(model.appearancePalette.textSecondary)
-          }
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          AbstandLabeledLoadingState(
+            text: String(localized: "Creating on-device recap…", comment: "Read along recap progress")
+          )
         } else if let recap = transcription.recapText, !recap.isEmpty {
           ScrollView {
             Text(recap)
@@ -42,7 +39,7 @@ struct PlayerTranscriptRecapCard: View {
               .font(.caption)
               .foregroundStyle(model.appearancePalette.textSecondary)
               .lineLimit(2)
-              .padding(10)
+              .padding(AppTheme.Layout.withinSectionSpacing)
               .frame(maxWidth: .infinity, alignment: .leading)
               .background(model.appearancePalette.card.opacity(0.9))
           }
@@ -57,7 +54,7 @@ struct PlayerTranscriptRecapCard: View {
               .font(.caption)
               .foregroundStyle(model.appearancePalette.textSecondary)
               .lineLimit(2)
-              .padding(10)
+              .padding(AppTheme.Layout.withinSectionSpacing)
               .frame(maxWidth: .infinity, alignment: .leading)
               .background(model.appearancePalette.card.opacity(0.9))
           }

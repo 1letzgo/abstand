@@ -4,6 +4,8 @@ import Foundation
 /// von `AppModel` per Observer gemeldet (statt stiller Auth-Fails in einzelnen Call-Sites).
 extension Notification.Name {
   static let abstandSessionUnauthorized = Notification.Name("abstand_session_unauthorized")
+  /// Access-/Refresh-Token wurden erneuert (`/auth/refresh`). `userInfo`: `serverURL`, `accessToken`, `refreshToken`.
+  static let abstandSessionTokensRefreshed = Notification.Name("abstand_session_tokens_refreshed")
 }
 
 enum ABSAPIError: LocalizedError {
@@ -31,6 +33,13 @@ enum ABSAPIError: LocalizedError {
 actor ABSAPIClient {
   private let baseURL: URL
   private var token: String
+  /// Rotierendes Refresh-Token (neues JWT-Auth ab Server v2.26); `nil` auf alten Servern / Legacy-Sessions.
+  private var refreshToken: String?
+  /// Single-Flight: parallele 401er teilen sich einen Refresh (das Token rotiert pro Aufruf).
+  private var refreshTask: Task<Bool, Never>?
+  /// Letzter fehlgeschlagener Refresh — Backoff, damit offline nicht jeder Request auf `/auth/refresh` wartet.
+  private var lastRefreshFailureAt: Date?
+  private static let refreshFailureBackoff: TimeInterval = 60
   private let decoder = ABSJSON.decoder()
   private let encoder = ABSJSON.encoder()
   private let urlSession: URLSession
@@ -38,9 +47,11 @@ actor ABSAPIClient {
   /// API-Calls (z. B. `startPlaySession` für Streaming) nicht blockieren (vgl. `waitsForConnectivity`).
   private let downloadURLSession: URLSession
 
-  init(baseURL: URL, token: String) {
+  init(baseURL: URL, token: String, refreshToken: String? = nil) {
     self.baseURL = baseURL
     self.token = token
+    let trimmedRefresh = refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    self.refreshToken = trimmedRefresh.isEmpty ? nil : trimmedRefresh
     let cfg = URLSessionConfiguration.default
     // Bootstrap-Polling durch URLSession übernehmen — Requests warten im Queue, bis ein Interface up ist
     // (vgl. ios-networking-Skill: `waitsForConnectivity = true`). Gewinnt Dead-Time beim Kaltstart.
@@ -67,6 +78,112 @@ actor ABSAPIClient {
 
   func currentToken() -> String {
     token
+  }
+
+  func setRefreshToken(_ newToken: String?) {
+    let trimmed = newToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    refreshToken = trimmed.isEmpty ? nil : trimmed
+  }
+
+  // MARK: - JWT-Refresh
+
+  /// Vorlauf vor Ablauf, ab dem proaktiv erneuert wird (vermeidet 401 mitten in Download/Sync).
+  private static let accessTokenRefreshLeeway: TimeInterval = 120
+
+  /// `exp`-Claim eines JWT; `nil` bei Legacy-Token ohne Ablauf oder unlesbarem Payload.
+  nonisolated static func jwtExpiry(of jwt: String) -> Date? {
+    let parts = jwt.split(separator: ".")
+    guard parts.count == 3 else { return nil }
+    var b64 = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+    while b64.count % 4 != 0 { b64.append("=") }
+    guard let data = Data(base64Encoded: b64),
+      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let exp = (obj["exp"] as? NSNumber)?.doubleValue
+    else { return nil }
+    return Date(timeIntervalSince1970: exp)
+  }
+
+  /// Erneuert das Access-Token, wenn es bald abläuft. No-op ohne Refresh-Token oder ohne `exp`.
+  private func refreshIfExpiringSoon() async {
+    guard refreshToken != nil, let exp = Self.jwtExpiry(of: token) else { return }
+    if exp.timeIntervalSinceNow < Self.accessTokenRefreshLeeway {
+      _ = await refreshTokens()
+    }
+  }
+
+  /// `POST /auth/refresh` mit `x-refresh-token`. Liefert `true`, wenn ein neues Access-Token gesetzt wurde.
+  @discardableResult
+  func refreshTokens() async -> Bool {
+    if let running = refreshTask { return await running.value }
+    guard let current = refreshToken else { return false }
+    if let failed = lastRefreshFailureAt, Date().timeIntervalSince(failed) < Self.refreshFailureBackoff { return false }
+    let base = baseURL
+    let task = Task<Bool, Never> { [weak self] in
+      guard let self else { return false }
+      return await self.performRefresh(refreshToken: current, base: base)
+    }
+    refreshTask = task
+    let ok = await task.value
+    refreshTask = nil
+    lastRefreshFailureAt = ok ? nil : Date()
+    return ok
+  }
+
+  private func performRefresh(refreshToken current: String, base: URL) async -> Bool {
+    var req = URLRequest(url: base.appendingPathComponent("auth/refresh"), timeoutInterval: 20)
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.setValue(current, forHTTPHeaderField: "x-refresh-token")
+    guard let (data, resp) = try? await Self.loginSession.data(for: req),
+      let http = resp as? HTTPURLResponse
+    else { return false }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      // 401 = Refresh-Token ungültig/abgelaufen → verwerfen, damit der nächste 401 sauber zum Re-Login führt.
+      // Andere Fehler (Netz, 5xx, Rate-Limit) lassen das Token stehen.
+      if http.statusCode == 401 { refreshToken = nil }
+      return false
+    }
+    guard let res = try? decoder.decode(ABSLoginResponse.self, from: data),
+      let access = res.user.accessToken?.trimmingCharacters(in: .whitespacesAndNewlines), !access.isEmpty
+    else { return false }
+    token = access
+    if let rotated = res.user.refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines), !rotated.isEmpty {
+      refreshToken = rotated
+    }
+    NotificationCenter.default.post(
+      name: .abstandSessionTokensRefreshed,
+      object: nil,
+      userInfo: [
+        "serverURL": base.absoluteString,
+        "accessToken": access,
+        "refreshToken": refreshToken ?? "",
+      ]
+    )
+    return true
+  }
+
+  /// Zentraler Daten-Request: proaktiver Refresh, bei 401 einmal erneuern und mit neuem Bearer wiederholen.
+  /// Bleibt es bei 401, meldet `throwForStatus` wie bisher `abstandSessionUnauthorized`.
+  private func authedData(for request: URLRequest) async throws -> (Data, URLResponse) {
+    await refreshIfExpiringSoon()
+    var req = request
+    if req.value(forHTTPHeaderField: "Authorization") != nil {
+      req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    }
+    let (data, resp) = try await urlSession.data(for: req)
+    guard let http = resp as? HTTPURLResponse, http.statusCode == 401,
+      req.value(forHTTPHeaderField: "Authorization") != nil,
+      await refreshTokens()
+    else { return (data, resp) }
+    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    return try await urlSession.data(for: req)
+  }
+
+  /// Für Download-Schleifen: `true`, wenn nach 401 erneuert wurde und der Versuch wiederholt werden soll.
+  private func shouldRetryDownloadAfterRefresh(_ http: HTTPURLResponse, temp: URL) async -> Bool {
+    guard http.statusCode == 401, await refreshTokens() else { return false }
+    try? FileManager.default.removeItem(at: temp)
+    return true
   }
 
   /// Bricht laufende Tasks der Download-Session ab (ergänzt Swift-`Task.cancel`).
@@ -100,6 +217,7 @@ actor ABSAPIClient {
     var lastError: Error?
     for attempt in 0..<3 {
       do {
+        await refreshIfExpiringSoon()
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (temp, resp) = try await downloadURLSession.download(for: req)
@@ -107,6 +225,7 @@ actor ABSAPIClient {
           try? FileManager.default.removeItem(at: temp)
           throw ABSAPIError.emptyBody
         }
+        if await shouldRetryDownloadAfterRefresh(http, temp: temp) { continue }
         try Self.cleanupAndThrowForDownloadStatus(http, temp: temp)
         if FileManager.default.fileExists(atPath: dest.path) {
           try FileManager.default.removeItem(at: dest)
@@ -152,6 +271,8 @@ actor ABSAPIClient {
     var req = URLRequest(url: url)
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    // Neues JWT-Auth: Refresh-Token im Body statt nur als Cookie (alte Server ignorieren den Header).
+    req.setValue("true", forHTTPHeaderField: "x-return-tokens")
     req.httpBody = try ABSJSON.encoder().encode(ABSLoginRequest(username: username, password: password))
     let (data, resp) = try await loginSession.data(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
@@ -165,6 +286,15 @@ actor ABSAPIClient {
     } catch {
       throw ABSAPIError.decoding(error)
     }
+  }
+
+  /// `POST /logout` mit `x-refresh-token` — invalidiert die Server-Session. Fehler werden ignoriert
+  /// (offline abmelden muss funktionieren).
+  static func logout(server: URL, refreshToken: String) async {
+    var req = URLRequest(url: server.appendingPathComponent("logout"), timeoutInterval: 10)
+    req.httpMethod = "POST"
+    req.setValue(refreshToken, forHTTPHeaderField: "x-refresh-token")
+    _ = try? await loginSession.data(for: req)
   }
 
   // MARK: - Instance requests
@@ -222,7 +352,7 @@ actor ABSAPIClient {
   }
 
   private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
-    let (data, resp) = try await urlSession.data(for: request)
+    let (data, resp) = try await authedData(for: request)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -234,7 +364,7 @@ actor ABSAPIClient {
 
   /// Hör-Sitzungen: striktes Decoding, bei Fehler Zeilenweise per `decodeLenient` (kaputte Einträge fallen weg statt die ganze Seite).
   private func sendListeningSessionsPayload(_ request: URLRequest) async throws -> ABSListeningSessionsPayload {
-    let (data, resp) = try await urlSession.data(for: request)
+    let (data, resp) = try await authedData(for: request)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -245,7 +375,7 @@ actor ABSAPIClient {
   }
 
   private func sendData(_ request: URLRequest) async throws {
-    let (data, resp) = try await urlSession.data(for: request)
+    let (data, resp) = try await authedData(for: request)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     _ = data
@@ -279,7 +409,7 @@ actor ABSAPIClient {
 
   func serverUserDetailData(userId: String) async throws -> Data {
     let req = try authorizedRequest(path: "api/users/\(userId)")
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     return data
@@ -337,7 +467,7 @@ actor ABSAPIClient {
     let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !id.isEmpty else { throw ABSAPIError.invalidURL }
     let req = try authorizedRequest(path: "api/tools/item/\(id)/encode-m4b", method: "DELETE")
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     if http.statusCode == 404 { return }
     try Self.throwForStatus(http, data: data)
@@ -388,7 +518,7 @@ actor ABSAPIClient {
     let req = try authorizedRequest(path: "api/libraries/\(libraryId)/items", query: q)
     var reqNoCache = req
     reqNoCache.cachePolicy = .reloadIgnoringLocalCacheData
-    let (data, resp) = try await urlSession.data(for: reqNoCache)
+    let (data, resp) = try await authedData(for: reqNoCache)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -410,7 +540,7 @@ actor ABSAPIClient {
         "page": "\(page)",
       ]
     )
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -434,7 +564,7 @@ actor ABSAPIClient {
       body: body,
       timeout: 180
     )
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     return data
@@ -474,7 +604,7 @@ actor ABSAPIClient {
   func itemResponseData(id: String, expanded: Bool = true) async throws -> Data {
     let q = ["expanded": expanded ? "1" : "0"]
     let req = try authorizedRequest(path: "api/items/\(id)", query: q)
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     return data
@@ -512,7 +642,7 @@ actor ABSAPIClient {
     if let region, !region.isEmpty { query["region"] = region }
     let req = try authorizedRequest(path: "api/search/books", query: query)
     // Antwort ist flaches JSON-Array; einzelne Treffer defensively dekodiert.
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     // Leere Antwort = keine Treffer.
@@ -569,7 +699,7 @@ actor ABSAPIClient {
     var query: [String: String] = ["title": title, "provider": provider]
     if let author, !author.isEmpty { query["author"] = author }
     let req = try authorizedRequest(path: "api/search/covers", query: query, timeout: 25)
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     guard !data.isEmpty else { return [] }
@@ -591,7 +721,7 @@ actor ABSAPIClient {
       query: ["asin": asin, "region": region],
       timeout: 20
     )
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -616,7 +746,7 @@ actor ABSAPIClient {
         "limit": "\(limit)",
       ]
     )
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -635,7 +765,7 @@ actor ABSAPIClient {
       path: "api/libraries/\(libraryId)/personalized",
       query: ["limit": "\(limit)"]
     )
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     return data
@@ -737,7 +867,7 @@ actor ABSAPIClient {
     payload: ABSItemsInProgressPayload, rawData: Data
   ) {
     let req = try authorizedRequest(path: "api/me/items-in-progress", query: ["limit": "\(limit)"])
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     return (Self.decodeInProgressPayload(from: data), data)
@@ -902,7 +1032,7 @@ actor ABSAPIClient {
   /// Liefert die Rohantwort für den lokalen SwiftData-Cache (`LocalListeningStatsSnapshot`).
   func listeningStats() async throws -> (stats: ABSListeningStatsResponse, rawData: Data) {
     let req = try authorizedRequest(path: "api/me/listening-stats")
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -974,7 +1104,7 @@ actor ABSAPIClient {
       path = "api/me/progress/\(lid)"
     }
     let req = try authorizedRequest(path: path)
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     if http.statusCode == 404 { return nil }
     try Self.throwForStatus(http, data: data)
@@ -988,7 +1118,7 @@ actor ABSAPIClient {
     guard !id.isEmpty else { throw ABSAPIError.invalidURL }
     let path = "api/me/progress/\(id)"
     let req = try authorizedRequest(path: path, method: "DELETE")
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
   }
@@ -1051,7 +1181,7 @@ actor ABSAPIClient {
     let id = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !id.isEmpty else { throw ABSAPIError.invalidURL }
     let req = try authorizedRequest(path: "api/sessions/\(id)", method: "DELETE")
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     if http.statusCode == 404 { return }
     try Self.throwForStatus(http, data: data)
@@ -1108,7 +1238,7 @@ actor ABSAPIClient {
 
   func authenticatedData(from url: URL) async throws -> Data {
     let req = AbstandHTTPSession.authorizedRequest(url: url, token: token, timeout: 60)
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     return data
@@ -1124,6 +1254,7 @@ actor ABSAPIClient {
     var lastError: Error?
     for attempt in 0..<maxAttempts {
       do {
+        await refreshIfExpiringSoon()
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (temp, resp) = try await downloadURLSession.download(for: req)
@@ -1131,6 +1262,7 @@ actor ABSAPIClient {
           try? FileManager.default.removeItem(at: temp)
           throw ABSAPIError.emptyBody
         }
+        if await shouldRetryDownloadAfterRefresh(http, temp: temp) { continue }
         try Self.cleanupAndThrowForDownloadStatus(http, temp: temp)
         let ext = Self.pickAudioFileExtension(mimeType: http.mimeType, fileURL: temp)
         let stem = suggestedDestination.deletingPathExtension().lastPathComponent
@@ -1172,6 +1304,7 @@ actor ABSAPIClient {
     var lastError: Error?
     for attempt in 0..<maxAttempts {
       do {
+        await refreshIfExpiringSoon()
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let delegate = FileDownloadProgressDelegate(onProgress: progress, knownExpectedBytes: knownSize)
@@ -1180,6 +1313,7 @@ actor ABSAPIClient {
           try? FileManager.default.removeItem(at: temp)
           throw ABSAPIError.emptyBody
         }
+        if await shouldRetryDownloadAfterRefresh(http, temp: temp) { continue }
         try Self.cleanupAndThrowForDownloadStatus(http, temp: temp)
         let ext = Self.pickAudioFileExtension(mimeType: http.mimeType, fileURL: temp)
         let stem = suggestedDestination.deletingPathExtension().lastPathComponent
@@ -1262,7 +1396,7 @@ actor ABSAPIClient {
         "country": country,
       ]
     )
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     return try decoder.decode([ABSPodcastDirectorySearchHit].self, from: data)
@@ -1283,7 +1417,7 @@ actor ABSAPIClient {
     ]
     if descending { q["desc"] = "1" }
     let req = try authorizedRequest(path: "api/libraries/\(libraryId)/authors", query: q)
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -1293,7 +1427,7 @@ actor ABSAPIClient {
     } catch {
       if page != 0 { throw ABSAPIError.decoding(error) }
       let plain = try authorizedRequest(path: "api/libraries/\(libraryId)/authors")
-      let (data2, resp2) = try await urlSession.data(for: plain)
+      let (data2, resp2) = try await authedData(for: plain)
       guard let http2 = resp2 as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
       try Self.throwForStatus(http2, data: data2)
       do {
@@ -1320,7 +1454,7 @@ actor ABSAPIClient {
     if !include.isEmpty { q["include"] = include.joined(separator: ",") }
     if let libraryId, !libraryId.isEmpty { q["library"] = libraryId }
     let req = try authorizedRequest(path: "api/authors/\(authorId)", query: q)
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -1333,7 +1467,7 @@ actor ABSAPIClient {
   /// Sammlung inkl. Beschreibung (`GET /api/collections/:id`).
   func collectionDetail(collectionId: String) async throws -> ABSLibraryCollectionListItem {
     let req = try authorizedRequest(path: "api/collections/\(collectionId)")
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -1346,7 +1480,7 @@ actor ABSAPIClient {
   /// Serie (`GET /api/series/:id`) — ohne nutzerbeschreibbares Description-Feld in der UI.
   func seriesDetail(seriesId: String) async throws -> ABSSeriesDetail {
     let req = try authorizedRequest(path: "api/series/\(seriesId)")
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -1359,7 +1493,7 @@ actor ABSAPIClient {
   /// Alle Sprecher:innen (`GET /api/libraries/:id/narrators`).
   func libraryNarrators(libraryId: String) async throws -> (results: [ABSLibraryNarratorListItem], raw: Data) {
     let req = try authorizedRequest(path: "api/libraries/\(libraryId)/narrators")
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -1386,7 +1520,7 @@ actor ABSAPIClient {
     ]
     if descending { q["desc"] = "1" }
     let req = try authorizedRequest(path: "api/libraries/\(libraryId)/series", query: q)
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -1407,7 +1541,7 @@ actor ABSAPIClient {
       "minified": minified ? "1" : "0",
     ]
     let req = try authorizedRequest(path: "api/libraries/\(libraryId)/collections", query: q)
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     do {
@@ -1421,7 +1555,7 @@ actor ABSAPIClient {
   /// Ordner der Bibliothek (`GET /api/libraries/:id`, Feld `folders`).
   func libraryFolders(libraryId: String) async throws -> [ABSLibraryFolderRow] {
     let req = try authorizedRequest(path: "api/libraries/\(libraryId)")
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     let parsed = try decoder.decode(ABSLibraryDetailFoldersPayload.self, from: data)
@@ -1432,7 +1566,7 @@ actor ABSAPIClient {
   func libraryDetail(id: String, includeFilterData: Bool = true) async throws -> ABSLibraryDetailEnvelope {
     let query = includeFilterData ? ["include": "filterdata"] : [:]
     let req = try authorizedRequest(path: "api/libraries/\(id)", query: query)
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     if includeFilterData {
@@ -1445,7 +1579,7 @@ actor ABSAPIClient {
   /// Podcast-Episode-Downloads einer Bibliothek (`GET /api/libraries/:id/episode-downloads`).
   func libraryEpisodeDownloads(libraryId: String) async throws -> ABSLibraryEpisodeDownloadsPayload {
     let req = try authorizedRequest(path: "api/libraries/\(libraryId)/episode-downloads")
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     return try decoder.decode(ABSLibraryEpisodeDownloadsPayload.self, from: data)
@@ -1454,7 +1588,7 @@ actor ABSAPIClient {
   /// Neuen Podcast anlegen (`POST /api/podcasts`).
   func createPodcastInLibrary(jsonBody: Data) async throws -> String {
     let req = try authorizedRequest(path: "api/podcasts", method: "POST", body: jsonBody, timeout: 180)
-    let (data, resp) = try await urlSession.data(for: req)
+    let (data, resp) = try await authedData(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     try Self.throwForStatus(http, data: data)
     struct IdRow: Decodable {

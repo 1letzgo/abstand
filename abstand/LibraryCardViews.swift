@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 // MARK: - Podcast RSS feed rows (same layout as library rows; download only)
@@ -59,7 +60,7 @@ struct PodcastRssFeedDraftRow: View {
         .accessibilityHidden(true)
 
         LibraryRowLayout.metadataColumn(showsProgressBar: false) {
-          VStack(alignment: .leading, spacing: 2) {
+          VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
             Text(draft.title)
               .font(.headline.weight(.semibold))
               .foregroundStyle(palette.textPrimary)
@@ -77,16 +78,14 @@ struct PodcastRssFeedDraftRow: View {
               rssTrailingControl
             }
           }
-          .padding(.trailing, 4)
+          .padding(.trailing, AppTheme.Layout.tightSpacing)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("RSS episode, not in library yet")
       }
       .padding(.leading, 0)
     }
-    .background(palette.card)
-    .clipShape(LibraryRowLayout.cardShape)
-    .abstandCardElevation(.standard)
+    .abstandCardChrome(palette.card, shape: LibraryRowLayout.cardShape)
     .abstandThemeRefresh()
     .alert(
       "Delete episode?",
@@ -123,11 +122,11 @@ struct PodcastRssFeedDraftRow: View {
           .foregroundStyle(AppTheme.danger)
       }
       .buttonStyle(.plain)
-      .frame(minWidth: 88, alignment: .trailing)
+      .frame(minWidth: AppTheme.Layout.metaValueColumnMinWidth, alignment: .trailing)
       .disabled(!model.isNetworkReachable)
       .accessibilityLabel("Delete episode from library")
     } else if inLibrary {
-      HStack(spacing: 4) {
+      HStack(spacing: AppTheme.Layout.tightSpacing) {
         Image(systemName: "checkmark.circle.fill")
           .foregroundStyle(model.appearanceAccentColor)
           .font(.caption)
@@ -135,16 +134,16 @@ struct PodcastRssFeedDraftRow: View {
           .font(.caption.weight(.medium))
           .foregroundStyle(secondary)
       }
-      .frame(minWidth: 88, alignment: .trailing)
+      .frame(minWidth: AppTheme.Layout.metaValueColumnMinWidth, alignment: .trailing)
     } else if model.podcastRssDraftDownloadCompletedIds.contains(draft.id) {
       Text("Downloading")
         .font(.caption.weight(.medium))
         .foregroundStyle(secondary)
         .lineLimit(1)
-        .frame(minWidth: 88, alignment: .trailing)
+        .frame(minWidth: AppTheme.Layout.metaValueColumnMinWidth, alignment: .trailing)
         .accessibilityLabel("Downloading to server")
     } else if model.podcastRssEpisodeDownloadInProgressDraftIds.contains(draft.id) {
-      HStack(spacing: 6) {
+      HStack(spacing: AppTheme.Layout.compactSpacing) {
         ProgressView()
           .controlSize(.small)
         Text("Downloading")
@@ -152,7 +151,7 @@ struct PodcastRssFeedDraftRow: View {
           .foregroundStyle(secondary)
           .lineLimit(1)
       }
-      .frame(minWidth: 88, alignment: .trailing)
+      .frame(minWidth: AppTheme.Layout.metaValueColumnMinWidth, alignment: .trailing)
       .accessibilityElement(children: .combine)
       .accessibilityLabel("Downloading to server")
     } else {
@@ -165,7 +164,7 @@ struct PodcastRssFeedDraftRow: View {
           .foregroundStyle(model.appearanceAccentColor)
       }
       .buttonStyle(.plain)
-      .frame(minWidth: 88, alignment: .trailing)
+      .frame(minWidth: AppTheme.Layout.metaValueColumnMinWidth, alignment: .trailing)
       .disabled(!model.isNetworkReachable)
       .accessibilityLabel("Download to server")
     }
@@ -206,7 +205,7 @@ struct LibraryRowCollapsedMetaLine: View {
     let resolvedLabel = labelColor ?? palette.textSecondary
     let resolvedValue = valueColor ?? palette.textPrimary
     let resolvedEmpty = labelColor ?? palette.textSecondary
-    HStack(alignment: .firstTextBaseline, spacing: 6) {
+    HStack(alignment: .firstTextBaseline, spacing: AppTheme.Layout.compactSpacing) {
       Text(label)
         .font(.footnote.weight(.semibold))
         .foregroundStyle(resolvedLabel)
@@ -277,7 +276,7 @@ private func continueHeroPlayPill(
   let labelOnAccent = palette.foregroundOnAccent(accent)
   HStack {
     Button(action: action) {
-      HStack(spacing: 6) {
+      HStack(spacing: AppTheme.Layout.compactSpacing) {
         Image(systemName: showsPause ? "pause.fill" : "play.fill")
           .font(.caption.weight(.bold))
         Text(caption)
@@ -287,8 +286,8 @@ private func continueHeroPlayPill(
           .minimumScaleFactor(0.75)
       }
       .foregroundStyle(labelOnAccent)
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
+      .padding(.horizontal, AppTheme.Layout.rowSpacing)
+      .padding(.vertical, AppTheme.Layout.stackSpacing)
       .background(accent, in: Capsule())
     }
     .buttonStyle(.plain)
@@ -382,67 +381,69 @@ struct PodcastEpisodeRowCard: View {
 
   private var podcastEpisodeRowCardBody: some View {
     LibraryRowLayout.libraryRowCardChrome(
-      cardColor: AppTheme.card,
+      cardColor: model.appearancePalette.card,
       showsBottomProgressBar: showsBottomProgressBar,
       progressValue: bottomProgressValue,
       openDetails: opensDetailOnTap ? { openEpisodeDetail() } : nil
     ) {
       HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
-        Button {
-          Task { await model.playPodcastEpisode(episode) }
-        } label: {
-          LibraryRowLayout.coverSlot {
-            LibraryRowLayout.rowCoverImage(
-              url: model.coverURL(for: episode.libraryItemId),
-              token: model.token,
-              itemId: episode.libraryItemId,
-              cacheAccount: model.coverImageCacheAccountDirectory(),
-              cacheRevision: model.coverImageCacheRevision(forBookId: episode.libraryItemId)
-            )
-          } overlay: {
-            Image(systemName: "play.fill")
-              .font(.caption2.weight(.semibold))
-              // Bewusst Weiß statt Palette: liegt auf der dunklen Badge-Kapsel über beliebigem Cover-Artwork.
-              .foregroundStyle(.white)
-              .frame(width: 18, height: 18)
-              .background(model.appearancePalette.coverPlayBadgeBackground)
-              .clipShape(Circle())
-              .padding(4)
-              .accessibilityHidden(true)
-          }
+        // Play sitzt als Pille rechts unten — das Cover gehört zur Karte (öffnet Details).
+        LibraryRowLayout.coverSlot {
+          LibraryRowLayout.rowCoverImage(
+            url: model.coverURL(for: episode.libraryItemId),
+            token: model.token,
+            itemId: episode.libraryItemId,
+            cacheAccount: model.coverImageCacheAccountDirectory(),
+            cacheRevision: model.coverImageCacheRevision(forBookId: episode.libraryItemId)
+          )
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Play")
-        .accessibilityHint("Starts playback of this episode.")
 
         LibraryRowLayout.metadataColumn(showsProgressBar: showsBottomProgressBar) {
-          VStack(alignment: .leading, spacing: 2) {
-            Text(episode.episodeTitle)
-              .font(.headline.weight(.semibold))
-              .foregroundStyle(AppTheme.textPrimary)
-              .lineLimit(1)
-              .truncationMode(.tail)
-              .minimumScaleFactor(0.85)
-              .fixedSize(horizontal: false, vertical: true)
+          VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
+            HStack(alignment: .firstTextBaseline, spacing: AppTheme.Layout.compactSpacing) {
+              Text(episode.episodeTitle)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(model.appearancePalette.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .minimumScaleFactor(0.85)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+              LibraryRowStatusBadges(
+                isFinished: prog?.isFinished == true,
+                isDownloaded: live.isDownloaded,
+                isDownloading: live.isDownloading,
+                downloadProgress: live.downloadProgress
+              )
+            }
             PodcastEpisodeCollapsedShowLine(episode: episode)
             Spacer(minLength: 0)
-            LibraryRowLayout.metadataFooter {
-              Text(formatPlaybackTime(resolvedTotalDurationSeconds))
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(AppTheme.textSecondary)
+            LibraryRowLayout.metadataFooter(alignment: .bottom) {
+              LibraryRowLayout.footerLeadingSlot {
+                Text(formatPlaybackTime(resolvedTotalDurationSeconds))
+                  .font(.subheadline.monospacedDigit())
+                  .foregroundStyle(model.appearancePalette.textSecondary)
+              }
             } trailing: {
-              Group {
-                if prog?.isFinished == true {
-                  Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(themeAccent)
-                    .font(.caption)
-                    .accessibilityLabel("Finished")
+              LibraryRowPlayPill(
+                model: model,
+                libraryItemId: episode.libraryItemId,
+                episodeId: episode.episodeId,
+                accent: themeAccent
+              ) {
+                let isFinished = prog?.isFinished == true
+                continueHeroPlayPillToggle(
+                  model: model,
+                  libraryItemId: episode.libraryItemId,
+                  episodeId: episode.episodeId,
+                  isFinished: isFinished
+                ) {
+                  await model.playPodcastEpisode(episode, resumeAtOverride: isFinished ? 0 : nil)
                 }
-                podcastDownloadStatusIcon
               }
             }
           }
-          .padding(.trailing, 4)
+          .padding(.trailing, AppTheme.Layout.tightSpacing)
         }
       }
     }
@@ -454,20 +455,7 @@ struct PodcastEpisodeRowCard: View {
     )
   }
 
-  @ViewBuilder
-  private var podcastDownloadStatusIcon: some View {
-    if live.isDownloaded {
-      Image(systemName: "arrow.down.circle.fill")
-        .foregroundStyle(themeAccent)
-        .font(.caption)
-        .accessibilityLabel("Saved offline")
-    } else if live.isDownloading {
-      ProgressView(value: live.downloadProgress)
-        .frame(width: 36)
-        .tint(themeAccent)
-        .accessibilityLabel("Downloading")
-    }
-  }
+
 
   @ViewBuilder
   private func podcastEpisodeExpandedBlock(_ d: ABSPodcastEpisodeExpandedDetail) -> some View {
@@ -494,7 +482,7 @@ struct PodcastEpisodeRowCard: View {
       podcastEpisodeExpandedActionRow(episode: d.episode)
     }
     .padding(.horizontal, AppTheme.Layout.libraryRowCardInset)
-    .padding(.bottom, 10)
+    .padding(.bottom, AppTheme.Layout.withinSectionSpacing)
   }
 
   private func podcastEpisodeExpandedActionRow(episode: ABSPodcastEpisodeListItem) -> some View {
@@ -505,11 +493,11 @@ struct PodcastEpisodeRowCard: View {
         if live.isDownloading {
           ZStack {
             RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
-              .stroke(model.appearanceAccentColor.opacity(0.45), lineWidth: 1)
+              .stroke(model.appearanceAccentColor.opacity(0.45), lineWidth: AppTheme.Layout.hairlineWidth)
             ProgressView(value: live.downloadProgress)
               .tint(model.appearanceAccentColor)
               .scaleEffect(x: 1, y: 1.1, anchor: .center)
-              .padding(.horizontal, 8)
+              .padding(.horizontal, AppTheme.Layout.inlineSpacing)
           }
           .frame(maxWidth: .infinity)
           .frame(height: MiniPlayerMetrics.controlMinHeight)
@@ -560,7 +548,7 @@ struct PodcastEpisodeRowCard: View {
     }
     .frame(maxWidth: .infinity)
     .fixedSize(horizontal: false, vertical: true)
-    .padding(.top, 8)
+    .padding(.top, AppTheme.Layout.stackSpacing)
   }
 
   private func podcastMetaRowHostAuthorFilter(detail: ABSPodcastEpisodeExpandedDetail) -> some View {
@@ -571,10 +559,10 @@ struct PodcastEpisodeRowCard: View {
       Text("HOST / AUTHOR")
         .font(.caption.weight(.bold))
         .foregroundStyle(palette.textSecondary)
-        .frame(width: 112, alignment: .leading)
+        .frame(width: AppTheme.Layout.metaLabelColumnWidth, alignment: .leading)
       Group {
         if !authors.isEmpty {
-          VStack(alignment: .leading, spacing: 6) {
+          VStack(alignment: .leading, spacing: AppTheme.Layout.compactSpacing) {
             ForEach(authors, id: \.id) { author in
               Button {
                 model.openPodcastSearchFromText(author.name)
@@ -619,7 +607,7 @@ struct PodcastEpisodeRowCard: View {
       Text("SHOW")
         .font(.caption.weight(.bold))
         .foregroundStyle(palette.textSecondary)
-        .frame(width: 112, alignment: .leading)
+        .frame(width: AppTheme.Layout.metaLabelColumnWidth, alignment: .leading)
       if title.isEmpty || title == "—" {
         Text("—")
           .font(.subheadline)
@@ -647,7 +635,7 @@ struct PodcastEpisodeRowCard: View {
       Text(k.uppercased())
         .font(.caption.weight(.bold))
         .foregroundStyle(palette.textSecondary)
-        .frame(width: 112, alignment: .leading)
+        .frame(width: AppTheme.Layout.metaLabelColumnWidth, alignment: .leading)
       Text(v)
         .font(.subheadline)
         .foregroundStyle(palette.textPrimary)
@@ -831,7 +819,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
         .accessibilityHint(opensDetailOnTap ? "Opens episode details." : "")
 
         AppTheme.coverScrimGradient
-        .frame(height: 72)
+        .frame(height: AppTheme.Layout.coverScrimHeight)
         .frame(maxWidth: .infinity)
         .allowsHitTesting(false)
 
@@ -921,7 +909,7 @@ struct ContinueListeningHeroBookCard: View {
       itemId: book.id,
       revision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
     )
-    _tint = State(initialValue: seeded ?? AppTheme.card)
+    _tint = State(initialValue: seeded ?? model.appearancePalette.card)
   }
 
   private var prog: ABSUserMediaProgress? { rowLive.progress }
@@ -987,7 +975,7 @@ struct ContinueListeningHeroBookCard: View {
         .accessibilityHint("Informationen öffnen")
 
         AppTheme.coverScrimGradient
-        .frame(height: min(72, h * 0.28))
+        .frame(height: min(AppTheme.Layout.coverScrimHeight, h * 0.28))
         .frame(maxWidth: .infinity)
         .allowsHitTesting(false)
 
@@ -1048,7 +1036,10 @@ struct ContinueListeningHeroBookCard: View {
       }
       .background(tint)
     }
-    .frame(width: w, height: AppTheme.Layout.continueHeroCardTotalHeight(forCardWidth: w), alignment: .top)
+    // Höhe aus dem Inhalt (Cover + skalierter Textblock) — eine feste Gesamthöhe aus unskalierten
+    // Konstanten ließ bei abweichender Textgröße Luft unter der Play-Pille (anders als Library-/Home-Cards).
+    .frame(width: w, alignment: .top)
+    .fixedSize(horizontal: false, vertical: true)
     .background(tint)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous))
     .abstandHeroCardOutline(palette: model.appearancePalette)
@@ -1106,7 +1097,7 @@ struct ContinueListeningHeroPodcastCard: View {
       itemId: itemId,
       revision: model.coverImageCacheRevision(forBookId: itemId)
     )
-    _tint = State(initialValue: seeded ?? AppTheme.card)
+    _tint = State(initialValue: seeded ?? model.appearancePalette.card)
   }
 
   private var prog: ABSUserMediaProgress? { rowLive.progress }
@@ -1184,7 +1175,7 @@ struct ContinueListeningHeroPodcastCard: View {
         .accessibilityHint("Informationen öffnen")
 
         AppTheme.coverScrimGradient
-        .frame(height: min(72, h * 0.28))
+        .frame(height: min(AppTheme.Layout.coverScrimHeight, h * 0.28))
         .frame(maxWidth: .infinity)
         .allowsHitTesting(false)
 
@@ -1248,7 +1239,10 @@ struct ContinueListeningHeroPodcastCard: View {
       }
       .background(tint)
     }
-    .frame(width: w, height: AppTheme.Layout.continueHeroCardTotalHeight(forCardWidth: w), alignment: .top)
+    // Höhe aus dem Inhalt (Cover + skalierter Textblock) — eine feste Gesamthöhe aus unskalierten
+    // Konstanten ließ bei abweichender Textgröße Luft unter der Play-Pille (anders als Library-/Home-Cards).
+    .frame(width: w, alignment: .top)
+    .fixedSize(horizontal: false, vertical: true)
     .background(tint)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous))
     .abstandHeroCardOutline(palette: model.appearancePalette)
@@ -1288,9 +1282,9 @@ private enum FacetBrowseTileMetrics {
   /// Wie `BookRowCard` / `BrowseEntityRowCard` (`libraryRowTitleText`).
   static let titleFont: Font = .headline.weight(.semibold)
   /// Wie `ContinueListeningHeroCoverPill` (äußeres Seiten-Padding).
-  static let edgeInset: CGFloat = 8
+  static let edgeInset: CGFloat = AppTheme.Layout.inlineSpacing
   static let iconFont: Font = .title3.weight(.semibold)
-  static let contentPadding: CGFloat = 14
+  static let contentPadding: CGFloat = AppTheme.Layout.cardPadding
 }
 
 struct FacetBrowseTileCard: View {
@@ -1509,7 +1503,7 @@ struct BrowseEntityRowCard: View {
       }
 
       LibraryRowLayout.metadataColumn(showsProgressBar: false) {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
           Text(title)
             .font(.headline.weight(.semibold))
             .foregroundStyle(model.appearancePalette.textPrimary)
@@ -1526,9 +1520,7 @@ struct BrowseEntityRowCard: View {
       }
     }
     .padding(.leading, 0)
-    .background(model.appearancePalette.card)
-    .clipShape(LibraryRowLayout.cardShape)
-    .abstandCardElevation(.standard)
+    .abstandCardChrome(model.appearancePalette.card, shape: LibraryRowLayout.cardShape)
   }
 }
 
@@ -1556,7 +1548,7 @@ struct PodcastShowRowCard: View {
         }
 
         LibraryRowLayout.metadataColumn(showsProgressBar: false) {
-          VStack(alignment: .leading, spacing: 2) {
+          VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
             Text(show.displayTitle)
               .font(.headline.weight(.semibold))
               .foregroundStyle(palette.textPrimary)
@@ -1586,9 +1578,7 @@ struct PodcastShowRowCard: View {
       }
       .padding(.leading, 0)
     }
-    .background(palette.card)
-    .clipShape(LibraryRowLayout.cardShape)
-    .abstandCardElevation(.standard)
+    .abstandCardChrome(palette.card, shape: LibraryRowLayout.cardShape)
     .abstandThemeRefresh()
   }
 
@@ -1603,7 +1593,7 @@ struct PodcastShowRowCard: View {
         .accessibilityLabel("Saved offline")
     } else if model.downloads.activeItemId == show.id {
       ProgressView(value: model.downloads.progress)
-        .frame(width: 36)
+        .frame(width: AppTheme.Layout.compactIconButtonSize)
         .tint(model.appearanceAccentColor)
         .accessibilityLabel("Downloading")
     } else if model.downloads.queuedItemIds.contains(show.id) {
@@ -1622,7 +1612,8 @@ struct PodcastShowRowCard: View {
 enum LibraryRowLayout {
   // Reine Layout-Konstanten — nonisolated, damit sie auch außerhalb des MainActors lesbar bleiben.
   nonisolated static let coverSide = AppTheme.Layout.libraryRowCoverSide
-  nonisolated static let cornerRadius = AppTheme.Layout.libraryRowCornerRadius
+  /// Gleicher Radius wie die Home-Cover-Cards — Zeilen und Karten wirken als eine Familie.
+  nonisolated static let cornerRadius = AppTheme.Layout.continueHeroCardCornerRadius
   nonisolated static let cardInset = AppTheme.Layout.libraryRowCardInset
   nonisolated static let textInset = AppTheme.Layout.libraryRowTextInset
 
@@ -1691,12 +1682,12 @@ enum LibraryRowLayout {
       bottomProgressOverlay(value: progressValue, visible: showsBottomProgressBar)
         .allowsHitTesting(false)
     }
-    .background(cardColor)
-    .clipShape(cardShape)
+    .abstandCardChrome(cardColor, shape: cardShape)
+    // Wie Home-Cards: dezente Kante statt Schatten.
+    .environment(\.abstandCardShadowEnabled, false)
     .contentShape(cardShape)
-    .abstandCardElevation(.standard)
     .overlay {
-      cardShape.strokeBorder(AppTheme.palette.textSecondary.opacity(0.22), lineWidth: 1)
+      cardShape.strokeBorder(AppTheme.palette.textSecondary.opacity(0.22), lineWidth: AppTheme.Layout.hairlineWidth)
     }
 
     if let openDetails {
@@ -1776,19 +1767,126 @@ enum LibraryRowLayout {
   /// Untere Meta-Zeile: Laufzeit/Labels links, Status-Icons (Download, Fertig) am rechten Kartenrand.
   @ViewBuilder
   static func metadataFooter<Leading: View, Trailing: View>(
+    alignment: VerticalAlignment = .center,
     @ViewBuilder leading: () -> Leading,
     @ViewBuilder trailing: () -> Trailing
   ) -> some View {
-    HStack(alignment: .center, spacing: AppTheme.Layout.inlineSpacing) {
+    HStack(alignment: alignment, spacing: AppTheme.Layout.inlineSpacing) {
       HStack(spacing: AppTheme.Layout.inlineSpacing) {
         leading()
       }
       .frame(maxWidth: .infinity, alignment: .leading)
-      HStack(spacing: 6) {
+      HStack(spacing: AppTheme.Layout.compactSpacing) {
         trailing()
       }
       .fixedSize(horizontal: true, vertical: false)
     }
+  }
+
+  /// Linke Fußzeile in einer Box der Textzeilen-Höhe (`.subheadline`) — bleibt auf gleicher Höhe,
+  /// auch wenn rechts die höhere Play-Pille steht (Footer unten ausgerichtet).
+  static func footerLeadingSlot<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    ZStack(alignment: .leading) {
+      Text(verbatim: " ")
+        .font(.subheadline)
+        .hidden()
+        .accessibilityHidden(true)
+      HStack(spacing: AppTheme.Layout.compactSpacing) {
+        content()
+      }
+    }
+  }
+}
+
+/// „Fertig“ + Download-Status oben rechts in kompakten Zeilen — schlichte Icons wie früher im Footer.
+private struct LibraryRowStatusBadges: View {
+  @Environment(\.themeAccent) private var themeAccent
+  let isFinished: Bool
+  let isDownloaded: Bool
+  let isDownloading: Bool
+  let downloadProgress: Double
+
+  var body: some View {
+    HStack(spacing: AppTheme.Layout.compactSpacing) {
+      if isFinished {
+        Image(systemName: "checkmark.circle.fill")
+          .accessibilityLabel("Finished")
+      }
+      if isDownloaded {
+        Image(systemName: "arrow.down.circle.fill")
+          .accessibilityLabel("Saved offline")
+      } else if isDownloading {
+        ProgressView(value: downloadProgress)
+          .frame(width: AppTheme.Layout.compactIconButtonSize)
+          .tint(themeAccent)
+          .accessibilityLabel("Downloading")
+      }
+    }
+    .font(.caption)
+    .foregroundStyle(themeAccent)
+    .fixedSize()
+  }
+}
+
+/// Play/Pause als Akzent-Pille ohne Laufzeit — rechts unten in kompakten Zeilen.
+/// Beobachtet gezielt nur Player-Identität + `isPlaying` (die Zeile selbst hält `model` unbeobachtet)
+/// und schaltet beim Tippen sofort optimistisch um — sonst hinge das Icon am nächsten Zeilen-Rerender.
+private struct LibraryRowPlayPill: View {
+  let model: AppModel
+  let libraryItemId: String
+  let episodeId: String?
+  let accent: Color
+  let action: () -> Void
+
+  @State private var showsPause = false
+  /// Einmal im init gebaut — ein pro Render neu erzeugter Publisher würde bei jedem Update neu
+  /// abonniert und den optimistischen Zustand sofort mit dem alten Wert überschreiben.
+  private let playerState: AnyPublisher<Bool, Never>
+
+  init(
+    model: AppModel,
+    libraryItemId: String,
+    episodeId: String?,
+    accent: Color,
+    action: @escaping () -> Void
+  ) {
+    self.model = model
+    self.libraryItemId = libraryItemId
+    self.episodeId = episodeId
+    self.accent = accent
+    self.action = action
+    let player = model.player
+    let wantEp = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    playerState = Publishers.CombineLatest3(player.$activeBook, player.$activePlaybackEpisodeId, player.$isPlaying)
+      .map { book, ep, playing in
+        let activeEp = ep?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return playing && book?.id == libraryItemId && activeEp == wantEp
+      }
+      .removeDuplicates()
+      .dropFirst()
+      .receive(on: DispatchQueue.main)
+      .eraseToAnyPublisher()
+  }
+
+  var body: some View {
+    Button {
+      showsPause.toggle()
+      action()
+    } label: {
+      Image(systemName: showsPause ? "pause.fill" : "play.fill")
+        .font(.caption.weight(.bold))
+        .foregroundStyle(model.appearancePalette.foregroundOnAccent(accent))
+        .padding(.horizontal, AppTheme.Layout.cardPadding)
+        .padding(.vertical, AppTheme.Layout.stackSpacing)
+        .background(accent, in: Capsule())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(showsPause ? "Pause" : "Play")
+    .onAppear {
+      showsPause = model.player.isPlaying
+        && model.isActivelyPlayingMedia(libraryItemId: libraryItemId, episodeId: episodeId)
+    }
+    .onReceive(playerState) { showsPause = $0 }
   }
 }
 
@@ -1813,7 +1911,7 @@ private struct LibraryHeroCardMetadataFooter: View {
         .font(.subheadline.monospacedDigit())
         .foregroundStyle(AppTheme.textSecondary)
     } trailing: {
-      HStack(spacing: 6) {
+      HStack(spacing: AppTheme.Layout.compactSpacing) {
         if isFinished {
           libraryHeroStatusIconButton(action: onToggleFinished) {
             Image(systemName: "checkmark.circle.fill")
@@ -1843,7 +1941,7 @@ private struct LibraryHeroCardMetadataFooter: View {
       .accessibilityLabel("Saved offline")
     } else if isDownloading {
       ProgressView(value: downloadProgress)
-        .frame(width: 36)
+        .frame(width: AppTheme.Layout.compactIconButtonSize)
         .tint(themeAccent)
         .accessibilityLabel("Downloading")
     }
@@ -1920,7 +2018,7 @@ struct LibraryHeroMultiColumnRows<Item: Identifiable, Card: View>: View {
               .frame(maxWidth: .infinity)
           } else {
             Color.clear
-              .frame(maxWidth: .infinity, maxHeight: 1)
+              .frame(maxWidth: .infinity, maxHeight: AppTheme.Layout.hairlineWidth)
               .accessibilityHidden(true)
           }
         }
@@ -2150,9 +2248,9 @@ private struct LibraryHeroBookRowCard: View {
     supplementaryEbookBadge
   }
 
-  /// Wie `ContinueListeningHeroTypePill`: Play für Hörbücher, Buch für reine eBooks.
+  /// Nur reine eBooks bekommen ein Typ-Badge — Hörbücher haben die Play-Pille unter dem Cover,
+  /// ein zusätzliches Play-Badge auf dem Cover wäre doppelt.
   private var typeBadgeSystemImage: String? {
-    if book.isPlayableAudiobook { return "play.fill" }
     if book.isPureEbookLibraryItem { return "book.closed.fill" }
     return nil
   }
@@ -2166,7 +2264,7 @@ private struct LibraryHeroBookRowCard: View {
           // Bewusst Weiß statt Palette: liegt auf der dunklen Pill-Kapsel (`coverPlayBadgeBackground`), nicht auf Kartenfläche.
           .foregroundStyle(.white)
       }
-      .accessibilityLabel(book.isPlayableAudiobook ? "Playable as audiobook" : "eBook")
+      .accessibilityLabel("eBook")
       .accessibilityHidden(true)
     }
   }
@@ -2387,7 +2485,7 @@ private struct LibraryHeroBookRowCard: View {
 
       if showsProgressChrome {
         AppTheme.coverScrimGradient
-        .frame(height: 72)
+        .frame(height: AppTheme.Layout.coverScrimHeight)
         .frame(maxWidth: .infinity)
         .allowsHitTesting(false)
 
@@ -2440,10 +2538,10 @@ private struct LibraryCoverCornerBadge: View {
       .font(.caption2.weight(.semibold))
       // Bewusst Weiß statt Palette: liegt auf der dunklen Badge-Kapsel über beliebigem Cover-Artwork.
       .foregroundStyle(.white)
-      .frame(width: 18, height: 18)
+      .frame(width: AppTheme.Layout.coverBadgeSize, height: AppTheme.Layout.coverBadgeSize)
       .background(model.appearancePalette.coverPlayBadgeBackground)
       .clipShape(Circle())
-      .padding(4)
+      .padding(AppTheme.Layout.tightSpacing)
       .accessibilityLabel(accessibilityLabel)
       .accessibilityHidden(accessibilityHidden)
   }
@@ -2564,7 +2662,7 @@ struct BookRowCard: View {
 
   private var bookRowCardBody: some View {
     LibraryRowLayout.libraryRowCardChrome(
-      cardColor: AppTheme.card,
+      cardColor: model.appearancePalette.card,
       showsBottomProgressBar: showsBottomProgressBar,
       progressValue: bottomProgressValue,
       openDetails: opensDetailOnTap ? { showDetail = true } : nil
@@ -2578,15 +2676,6 @@ struct BookRowCard: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Continue reading")
             .accessibilityHint("Opens this eBook at your reading position.")
-          } else if showsAudiobookPlayControl {
-            Button {
-              Task { await model.play(book: book) }
-            } label: {
-              libraryRowCoverWithPlayBadge
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Play")
-            .accessibilityHint("Starts playback of this audiobook.")
           } else {
             libraryRowCoverWithPlayBadge
           }
@@ -2635,11 +2724,8 @@ struct BookRowCard: View {
     .frame(width: side, height: side)
     .clipShape(LibraryRowLayout.coverClipShape)
     .overlay(alignment: .bottomLeading) {
-      // Badge zeigt die tatsächliche Fähigkeit des Items (Hörbuch vs. eBook) — unabhängig davon,
-      // ob der Cover-Tap in diesem Kontext auch wirklich Play auslöst (`showsAudiobookPlayControl`).
-      if book.isPlayableAudiobook {
-        LibraryCoverCornerBadge(systemImage: "play.fill", accessibilityLabel: "Play", accessibilityHidden: true)
-      } else if isPureEbookRow {
+      // Hörbücher: Play sitzt als Pille rechts unten auf der Karte — nur eBooks behalten ihr Cover-Badge.
+      if isPureEbookRow {
         LibraryCoverCornerBadge(
           systemImage: "book.closed.fill", accessibilityLabel: "eBook", accessibilityHidden: true)
       }
@@ -2649,93 +2735,98 @@ struct BookRowCard: View {
         LibraryCoverCornerBadge(systemImage: "book.closed.fill", accessibilityLabel: "eBook available")
       }
     }
+
   }
 
+  /// Titel mit „Fertig“-/Download-Kapsel oben rechts in der Karte.
   private var libraryRowTitleText: some View {
-    Text(book.displayTitle)
-      .font(.headline.weight(.semibold))
-      .foregroundStyle(AppTheme.textPrimary)
-      .lineLimit(1)
-      .truncationMode(.tail)
-      .minimumScaleFactor(0.85)
-      .fixedSize(horizontal: false, vertical: true)
+    HStack(alignment: .firstTextBaseline, spacing: AppTheme.Layout.compactSpacing) {
+      Text(book.displayTitle)
+        .font(.headline.weight(.semibold))
+        .foregroundStyle(model.appearancePalette.textPrimary)
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .minimumScaleFactor(0.85)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      LibraryRowStatusBadges(
+        isFinished: rowIsFinished,
+        isDownloaded: showsDownloadStatus && live.isDownloaded,
+        isDownloading: showsDownloadStatus && live.isDownloading,
+        downloadProgress: live.downloadProgress
+      )
+    }
+  }
+
+  private var rowIsFinished: Bool {
+    if usesEbookMetrics {
+      guard let f = ebookProgress else { return false }
+      return f >= 0.995
+    }
+    return prog?.isFinished == true
   }
 
   private var libraryRowInteractiveMetadataBlock: some View {
-    VStack(alignment: .leading, spacing: 2) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
       libraryRowTitleText
       BookCollapsedAuthorLine(book: book, authorOverride: authorLineOverride)
       Spacer(minLength: 0)
       libraryRowMetaFooter
     }
-    .padding(.trailing, 4)
+    .padding(.trailing, AppTheme.Layout.tightSpacing)
   }
 
   private var libraryRowStaticMetadataBlock: some View {
-    VStack(alignment: .leading, spacing: 2) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
       libraryRowTitleText
       BookCollapsedAuthorLine(book: book, authorOverride: authorLineOverride)
       Spacer(minLength: 0)
       libraryRowMetaFooter
     }
-    .padding(.trailing, 4)
+    .padding(.trailing, AppTheme.Layout.tightSpacing)
   }
 
   @ViewBuilder
   private var libraryRowMetaFooter: some View {
-    LibraryRowLayout.metadataFooter {
-      Group {
+    LibraryRowLayout.metadataFooter(alignment: .bottom) {
+      LibraryRowLayout.footerLeadingSlot {
         if usesEbookMetrics {
           if let label = ebookProgressLabel {
             Text(label)
               .font(.subheadline.monospacedDigit())
-              .foregroundStyle(AppTheme.textSecondary)
+              .foregroundStyle(model.appearancePalette.textSecondary)
               .lineLimit(1)
               .minimumScaleFactor(0.85)
           }
         } else {
           Text(formatPlaybackTime(book.media.duration ?? 0))
             .font(.subheadline.monospacedDigit())
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
       }
     } trailing: {
-      libraryRowTrailingStatusIcons
+      if showsAudiobookPlayControl, !usesEbookMetrics {
+        LibraryRowPlayPill(
+          model: model,
+          libraryItemId: book.id,
+          episodeId: nil,
+          accent: themeAccent
+        ) {
+          let isFinished = prog?.isFinished == true
+          continueHeroPlayPillToggle(
+            model: model,
+            libraryItemId: book.id,
+            episodeId: nil,
+            isFinished: isFinished
+          ) {
+            await model.play(book: book, resumeAtOverride: isFinished ? 0 : nil)
+          }
+        }
+      }
     }
   }
 
-  @ViewBuilder
-  private var libraryRowTrailingStatusIcons: some View {
-    if usesEbookMetrics, let f = ebookProgress, f >= 0.995 {
-      Image(systemName: "checkmark.circle.fill")
-        .foregroundStyle(themeAccent)
-        .font(.caption)
-        .accessibilityLabel("Finished reading")
-    } else if !usesEbookMetrics, prog?.isFinished == true {
-      Image(systemName: "checkmark.circle.fill")
-        .foregroundStyle(themeAccent)
-        .font(.caption)
-        .accessibilityLabel("Finished")
-    }
-    downloadIcon
-  }
 
-  @ViewBuilder
-  private var downloadIcon: some View {
-    if !showsDownloadStatus {
-      EmptyView()
-    } else if live.isDownloaded {
-      Image(systemName: "arrow.down.circle.fill")
-        .foregroundStyle(themeAccent)
-        .font(.caption)
-        .accessibilityLabel("Saved offline")
-    } else if live.isDownloading {
-      ProgressView(value: live.downloadProgress)
-        .frame(width: 36)
-        .tint(themeAccent)
-        .accessibilityLabel("Downloading")
-    }
-  }
 
   @ViewBuilder
   private func expandedBlock(_ d: ABSBook) -> some View {
@@ -2748,7 +2839,7 @@ struct BookRowCard: View {
     let downloadProgress = d.id == book.id ? live.downloadProgress : model.downloads.progress
 
     VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
-      Divider().background(AppTheme.textSecondary.opacity(0.2))
+      Divider().background(model.appearancePalette.textSecondary.opacity(0.2))
       expandedAuthorRow(metadata: m)
       expandedNarratorRow(metadata: m)
       expandedSeriesRow(metadata: m)
@@ -2764,11 +2855,11 @@ struct BookRowCard: View {
           if isDownloading {
             ZStack {
               RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
-                .stroke(themeAccent.opacity(0.45), lineWidth: 1)
+                .stroke(themeAccent.opacity(0.45), lineWidth: AppTheme.Layout.hairlineWidth)
               ProgressView(value: downloadProgress)
                 .tint(themeAccent)
                 .scaleEffect(x: 1, y: 1.1, anchor: .center)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, AppTheme.Layout.inlineSpacing)
             }
             .frame(maxWidth: .infinity)
             .frame(height: MiniPlayerMetrics.controlMinHeight)
@@ -2819,7 +2910,7 @@ struct BookRowCard: View {
             .foregroundStyle(
               model.isNetworkReachable
                 ? themeAccent
-                : AppTheme.textSecondary)
+                : model.appearancePalette.textSecondary)
         }
         .buttonStyle(LibraryCardActionButtonStyle(variant: isFinished ? .finished : .accent))
         .disabled(!model.isNetworkReachable)
@@ -2827,10 +2918,10 @@ struct BookRowCard: View {
       }
       .frame(maxWidth: .infinity)
       .fixedSize(horizontal: false, vertical: true)
-      .padding(.top, 8)
+      .padding(.top, AppTheme.Layout.stackSpacing)
     }
     .padding(.horizontal, AppTheme.Layout.libraryRowCardInset)
-    .padding(.bottom, 12)
+    .padding(.bottom, AppTheme.Layout.rowSpacing)
   }
 
   private func seriesDisplayLine(for s: ABSSeries) -> String {
@@ -2992,8 +3083,8 @@ struct BookRowCard: View {
     HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
       Text(title.uppercased())
         .font(.caption.weight(.bold))
-        .foregroundStyle(AppTheme.textSecondary)
-        .frame(width: 112, alignment: .leading)
+        .foregroundStyle(model.appearancePalette.textSecondary)
+        .frame(width: AppTheme.Layout.metaLabelColumnWidth, alignment: .leading)
       content()
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -3003,11 +3094,11 @@ struct BookRowCard: View {
     HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
       Text(k.uppercased())
         .font(.caption.weight(.bold))
-        .foregroundStyle(AppTheme.textSecondary)
-        .frame(width: 112, alignment: .leading)
+        .foregroundStyle(model.appearancePalette.textSecondary)
+        .frame(width: AppTheme.Layout.metaLabelColumnWidth, alignment: .leading)
       Text(v)
         .font(.subheadline)
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
         .fixedSize(horizontal: false, vertical: true)
     }
   }

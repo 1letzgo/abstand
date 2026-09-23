@@ -1,9 +1,20 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+private enum ServerAdminLayoutMetrics {
+  /// Max. Breite von Text-/Secure-Eingabefeldern in Settings-Kartenzeilen.
+  static let inputFieldMaxWidth: CGFloat = 180
+  /// Online-/Offline-Statuspunkt vor Benutzernamen.
+  static let userStatusDotSize: CGFloat = 8
+  /// Label-Spalte in kompakten Meta-Zeilen (Admin-Detailkarten).
+  static let compactMetaLabelColumnWidth: CGFloat = 72
+}
+
 // MARK: - Shared layout
 
-private struct ServerAdminScrollScreen<Content: View>: View {
+/// `internal`, nicht `private`: von `StatsDetailScrollScreen` (StatsTabView.swift) als
+/// gemeinsames Grundgerüst wiederverwendet — identisches Screen-Gerüst für Settings-Unterseiten.
+struct ServerAdminScrollScreen<Content: View>: View {
   @EnvironmentObject private var model: AppModel
   @ViewBuilder let content: () -> Content
 
@@ -139,7 +150,7 @@ private struct SettingsCardAppearanceModeRow: View {
 
   var body: some View {
     let _ = themeRevision
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       HStack(spacing: AppTheme.Layout.rowSpacing) {
         SettingsCardIcon(systemName: "circle.lefthalf.filled")
         Text("Appearance")
@@ -157,7 +168,7 @@ private struct SettingsCardAppearanceModeRow: View {
       .tint(themeAccent)
       .id(themeRevision)
     }
-    .padding(.vertical, 6)
+    .padding(.vertical, AppTheme.Layout.compactSpacing)
     .settingsCardRowFrame()
   }
 }
@@ -174,7 +185,7 @@ private struct SettingsCardColorPickerRow: View {
       Text(title)
         .font(.body)
         .foregroundStyle(model.appearancePalette.textPrimary)
-      Spacer(minLength: 8)
+      Spacer(minLength: AppTheme.Layout.inlineSpacing)
       // Kein `.id(themeRevision)` — sonst wird der Picker nach jeder Wahl neu
       // aufgebaut und akzeptiert keine weiteren Auswahlen.
       ColorPicker(
@@ -206,7 +217,7 @@ private struct SettingsCardPickerRow: View {
       Text(title)
         .font(.body)
         .foregroundStyle(model.appearancePalette.textPrimary)
-      Spacer(minLength: 8)
+      Spacer(minLength: AppTheme.Layout.inlineSpacing)
       Picker(title, selection: $selection) {
         ForEach(options, id: \.id) { opt in
           Text(opt.label).tag(opt.id)
@@ -241,7 +252,7 @@ private struct SettingsSkipSecondsPickerRow: View {
       Text(title)
         .font(.body)
         .foregroundStyle(model.appearancePalette.textPrimary)
-      Spacer(minLength: 8)
+      Spacer(minLength: AppTheme.Layout.inlineSpacing)
       Picker(title, selection: $seconds) {
         ForEach(PlaybackController.skipIntervalOptions, id: \.self) { value in
           Text("\(value) s").tag(value)
@@ -304,9 +315,12 @@ private struct ServerAdminMetricTile: View {
 
   var body: some View {
     let palette = model.appearancePalette
-    // Abweichende Paddings (8/14) bewusst durchgereicht — Kachel-Optik bleibt identisch.
-    AbstandGroupedCard(horizontalPadding: 8, verticalPadding: 14) {
-      VStack(spacing: 6) {
+    // Abweichende Paddings (inlineSpacing/cardPadding) bewusst durchgereicht — Kachel-Optik bleibt identisch.
+    AbstandGroupedCard(
+      horizontalPadding: AppTheme.Layout.inlineSpacing,
+      verticalPadding: AppTheme.Layout.cardPadding
+    ) {
+      VStack(spacing: AppTheme.Layout.compactSpacing) {
         Text(value.isEmpty ? "—" : value)
           .font(.title2.weight(.bold))
           .foregroundStyle(valueColor ?? palette.textPrimary)
@@ -340,7 +354,7 @@ private struct SettingsCardSecureFieldRow: View {
       Text(title)
         .font(.body)
         .foregroundStyle(model.appearancePalette.textPrimary)
-      Spacer(minLength: 8)
+      Spacer(minLength: AppTheme.Layout.inlineSpacing)
       SecureField(
         "",
         text: $text,
@@ -352,7 +366,7 @@ private struct SettingsCardSecureFieldRow: View {
       .textContentType(textContentType)
       .textInputAutocapitalization(.never)
       .autocorrectionDisabled()
-      .frame(maxWidth: 180)
+      .frame(maxWidth: ServerAdminLayoutMetrics.inputFieldMaxWidth)
       .accessibilityLabel(title)
     }
     .settingsCardRowFrame()
@@ -370,7 +384,7 @@ private struct SettingsCardUsernameAutofillRow: View {
       Text("Username")
         .font(.body)
         .foregroundStyle(model.appearancePalette.textPrimary)
-      Spacer(minLength: 8)
+      Spacer(minLength: AppTheme.Layout.inlineSpacing)
       TextField("", text: .constant(username))
         .font(.body)
         .foregroundStyle(model.appearancePalette.textSecondary)
@@ -379,7 +393,7 @@ private struct SettingsCardUsernameAutofillRow: View {
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
         .disabled(true)
-        .frame(maxWidth: 180)
+        .frame(maxWidth: ServerAdminLayoutMetrics.inputFieldMaxWidth)
         .accessibilityLabel("Username")
         .accessibilityValue(username)
     }
@@ -411,12 +425,12 @@ private struct SettingsCardStepperRow: View {
       Text(title)
         .font(.body)
         .foregroundStyle(model.appearancePalette.textPrimary)
-      Spacer(minLength: 8)
+      Spacer(minLength: AppTheme.Layout.inlineSpacing)
       Text(valueLabel)
         .font(.subheadline)
         .foregroundStyle(model.appearancePalette.textSecondary)
         .monospacedDigit()
-        .frame(minWidth: 88, alignment: .trailing)
+        .frame(minWidth: AppTheme.Layout.metaValueColumnMinWidth, alignment: .trailing)
       Stepper("", value: $value, in: range)
         .labelsHidden()
         .tint(model.appearanceAccentColor)
@@ -435,7 +449,7 @@ private struct SettingsCardAutoDownloadIntervalRow: View {
       Text("Interval")
         .font(.body)
         .foregroundStyle(model.appearancePalette.textPrimary)
-      Spacer(minLength: 8)
+      Spacer(minLength: AppTheme.Layout.inlineSpacing)
       Picker("Interval", selection: $selection) {
         ForEach(PodcastAutoDownloadInterval.allCases) { interval in
           Text(interval.label).tag(interval)
@@ -1443,7 +1457,7 @@ private struct SettingsHomeShelfCard: View {
           Image(systemName: "line.3.horizontal")
             .font(.body.weight(.semibold))
             .foregroundStyle(model.appearancePalette.textSecondary)
-            .frame(minWidth: 44, minHeight: 44)
+            .frame(minWidth: AppTheme.Layout.minTapTarget, minHeight: AppTheme.Layout.minTapTarget)
             .contentShape(Rectangle())
             .accessibilityLabel("Reorder")
             .accessibilityHint("Drag to change home shelf order")
@@ -1569,15 +1583,15 @@ private struct ServerUserListRow: View {
     HStack(spacing: AppTheme.Layout.rowSpacing) {
       Circle()
         .fill(isOnline ? AppTheme.success : model.appearancePalette.textSecondary.opacity(0.35))
-        .frame(width: 8, height: 8)
+        .frame(width: ServerAdminLayoutMetrics.userStatusDotSize, height: ServerAdminLayoutMetrics.userStatusDotSize)
       Text(user.username)
         .font(.body.weight(.medium))
         .foregroundStyle(model.appearancePalette.textPrimary)
       if user.isRoot {
         Text("root")
           .font(.caption2.weight(.semibold))
-          .padding(.horizontal, 6)
-          .padding(.vertical, 2)
+          .padding(.horizontal, AppTheme.Layout.compactSpacing)
+          .padding(.vertical, AppTheme.Layout.hairlineSpacing)
           .background(model.appearanceAccentColor.opacity(0.2))
           .foregroundStyle(model.appearanceAccentColor)
           .clipShape(Capsule())
@@ -1653,8 +1667,8 @@ struct ServerUserDetailView: View {
       if let type = detail.typeLabel {
         Text(type)
           .font(.caption.weight(.semibold))
-          .padding(.horizontal, 8)
-          .padding(.vertical, 3)
+          .padding(.horizontal, AppTheme.Layout.inlineSpacing)
+          .padding(.vertical, AppTheme.Layout.tightSpacing)
           .background(model.appearancePalette.card)
           .foregroundStyle(model.appearancePalette.textSecondary)
           .clipShape(Capsule())
@@ -2095,7 +2109,7 @@ struct ServerLibraryDetailView: View {
                   .font(.body)
                   .foregroundStyle(model.appearancePalette.textPrimary)
                   .lineLimit(2)
-                Spacer(minLength: 8)
+                Spacer(minLength: AppTheme.Layout.inlineSpacing)
                 Text(formatPlaybackDurationShortHuman(row.duration))
                   .font(.caption.weight(.semibold))
                   .foregroundStyle(model.appearancePalette.textSecondary)
@@ -2122,7 +2136,7 @@ struct ServerLibraryDetailView: View {
                   .font(.body)
                   .foregroundStyle(model.appearancePalette.textPrimary)
                   .lineLimit(2)
-                Spacer(minLength: 8)
+                Spacer(minLength: AppTheme.Layout.inlineSpacing)
                 Text(ByteCountFormatter.string(fromByteCount: row.size, countStyle: .file))
                   .font(.caption.weight(.semibold))
                   .foregroundStyle(model.appearancePalette.textSecondary)
@@ -2169,7 +2183,7 @@ struct ServerLibraryDetailView: View {
       Text(title)
         .font(.subheadline)
         .foregroundStyle(model.appearancePalette.textSecondary)
-        .frame(width: 72, alignment: .leading)
+        .frame(width: ServerAdminLayoutMetrics.compactMetaLabelColumnWidth, alignment: .leading)
       Text(value)
         .font(.subheadline.weight(.medium))
         .foregroundStyle(model.appearancePalette.textPrimary)
@@ -2187,7 +2201,7 @@ struct ServerLibraryDetailView: View {
           VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
               if index > 0 { SettingsCardDivider() }
-              VStack(alignment: .leading, spacing: 2) {
+              VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
                 Text(row.episodeDisplayTitle ?? "Episode")
                   .font(.body.weight(.medium))
                   .foregroundStyle(model.appearancePalette.textPrimary)
@@ -2506,7 +2520,7 @@ struct ServerAdminPodcastShowView: View {
       }
       .pickerStyle(.segmented)
       .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.vertical, 12)
+      .padding(.vertical, AppTheme.Layout.rowSpacing)
 
       Group {
         switch selectedTab {
@@ -2619,7 +2633,7 @@ private struct ServerAdminPodcastRssSection: View {
         }
 
         if loading, drafts.isEmpty, libraryOnly.isEmpty, unavailable == nil {
-          AbstandLoadingSpinner(verticalPadding: 32)
+          AbstandLoadingSpinner(verticalPadding: AppTheme.Layout.emptyStateVerticalPadding)
         } else if drafts.isEmpty, libraryOnly.isEmpty, unavailable == nil {
           AbstandInlineNotice(text: "No episodes found in the feed.")
         } else {
@@ -2634,7 +2648,7 @@ private struct ServerAdminPodcastRssSection: View {
             Text("In library only")
               .font(.subheadline.weight(.semibold))
               .foregroundStyle(model.appearancePalette.textSecondary)
-              .padding(.top, 8)
+              .padding(.top, AppTheme.Layout.inlineSpacing)
             ForEach(libraryOnly, id: \.progressLookupKey) { episode in
               ServerAdminPodcastLibraryEpisodeRow(showId: showId, episode: episode)
             }
@@ -2766,7 +2780,7 @@ struct PodcastShowAutoDownloadSettingsContent: View {
     AbstandGroupedCard {
       Group {
         if model.podcastAutoDownloadSettingsShowId != showId {
-          AbstandLoadingSpinner(controlSize: .small, verticalPadding: 24)
+          AbstandLoadingSpinner(controlSize: .small, verticalPadding: AppTheme.Layout.blockSpacing)
         } else {
           VStack(alignment: .leading, spacing: 0) {
             SettingsCardToggleRow(
@@ -2868,7 +2882,7 @@ private struct PodcastShowTranscriptionLanguageSettingsContent: View {
     AbstandGroupedCard {
       Group {
         if model.podcastShowTranscriptionLanguageShowId != showId {
-          AbstandLoadingSpinner(controlSize: .small, verticalPadding: 24)
+          AbstandLoadingSpinner(controlSize: .small, verticalPadding: AppTheme.Layout.blockSpacing)
         } else {
           SettingsCardPickerRow(
             icon: "captions.bubble",
@@ -3210,7 +3224,7 @@ private struct DownloadManageActiveRow: View {
           )
           .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
         }
-        .frame(width: 44, height: 44)
+        .frame(width: AppTheme.Layout.minTapTarget, height: AppTheme.Layout.minTapTarget)
       } else {
         SettingsCardIcon(
           systemName: isQueued ? "circle.dashed" : "arrow.down.circle",
@@ -3238,14 +3252,14 @@ private struct DownloadManageActiveRow: View {
           // ohne zuverlässige Content-Length) springt der Balken sonst nur von 0 auf fertig.
           ProgressView(value: progress)
             .tint(themeAccent)
-            .padding(.top, 1)
+            .padding(.top, AppTheme.Layout.hairlineWidth)
         } else {
           Text("Downloading…")
             .font(.caption2)
             .foregroundStyle(model.appearancePalette.textSecondary)
         }
       }
-      Spacer(minLength: 8)
+      Spacer(minLength: AppTheme.Layout.inlineSpacing)
       Button(action: onCancel) {
         Image(systemName: "xmark.circle.fill")
           .font(.title3)
@@ -3285,9 +3299,9 @@ private struct DownloadManageSavedRow: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous))
       }
-      .frame(width: 44, height: 44)
+      .frame(width: AppTheme.Layout.minTapTarget, height: AppTheme.Layout.minTapTarget)
 
-      VStack(alignment: .leading, spacing: 3) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
         Text(row.title)
           .font(.body.weight(.medium))
           .foregroundStyle(model.appearancePalette.textPrimary)
@@ -3298,7 +3312,7 @@ private struct DownloadManageSavedRow: View {
             .foregroundStyle(model.appearancePalette.textSecondary)
             .lineLimit(1)
         }
-        HStack(spacing: 6) {
+        HStack(spacing: AppTheme.Layout.compactSpacing) {
           if let dur = row.durationLabel {
             Text(dur)
           }
@@ -3311,7 +3325,7 @@ private struct DownloadManageSavedRow: View {
         .foregroundStyle(model.appearancePalette.textSecondary)
         .lineLimit(1)
       }
-      Spacer(minLength: 8)
+      Spacer(minLength: AppTheme.Layout.inlineSpacing)
 
       Text(row.sizeLabel)
         .font(.caption.monospacedDigit())
@@ -3408,7 +3422,7 @@ private struct DebugLogExportView: View {
         }
       } else {
         AbstandGroupedCard {
-          VStack(alignment: .leading, spacing: 4) {
+          VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
             ForEach(entries.suffix(50)) { entry in
               Text(entry.message)
                 .font(.caption.monospaced())

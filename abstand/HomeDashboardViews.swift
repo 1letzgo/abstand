@@ -167,48 +167,43 @@ struct StartDashboardView: View {
           startDashboardContinueListeningSection(shelf)
         }
         if shelf.hasAuthors {
-          startDashboardCoverOnlyAuthorsSection(
+          startDashboardAuthorsSection(
             title: shelf.displayTitle,
             authors: shelf.authors
           )
         }
       }
     } else {
-      // Alle anderen Settings-Regale: Cover-only horizontale Scroll-Reihen (wie Library „Cover only“).
+      // Alle anderen Settings-Regale: Cover-Cards wie „New episodes“ (Cover + Titel + Metazeile).
       VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
         TabContentSectionTitle(title: shelf.displayTitle)
         if shelf.hasBooks {
-          HomeCoverOnlyBooksCarousel(
+          HomeBooksCoverCardCarousel(
             books: shelf.books,
             usesEbookProgressDisplay: shelf.category == "continueEbooks"
           )
         }
         if shelf.hasSeries {
-          HomeCoverOnlySeriesCarousel(series: shelf.series)
+          HomeSeriesCoverCardCarousel(series: shelf.series)
         }
         if shelf.hasAuthors {
-          HomeCoverOnlyAuthorsCarousel(authors: shelf.authors)
+          HomeAuthorsCoverCardCarousel(authors: shelf.authors)
         }
         if shelf.hasPodcastEpisodes {
-          if shelf.category == "newestEpisodes" {
-            // New episodes: Cover card (wie Library „Cover card“), nicht Cover-only.
-            HomeNewestEpisodesCoverCardCarousel(episodes: shelf.podcastEpisodes)
-          } else {
-            HomeCoverOnlyPodcastEpisodesCarousel(episodes: shelf.podcastEpisodes)
-          }
+          HomePodcastEpisodesCoverCardCarousel(episodes: shelf.podcastEpisodes)
         }
       }
     }
   }
 
   @ViewBuilder
-  private func startDashboardCoverOnlyAuthorsSection(
+  private func startDashboardAuthorsSection(
     title: String,
     authors: [ABSAuthorShelfEntity]
   ) -> some View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title: title)
-      HomeCoverOnlyAuthorsCarousel(authors: authors)
+      HomeAuthorsCoverCardCarousel(authors: authors)
     }
   }
 
@@ -260,7 +255,7 @@ struct StartDashboardView: View {
 
 }
 
-// MARK: - Home Continue: Cover-only horizontal rows
+// MARK: - Home: Cover-Card-Reihen (einheitlich wie „New episodes“)
 
 private struct HomeShelfCoverViewportWidthKey: PreferenceKey {
   static var defaultValue: CGFloat = 0
@@ -269,186 +264,13 @@ private struct HomeShelfCoverViewportWidthKey: PreferenceKey {
   }
 }
 
-/// Gemeinsame Viewport-Messung für Cover-only-Home-Regale (Size-Class-adaptiv).
-private struct HomeCoverOnlyShelfScrollRow<Content: View>: View {
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @State private var viewportWidth: CGFloat = 0
-  @ViewBuilder var content: (_ cardWidth: CGFloat) -> Content
-
-  private var cardWidth: CGFloat {
-    AppTheme.Layout.homeShelfCoverCardWidth(
-      forViewportWidth: viewportWidth,
-      horizontalSizeClass: horizontalSizeClass
-    )
-  }
-
-  var body: some View {
-    AbstandHorizontalBrowseStripScroll(
-      appliesHorizontalContentInset: false,
-      verticalContentPadding: 0
-    ) {
-      HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
-        content(cardWidth)
-      }
-    }
-    .frame(height: cardWidth)
-    .background {
-      GeometryReader { geo in
-        Color.clear.preference(key: HomeShelfCoverViewportWidthKey.self, value: geo.size.width)
-      }
-    }
-    .onPreferenceChange(HomeShelfCoverViewportWidthKey.self) { viewportWidth = $0 }
-  }
-}
-
-private struct HomeCoverOnlyBooksCarousel: View {
-  @EnvironmentObject private var model: AppModel
-  let books: [ABSBook]
-  var usesEbookProgressDisplay = false
-
-  var body: some View {
-    HomeCoverOnlyShelfScrollRow { cardWidth in
-      ForEach(books) { book in
-        LibraryBookListCard(
-          book: book,
-          model: model,
-          showEbookBadge: model.bookShowsSupplementaryEbookBadge(book),
-          showsPlaybackControls: false,
-          opensDetailOnTap: true,
-          usesEbookProgressDisplay: usesEbookProgressDisplay || book.isPureEbookLibraryItem,
-          styleOverride: .coverOnly
-        )
-        .frame(width: cardWidth)
-      }
-    }
-  }
-}
-
-private struct HomeCoverOnlySeriesCarousel: View {
-  @EnvironmentObject private var model: AppModel
-  let series: [ABSLibrarySeriesListItem]
-
-  var body: some View {
-    HomeCoverOnlyShelfScrollRow { cardWidth in
-      ForEach(series) { item in
-        HomeCoverOnlySeriesCard(series: item, cardWidth: cardWidth)
-      }
-    }
-  }
-}
-
-private struct HomeCoverOnlySeriesCard: View {
-  @EnvironmentObject private var model: AppModel
-  let series: ABSLibrarySeriesListItem
-  let cardWidth: CGFloat
-
-  var body: some View {
-    let bookIds = model.browseSeriesCoverBookIds(from: series.books)
-    let coverId = bookIds.first
-    let clip = RoundedRectangle(
-      cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius,
-      style: .continuous
-    )
-
-    Button {
-      model.openSeriesDetail(
-        seriesId: series.id,
-        displayName: series.name,
-        numBooks: series.books?.count
-      )
-    } label: {
-      Group {
-        if let coverId {
-          SquareCoverImageView(
-            url: model.coverURL(for: coverId),
-            token: model.token,
-            itemId: coverId,
-            cacheAccount: model.coverImageCacheAccountDirectory(),
-            cacheRevision: model.coverImageCacheRevision(forBookId: coverId)
-          )
-        } else {
-          model.appearancePalette.card
-        }
-      }
-      .frame(width: cardWidth, height: cardWidth)
-      .clipShape(clip)
-      .abstandHeroCardOutline(palette: model.appearancePalette)
-      .contentShape(clip)
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(series.name)
-    .accessibilityHint("Opens series details.")
-  }
-}
-
-private struct HomeCoverOnlyAuthorsCarousel: View {
-  @EnvironmentObject private var model: AppModel
-  let authors: [ABSAuthorShelfEntity]
-
-  var body: some View {
-    HomeCoverOnlyShelfScrollRow { cardWidth in
-      ForEach(authors) { author in
-        HomeCoverOnlyAuthorCard(author: author, cardWidth: cardWidth)
-      }
-    }
-  }
-}
-
-private struct HomeCoverOnlyAuthorCard: View {
-  @EnvironmentObject private var model: AppModel
-  let author: ABSAuthorShelfEntity
-  let cardWidth: CGFloat
-
-  var body: some View {
-    let clip = RoundedRectangle(
-      cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius,
-      style: .continuous
-    )
-    let cacheId = "author:\(author.id)"
-
-    Button {
-      model.openAuthorDetail(
-        authorId: author.id,
-        displayName: author.name,
-        numBooks: author.numBooks
-      )
-    } label: {
-      Group {
-        if author.hasAuthorImage {
-          SquareCoverImageView(
-            url: model.authorImageURL(authorId: author.id),
-            token: model.token,
-            itemId: cacheId,
-            cacheAccount: model.coverImageCacheAccountDirectory(),
-            cacheRevision: 0
-          )
-        } else {
-          model.appearancePalette.card
-            .overlay {
-              Image(systemName: "person.fill")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(model.appearancePalette.textSecondary)
-            }
-        }
-      }
-      .frame(width: cardWidth, height: cardWidth)
-      .clipShape(clip)
-      .abstandHeroCardOutline(palette: model.appearancePalette)
-      .contentShape(clip)
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(author.name)
-    .accessibilityHint("Opens author details.")
-  }
-}
-
-/// Home „New episodes“: gleiche Cover-Card wie Podcast-Tab.
-/// Compact 2¼ sichtbar, Regular +2; Max-Breite nur auf Regular gegen iPad-Riesenkarten.
+/// Gemeinsames Karussell aller Home-Regale: gleiche Kartenbreite wie „New episodes“
+/// (Compact 2¼ sichtbar, Regular +2; Max-Breite gegen iPad-Riesenkarten).
 /// Keine feste Zeilenhöhe — sonst wird das 1:1-Cover gestaucht (`aspectRatio(.fit)`).
-private struct HomeNewestEpisodesCoverCardCarousel: View {
-  @EnvironmentObject private var model: AppModel
+private struct HomeCoverCardCarousel<Item: Identifiable, Card: View>: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  let episodes: [ABSPodcastEpisodeListItem]
+  let items: [Item]
+  @ViewBuilder let card: (Item) -> Card
   @State private var viewportWidth: CGFloat = 0
 
   private var cardWidth: CGFloat {
@@ -464,14 +286,10 @@ private struct HomeNewestEpisodesCoverCardCarousel: View {
       verticalContentPadding: 0
     ) {
       HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
-        ForEach(episodes) { episode in
-          LibraryPodcastListCard(
-            episode: episode,
-            model: model,
-            styleOverride: .heroCover
-          )
-          .frame(width: cardWidth)
-          .fixedSize(horizontal: false, vertical: true)
+        ForEach(items) { item in
+          card(item)
+            .frame(width: cardWidth)
+            .fixedSize(horizontal: false, vertical: true)
         }
       }
     }
@@ -484,52 +302,177 @@ private struct HomeNewestEpisodesCoverCardCarousel: View {
   }
 }
 
-private struct HomeCoverOnlyPodcastEpisodesCarousel: View {
+private struct HomeBooksCoverCardCarousel: View {
+  @EnvironmentObject private var model: AppModel
+  let books: [ABSBook]
+  var usesEbookProgressDisplay = false
+
+  var body: some View {
+    HomeCoverCardCarousel(items: books) { book in
+      LibraryBookListCard(
+        book: book,
+        model: model,
+        showEbookBadge: model.bookShowsSupplementaryEbookBadge(book),
+        opensDetailOnTap: true,
+        usesEbookProgressDisplay: usesEbookProgressDisplay || book.isPureEbookLibraryItem,
+        styleOverride: .heroCover
+      )
+    }
+  }
+}
+
+private struct HomePodcastEpisodesCoverCardCarousel: View {
   @EnvironmentObject private var model: AppModel
   let episodes: [ABSPodcastEpisodeListItem]
 
   var body: some View {
-    HomeCoverOnlyShelfScrollRow { cardWidth in
-      ForEach(episodes) { episode in
-        HomeCoverOnlyPodcastEpisodeCard(episode: episode, cardWidth: cardWidth)
+    HomeCoverCardCarousel(items: episodes) { episode in
+      LibraryPodcastListCard(
+        episode: episode,
+        model: model,
+        styleOverride: .heroCover
+      )
+    }
+  }
+}
+
+private struct HomeSeriesCoverCardCarousel: View {
+  @EnvironmentObject private var model: AppModel
+  let series: [ABSLibrarySeriesListItem]
+
+  var body: some View {
+    HomeCoverCardCarousel(items: series) { item in
+      let coverId = model.browseSeriesCoverBookIds(from: item.books).first
+      let count = item.books?.count ?? 0
+      let authors = item.cardAuthorsLine?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      HomeEntityCoverCard(
+        title: item.name,
+        detailLabel: authors.isEmpty ? "Books" : "Author",
+        detailValue: authors.isEmpty ? (count > 0 ? "\(count)" : "—") : authors,
+        accessibilityHint: "Opens series details."
+      ) {
+        if let coverId {
+          SquareCoverImageView(
+            url: model.coverURL(for: coverId),
+            token: model.token,
+            itemId: coverId,
+            cacheAccount: model.coverImageCacheAccountDirectory(),
+            cacheRevision: model.coverImageCacheRevision(forBookId: coverId)
+          )
+        } else {
+          HomeEntityCoverPlaceholder(systemImage: "books.vertical.fill")
+        }
+      } onOpen: {
+        model.openSeriesDetail(
+          seriesId: item.id,
+          displayName: item.name,
+          numBooks: item.books?.count
+        )
       }
     }
   }
 }
 
-private struct HomeCoverOnlyPodcastEpisodeCard: View {
+private struct HomeAuthorsCoverCardCarousel: View {
   @EnvironmentObject private var model: AppModel
-  let episode: ABSPodcastEpisodeListItem
-  let cardWidth: CGFloat
-  @State private var detailEpisode: ABSPodcastEpisodeListItem?
+  let authors: [ABSAuthorShelfEntity]
 
   var body: some View {
-    let clip = RoundedRectangle(
+    HomeCoverCardCarousel(items: authors) { author in
+      HomeEntityCoverCard(
+        title: author.name,
+        detailLabel: "Books",
+        detailValue: author.numBooks.map { "\($0)" } ?? "—",
+        accessibilityHint: "Opens author details."
+      ) {
+        if author.hasAuthorImage {
+          SquareCoverImageView(
+            url: model.authorImageURL(authorId: author.id),
+            token: model.token,
+            itemId: "author:\(author.id)",
+            cacheAccount: model.coverImageCacheAccountDirectory(),
+            cacheRevision: 0
+          )
+        } else {
+          HomeEntityCoverPlaceholder(systemImage: "person.fill")
+        }
+      } onOpen: {
+        model.openAuthorDetail(
+          authorId: author.id,
+          displayName: author.name,
+          numBooks: author.numBooks
+        )
+      }
+    }
+  }
+}
+
+private struct HomeEntityCoverPlaceholder: View {
+  @EnvironmentObject private var model: AppModel
+  let systemImage: String
+
+  var body: some View {
+    model.appearancePalette.card
+      .overlay {
+        Image(systemName: systemImage)
+          .font(.title2.weight(.semibold))
+          .foregroundStyle(model.appearancePalette.textSecondary)
+      }
+  }
+}
+
+/// Serie/Autor im Aufbau der Hero-Cover-Card (Buch/Folge): 1:1-Cover oben, Titel + Metazeile darunter —
+/// ohne Play-Pille, Höhe wie die eBook-Variante der Buchkarte.
+private struct HomeEntityCoverCard<Cover: View>: View {
+  @EnvironmentObject private var model: AppModel
+  let title: String
+  let detailLabel: String
+  let detailValue: String
+  let accessibilityHint: String
+  @ViewBuilder let cover: () -> Cover
+  let onOpen: () -> Void
+
+  var body: some View {
+    let palette = model.appearancePalette
+    let coverTopRadius = AppTheme.Layout.coverCornerRadius
+    let coverClip = UnevenRoundedRectangle(
+      topLeadingRadius: coverTopRadius,
+      bottomLeadingRadius: 0,
+      bottomTrailingRadius: 0,
+      topTrailingRadius: coverTopRadius,
+      style: .continuous
+    )
+    let cardShape = RoundedRectangle(
       cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius,
       style: .continuous
     )
-    let itemId = episode.libraryItemId
 
-    Button {
-      detailEpisode = episode
-    } label: {
-      SquareCoverImageView(
-        url: model.coverURL(for: itemId),
-        token: model.token,
-        itemId: itemId,
-        cacheAccount: model.coverImageCacheAccountDirectory(),
-        cacheRevision: model.coverImageCacheRevision(forBookId: itemId)
-      )
-      .frame(width: cardWidth, height: cardWidth)
-      .clipShape(clip)
-      .abstandHeroCardOutline(palette: model.appearancePalette)
-      .contentShape(clip)
+    Button(action: onOpen) {
+      VStack(alignment: .leading, spacing: 0) {
+        Color.clear
+          .aspectRatio(1, contentMode: .fit)
+          .frame(maxWidth: .infinity)
+          .overlay { cover() }
+          .clipShape(coverClip)
+
+        ContinueListeningHeroMetadataBlock(
+          title: title,
+          detailLabel: detailLabel,
+          detailValue: detailValue,
+          horizontalInset: AppTheme.Layout.libraryRowCardInset,
+          onTitleTap: onOpen,
+          includesBottomPadding: true,
+          blockHeight: AppTheme.Layout.libraryHeroMetadataBlockHeight
+        )
+      }
+      .background(palette.card)
+      .clipShape(cardShape)
+      .abstandHeroCardOutline(palette: palette)
+      .contentShape(cardShape)
     }
     .buttonStyle(.plain)
-    .navigationDestination(item: $detailEpisode) { ep in
-      PodcastEpisodeDetailView(episode: ep)
-    }
-    .accessibilityLabel(episode.episodeTitle)
-    .accessibilityHint("Opens episode details.")
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(title)
+    .accessibilityHint(accessibilityHint)
   }
 }

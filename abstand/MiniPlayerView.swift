@@ -74,6 +74,14 @@ enum MiniPlayerMetrics {
   static let accessoryHorizontalPaddingCompact: CGFloat = 12
   static let accessoryHorizontalPaddingRegular: CGFloat = 24
 
+  /// Play/Pause-Buttonfläche im Vollplayer (Breite × `AppTheme.Layout.minTapTarget`).
+  static let playPauseButtonWidth: CGFloat = 72
+  /// Sheet-Drag-Griff: Breite × Höhe der kleinen Kapsel oben im Vollplayer.
+  static let dismissGrabberWidth: CGFloat = 36
+  static let dismissGrabberHeight: CGFloat = 5
+  /// Max. Breite der Vollplayer-Inhaltsspalten auf großen Screens (iPad).
+  static let fullPlayerContentMaxWidth: CGFloat = 800
+
   /// Eine Zeile: Sleep · Transport · AirPlay (Höhe = max(Transport, Play-Orb)).
   static var miniPlayerControlsTotalHeight: CGFloat {
     max(miniPlayerTransportHeight, miniPlayerPlayOrb)
@@ -164,7 +172,7 @@ private struct FullPlayerProgressTrack: View {
         ForEach(Array(chapterMarkers.enumerated()), id: \.element) { _, marker in
           Rectangle()
             .fill(model.appearancePalette.textSecondary.opacity(0.65))
-            .frame(width: 1, height: trackHeight)
+            .frame(width: AppTheme.Layout.hairlineWidth, height: trackHeight)
             .offset(x: max(0, w * marker - 0.5))
         }
         if showsScrubThumb {
@@ -172,7 +180,7 @@ private struct FullPlayerProgressTrack: View {
             .fill(themeAccent)
             .overlay {
               Circle()
-                .strokeBorder(model.appearancePalette.background, lineWidth: 2)
+                .strokeBorder(model.appearancePalette.background, lineWidth: AppTheme.Layout.boldStrokeWidth)
             }
             .frame(
               width: FullPlayerProgressLayout.scrubThumbDiameter,
@@ -598,7 +606,7 @@ private struct SleepTimerCapsuleStepper: View {
   var body: some View {
     HStack(spacing: 0) {
       stepperButton(systemName: "minus", enabled: minusEnabled, action: onMinus)
-      HStack(spacing: 5) {
+      HStack(spacing: AppTheme.Layout.compactSpacing) {
         if isOff, let offLeadingIcon {
           Image(systemName: offLeadingIcon)
             .font(.caption.weight(.semibold))
@@ -617,8 +625,8 @@ private struct SleepTimerCapsuleStepper: View {
       .accessibilityLabel(centerAccessibilityLabel)
       stepperButton(systemName: "plus", enabled: plusEnabled, action: onPlus)
     }
-    .padding(.horizontal, 6)
-    .padding(.vertical, 6)
+    .padding(.horizontal, AppTheme.Layout.compactSpacing)
+    .padding(.vertical, AppTheme.Layout.compactSpacing)
     .background(
       Capsule(style: .continuous)
         .fill(capsuleFill)
@@ -630,7 +638,7 @@ private struct SleepTimerCapsuleStepper: View {
       Image(systemName: systemName)
         .font(.body.weight(.semibold))
         .foregroundStyle(model.appearancePalette.textPrimary)
-        .frame(width: 44, height: 44)
+        .frame(width: AppTheme.Layout.minTapTarget, height: AppTheme.Layout.minTapTarget)
         .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
@@ -661,12 +669,12 @@ private struct SleepTimerPopoverContent: View {
   }
 
   var body: some View {
-    VStack(spacing: 10) {
+    VStack(spacing: AppTheme.Layout.withinSectionSpacing) {
       Text("Sleep Timer", comment: "Sleep timer popover title")
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(palette.textPrimary)
         .frame(maxWidth: .infinity)
-        .padding(.bottom, 2)
+        .padding(.bottom, AppTheme.Layout.hairlineSpacing)
 
       SleepTimerCapsuleStepper(
         centerText: sleepTimerMinutesLabel(minutes),
@@ -694,8 +702,8 @@ private struct SleepTimerPopoverContent: View {
         )
       }
     }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 14)
+    .padding(.horizontal, AppTheme.Layout.screenPadding)
+    .padding(.vertical, AppTheme.Layout.cardPadding)
     .frame(width: SleepTimerMetrics.popoverWidth)
     .background(palette.card)
     .onAppear(perform: syncFromActiveTimer)
@@ -798,7 +806,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
           } label: {
             HStack {
               Text(preset.label)
-              Spacer(minLength: 8)
+              Spacer(minLength: AppTheme.Layout.stackSpacing)
               if eqPreset == preset {
                 Image(systemName: "checkmark")
                   .foregroundStyle(themeAccent)
@@ -835,7 +843,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
           } label: {
             HStack {
               Text(miniPlayerFormatPlaybackRate(r))
-              Spacer(minLength: 8)
+              Spacer(minLength: AppTheme.Layout.stackSpacing)
               if playbackRate == r {
                 Image(systemName: "checkmark")
                   .foregroundStyle(themeAccent)
@@ -876,7 +884,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
 
       VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
         FullPlayerAirPlayButton()
-          .frame(width: 44, height: 44)
+          .frame(width: AppTheme.Layout.minTapTarget, height: AppTheme.Layout.minTapTarget)
           .frame(
             maxWidth: .infinity,
             minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
@@ -896,7 +904,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
       downloadControl
         .frame(maxWidth: .infinity)
     }
-    .padding(.vertical, 8)
+    .padding(.vertical, AppTheme.Layout.stackSpacing)
     .buttonStyle(.plain)
   }
 
@@ -1146,7 +1154,7 @@ private struct FullPlayerTransportRowChrome: View, Equatable {
               .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
           }
         }
-        .frame(width: 72, height: 44)
+        .frame(width: MiniPlayerMetrics.playPauseButtonWidth, height: AppTheme.Layout.minTapTarget)
       }
       .buttonStyle(AbstandProminentButtonStyle(capsule: true))
       .disabled(!snapshot.hasActiveBook)
@@ -1177,7 +1185,7 @@ private struct FullPlayerTransportRowChrome: View, Equatable {
         .frame(maxWidth: .infinity)
     }
     .foregroundStyle(model.appearancePalette.textPrimary)
-    .buttonStyle(.borderless)
+    .buttonStyle(.plain)
     .padding(
       .top,
       showsFullPlayerPanelControls ? 0 : FullPlayerTransportLayout.spacingAbovePlayRow
@@ -1476,7 +1484,7 @@ struct NowPlayingDetailView: View {
   private var fullPlayerDismissGrabber: some View {
     Capsule()
       .fill(model.appearancePalette.textSecondary.opacity(0.35))
-      .frame(width: 36, height: 5)
+      .frame(width: MiniPlayerMetrics.dismissGrabberWidth, height: MiniPlayerMetrics.dismissGrabberHeight)
       // Fester Abstand zum echten Fenster-Safe-Area-Top statt `.safeAreaPadding` (verhielt sich
       // auf einer kleinen Fixed-Frame-View unvorhersehbar — der Griff verschwand komplett) oder
       // reinem `.padding` (seit `fullPlayerStack` per `.ignoresSafeArea()` bis unter Notch/
@@ -1664,7 +1672,7 @@ struct NowPlayingDetailView: View {
         // Panels mit `.top`-Alignment nicht, darum hier der explizite Notch-Ausgleich.
         let notchInset = max(0, keyWindowTopSafeAreaInset - MiniPlayerMetrics.fullPlayerCoverInset)
         playerHeaderArea(book: book)
-          .frame(maxWidth: 800)
+          .frame(maxWidth: MiniPlayerMetrics.fullPlayerContentMaxWidth)
           .frame(maxHeight: .infinity, alignment: .top)
           .padding(.top, notchInset)
       } else {
@@ -1679,12 +1687,12 @@ struct NowPlayingDetailView: View {
             scrubberSection(book: book)
           }
         }
-        .frame(maxWidth: 800)
+        .frame(maxWidth: MiniPlayerMetrics.fullPlayerContentMaxWidth)
         .frame(maxHeight: .infinity)
       }
 
       fullPlayerPanelControlRow()
-        .frame(maxWidth: 800)
+        .frame(maxWidth: MiniPlayerMetrics.fullPlayerContentMaxWidth)
 
       FullPlayerTransportRowChrome(
         snapshot: chromeSnapshot,
@@ -1692,7 +1700,7 @@ struct NowPlayingDetailView: View {
         isCoverPanelExpanded: panelExpanded
       )
       .equatable()
-      .frame(maxWidth: 800)
+      .frame(maxWidth: MiniPlayerMetrics.fullPlayerContentMaxWidth)
 
       fullPlayerUtilityBar
         .equatable()
@@ -1769,7 +1777,7 @@ struct NowPlayingDetailView: View {
   /// Titel und Show (Folge) bzw. Autor (Hörbuch) direkt über dem Fortschrittsbalken.
   private func fullPlayerTitleArea(book: ABSBook) -> some View {
     let secondary = fullPlayerSecondaryLine(for: book)
-    return VStack(alignment: .leading, spacing: 4) {
+    return VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
       Text(book.displayTitle)
         .font(.title2.weight(.bold))
         .foregroundStyle(model.appearancePalette.textPrimary)
@@ -1835,7 +1843,7 @@ struct NowPlayingDetailView: View {
       .background(model.appearancePalette.card.opacity(cardOpacity), in: shape)
       .clipShape(shape)
       .overlay {
-        shape.strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
+        shape.strokeBorder(.separator.opacity(0.35), lineWidth: AppTheme.Layout.hairlineStrokeWidth)
       }
       .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
       .padding(MiniPlayerMetrics.fullPlayerCoverCardMargin)
@@ -1871,7 +1879,7 @@ struct NowPlayingDetailView: View {
       }
       .clipShape(shape)
       .overlay {
-        shape.strokeBorder(.separator.opacity(0.35), lineWidth: 0.5)
+        shape.strokeBorder(.separator.opacity(0.35), lineWidth: AppTheme.Layout.hairlineStrokeWidth)
       }
   }
 
@@ -1944,7 +1952,7 @@ struct NowPlayingDetailView: View {
           geo.size.height - pad - FullPlayerCoverOverlayMetrics.verticalInset - controlsBlock - titleBlock
         )
         VStack(spacing: FullPlayerCoverOverlayMetrics.teleprompterControlsSpacingAbove) {
-          VStack(alignment: .leading, spacing: 8) {
+          VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
             Text("Bookmarks")
               .font(.caption.weight(.bold))
               .foregroundStyle(model.appearancePalette.textSecondary)
@@ -1982,7 +1990,7 @@ struct NowPlayingDetailView: View {
     @ViewBuilder content: () -> Content
   ) -> some View {
     let pad = PlayerTeleprompterMetrics.cardContentPadding
-    return VStack(alignment: .leading, spacing: 8) {
+    return VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
       Text(title)
         .font(.caption.weight(.bold))
         .foregroundStyle(model.appearancePalette.textSecondary)
@@ -2214,7 +2222,7 @@ struct NowPlayingDetailView: View {
       ?? PlayerTeleprompterMetrics.autoFontSize(sizingViewportHeight: sizingHeight)
     let atMin = current <= PlayerTeleprompterMetrics.minFontSize + 0.01
     let atMax = current >= PlayerTeleprompterMetrics.maxFontSize - 0.01
-    return HStack(spacing: 8) {
+    return HStack(spacing: AppTheme.Layout.stackSpacing) {
       FullPlayerCoverOverlayButton(
         systemName: "minus",
         isActive: false,
@@ -2472,7 +2480,7 @@ struct LibraryCardActionButtonStyle: ButtonStyle {
       )
       .overlay(
         RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
-          .stroke(stroke, lineWidth: 1)
+          .stroke(stroke, lineWidth: AppTheme.Layout.hairlineWidth)
       )
       .opacity(
         isEnabled

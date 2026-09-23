@@ -62,22 +62,22 @@ struct SearchTabRootView: View {
         description: Text("Search your audiobooks and podcasts at once.")
       )
       .frame(maxWidth: .infinity)
-      .padding(.vertical, 48)
+      .padding(.vertical, AppTheme.Layout.loadingVerticalPadding)
     } else if q.count < 3 {
       Text("Enter at least three characters.")
         .font(.subheadline)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
         .frame(maxWidth: .infinity)
         .multilineTextAlignment(.center)
-        .padding(24)
+        .padding(AppTheme.Layout.blockSpacing)
     } else if model.isLoadingLibrary || model.isLoadingPodcasts, !hasAnyResults {
       AbstandLoadingSpinner()
     } else if !hasAnyResults {
       Text("No results.")
         .font(.subheadline)
-        .foregroundStyle(AppTheme.textSecondary)
+        .foregroundStyle(model.appearancePalette.textSecondary)
         .frame(maxWidth: .infinity)
-        .padding(24)
+        .padding(AppTheme.Layout.blockSpacing)
     }
   }
 }
@@ -182,7 +182,7 @@ private struct BooksSearchBrowseView: View {
     @ViewBuilder content: () -> Content
   ) -> some View {
     if !isEmpty {
-      VStack(alignment: .leading, spacing: 10) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
         TabContentSectionTitle(title:title)
         content()
       }

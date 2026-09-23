@@ -4,6 +4,8 @@ extension AppModel {
   enum Keys {
   static let server = "abstand_server_url"
   static let token = "abstand_token"
+  /// Rotierendes Refresh-Token (JWT-Auth ab Server v2.26); leer bei Legacy-Sessions.
+  static let refreshToken = "abstand_refresh_token"
   /// Letzter `authorize`-User — für Readium/eBook-Fortschritt vor erneutem `/authorize`.
   static let sessionUserId = "abstand_session_user_id"
   /// Server-Standardbibliothek aus letztem `/authorize` (Lazy-Bootstrap ohne erneutes Authorize).
@@ -48,6 +50,8 @@ extension AppModel {
   static let localFinishedProgressKeys = "abstand_local_finished_progress_keys"
   /// Reset Progress: Keys, die lokal verworfen wurden und nicht aus Cache/`authorize` zurückkehren dürfen.
   static let discardedProgressKeys = "abstand_discarded_progress_keys"
+  /// Lokale Fortschritts-Schreibungen, die noch nicht am Server sind — überlebt Neustart (je Server + Benutzer).
+  static let pendingLocalProgressSyncKeys = "abstand_pending_local_progress_sync_keys"
   static let browseAuthorsSortField = "abstand_browse_authors_sort_field"
   static let browseAuthorsSortDescending = "abstand_browse_authors_sort_desc"
   static let browseNarratorsSortField = "abstand_browse_narrators_sort_field"

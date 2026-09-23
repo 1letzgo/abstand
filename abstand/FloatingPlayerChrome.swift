@@ -66,7 +66,7 @@ private struct FloatingBarCoverEquatable: View, Equatable {
     .clipShape(RoundedRectangle(cornerRadius: plateRadius, style: .continuous))
     .overlay {
       RoundedRectangle(cornerRadius: plateRadius, style: .continuous)
-        .strokeBorder(.quaternary, lineWidth: 0.5)
+        .strokeBorder(.quaternary, lineWidth: AppTheme.Layout.hairlineStrokeWidth)
     }
   }
 }
@@ -309,6 +309,8 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
 
   private static let rowMinHeight: CGFloat = 48
   private static let accessoryTransportSide: CGFloat = 44
+  /// Zusatzhöhe für die äußere Row-Hülle (Touch-Ziel-Marge um die eigentliche Zeile).
+  private static let rowMinHeightOuterMargin: CGFloat = 16
 
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.snapshot == rhs.snapshot && lhs.themeRevision == rhs.themeRevision
@@ -352,7 +354,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
           .fixedSize(horizontal: true, vertical: false)
       }
     }
-    .frame(maxWidth: .infinity, minHeight: Self.rowMinHeight + 16, alignment: .center)
+    .frame(maxWidth: .infinity, minHeight: Self.rowMinHeight + Self.rowMinHeightOuterMargin, alignment: .center)
     .padding(.horizontal, horizontalPadding)
     .background(backgroundTint)
     .contentShape(Rectangle())
@@ -367,7 +369,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
     let _ = themeRevision
     return HStack(spacing: 0) {
       miniCover
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
         Text(snapshot.primaryLine)
           .font(.footnote)
           .fontWeight(.medium)
@@ -382,7 +384,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
             .lineLimit(1)
         }
       }
-      .padding(.leading, 10)
+      .padding(.leading, AppTheme.Layout.withinSectionSpacing)
       Spacer(minLength: 0)
     }
   }
@@ -392,7 +394,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
     let busy = snapshot.canTogglePlayback && snapshot.isBuffering
     let playWidth: CGFloat = 52
     let playHeight: CGFloat = 36
-    return HStack(spacing: 8) {
+    return HStack(spacing: AppTheme.Layout.stackSpacing) {
       Button {
         chrome.skipBackward()
       } label: {
@@ -405,7 +407,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
           .contentShape(Rectangle())
       }
       .disabled(busy)
-      .buttonStyle(.borderless)
+      .buttonStyle(.plain)
       .accessibilityLabel(
         PlaybackController.skipAccessibilityLabel(
           backward: true, seconds: snapshot.skipBackwardSeconds))
@@ -431,7 +433,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
         .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
         .contentShape(Rectangle())
       }
-      .buttonStyle(.borderless)
+      .buttonStyle(.plain)
       .accessibilityLabel(snapshot.isPlaying ? "Pause" : "Play")
     }
   }

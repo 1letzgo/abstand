@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Sendungsdetail im „Add podcast“-Flow: zeigt alles, was Verzeichnis **und** RSS-Feed über eine
 /// noch nicht abonnierte Sendung hergeben — Beschreibung, Kategorien, Sprache, Feedtyp und die
@@ -18,6 +19,11 @@ struct PodcastDirectoryShowView: View {
   @State private var showsAllEpisodes = false
   @State private var expandedEpisodeIds: Set<String> = []
   @State private var subscribeFailed = false
+  @State private var coverTintColor: Color = AppTheme.background
+  @State private var coverImageForTint: UIImage?
+  /// Persistierter Cover-Durchschnitts-RGB (`DetailCoverAverageRGBCache`) — Seed beim Öffnen,
+  /// bevor das Hero-Cover geladen ist; auch Basis für Theme-Wechsel ohne Bild im Speicher.
+  @State private var cachedCoverAverageRGB: (r: Double, g: Double, b: Double)?
 
   /// Erste Seite der Folgenliste — lange Feeds (oft 500+) bleiben scrollbar schnell.
   private let initialEpisodeCount = 20
@@ -49,6 +55,16 @@ struct PodcastDirectoryShowView: View {
   /// Cache-Schlüssel wie in der Trefferliste — Cover ist beim Öffnen schon geladen.
   private var coverCacheItemId: String { "podcast-dir:\(hit.id)" }
 
+  /// Der persistierte Cover-Durchschnitt steht bereits vor `.task` zur Verfügung.
+  private var resolvedCoverTint: Color {
+    CoverDominantTintSeed.resolve(
+      account: model.coverImageCacheAccountDirectory(),
+      itemId: coverCacheItemId,
+      heroScopeId: coverCacheItemId,
+      revision: 0
+    )?.tint ?? coverTintColor
+  }
+
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
@@ -66,14 +82,22 @@ struct PodcastDirectoryShowView: View {
         AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset
       )
     }
-    .abstandScrollScreenBackground(ignoreSafeArea: true)
-    .navigationTitle(displayTitle)
-    .navigationBarTitleDisplayMode(.inline)
+    .scrollContentBackground(.hidden)
+    .abstandDetailScrollBackground(resolvedCoverTint)
+    // Karten in der Farbfamilie des Cover-Tint-Hintergrunds statt neutraler Palette-`card`.
+    .detailSectionCardsTinted(fromBackgroundTint: resolvedCoverTint)
+    .navigationTitle("")
+    .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
     .themeAccentFromAppModel(model)
     .abstandThemeRefresh()
+    .onChange(of: model.appearanceThemeRevision) { _, _ in
+      applyCoverTintFromStoredImage()
+    }
     .task(id: hit.id) {
+      seedCoverTintFromLocalCache()
       await model.loadPodcastDirectoryPreview(for: hit)
+      await loadCoverTint()
     }
     // Erst nach dem Abonnieren sinnvoll — deshalb an `isInLibrary` gekoppelt und nicht an `hit.id`.
     .task(id: libraryShow?.id) {
@@ -161,7 +185,7 @@ struct PodcastDirectoryShowView: View {
             }
           }
         } label: {
-          HStack(spacing: 8) {
+          HStack(spacing: AppTheme.Layout.inlineSpacing) {
             if isSubscribing {
               ProgressView()
                 .tint(palette.foregroundOnAccent(model.appearanceAccentColor))
@@ -205,7 +229,7 @@ struct PodcastDirectoryShowView: View {
   private var feedStateSection: some View {
     if preview == nil {
       if isLoading {
-        AbstandLoadingSpinner(verticalPadding: 32)
+        AbstandLoadingSpinner(verticalPadding: AppTheme.Layout.emptyStateVerticalPadding)
       } else if let loadError {
         DetailDetailSectionCard {
           DetailMetaField(title: "Feed") {
@@ -443,6 +467,56 @@ struct PodcastDirectoryShowView: View {
       parts.append(special)
     }
     return parts.isEmpty ? nil : parts.joined(separator: " · ")
+  }
+
+  // MARK: Cover tint
+
+  private func applyCoverTintFromStoredImage() {
+    if let coverImageForTint {
+      coverTintColor = coverDominantBackgroundTint(from: coverImageForTint)
+    } else if let rgb = cachedCoverAverageRGB {
+      // Theme-Wechsel ohne Bild im Speicher: Tint aus dem persistierten RGB mit neuer Palette.
+      coverTintColor = coverDominantBackgroundTint(
+        fromAverageRed: rgb.r, green: rgb.g, blue: rgb.b)
+    } else {
+      coverTintColor = AppTheme.background
+    }
+  }
+
+  /// Zweiter Aufruf derselben Sendung: Tint sofort aus dem beim ersten Besuch persistierten
+  /// Cover-Durchschnitts-RGB — kein Warten auf den Hero-Cover-Download.
+  private func seedCoverTintFromLocalCache() {
+    guard coverImageForTint == nil else { return }
+    guard
+      let rgb = DetailCoverAverageRGBCache.load(
+        account: model.coverImageCacheAccountDirectory(), itemId: coverCacheItemId)
+    else { return }
+    cachedCoverAverageRGB = rgb
+    coverTintColor = coverDominantBackgroundTint(
+      fromAverageRed: rgb.r, green: rgb.g, blue: rgb.b)
+  }
+
+  private func loadCoverTint() async {
+    let cacheKey = CoverImageCache.cacheKey(scopeId: coverCacheItemId, revision: 0)
+    guard let image = await CoverImageCache.loadHeroImage(
+      itemId: cacheKey,
+      account: model.coverImageCacheAccountDirectory(),
+      coverURL: coverURL,
+      token: model.token,
+      requiresAuthorization: false
+    ) else { return }
+    await MainActor.run {
+      coverImageForTint = image
+      coverTintColor = coverDominantBackgroundTint(from: image)
+      if let (r, g, b) = coverAverageRGB(from: image) {
+        cachedCoverAverageRGB = (Double(r), Double(g), Double(b))
+        DetailCoverAverageRGBCache.save(
+          account: model.coverImageCacheAccountDirectory(),
+          itemId: coverCacheItemId,
+          red: Double(r), green: Double(g), blue: Double(b)
+        )
+      }
+    }
   }
 
   // MARK: Date helpers

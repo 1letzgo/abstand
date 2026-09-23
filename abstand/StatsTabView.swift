@@ -104,13 +104,15 @@ private enum StatsLayout {
   }
 }
 
-/// Settings-Unterseiten: Scroll + Offline-Hinweis + Ladezustand.
+/// Settings-Unterseiten: Scroll + Offline-Hinweis + Ladezustand. Dünner Wrapper um
+/// `ServerAdminScrollScreen` (ServerAdminViews.swift) — dasselbe Screen-Gerüst, ergänzt um
+/// Stats-spezifischen Lade-/Offline-/Leerzustand und `refreshable`.
 struct StatsDetailScrollScreen<Content: View>: View {
   @EnvironmentObject private var model: AppModel
   @ViewBuilder let content: (ABSListeningStatsResponse) -> Content
 
   var body: some View {
-    ScrollView {
+    ServerAdminScrollScreen {
       LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         if let fetched = model.listeningStatsFetchedAt, model.listeningStats != nil,
           !model.isNetworkReachable
@@ -131,14 +133,7 @@ struct StatsDetailScrollScreen<Content: View>: View {
           AbstandSectionEmptyState(text: "No statistics loaded.", isStandalone: true)
         }
       }
-      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.top, AppTheme.Layout.withinSectionSpacing)
-      .padding(
-        .bottom,
-        AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset
-      )
     }
-    .abstandScrollScreenBackground(ignoreSafeArea: true)
     .refreshable { await model.loadListeningStats() }
   }
 }
@@ -151,7 +146,7 @@ struct StatsOfflineCacheBanner: View {
     let palette = model.appearancePalette
     // Abweichendes Padding (12/12) bewusst durchgereicht — Banner-Optik bleibt identisch.
     AbstandGroupedCard(horizontalPadding: 12, verticalPadding: 12) {
-      HStack(alignment: .top, spacing: 10) {
+      HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
         Image(systemName: "icloud.slash")
           .foregroundStyle(model.appearanceAccentColor)
         Text("Offline — cached \(StatsLayout.cacheDateFormatter.string(from: fetchedAt)).")
@@ -210,7 +205,7 @@ struct StatsTimelineHubSectionView: View {
   var body: some View {
     StatsContentSection(title: "Timeline", showsTitle: showsSectionTitle) {
       if model.listeningStatsLoading, model.listeningStats == nil {
-        AbstandLoadingSpinner(verticalPadding: 24)
+        AbstandLoadingSpinner(verticalPadding: AppTheme.Layout.blockSpacing)
       } else if let stats = model.listeningStats {
         ListeningMonthHeatmapCard(
           stats: stats,
@@ -350,7 +345,7 @@ private struct StatsTopListenedAuthorLine: View {
 
   var body: some View {
     let palette = model.appearancePalette
-    HStack(alignment: .firstTextBaseline, spacing: 6) {
+    HStack(alignment: .firstTextBaseline, spacing: AppTheme.Layout.compactSpacing) {
       Text("Author")
         .font(.footnote.weight(.semibold))
         .foregroundStyle(palette.textSecondary)
@@ -414,17 +409,17 @@ private struct StatsTopListenedBookCard: View {
           Text("\(rank)")
             .font(.caption2.weight(.bold))
             .foregroundStyle(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .padding(.horizontal, AppTheme.Layout.compactSpacing)
+            .padding(.vertical, AppTheme.Layout.badgeSpacing)
             .background(model.appearancePalette.coverPlayBadgeBackground)
             .clipShape(Capsule())
-            .padding(4)
+            .padding(AppTheme.Layout.tightSpacing)
             .accessibilityLabel("Rank \(rank)")
         }
         .accessibilityHidden(true)
 
         StatsLibraryRowLayout.metadataColumn {
-          VStack(alignment: .leading, spacing: 2) {
+          VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
             Text(book.displayTitle)
               .font(.headline.weight(.semibold))
               .foregroundStyle(model.appearancePalette.textPrimary)
@@ -435,7 +430,7 @@ private struct StatsTopListenedBookCard: View {
             StatsTopListenedAuthorLine(authorLine: authorLine)
               .layoutPriority(1)
             Spacer(minLength: 0)
-            HStack(spacing: 8) {
+            HStack(spacing: AppTheme.Layout.inlineSpacing) {
               Text(formatPlaybackDurationShortHuman(Double(item.timeListening)))
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(model.appearanceAccentColor)
@@ -445,7 +440,7 @@ private struct StatsTopListenedBookCard: View {
               Spacer(minLength: 0)
             }
           }
-          .padding(.trailing, 4)
+          .padding(.trailing, AppTheme.Layout.tightSpacing)
         }
       }
     }
@@ -529,7 +524,7 @@ private struct StatsRecentSessionCard: View {
         }
 
         StatsLibraryRowLayout.metadataColumn {
-          VStack(alignment: .leading, spacing: 2) {
+          VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
             Text(titleLine)
               .font(.headline.weight(.semibold))
               .foregroundStyle(model.appearancePalette.textPrimary)
@@ -540,7 +535,7 @@ private struct StatsRecentSessionCard: View {
             StatsTopListenedAuthorLine(authorLine: authorLine)
               .layoutPriority(1)
             Spacer(minLength: 0)
-            HStack(spacing: 8) {
+            HStack(spacing: AppTheme.Layout.inlineSpacing) {
               Text(formatPlaybackDurationShortHuman(Double(session.timeListening)))
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(model.appearanceAccentColor)
@@ -554,7 +549,7 @@ private struct StatsRecentSessionCard: View {
               Spacer(minLength: 0)
             }
           }
-          .padding(.trailing, 4)
+          .padding(.trailing, AppTheme.Layout.tightSpacing)
         }
       }
     }

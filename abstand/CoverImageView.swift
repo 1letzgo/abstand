@@ -74,6 +74,7 @@ struct SquareCoverImageView: View {
 }
 
 struct CoverImageView: View {
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   let url: URL?
   let token: String
   let itemId: String
@@ -128,6 +129,8 @@ struct CoverImageView: View {
   }
 
   var body: some View {
+    // Statische AppTheme-Farben neu binden, ohne die Zeile an AppModel zu koppeln.
+    let _ = themeRevision
     Group {
       if contentMode == .fill {
         imageOrPlaceholder
@@ -190,7 +193,7 @@ struct CoverImageView: View {
           .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
       case .fit:
         content
-          .frame(minWidth: 44, minHeight: 44)
+          .frame(minWidth: AppTheme.Layout.minTapTarget, minHeight: AppTheme.Layout.minTapTarget)
       }
     }
   }

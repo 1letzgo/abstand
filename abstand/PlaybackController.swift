@@ -23,6 +23,47 @@ enum ABSPlaybackSkipDefaults {
   static let forwardSeconds = 30
 }
 
+/// Harte Deadline für optionale Server-Requests vor lokaler Wiedergabe.
+/// Anders als `withTaskGroup` wartet das nicht auf den hängenden Request (z. B. Token-Refresh bei
+/// schlechtem Empfang, der Cancellation ignoriert) — nach Ablauf geht es sofort mit `nil` weiter.
+enum AbstandDeadline {
+  private final class Gate<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T?, Never>?
+
+    init(_ continuation: CheckedContinuation<T?, Never>) {
+      self.continuation = continuation
+    }
+
+    func resume(_ value: T?) {
+      lock.lock()
+      let c = continuation
+      continuation = nil
+      lock.unlock()
+      c?.resume(returning: value)
+    }
+  }
+
+  static func value<T: Sendable>(
+    within seconds: Double,
+    _ operation: @escaping @Sendable () async -> T?
+  ) async -> T? {
+    var work: Task<Void, Never>?
+    let result: T? = await withCheckedContinuation { continuation in
+      let gate = Gate<T>(continuation)
+      work = Task {
+        gate.resume(await operation())
+      }
+      Task {
+        try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
+        gate.resume(nil)
+      }
+    }
+    work?.cancel()
+    return result
+  }
+}
+
 /// Aktive Sleep-Timer-Konfiguration (für Popover-Anzeige).
 enum SleepTimerMode: Equatable {
   case off
@@ -965,29 +1006,22 @@ final class PlaybackController: NSObject, ObservableObject {
     return trackStarts[trackIndex] + localSeconds
   }
 
-  /// Play-Session für lokale Dateien (Absorb: max. 5s Timeout, sonst Offline-Modus mit PATCH/Flush).
+  /// Play-Session für lokale Dateien (harte Deadline, sonst Offline-Modus mit PATCH/Flush).
   private func startPlaySessionWithTimeout(
     client: ABSAPIClient,
     itemId: String,
     episodeId: String?,
-    timeoutSeconds: UInt64 = 5
+    timeoutSeconds: Double = 3
   ) async -> ABSPlaySession? {
-    await withTaskGroup(of: ABSPlaySession?.self) { group in
-      group.addTask {
-        try? await client.startPlaySession(
-          itemId: itemId,
-          episodeId: episodeId,
-          deviceId: Self.stableDeviceId(),
-          appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-        )
-      }
-      group.addTask {
-        try? await Task.sleep(nanoseconds: timeoutSeconds * 1_000_000_000)
-        return nil
-      }
-      let first = await group.next() ?? nil
-      group.cancelAll()
-      return first
+    let deviceId = Self.stableDeviceId()
+    let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    return await AbstandDeadline.value(within: timeoutSeconds) {
+      try? await client.startPlaySession(
+        itemId: itemId,
+        episodeId: episodeId,
+        deviceId: deviceId,
+        appVersion: appVersion
+      )
     }
   }
 

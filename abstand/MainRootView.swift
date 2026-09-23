@@ -397,7 +397,7 @@ struct MainRootView: View {
       .foregroundStyle(model.appearanceAccentColor)
     }
     .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-    .padding(.vertical, 8)
+    .padding(.vertical, AppTheme.Layout.rowVerticalPadding)
     .background(palette.card)
     .clipShape(Capsule())
   }

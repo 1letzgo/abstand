@@ -55,13 +55,16 @@ struct PodcastAddFromSearchView: View {
       }
       .pickerStyle(.segmented)
       .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.top, 12)
-      .padding(.bottom, source == .search ? 8 : 12)
+      .padding(.top, AppTheme.Layout.rowSpacing)
+      .padding(
+        .bottom,
+        source == .search ? AppTheme.Layout.inlineSpacing : AppTheme.Layout.rowSpacing
+      )
 
       if source == .search {
         podcastSearchField
           .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-          .padding(.bottom, 12)
+          .padding(.bottom, AppTheme.Layout.rowSpacing)
       }
 
       Group {
@@ -140,7 +143,7 @@ struct PodcastAddFromSearchView: View {
 
   private var podcastSearchField: some View {
     let palette = model.appearancePalette
-    return HStack(spacing: 8) {
+    return HStack(spacing: AppTheme.Layout.inlineSpacing) {
       Image(systemName: "magnifyingglass")
         .foregroundStyle(palette.textSecondary)
       TextField("Search Apple Podcasts", text: $query)
@@ -195,7 +198,7 @@ struct PodcastAddFromSearchView: View {
         selectedGenreId: model.podcastChartsSelectedGenreId,
         onSelect: { model.selectPodcastChartsCategory(genreId: $0) }
       )
-      .padding(.bottom, 10)
+      .padding(.bottom, AppTheme.Layout.withinSectionSpacing)
 
       Group {
         if model.podcastChartsLoading, model.podcastChartsHits.isEmpty {
@@ -227,7 +230,7 @@ struct PodcastAddFromSearchView: View {
         }
       }
       .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(.top, 4)
+      .padding(.top, AppTheme.Layout.tightSpacing)
       .padding(.bottom, AppTheme.Layout.scrollBottomInsetBase)
     }
     .abstandScrollScreenBackground()
@@ -244,7 +247,7 @@ private struct PodcastChartsCategoryPillStrip: View {
 
   var body: some View {
     ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 8) {
+      HStack(spacing: AppTheme.Layout.inlineSpacing) {
         ForEach(categories) { category in
           let selected = selectedGenreId == category.genreId
           Button {
@@ -254,12 +257,12 @@ private struct PodcastChartsCategoryPillStrip: View {
               .font(.subheadline.weight(.medium))
               .foregroundStyle(selected ? accent : model.appearancePalette.textPrimary)
               .lineLimit(1)
-              .padding(.horizontal, 14)
-              .padding(.vertical, 8)
+              .padding(.horizontal, AppTheme.Layout.cardPadding)
+              .padding(.vertical, AppTheme.Layout.rowVerticalPadding)
               .background(model.appearancePalette.card, in: Capsule(style: .continuous))
               .overlay {
                 Capsule(style: .continuous)
-                  .strokeBorder(selected ? accent : Color.clear, lineWidth: 2)
+                  .strokeBorder(selected ? accent : Color.clear, lineWidth: AppTheme.Layout.boldStrokeWidth)
               }
           }
           .buttonStyle(.plain)
@@ -304,7 +307,7 @@ private struct PodcastDirectoryHitRow: View {
         }
 
         LibraryRowLayout.metadataColumn(showsProgressBar: false) {
-          VStack(alignment: .leading, spacing: 2) {
+          VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
             Text(hit.title)
               .font(.headline.weight(.semibold))
               .foregroundStyle(palette.textPrimary)

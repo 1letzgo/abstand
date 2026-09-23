@@ -1,5 +1,10 @@
 import SwiftUI
 
+private enum ChapterPreviewRowMetrics {
+  /// Feste Breite der Kapitel-Indexspalte (rechtsbündige Nummerierung).
+  static let indexColumnWidth: CGFloat = 24
+}
+
 /// Kapitel-Editor-Sheet: Audible-Kapitel-Lookup via Audnexus (`GET /api/search/chapters`),
 /// Vorschau inkl. „Branding entfernen"-Option, Apply via `POST /api/items/:id/chapters`.
 /// Vollständige Übernahme von Zeiten + Titeln (keine manuelle Einzeledit). Admin/Root-only.
@@ -161,12 +166,12 @@ struct ChaptersEditorSheet: View {
         LazyVStack(spacing: 0) {
           ForEach(Array(previewChapters.enumerated()), id: \.offset) { idx, ch in
             VStack(alignment: .leading, spacing: 0) {
-              HStack(alignment: .top, spacing: 10) {
+              HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
                 Text("\(idx + 1)")
                   .font(.caption.monospacedDigit())
                   .foregroundStyle(palette.textSecondary)
-                  .frame(width: 24, alignment: .leading)
-                VStack(alignment: .leading, spacing: 2) {
+                  .frame(width: ChapterPreviewRowMetrics.indexColumnWidth, alignment: .leading)
+                VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
                   Text(ch.title.isEmpty ? "Chapter \(idx + 1)" : ch.title)
                     .font(.subheadline)
                     .foregroundStyle(palette.textPrimary)
@@ -177,7 +182,7 @@ struct ChaptersEditorSheet: View {
                 }
                 Spacer(minLength: 0)
               }
-              .padding(.vertical, 8)
+              .padding(.vertical, AppTheme.Layout.rowVerticalPadding)
               if idx < previewChapters.count - 1 {
                 MetadataSheetCardDivider()
               }

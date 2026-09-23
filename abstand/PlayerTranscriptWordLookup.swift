@@ -143,7 +143,7 @@ struct PlayerTranscriptWordLookupSheet: View {
       languagePairRow
 
       if isTranslating {
-        HStack(spacing: 10) {
+        HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
           ProgressView()
             .controlSize(.small)
           Text(String(localized: "Translating…", comment: "Teleprompter word lookup"))
@@ -218,9 +218,9 @@ struct PlayerTranscriptWordLookupSheet: View {
   }
 
   private var languagePairRow: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
       if let sourceLocale {
-        HStack(spacing: 8) {
+        HStack(spacing: AppTheme.Layout.stackSpacing) {
           Text(String(localized: "From", comment: "Teleprompter translation source language label"))
             .font(.caption.weight(.semibold))
             .foregroundStyle(model.appearancePalette.textSecondary)
@@ -239,15 +239,15 @@ struct PlayerTranscriptWordLookupSheet: View {
         }
       }
 
-      HStack(spacing: 12) {
+      HStack(spacing: AppTheme.Layout.rowSpacing) {
         Image(systemName: "globe")
           .font(.body.weight(.semibold))
           .foregroundStyle(model.appearancePalette.textSecondary)
-          .frame(width: 22)
+          .frame(width: AppTheme.Layout.compactIconColumnWidth)
         Text(String(localized: "Target language", comment: "Teleprompter translation target picker"))
           .font(.body)
           .foregroundStyle(model.appearancePalette.textPrimary)
-        Spacer(minLength: 8)
+        Spacer(minLength: AppTheme.Layout.stackSpacing)
         Picker(
           String(localized: "Target language", comment: "Teleprompter translation target picker"),
           selection: $targetLanguageCode
@@ -261,8 +261,8 @@ struct PlayerTranscriptWordLookupSheet: View {
         .tint(model.appearanceAccentColor)
         .disabled(isTranslating)
       }
-      .padding(.horizontal, 14)
-      .padding(.vertical, 12)
+      .padding(.horizontal, AppTheme.Layout.cardPadding)
+      .padding(.vertical, AppTheme.Layout.rowSpacing)
       .background(
         model.appearancePalette.card,
         in: RoundedRectangle(cornerRadius: AppTheme.Layout.fieldCornerRadius, style: .continuous)
@@ -284,7 +284,7 @@ struct PlayerTranscriptWordLookupSheet: View {
   }
 
   private func lookupResultCard(title: String, body: String) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.compactSpacing) {
       Text(title)
         .font(.caption.weight(.bold))
         .foregroundStyle(model.appearancePalette.textSecondary)
@@ -294,7 +294,7 @@ struct PlayerTranscriptWordLookupSheet: View {
         .foregroundStyle(model.appearancePalette.textPrimary)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .padding(14)
+    .padding(AppTheme.Layout.cardPadding)
     .background(
       model.appearancePalette.card,
       in: RoundedRectangle(cornerRadius: AppTheme.Layout.fieldCornerRadius, style: .continuous)
@@ -475,10 +475,10 @@ struct PlayerTranscriptWordLookupSheet: View {
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
-      HStack(spacing: 12) {
+      HStack(spacing: AppTheme.Layout.rowSpacing) {
         Image(systemName: icon)
           .font(.body.weight(.semibold))
-          .frame(width: 22)
+          .frame(width: AppTheme.Layout.compactIconColumnWidth)
         Text(title)
           .font(.body.weight(.semibold))
         Spacer(minLength: 0)
@@ -487,8 +487,8 @@ struct PlayerTranscriptWordLookupSheet: View {
           .foregroundStyle(model.appearancePalette.textSecondary)
       }
       .foregroundStyle(model.appearancePalette.textPrimary)
-      .padding(.horizontal, 14)
-      .padding(.vertical, 12)
+      .padding(.horizontal, AppTheme.Layout.cardPadding)
+      .padding(.vertical, AppTheme.Layout.rowSpacing)
       .background(
         model.appearancePalette.card,
         in: RoundedRectangle(cornerRadius: AppTheme.Layout.fieldCornerRadius, style: .continuous)

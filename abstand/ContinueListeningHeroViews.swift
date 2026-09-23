@@ -136,8 +136,8 @@ struct ContinueListeningHeroCoverPill<Content: View>: View {
 
   var body: some View {
     content()
-      .padding(.horizontal, 6)
-      .padding(.vertical, 5)
+      .padding(.horizontal, AppTheme.Layout.compactSpacing)
+      .padding(.vertical, AppTheme.Layout.pillVerticalPadding)
       .background(model.appearancePalette.coverPlayBadgeBackground, in: Capsule(style: .continuous))
       .fixedSize()
       .padding(.vertical, ContinueListeningHeroCoverPillMetrics.verticalInset)
@@ -150,6 +150,8 @@ enum ContinueListeningHeroCoverPillMetrics {
   static let iconFont = Font.caption2.weight(.semibold)
   static let verticalInset: CGFloat = 8
   static let horizontalInset: CGFloat = 8
+  /// Größe des kleinen Download-Fortschritts-Spinners in der Cover-Pille.
+  static let downloadSpinnerSize: CGFloat = 13
 }
 
 /// Oben links auf Continue-Hero-Cover: Medientyp-Pill (Buch oder Podcast).
@@ -196,7 +198,10 @@ struct ContinueListeningHeroOfflineBadge: View {
             .progressViewStyle(.circular)
             .tint(.white)
             .scaleEffect(0.72)
-            .frame(width: 13, height: 13)
+            .frame(
+              width: ContinueListeningHeroCoverPillMetrics.downloadSpinnerSize,
+              height: ContinueListeningHeroCoverPillMetrics.downloadSpinnerSize
+            )
         }
         .accessibilityLabel("Downloading")
       }
@@ -265,10 +270,6 @@ private var orderSignature: String {
     )
   }
 
-  private var cardTotalHeight: CGFloat {
-    AppTheme.Layout.continueHeroCardTotalHeight(forCardWidth: cardWidth)
-  }
-
   var body: some View {
     AbstandHorizontalBrowseStripScroll(
       appliesHorizontalContentInset: false,
@@ -285,7 +286,6 @@ private var orderSignature: String {
         }
       }
     }
-    .frame(height: cardTotalHeight)
     .background {
       GeometryReader { geo in
         Color.clear.preference(key: ContinueCarouselViewportWidthKey.self, value: geo.size.width)

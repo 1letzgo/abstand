@@ -14,8 +14,8 @@ struct LoginView: View {
     ZStack {
       AppThemeScreenBackground(ignoresSafeArea: true)
       ScrollView {
-        VStack(alignment: .leading, spacing: 24) {
-          VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.blockSpacing) {
+          VStack(alignment: .leading, spacing: AppTheme.Layout.compactSpacing) {
             Text(addAccountMode ? "Add account" : "Abstand")
               .font(.largeTitle.bold())
               .foregroundStyle(model.appearancePalette.textPrimary)
@@ -33,7 +33,7 @@ struct LoginView: View {
             .foregroundStyle(model.appearancePalette.textSecondary)
           }
 
-          VStack(spacing: 14) {
+          VStack(spacing: AppTheme.Layout.cardPadding) {
             AbstandLabeledTextField(
               title: "Server URL", text: $server, textContentType: .URL, submitLabel: .next)
             AbstandLabeledTextField(
@@ -71,7 +71,7 @@ struct LoginView: View {
               }
             }
           } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: AppTheme.Layout.inlineSpacing) {
               if busy {
                 ProgressView()
                   .tint(model.appearancePalette.foregroundOnAccent(model.appearanceAccentColor))
@@ -82,7 +82,7 @@ struct LoginView: View {
           .buttonStyle(AbstandPrimaryButtonStyle())
           .disabled(busy || server.isEmpty || username.isEmpty || password.isEmpty)
         }
-        .padding(24)
+        .padding(AppTheme.Layout.blockSpacing)
         .frame(maxWidth: AppTheme.Layout.readableFormMaxWidth)
         .frame(maxWidth: .infinity)
       }

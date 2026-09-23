@@ -206,7 +206,7 @@ struct PlayerLiveTranscriptPanelView: View {
           .font(.caption)
           .foregroundStyle(model.appearancePalette.textSecondary)
           .lineLimit(2)
-          .padding(10)
+          .padding(AppTheme.Layout.withinSectionSpacing)
           .frame(maxWidth: .infinity, alignment: .leading)
           .background(model.appearancePalette.card.opacity(0.9))
       }
@@ -281,21 +281,11 @@ struct PlayerLiveTranscriptPanelView: View {
   }
 
   private var teleprompterLoadingOverlay: some View {
-    VStack(spacing: 12) {
-      ProgressView()
-        .controlSize(.regular)
-      if !loadingHintText.isEmpty {
-        Text(loadingHintText)
-          .font(.subheadline)
-          .foregroundStyle(model.appearancePalette.textSecondary)
-          .multilineTextAlignment(.center)
-      }
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    AbstandLabeledLoadingState(text: loadingHintText)
   }
 
   private func teleprompterErrorOverlay(message: String) -> some View {
-    VStack(spacing: 16) {
+    VStack(spacing: AppTheme.Layout.screenPadding) {
       Text(message)
         .font(.subheadline)
         .foregroundStyle(AppTheme.danger)
@@ -308,7 +298,7 @@ struct PlayerLiveTranscriptPanelView: View {
       }
       .buttonStyle(AbstandProminentButtonStyle())
     }
-    .padding(.horizontal, 20)
+    .padding(.horizontal, AppTheme.Layout.overlayPadding)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 

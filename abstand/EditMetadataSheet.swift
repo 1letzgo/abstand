@@ -1,5 +1,10 @@
 import SwiftUI
 
+private enum SeriesRowMetrics {
+  /// Feste Breite des schmalen Seriennummer-Feldes.
+  static let numberFieldWidth: CGFloat = 64
+}
+
 /// Metadaten-Editor + Cover-Online-Suche.
 /// Sektion A: manuelle Bearbeitung aller Metadaten-Felder (Save via `PATCH /api/items/:id/media`).
 /// Sektion B: Cover-Suche über `GET /api/search/covers` mit Grid-Vorschau + Apply via `POST /api/items/:id/cover`.
@@ -131,7 +136,7 @@ struct EditMetadataSheet: View {
           lineLimit: 3...8
         )
         MetadataSheetTextField(title: "Publisher", text: $publisher)
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: AppTheme.Layout.rowSpacing) {
           MetadataSheetTextField(title: "Year", text: $publishedYear, keyboardType: .numberPad)
           MetadataSheetTextField(title: "Language", text: $language)
         }
@@ -153,8 +158,8 @@ struct EditMetadataSheet: View {
     VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.labelToContentSpacing) {
       MetadataSheetFieldLabel(title: "Series", hint: "Search from 3 letters")
       ForEach(Array(seriesRows.enumerated()), id: \.offset) { idx, _ in
-        VStack(alignment: .leading, spacing: 6) {
-          HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.compactSpacing) {
+          HStack(spacing: AppTheme.Layout.inlineSpacing) {
             TextField(
               "",
               text: $seriesRows[idx].name,
@@ -182,8 +187,8 @@ struct EditMetadataSheet: View {
             .multilineTextAlignment(.center)
             .keyboardType(.decimalPad)
             .accessibilityLabel("Series number")
-            .metadataSheetFieldChrome(horizontalPadding: 8)
-            .frame(width: 64)
+            .metadataSheetFieldChrome(horizontalPadding: AppTheme.Layout.inlineSpacing)
+            .frame(width: SeriesRowMetrics.numberFieldWidth)
             Button {
               removeSeriesRow(idx)
             } label: {
@@ -199,7 +204,7 @@ struct EditMetadataSheet: View {
               .controlSize(.mini)
               .tint(themeAccent)
               .frame(maxWidth: .infinity, alignment: .leading)
-              .padding(.leading, 2)
+              .padding(.leading, AppTheme.Layout.hairlineSpacing)
           } else if let suggestions = seriesSuggestionsByRow[idx], !suggestions.isEmpty {
             seriesSuggestionsList(rowIndex: idx, suggestions: suggestions)
           }
@@ -213,7 +218,7 @@ struct EditMetadataSheet: View {
       }
       .buttonStyle(.plain)
       .foregroundStyle(themeAccent)
-      .padding(.top, 2)
+      .padding(.top, AppTheme.Layout.hairlineSpacing)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -248,7 +253,7 @@ struct EditMetadataSheet: View {
             .foregroundStyle(palette.textPrimary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, MetadataSheetMetrics.fieldInsetH)
-            .padding(.vertical, 8)
+            .padding(.vertical, AppTheme.Layout.rowVerticalPadding)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -264,7 +269,7 @@ struct EditMetadataSheet: View {
       MetadataSheetMetrics.fieldShape
         .strokeBorder(
           palette.textSecondary.opacity(MetadataSheetMetrics.fieldBorderOpacity),
-          lineWidth: 1
+          lineWidth: AppTheme.Layout.hairlineWidth
         )
     }
   }
@@ -359,7 +364,7 @@ struct EditMetadataSheet: View {
   private var coverResultsContent: some View {
     if isSearchingCovers {
       MetadataSheetCard {
-        AbstandLoadingSpinner(controlSize: .regular, verticalPadding: 24)
+        AbstandLoadingSpinner(controlSize: .regular, verticalPadding: AppTheme.Layout.blockSpacing)
       }
     } else if let coverSearchError {
       MetadataSheetCard {
@@ -380,14 +385,14 @@ struct EditMetadataSheet: View {
 
   // 3-Spalten-Grid mit Thumbnail-Vorschauen.
   private let coverColumns = [
-    GridItem(.flexible(), spacing: 8),
-    GridItem(.flexible(), spacing: 8),
-    GridItem(.flexible(), spacing: 8),
+    GridItem(.flexible(), spacing: AppTheme.Layout.inlineSpacing),
+    GridItem(.flexible(), spacing: AppTheme.Layout.inlineSpacing),
+    GridItem(.flexible(), spacing: AppTheme.Layout.inlineSpacing),
   ]
 
   @ViewBuilder
   private var coverGrid: some View {
-    LazyVGrid(columns: coverColumns, spacing: 8) {
+    LazyVGrid(columns: coverColumns, spacing: AppTheme.Layout.inlineSpacing) {
       ForEach(Array(coverResults.enumerated()), id: \.offset) { _, url in
         Button { pendingCoverURL = url } label: {
           AsyncImage(url: URL(string: url)) { phase in

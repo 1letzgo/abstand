@@ -251,12 +251,12 @@ enum DetailActionRowMetrics {
 
 /// Apple-Music-ähnliches Detail-Hero: Cover, Titel und Aktionszeile.
 enum DetailHeroLayoutMetrics {
-  static let coverTopPadding: CGFloat = 4
+  static let coverTopPadding: CGFloat = AppTheme.Layout.tightSpacing
   /// Quadratisches Cover (Hörbuch/Podcast/eBook) — nicht volle Bildschirmbreite.
   static let squareCoverMaxWidth: CGFloat = 280
   /// Leicht abgerundete Cover-Ecken (Album-Artwork, Detail + Vollplayer).
   static let coverCornerRadius: CGFloat = 8
-  static let titleTopSpacing: CGFloat = 18
+  static let titleTopSpacing: CGFloat = AppTheme.Layout.detailMetaAfterPlaySpacing
   static let heroInfoLineSpacing: CGFloat = 5
   static let sideControlSize: CGFloat = 52
   static let compactSideControlSize: CGFloat = 46
@@ -265,7 +265,7 @@ enum DetailHeroLayoutMetrics {
   /// Breite der einzelnen Play-/Read-Pille (1 Medien-Aktion).
   static let singlePrimaryWidthFraction: CGFloat = 0.54
   static let actionRowSpacing: CGFloat = 16
-  static let compactActionRowSpacing: CGFloat = 10
+  static let compactActionRowSpacing: CGFloat = AppTheme.Layout.withinSectionSpacing
 }
 
 /// System-Typografie für Buch-/Folgen-Detail (Dynamic Type, HIG).
@@ -706,10 +706,10 @@ struct DetailHeroActionsBar: View {
 
 enum DetailMetaLayoutMetrics {
   static let thumbnailSize: CGFloat = 44
-  static let labelToContentSpacing: CGFloat = 6
+  static let labelToContentSpacing: CGFloat = AppTheme.Layout.compactSpacing
   static let labelIconSpacing: CGFloat = 5
-  static let linkRowSpacing: CGFloat = 10
-  static let disclosureContentTopPadding: CGFloat = 6
+  static let linkRowSpacing: CGFloat = AppTheme.Layout.withinSectionSpacing
+  static let disclosureContentTopPadding: CGFloat = AppTheme.Layout.compactSpacing
   static let sectionCardSpacing: CGFloat = AppTheme.Layout.withinSectionSpacing
   /// Description-Card: Zeilen vor „More“.
   static let descriptionCollapsedLineLimit: Int = 4
@@ -805,8 +805,7 @@ struct DetailMetaDisclosure<Content: View>: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(AppTheme.Layout.detailSectionCardPadding)
-    .background(cardBackground ?? model.appearancePalette.card, in: detailSectionCardShape)
-    .abstandCardElevation(.subtle)
+    .abstandCardChrome(cardBackground ?? model.appearancePalette.card, shape: detailSectionCardShape, elevation: .subtle)
   }
 
   private var detailSectionCardShape: RoundedRectangle {
@@ -827,8 +826,7 @@ struct DetailDetailSectionCard<Content: View>: View {
     content()
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(AppTheme.Layout.detailSectionCardPadding)
-      .background(cardBackground ?? model.appearancePalette.card, in: detailSectionCardShape)
-      .abstandCardElevation(.subtle)
+      .abstandCardChrome(cardBackground ?? model.appearancePalette.card, shape: detailSectionCardShape, elevation: .subtle)
   }
 
   private var detailSectionCardShape: RoundedRectangle {
@@ -905,7 +903,7 @@ struct DetailMetaExpandableTextBlock: View {
 
   @ViewBuilder
   private var expandableBody: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
       Text(text)
         .font(DetailHeroTypography.metaValue)
         .foregroundStyle(model.appearancePalette.textPrimary)
@@ -953,7 +951,7 @@ struct DetailAuthorLinkRow: View {
 
   var body: some View {
     Button(action: action) {
-      HStack(spacing: 12) {
+      HStack(spacing: AppTheme.Layout.rowSpacing) {
         DetailAuthorThumbnail(authorId: authorId)
         Text(name)
           .font(DetailHeroTypography.metaLink)

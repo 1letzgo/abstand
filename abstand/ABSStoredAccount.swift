@@ -5,6 +5,8 @@ struct ABSStoredAccount: Codable, Identifiable, Equatable {
   var accountKey: String
   var serverURL: String
   var token: String
+  /// Refresh-Token für `/auth/refresh`; `nil` bei Legacy-Sessions (altes, nicht ablaufendes Token).
+  var refreshToken: String? = nil
   var userId: String
   var username: String
   var userType: String?

@@ -150,6 +150,50 @@ enum AppTheme {
     static let inlineSpacing: CGFloat = 8
     /// Titel ↔ direkt zugehöriger Untertitel/Wert.
     static let tightSpacing: CGFloat = 4
+    /// Kleinster Abstand: Badge-Innenabstand, Icon ↔ Zahl, optische Feinkorrektur.
+    static let hairlineSpacing: CGFloat = 2
+    /// Zwischen `tightSpacing` und `stackSpacing`: Chips, Pills, kompakte Meta-Zeilen.
+    static let compactSpacing: CGFloat = 6
+    /// Innenabstand von Karten (rundum) — identisch mit `detailSectionCardPadding`.
+    static let cardPadding: CGFloat = 14
+    /// Standard-Innenabstand von Screens/Sheets außerhalb der Tab-Roots (= `tabPaddingH`).
+    static let screenPadding: CGFloat = 16
+    /// Großer Abstand zwischen unabhängigen Blöcken in Sheets/Overlays.
+    static let blockSpacing: CGFloat = 24
+    /// Haarlinien-Versatz (Trenner, 1-pt-Feinkorrektur).
+    static let hairlineWidth: CGFloat = 1
+    /// Dünne Konturlinie (Karten-/Kreis-Umrandung) — feiner als `hairlineWidth`.
+    static let hairlineStrokeWidth: CGFloat = 0.5
+    /// Kräftigere Konturlinie (aktiver/ausgewählter Zustand).
+    static let boldStrokeWidth: CGFloat = 2
+    /// Abstand/Innenabstand in Mini-Badges und Legenden-Punkten.
+    static let badgeSpacing: CGFloat = 3
+    /// Vertikaler Innenabstand von Pills auf Covern.
+    static let pillVerticalPadding: CGFloat = 5
+    /// Innenabstand von Overlay-Karten über Vollbild-Inhalten (Reader, Teleprompter).
+    static let overlayPadding: CGFloat = 20
+    /// Horizontaler Außenabstand modaler Popups (Blocking-Overlay).
+    static let modalHorizontalPadding: CGFloat = 28
+    /// Vertikaler Innenabstand ganzseitiger Lade-/Leerzustände (= Default `AbstandLoadingSpinner`).
+    static let loadingVerticalPadding: CGFloat = 48
+
+    // MARK: Feste Maße
+    /// HIG-Mindestgröße für Touch-Ziele; auch quadratische Cover-Thumbs in Zeilen.
+    static let minTapTarget: CGFloat = 44
+    /// Runde Icon-Buttons im Overlay-Chrome.
+    static let iconButtonSize: CGFloat = 40
+    /// Kompakte Icon-Buttons / Breite kleiner Download-Fortschrittsbalken.
+    static let compactIconButtonSize: CGFloat = 36
+    /// Icon-Spalte in kompakten Zeilen (schmaler als `settingsIconColumnWidth`).
+    static let compactIconColumnWidth: CGFloat = 22
+    /// Kreis-Badges auf Covern (Play, eBook).
+    static let coverBadgeSize: CGFloat = 18
+    /// Höhe des Gradient-Scrims am Cover-Fuß.
+    static let coverScrimHeight: CGFloat = 72
+    /// Label-Spalte in Meta-Zeilen (Detail-/Episodenzeilen).
+    static let metaLabelColumnWidth: CGFloat = 112
+    /// Trailing-Wertespalte in Meta-/Aktionszeilen (Episoden-Download-Status, Settings-Stepper).
+    static let metaValueColumnMinWidth: CGFloat = 88
     /// Vertikaler Innenabstand einer Inhaltszeile ohne Kartenrahmen.
     static let rowVerticalPadding: CGFloat = 8
     /// Breite der Icon-Spalte in Settings-/Admin-Kartenzeilen (Symbole bleiben untereinander bündig).
@@ -225,40 +269,7 @@ enum AppTheme {
       )
     }
 
-    static func continueHeroCardTotalHeight(forCardWidth width: CGFloat) -> CGFloat {
-      width + continueHeroMetadataBlockHeight
-    }
-
-    /// Home sekundäre Regale: Cover-only (Compact 3½, Regular +2).
-    static let homeShelfCoverVisibleCardsCompact: CGFloat = 3.5
-    static let homeShelfCoverCardMinWidth: CGFloat = 96
-    static let homeShelfCoverCardMaxWidth: CGFloat = 140
-    static let homeShelfCoverCardFallbackWidth: CGFloat = 110
-
-    static func homeShelfCoverVisibleCards(
-      horizontalSizeClass: UserInterfaceSizeClass?
-    ) -> CGFloat {
-      homeCarouselVisibleCards(
-        compact: homeShelfCoverVisibleCardsCompact,
-        horizontalSizeClass: horizontalSizeClass
-      )
-    }
-
-    static func homeShelfCoverCardWidth(
-      forViewportWidth viewport: CGFloat,
-      horizontalSizeClass: UserInterfaceSizeClass? = nil
-    ) -> CGFloat {
-      homeCarouselCardWidth(
-        viewport: viewport,
-        visibleCards: homeShelfCoverVisibleCards(horizontalSizeClass: horizontalSizeClass),
-        minWidth: homeShelfCoverCardMinWidth,
-        maxWidth: homeShelfCoverCardMaxWidth,
-        fallback: homeShelfCoverCardFallbackWidth,
-        horizontalSizeClass: horizontalSizeClass
-      )
-    }
-
-    /// Home „New episodes“: Compact 2¼, Regular +2.
+    /// Home-Regale (alle Cover-Cards, Maß von „New episodes“): Compact 2¼, Regular +2.
     static let homeNewestEpisodesVisibleCardsCompact: CGFloat = 2.25
     static let homeNewestEpisodesCardMinWidth: CGFloat = 120
     static let homeNewestEpisodesCardMaxWidth: CGFloat = 220
@@ -928,9 +939,49 @@ struct AbstandGroupedCard<Content: View>: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.horizontal, horizontalPadding)
     .padding(.vertical, verticalPadding)
-    .background(model.appearancePalette.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-    .abstandCardElevation(.standard)
+    .abstandCardChrome(
+      model.appearancePalette.card,
+      shape: RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous)
+    )
+  }
+}
+
+/// Ganzflächiger Ladezustand mit optionalem Hinweistext (Spinner + Label mittig).
+/// Für reine Spinner ohne Text: `AbstandLoadingSpinner`.
+struct AbstandLabeledLoadingState: View {
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+  var text: String = ""
+  var controlSize: ControlSize = .regular
+
+  var body: some View {
+    VStack(spacing: AppTheme.Layout.rowSpacing) {
+      ProgressView()
+        .controlSize(controlSize)
+        .tint(themeAccent)
+      if !text.isEmpty {
+        Text(text)
+          .font(.subheadline)
+          .foregroundStyle(model.appearancePalette.textSecondary)
+          .multilineTextAlignment(.center)
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+extension View {
+  /// Einzige Implementierung des Karten-Chromes (Füllung + Form + Schatten). Sonderformen
+  /// (Library-Zeile, Detail-Sektion mit Cover-Tint, Popup) rufen das hier auf statt
+  /// `background` + `clipShape` + `abstandCardElevation` von Hand zu kombinieren.
+  func abstandCardChrome<S: Shape>(
+    _ fill: Color,
+    shape: S,
+    elevation: AppTheme.CardElevation = .standard
+  ) -> some View {
+    background(fill)
+      .clipShape(shape)
+      .abstandCardElevation(elevation)
   }
 }
 
@@ -1083,7 +1134,7 @@ struct AbstandInlineNotice: View {
 struct AbstandLoadingSpinner: View {
   @Environment(\.themeAccent) private var themeAccent
   var controlSize: ControlSize = .large
-  var verticalPadding: CGFloat = 48
+  var verticalPadding: CGFloat = AppTheme.Layout.loadingVerticalPadding
   var scale: CGFloat = 1
 
   var body: some View {

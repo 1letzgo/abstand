@@ -57,7 +57,7 @@ struct BooksEntityDetailView: View {
   }
 
   private var detailScrollBackgroundColor: Color {
-    usesPlainDetailBackground ? AppTheme.background : headerTintColor
+    usesPlainDetailBackground ? model.appearancePalette.background : headerTintColor
   }
 
   private var showsEntityDescription: Bool {
@@ -110,7 +110,7 @@ struct BooksEntityDetailView: View {
         model.prepareEntityDetail(for: nav)
       }
       if !usesPlainDetailBackground {
-        headerTintColor = AppTheme.background
+        headerTintColor = model.appearancePalette.background
       }
       await model.reloadEntityDetail(for: nav, reset: true)
       if !usesPlainDetailBackground {
@@ -134,18 +134,18 @@ struct BooksEntityDetailView: View {
 
   private func applyHeaderTintFromStoredImage() {
     guard !usesPlainDetailBackground else {
-      headerTintColor = AppTheme.background
+      headerTintColor = model.appearancePalette.background
       return
     }
     if let headerCoverImageForTint {
       headerTintColor = coverDominantBackgroundTint(from: headerCoverImageForTint)
     } else {
-      headerTintColor = AppTheme.background
+      headerTintColor = model.appearancePalette.background
     }
   }
 
   private var headerSection: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.rowSpacing) {
       if showsEntityDetailCover {
         HStack {
           Spacer()
@@ -153,10 +153,10 @@ struct BooksEntityDetailView: View {
           Spacer()
         }
       }
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.compactSpacing) {
         Text(nav.title)
           .font(.title2.weight(.bold))
-          .foregroundStyle(AppTheme.textPrimary)
+          .foregroundStyle(model.appearancePalette.textPrimary)
           .frame(maxWidth: .infinity, alignment: .leading)
         Text(nav.filterSummaryPrefix)
           .font(.subheadline.weight(.semibold))
@@ -164,7 +164,7 @@ struct BooksEntityDetailView: View {
         if let bookCountLabel {
           Text(bookCountLabel)
             .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
       }
     }
@@ -224,10 +224,10 @@ struct BooksEntityDetailView: View {
         )
       } else {
         ZStack {
-          AppTheme.card
+          model.appearancePalette.card
           Image(systemName: "books.vertical")
             .font(.largeTitle)
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
         .aspectRatio(1, contentMode: .fit)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -240,10 +240,10 @@ struct BooksEntityDetailView: View {
     if nav.kind == .author {
       ZStack {
         Circle()
-          .fill(AppTheme.card)
+          .fill(model.appearancePalette.card)
         Image(systemName: entityPlaceholderIcon)
           .font(.largeTitle)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
       }
       .aspectRatio(1, contentMode: .fit)
       .containerRelativeFrame(.horizontal) { w, _ in w * 0.8 }
@@ -251,10 +251,10 @@ struct BooksEntityDetailView: View {
     } else {
       ZStack {
         RoundedRectangle(cornerRadius: AppTheme.Layout.coverCornerRadius, style: .continuous)
-          .fill(AppTheme.card)
+          .fill(model.appearancePalette.card)
         Image(systemName: entityPlaceholderIcon)
           .font(.largeTitle)
-          .foregroundStyle(AppTheme.textSecondary)
+          .foregroundStyle(model.appearancePalette.textSecondary)
       }
       .aspectRatio(1, contentMode: .fit)
       .containerRelativeFrame(.horizontal) { w, _ in w * 0.8 }
@@ -291,7 +291,7 @@ struct BooksEntityDetailView: View {
         .controlSize(.regular)
         .tint(model.appearanceAccentColor)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 4)
+        .padding(.vertical, AppTheme.Layout.tightSpacing)
     } else {
       entityDetailMetaRow(
         "Description",
@@ -360,7 +360,7 @@ struct BooksEntityDetailView: View {
   private func entityDetailSectionHeading(_ title: String) -> some View {
     Text(title.uppercased())
       .font(.caption.weight(.bold))
-      .foregroundStyle(AppTheme.textSecondary)
+      .foregroundStyle(model.appearancePalette.textSecondary)
       .frame(maxWidth: .infinity, alignment: .leading)
   }
 
@@ -374,14 +374,14 @@ struct BooksEntityDetailView: View {
   }
 
   private func entityDetailMetaRow(_ key: String, _ value: String) -> some View {
-    HStack(alignment: .top, spacing: 10) {
+    HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
       Text(key.uppercased())
         .font(.caption.weight(.bold))
-        .foregroundStyle(AppTheme.textSecondary)
-        .frame(width: 112, alignment: .leading)
+        .foregroundStyle(model.appearancePalette.textSecondary)
+        .frame(width: AppTheme.Layout.metaLabelColumnWidth, alignment: .leading)
       Text(value)
         .font(.subheadline)
-        .foregroundStyle(AppTheme.textPrimary)
+        .foregroundStyle(model.appearancePalette.textPrimary)
         .fixedSize(horizontal: false, vertical: true)
     }
   }

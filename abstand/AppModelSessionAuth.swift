@@ -274,6 +274,8 @@ extension AppModel {
 
   func isAuthHTTPStatus(_ error: Error?) -> Bool {
     guard let error else { return false }
+    // 401 kommt zentral als `.unauthorized` (throwForStatus) — nicht als `.httpStatus`.
+    if case ABSAPIError.unauthorized = error { return true }
     guard case ABSAPIError.httpStatus(let code, _) = error else { return false }
     return code == 401 || code == 403
   }
@@ -574,14 +576,14 @@ extension AppModel {
       let url = ABSAPIClient.normalizeServerURL(serverURL),
       !token.isEmpty
     else { return }
-    client = ABSAPIClient(baseURL: url, token: token)
+    client = ABSAPIClient(baseURL: url, token: token, refreshToken: refreshToken)
   }
 
   /// Client nur für lokale Wiedergabe (kein Authorize); entsteht nach `suspendServerClientForOfflineHome`.
   func clientForOfflineLocalPlayback() -> ABSAPIClient? {
     if let c = client { return c }
     guard let url = ABSAPIClient.normalizeServerURL(serverURL), !token.isEmpty else { return nil }
-    return ABSAPIClient(baseURL: url, token: token)
+    return ABSAPIClient(baseURL: url, token: token, refreshToken: refreshToken)
   }
 
   func login(server: String, username: String, password: String) async {
@@ -608,11 +610,16 @@ extension AppModel {
     do {
       let res = try await ABSAPIClient.login(server: url, username: username, password: password)
       if bootstrapSupersededByOffline || offlineHomeUIActive { return }
-      token = res.user.token
+      // Ohne Token keine Session — lieber sauberer Login-Fehler als leerer Bearer.
+      guard !res.user.effectiveBearerToken.isEmpty else { throw ABSAPIError.unauthorized("Server returned no session token.") }
+      // Neues JWT-Auth: Access-Token als Bearer + Refresh-Token; alte Server liefern nur `token`.
+      token = res.user.effectiveBearerToken
+      refreshToken = res.user.refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      UserDefaults.standard.set(refreshToken, forKey: Keys.refreshToken)
       serverURL = server.trimmingCharacters(in: .whitespacesAndNewlines)
       UserDefaults.standard.set(serverURL, forKey: Keys.server)
       UserDefaults.standard.set(token, forKey: Keys.token)
-      let c = ABSAPIClient(baseURL: url, token: token)
+      let c = ABSAPIClient(baseURL: url, token: token, refreshToken: refreshToken)
       client = c
       serverSessionEstablished = true
       applyAuthorizeSession(res)
@@ -655,6 +662,13 @@ extension AppModel {
     guard !key.isEmpty else { return }
     let removingActive = key == activeAccountKey
     if removingActive { syncStoredAccountFromSession() }
+    // Serverseitige Session beenden, damit das Refresh-Token nicht 30 Tage gültig bleibt (best effort).
+    if let removed = storedAccounts.first(where: { $0.accountKey == key }),
+      let refresh = removed.refreshToken, !refresh.isEmpty,
+      let url = ABSAPIClient.normalizeServerURL(removed.serverURL)
+    {
+      Task.detached(priority: .utility) { await ABSAPIClient.logout(server: url, refreshToken: refresh) }
+    }
     storedAccounts.removeAll { $0.accountKey == key }
     persistStoredAccounts()
     guard removingActive else { return }
@@ -685,8 +699,10 @@ extension AppModel {
     clearInMemorySessionState(clearCredentials: false)
     serverURL = account.serverURL
     token = account.token
+    refreshToken = account.refreshToken ?? ""
     UserDefaults.standard.set(serverURL, forKey: Keys.server)
     UserDefaults.standard.set(token, forKey: Keys.token)
+    UserDefaults.standard.set(refreshToken, forKey: Keys.refreshToken)
     activeAccountKey = accountKey
     ABSStoredAccountsPersistence.saveActiveAccountKey(accountKey)
     // Vor Authorize: UserId setzen, damit LocalStore und Home sofort zum richtigen Account zeigen.
@@ -702,6 +718,7 @@ extension AppModel {
     // Discard-/Finished-Keys des neuen Accounts laden, bevor Home-Restore Progress merged.
     loadLocalFinishedProgressKeys()
     loadDiscardedProgressKeys()
+    loadPendingLocalProgressSyncKeys()
     if let cacheRoot = cacheAccountURL() {
       EbookLocalStore.updateActiveSession(account: cacheRoot, userId: switchedUserId.isEmpty ? nil : switchedUserId)
       PlayerTranscriptCacheStore.updateActiveAccount(cacheRoot)
@@ -758,6 +775,24 @@ extension AppModel {
     return [account]
   }
 
+  /// Vom Client erneuerte Tokens übernehmen (nur wenn sie zur aktiven Session gehören — nach einem
+  /// Account-Wechsel kann noch ein Refresh des alten Clients eintreffen).
+  func adoptRefreshedSessionTokens(serverURL refreshedServer: String, accessToken: String, refreshToken newRefresh: String) {
+    guard !accessToken.isEmpty,
+      let active = ABSAPIClient.normalizeServerURL(serverURL)?.absoluteString,
+      active.caseInsensitiveCompare(refreshedServer) == .orderedSame
+    else { return }
+    token = accessToken
+    UserDefaults.standard.set(accessToken, forKey: Keys.token)
+    if !newRefresh.isEmpty {
+      refreshToken = newRefresh
+      UserDefaults.standard.set(newRefresh, forKey: Keys.refreshToken)
+    }
+    syncStoredAccountFromSession(markActive: false)
+    // Cover-/Asset-Requests lesen `token` direkt — Views neu binden.
+    objectWillChange.send()
+  }
+
   func syncStoredAccountFromSession() {
     syncStoredAccountFromSession(markActive: true)
   }
@@ -773,6 +808,7 @@ extension AppModel {
     let activePods = activePodcastLibraryIds
     if let idx = storedAccounts.firstIndex(where: { $0.accountKey == key }) {
       storedAccounts[idx].token = token
+      storedAccounts[idx].refreshToken = refreshToken.isEmpty ? nil : refreshToken
       storedAccounts[idx].serverURL = serverURL
       storedAccounts[idx].userId = userId
       storedAccounts[idx].username = sessionUsername
@@ -788,6 +824,7 @@ extension AppModel {
       // Migration: userId war beim ersten Speichern noch leer — Eintrag umbenennen.
       storedAccounts[legacyIdx].accountKey = key
       storedAccounts[legacyIdx].token = token
+      storedAccounts[legacyIdx].refreshToken = refreshToken.isEmpty ? nil : refreshToken
       storedAccounts[legacyIdx].serverURL = serverURL
       storedAccounts[legacyIdx].userId = userId
       storedAccounts[legacyIdx].username = sessionUsername
@@ -803,6 +840,7 @@ extension AppModel {
           accountKey: key,
           serverURL: serverURL,
           token: token,
+          refreshToken: refreshToken.isEmpty ? nil : refreshToken,
           userId: userId,
           username: sessionUsername,
           userType: sessionUserType.isEmpty ? nil : sessionUserType,

@@ -104,7 +104,7 @@ struct BookDetailView: View {
       // Sofort mit zuletzt gecachter Detail-Antwort starten (Beschreibung/Kapitel bleiben sichtbar) —
       // kein Leer-„Reset“ mehr, nur ein stiller Refresh im Hintergrund.
       if detail?.id != bookId {
-        detail = model.cachedBookDetail(id: bookId)
+        detail = model.immediateBookDetail(id: bookId)
         coverImageForTint = nil
         cachedCoverAverageRGB = nil
       }
@@ -303,7 +303,7 @@ struct BookDetailView: View {
     return ZStack {
       Color.black.opacity(palette.isDarkLike ? 0.55 : 0.35)
         .ignoresSafeArea()
-      VStack(spacing: 14) {
+      VStack(spacing: AppTheme.Layout.cardPadding) {
         ProgressView()
           .controlSize(.large)
           .tint(model.appearanceAccentColor)
@@ -312,10 +312,9 @@ struct BookDetailView: View {
           .foregroundStyle(palette.textPrimary)
           .multilineTextAlignment(.center)
       }
-      .padding(.horizontal, 28)
-      .padding(.vertical, 24)
-      .background(palette.card, in: RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
-      .abstandCardElevation(.standard)
+      .padding(.horizontal, AppTheme.Layout.modalHorizontalPadding)
+      .padding(.vertical, AppTheme.Layout.blockSpacing)
+      .abstandCardChrome(palette.card, shape: RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous))
       .accessibilityElement(children: .combine)
       .accessibilityLabel("Deleting book")
     }
@@ -360,7 +359,7 @@ struct BookDetailView: View {
         confirmDiscardListeningProgress = true
       }
     }
-    .tint(discardEnabled ? AppTheme.danger : AppTheme.textSecondary)
+    .tint(discardEnabled ? AppTheme.danger : model.appearancePalette.textSecondary)
 
     // Match-Metadaten + Kapitel-Editor: Admin/Root. Löschen inkl. Datei: nur Root.
     if model.isServerAdmin || model.isServerRoot {
@@ -404,7 +403,7 @@ struct BookDetailView: View {
         }
       } label: {
         Image(systemName: "ellipsis.circle")
-          .foregroundStyle(AppTheme.textPrimary)
+          .foregroundStyle(model.appearancePalette.textPrimary)
       }
       .accessibilityLabel(String(localized: "More actions", comment: "Accessibility"))
       .disabled(!model.isNetworkReachable)
@@ -804,7 +803,7 @@ struct BookDetailView: View {
           ForEach(Array(chapters.enumerated()), id: \.element.id) { idx, ch in
             bookChapterRow(chapter: ch, book: book)
             if idx < chapters.count - 1 {
-              Divider().background(AppTheme.textSecondary.opacity(0.15))
+              Divider().background(model.appearancePalette.textSecondary.opacity(0.15))
             }
           }
         }
@@ -841,7 +840,7 @@ struct BookDetailView: View {
         .accessibilityLabel("In progress")
     case .notStarted:
       Image(systemName: "circle")
-        .foregroundStyle(AppTheme.textSecondary.opacity(0.35))
+        .foregroundStyle(model.appearancePalette.textSecondary.opacity(0.35))
         .font(.body)
         .accessibilityHidden(true)
     }
@@ -853,20 +852,20 @@ struct BookDetailView: View {
     Button {
       Task { await model.play(book: book, resumeAtOverride: chapter.start, autoPlay: true) }
     } label: {
-      HStack(alignment: .top, spacing: 10) {
-        VStack(alignment: .leading, spacing: 4) {
+      HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
           Text(chapter.title)
             .font(.headline)
-            .foregroundStyle(AppTheme.textPrimary)
+            .foregroundStyle(model.appearancePalette.textPrimary)
             .multilineTextAlignment(.leading)
           Text("\(formatPlaybackTime(chapter.start)) – \(formatPlaybackTime(chapter.end))")
             .font(.caption.monospacedDigit())
-            .foregroundStyle(AppTheme.textSecondary)
+            .foregroundStyle(model.appearancePalette.textSecondary)
         }
-        Spacer(minLength: 8)
+        Spacer(minLength: AppTheme.Layout.stackSpacing)
         chapterStatusIcon(state: state)
       }
-      .padding(.vertical, 10)
+      .padding(.vertical, AppTheme.Layout.withinSectionSpacing)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)

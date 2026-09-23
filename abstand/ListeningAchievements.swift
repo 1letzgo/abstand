@@ -304,10 +304,7 @@ struct ListeningAchievementCard: View {
 
   private static let iconSlotWidth: CGFloat = 28
   private static let compactIconSlotWidth: CGFloat = 22
-  private static let rowSpacing: CGFloat = 12
-  private static let compactRowSpacing: CGFloat = 8
   private static let progressBarHeight = AppTheme.Layout.libraryRowBottomProgressHeight
-  private static let compactInset: CGFloat = 10
   private static let compactBadgeEdge: CGFloat = 28
 
   var body: some View {
@@ -351,12 +348,12 @@ struct ListeningAchievementCard: View {
 
   private var regularCardBody: some View {
     let palette = model.appearancePalette
-    let contentBottom = 14 + Self.progressBarHeight
+    let contentBottom = AppTheme.Layout.cardPadding + Self.progressBarHeight
     let content = VStack(alignment: .leading, spacing: 0) {
-      HStack(alignment: .top, spacing: Self.rowSpacing) {
+      HStack(alignment: .top, spacing: AppTheme.Layout.rowSpacing) {
         achievementIcon(size: 21, slotWidth: Self.iconSlotWidth)
 
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
           Text(achievement.kind.title)
             .font(.headline.weight(.semibold))
             .foregroundStyle(palette.textPrimary)
@@ -377,8 +374,8 @@ struct ListeningAchievementCard: View {
           cornerRadius: AppTheme.Layout.achievementBadgeCornerRadius
         )
       }
-      .padding(.horizontal, 14)
-      .padding(.top, 14)
+      .padding(.horizontal, AppTheme.Layout.cardPadding)
+      .padding(.top, AppTheme.Layout.cardPadding)
       .padding(.bottom, contentBottom)
     }
     .overlay(alignment: .bottom) {
@@ -392,8 +389,8 @@ struct ListeningAchievementCard: View {
   private var compactCardBody: some View {
     let palette = model.appearancePalette
     let content = VStack(alignment: .leading, spacing: 0) {
-      VStack(alignment: .leading, spacing: Self.compactRowSpacing) {
-        HStack(alignment: .top, spacing: Self.compactRowSpacing) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
+        HStack(alignment: .top, spacing: AppTheme.Layout.inlineSpacing) {
           achievementIcon(size: 17, slotWidth: Self.compactIconSlotWidth)
           Spacer(minLength: 0)
           levelBadge(
@@ -403,7 +400,7 @@ struct ListeningAchievementCard: View {
           )
         }
 
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
           Text(achievement.kind.title)
             .font(.headline.weight(.semibold))
             .foregroundStyle(palette.textPrimary)
@@ -419,7 +416,7 @@ struct ListeningAchievementCard: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
       }
-      .padding(Self.compactInset)
+      .padding(AppTheme.Layout.withinSectionSpacing)
 
       Spacer(minLength: 0)
 

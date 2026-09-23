@@ -152,7 +152,7 @@ struct AbstandBrowseStripDropdownPill: View {
           .layoutPriority(1)
       }
       .foregroundStyle(dockColors.activeForeground)
-      .padding(.horizontal, 14)
+      .padding(.horizontal, AppTheme.Layout.cardPadding)
       .frame(maxWidth: .infinity)
       .frame(width: labelWidth)
       .frame(height: AppTheme.ExpandingDock.activeHeight)

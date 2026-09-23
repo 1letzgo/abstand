@@ -21,7 +21,12 @@ struct ABSLoginResponse: Decodable {
 struct ABSUser: Decodable {
   let id: String
   let username: String
+  /// Legacy-Token ohne Ablauf (serverseitig deprecated ab v2.26).
   let token: String
+  /// Kurzlebiges JWT (Server-Default 1 h) — nur auf Servern mit neuem Auth-System.
+  let accessToken: String?
+  /// Rotierendes Refresh-Token — nur wenn der Request `x-return-tokens: true` bzw. `x-refresh-token` trug.
+  let refreshToken: String?
   /// `guest`, `user`, oder `admin` (Audiobookshelf).
   let type: String?
   let mediaProgress: [ABSUserMediaProgress]?
@@ -29,6 +34,12 @@ struct ABSUser: Decodable {
 
   var normalizedType: String {
     type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+  }
+
+  /// Bearer für API-Calls: neues Access-Token bevorzugt, sonst Legacy-Token (alte Server).
+  var effectiveBearerToken: String {
+    let access = accessToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return access.isEmpty ? token : access
   }
 
   var isRoot: Bool { normalizedType == "root" }
@@ -43,14 +54,17 @@ struct ABSUser: Decodable {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     id = try c.decode(String.self, forKey: .id)
     username = try c.decode(String.self, forKey: .username)
-    token = try c.decode(String.self, forKey: .token)
+    // Legacy-Token ist serverseitig deprecated (JWT-Umstellung ab v2.26) — fehlendes Feld darf Login/Authorize nicht hart brechen.
+    token = try c.decodeIfPresent(String.self, forKey: .token) ?? ""
+    accessToken = try c.decodeIfPresent(String.self, forKey: .accessToken)
+    refreshToken = try c.decodeIfPresent(String.self, forKey: .refreshToken)
     type = try c.decodeIfPresent(String.self, forKey: .type)
     mediaProgress = try c.decodeIfPresent([ABSUserMediaProgress].self, forKey: .mediaProgress)
     bookmarks = try c.decodeIfPresent([ABSAudioBookmark].self, forKey: .bookmarks)
   }
 
   enum CodingKeys: String, CodingKey {
-    case id, username, token, type, mediaProgress, bookmarks
+    case id, username, token, accessToken, refreshToken, type, mediaProgress, bookmarks
   }
 }
 

@@ -17,6 +17,12 @@ private enum HeatmapMetrics {
   static let dayCellScale: CGFloat = 0.84
   static let bodySpacing: CGFloat = 8
   static let summarySpacing: CGFloat = 4
+  /// iPad: max. Breite der Kalenderkarte neben der Listening-time-Karte.
+  static let calendarCardMaxWidthRegular: CGFloat = 440
+  /// Platzhalterhöhe vor der ersten Breitenmessung (Fallback-Containerbreite).
+  static let fallbackContainerWidthEstimate: CGFloat = 320
+  /// Platzhalterhöhe vor der ersten Breitenmessung (typische Wochenzeilen im Monat).
+  static let fallbackRowCountEstimate: Int = 6
 }
 
 struct ListeningMonthHeatmapCard: View {
@@ -60,7 +66,7 @@ struct ListeningMonthHeatmapCard: View {
         // iPad: Kalender und Listening-time nebeneinander — volle Breite wirkt sonst „leer“.
         HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
           calendarCard
-            .frame(maxWidth: 440, alignment: .leading)
+            .frame(maxWidth: HeatmapMetrics.calendarCardMaxWidthRegular, alignment: .leading)
           listeningTimeCard
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -89,7 +95,10 @@ struct ListeningMonthHeatmapCard: View {
           calendarHeatmapContent(cardWidth: cardWidth)
         } else {
           Color.clear
-            .frame(height: MonthHeatmapLayout.estimatedCalendarCardHeight(containerWidth: 320, rowCount: 6))
+            .frame(height: MonthHeatmapLayout.estimatedCalendarCardHeight(
+              containerWidth: HeatmapMetrics.fallbackContainerWidthEstimate,
+              rowCount: HeatmapMetrics.fallbackRowCountEstimate
+            ))
         }
       }
       .frame(maxWidth: .infinity)
@@ -144,7 +153,7 @@ struct ListeningMonthHeatmapCard: View {
   }
 
   private func monthNavigationRow(title: String) -> some View {
-    HStack(spacing: 8) {
+    HStack(spacing: AppTheme.Layout.inlineSpacing) {
       Button {
         guard canGoBack else { return }
         monthsBack += 1
@@ -152,7 +161,7 @@ struct ListeningMonthHeatmapCard: View {
         Image(systemName: "chevron.left")
           .font(.body.weight(.semibold))
           .foregroundStyle(canGoBack ? palette.textPrimary : palette.textSecondary.opacity(0.35))
-          .frame(width: 36, height: HeatmapMetrics.navRowHeight)
+          .frame(width: AppTheme.Layout.compactIconButtonSize, height: HeatmapMetrics.navRowHeight)
       }
       .buttonStyle(.plain)
       .disabled(!canGoBack)
@@ -168,7 +177,7 @@ struct ListeningMonthHeatmapCard: View {
         Image(systemName: "chevron.right")
           .font(.body.weight(.semibold))
           .foregroundStyle(canGoForward ? palette.textPrimary : palette.textSecondary.opacity(0.35))
-          .frame(width: 36, height: HeatmapMetrics.navRowHeight)
+          .frame(width: AppTheme.Layout.compactIconButtonSize, height: HeatmapMetrics.navRowHeight)
       }
       .buttonStyle(.plain)
       .disabled(!canGoForward)
@@ -247,12 +256,12 @@ struct ListeningMonthHeatmapCard: View {
           Circle()
             .strokeBorder(
               heatmapOutline(level: inMonth ? level : 0),
-              lineWidth: 0.5
+              lineWidth: AppTheme.Layout.hairlineStrokeWidth
             )
         }
       if isSelected {
         Circle()
-          .strokeBorder(accent, lineWidth: 2)
+          .strokeBorder(accent, lineWidth: AppTheme.Layout.boldStrokeWidth)
       }
       if day > 0 {
         Text("\(day)")
@@ -376,7 +385,7 @@ struct ListeningMonthHeatmapCard: View {
 
   private func heatmapLegend(blockSize: CGFloat) -> some View {
     let dot = min(9, max(5, blockSize * 0.45))
-    return HStack(spacing: 3) {
+    return HStack(spacing: AppTheme.Layout.badgeSpacing) {
       Text("Less", comment: "Heatmap legend low")
         .font(.caption2)
         .foregroundStyle(palette.textSecondary)
@@ -384,7 +393,7 @@ struct ListeningMonthHeatmapCard: View {
         Circle()
           .fill(heatmapFill(level: level))
           .overlay {
-            Circle().strokeBorder(heatmapOutline(level: level), lineWidth: 0.5)
+            Circle().strokeBorder(heatmapOutline(level: level), lineWidth: AppTheme.Layout.hairlineStrokeWidth)
           }
           .frame(width: dot, height: dot)
       }
@@ -406,7 +415,7 @@ private struct StatsTimelineMetricCard: View {
   var body: some View {
     let palette = model.appearancePalette
     AbstandGroupedCard {
-      VStack(alignment: .leading, spacing: 4) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
         Text(title)
           .font(.caption.weight(.semibold))
           .foregroundStyle(palette.textSecondary)

@@ -3,6 +3,13 @@ import ReadiumShared
 import SwiftUI
 import UIKit
 
+private enum ReaderChromeMetrics {
+  /// Höhe des dünnen passiven Lesefortschrittsbalkens.
+  static let passiveProgressBarHeight: CGFloat = 3
+  /// Max. Breite des Hinweis-Overlays für die Reading-Controls.
+  static let chromeHintMaxWidth: CGFloat = 320
+}
+
 struct EbookReaderPresentation: Identifiable {
   let id = UUID()
   let title: String
@@ -71,8 +78,7 @@ struct ReadiumReaderView: View {
     ZStack {
       Group {
         if isLoading {
-          ProgressView()
-            .tint(themeAccent)
+          AbstandLoadingSpinner(controlSize: .regular)
         } else if let loadError {
           ContentUnavailableView("Could not open", systemImage: "exclamationmark.triangle", description: Text(loadError))
         } else if let navigatorController {
@@ -157,7 +163,7 @@ struct ReadiumReaderView: View {
 
   /// Orientierung und Schließen bleiben oben; alle Leseaktionen liegen separat am unteren Rand.
   private var readerTopChrome: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: AppTheme.Layout.rowSpacing) {
       Button {
         dismiss()
       } label: {
@@ -168,7 +174,7 @@ struct ReadiumReaderView: View {
       }
       .accessibilityLabel("Close")
 
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
         Text(title)
           .font(.subheadline.weight(.semibold))
           .lineLimit(1)
@@ -182,8 +188,8 @@ struct ReadiumReaderView: View {
 
       Spacer(minLength: 0)
     }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 10)
+    .padding(.horizontal, AppTheme.Layout.screenPadding)
+    .padding(.vertical, AppTheme.Layout.withinSectionSpacing)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(.ultraThinMaterial)
     .safeAreaPadding(.top, 4)
@@ -191,12 +197,12 @@ struct ReadiumReaderView: View {
 
   /// Primäre Lesesteuerung bewusst am unteren Bildschirmrand für einhändige Bedienung.
   private var readerBottomChrome: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       readerProgressScrubber
 
-      HStack(spacing: 12) {
+      HStack(spacing: AppTheme.Layout.rowSpacing) {
         if format == .epub {
-          HStack(spacing: 8) {
+          HStack(spacing: AppTheme.Layout.stackSpacing) {
             Button {
               fontSize = max(EpubReaderSettings.minFontSize, fontSize - EpubReaderSettings.fontSizeStep)
               EpubReaderSettings.saveFontSize(fontSize)
@@ -204,7 +210,7 @@ struct ReadiumReaderView: View {
             } label: {
               Image(systemName: "textformat.size.smaller")
                 .font(.body)
-                .frame(width: 36, height: 36)
+                .frame(width: AppTheme.Layout.compactIconButtonSize, height: AppTheme.Layout.compactIconButtonSize)
             }
             .disabled(fontSize <= EpubReaderSettings.minFontSize)
 
@@ -215,7 +221,7 @@ struct ReadiumReaderView: View {
             } label: {
               Image(systemName: "textformat.size.larger")
                 .font(.body)
-                .frame(width: 36, height: 36)
+                .frame(width: AppTheme.Layout.compactIconButtonSize, height: AppTheme.Layout.compactIconButtonSize)
             }
             .disabled(fontSize >= EpubReaderSettings.maxFontSize)
           }
@@ -234,7 +240,7 @@ struct ReadiumReaderView: View {
         } label: {
           Image(systemName: continuousScroll ? "scroll" : "book.pages")
             .font(.body)
-            .frame(width: 40, height: 40)
+            .frame(width: AppTheme.Layout.iconButtonSize, height: AppTheme.Layout.iconButtonSize)
         }
         .accessibilityLabel("Continuous scroll")
         .accessibilityValue(continuousScroll ? "On" : "Off")
@@ -258,7 +264,7 @@ struct ReadiumReaderView: View {
         } label: {
           Image(systemName: readerTheme.themeToolbarIcon)
             .font(.body)
-            .frame(width: 40, height: 40)
+            .frame(width: AppTheme.Layout.iconButtonSize, height: AppTheme.Layout.iconButtonSize)
         }
         .accessibilityLabel("Reader theme")
         .accessibilityValue(readerTheme.displayName)
@@ -283,15 +289,15 @@ struct ReadiumReaderView: View {
         } label: {
           Image(systemName: "ellipsis.circle")
             .font(.title3)
-            .frame(width: 40, height: 40)
+            .frame(width: AppTheme.Layout.iconButtonSize, height: AppTheme.Layout.iconButtonSize)
         }
         .accessibilityLabel("Reader options")
       }
       .foregroundStyle(readerChromeForeground)
       .tint(readerChromeForeground)
     }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 10)
+    .padding(.horizontal, AppTheme.Layout.screenPadding)
+    .padding(.vertical, AppTheme.Layout.withinSectionSpacing)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(.ultraThinMaterial)
     .safeAreaPadding(.bottom, 4)
@@ -302,10 +308,10 @@ struct ReadiumReaderView: View {
     GeometryReader { geo in
       Rectangle()
         .fill(themeAccent.opacity(0.75))
-        .frame(width: geo.size.width * min(1, max(0, readProgress)), height: 3)
+        .frame(width: geo.size.width * min(1, max(0, readProgress)), height: ReaderChromeMetrics.passiveProgressBarHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .frame(height: 3)
+    .frame(height: ReaderChromeMetrics.passiveProgressBarHeight)
     .allowsHitTesting(false)
     .accessibilityHidden(true)
   }
@@ -313,7 +319,7 @@ struct ReadiumReaderView: View {
   private var readerChromeHint: some View {
     VStack {
       Spacer()
-      VStack(spacing: 10) {
+      VStack(spacing: AppTheme.Layout.withinSectionSpacing) {
         Image(systemName: "hand.tap")
           .font(.title2)
           .foregroundStyle(themeAccent)
@@ -331,19 +337,19 @@ struct ReadiumReaderView: View {
         }
         .buttonStyle(AbstandProminentButtonStyle())
       }
-      .padding(20)
-      .frame(maxWidth: 320)
+      .padding(AppTheme.Layout.overlayPadding)
+      .frame(maxWidth: ReaderChromeMetrics.chromeHintMaxWidth)
       .background(
         .regularMaterial,
         in: RoundedRectangle(cornerRadius: AppTheme.Layout.readerChromeCornerRadius, style: .continuous)
       )
-      .padding(.bottom, 44)
+      .padding(.bottom, AppTheme.Layout.minTapTarget)
     }
-    .padding(.horizontal, 24)
+    .padding(.horizontal, AppTheme.Layout.blockSpacing)
   }
 
   private var readerProgressScrubber: some View {
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
       Slider(
         value: isScrubbingProgress ? $scrubProgress : $readProgress,
         in: 0 ... 1,

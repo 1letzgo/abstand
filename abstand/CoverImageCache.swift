@@ -76,17 +76,20 @@ enum CoverImageCache {
     itemId: String,
     account: URL?,
     coverURL: URL?,
-    token: String
+    token: String,
+    requiresAuthorization: Bool = true
   ) async -> UIImage? {
     if let cached = memoryImage(itemId: itemId) { return cached }
-    guard let coverURL, !token.isEmpty else {
+    guard let coverURL, !token.isEmpty || !requiresAuthorization else {
       // Disk-Read + Decode off-main — die Aufrufer sind MainActor-Views.
       return await Task.detached(priority: .userInitiated) {
         syncUIImage(itemId: itemId, account: account)
       }.value
     }
     return await CoverImageLoader.shared.image(
-      key: itemId, account: account, url: coverURL, token: token)
+      key: itemId, account: account, url: coverURL,
+      // Externe Hosts (z. B. Apple Podcasts Directory) bekommen nie den Bearer.
+      token: requiresAuthorization ? token : nil)
   }
 
   /// In-Memory leeren (Account-Wechsel); Disk-Cache pro Server bleibt erhalten.

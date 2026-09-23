@@ -64,7 +64,7 @@ struct AudiobookBookmarkListView: View {
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
       } else {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
           ForEach(marks) { mark in
             AudiobookBookmarkRow(
               mark: mark,
@@ -109,11 +109,11 @@ private struct AudiobookBookmarkRow: View {
   let onDelete: () -> Void
 
   var body: some View {
-    HStack(alignment: .center, spacing: 10) {
+    HStack(alignment: .center, spacing: AppTheme.Layout.withinSectionSpacing) {
       Button {
         onJump(mark)
       } label: {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
           Text(mark.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "—" : mark.title)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(model.appearancePalette.textPrimary)
@@ -136,7 +136,7 @@ private struct AudiobookBookmarkRow: View {
         .accessibilityLabel("Delete bookmark")
       }
     }
-    .padding(.vertical, 8)
+    .padding(.vertical, AppTheme.Layout.rowVerticalPadding)
   }
 }
 
