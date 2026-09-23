@@ -62,11 +62,6 @@ struct MatchMetadataSheet: View {
       .sheet(item: $selectedMatch) { match in
         fieldSelectionSheet(for: match)
       }
-      .alert("Apply failed", isPresented: applyErrorAlertPresented) {
-        Button("OK", role: .cancel) { applyError = nil }
-      } message: {
-        Text(applyError ?? "")
-      }
     }
     .presentationDetents([.large])
   }
@@ -313,6 +308,13 @@ struct MatchMetadataSheet: View {
       }
     }
     .presentationDetents([.medium, .large])
+    // Alert am obersten Sheet (Apply läuft hier) — vom Parent aus würde er unter dem offenen
+    // Feld-Sheet präsentieren und mit dessen Übergang kollidieren.
+    .alert("Apply failed", isPresented: applyErrorAlertPresented) {
+      Button("OK", role: .cancel) { applyError = nil }
+    } message: {
+      Text(applyError ?? "")
+    }
     .onAppear { selectedFields = Set(availableFields(for: match)) }
     .onDisappear { selectedFields = Set(ABSMatchField.allCases) }
   }
@@ -419,18 +421,15 @@ struct MatchMetadataSheet: View {
     }
     let coverURL: String? = selectedFields.contains(.cover) ? match.cover : nil
 
-    let ok = await model.applyMetadataMatch(itemId: itemId, patch: patch, coverURL: coverURL)
-    if ok {
-      if selectedMatch != nil {
-        dismissSheetAfterFieldSelectionCloses = true
-        selectedMatch = nil
-      } else {
-        dismiss()
-      }
+    if let failure = await model.applyMetadataMatch(itemId: itemId, patch: patch, coverURL: coverURL) {
+      applyError = failure.isEmpty
+        ? "Could not apply the selected fields. Check your connection and permissions."
+        : failure
+    } else if selectedMatch != nil {
+      dismissSheetAfterFieldSelectionCloses = true
+      selectedMatch = nil
     } else {
-      applyError = model.errorMessage?.isEmpty == false
-        ? model.errorMessage!
-        : "Could not apply the selected fields. Check your connection and permissions."
+      dismiss()
     }
   }
 }

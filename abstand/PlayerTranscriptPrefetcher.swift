@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import Speech
 import SwiftUI
+import UIKit
 
 /// Produziert Read-Along-Transkripte für das laufende, heruntergeladene Hörbuch im Voraus —
 /// **nur solange die App im Vordergrund ist**. Damit ist der Teleprompter beim Einschalten
@@ -46,6 +47,10 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
 
   func scheduleIfNeeded() {
     guard isEnabled, task == nil, let player else { return }
+    // Nur im Vordergrund (Design-Vorgabe). Ein Titel, der aus CarPlay/Sperrbildschirm im Hintergrund
+    // geladen wird, startet sonst stundenlange Analyse im Hintergrund — der Vordergrund-Wechsel
+    // (`abstandApp`, scenePhase) plant ohnehin neu.
+    guard UIApplication.shared.applicationState == .active else { return }
     guard player.isReadAlongDownloadReady, player.activeBook != nil else { return }
     guard SpeechTranscriber.isAvailable else { return }
     runGeneration &+= 1
@@ -168,7 +173,16 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
         guard produced > gapStart + 0.5 else { return true }
         cursor = produced
       } catch {
-        guard !AbstandErrorFilter.isBenignCancellation(error) else { return false }
+        if AbstandErrorFilter.isBenignCancellation(error) {
+          // Pause (Teleprompter/Recap, Gerät warm) bricht nur den Abschnitt ab — Track nicht
+          // aufgeben, sondern oben warten und an der Lücke weitermachen. Echter Abbruch: raus.
+          if !Task.isCancelled, runGeneration == generation {
+            // Ohne Blockade-Grund (anderer Abbruch) nicht in eine enge Schleife laufen.
+            if blockingReason() == nil { try? await Task.sleep(nanoseconds: 1_000_000_000) }
+            continue
+          }
+          return false
+        }
         DebugLogCollector.shared.log(
           "readAlong prefetch failed track=\(source.trackIndex): \(error.localizedDescription)")
         return false

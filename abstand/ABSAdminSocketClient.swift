@@ -18,8 +18,13 @@ final class ABSAdminSocketClient {
   private var token: String = ""
   private var baseURL: URL?
   private var wantsConnection = false
+  /// Aufeinanderfolgende Reconnects ohne erfolgreiche Verbindung — steuert den Backoff.
+  private var reconnectAttempt = 0
 
   var onEvent: ((Event) -> Void)?
+  /// Liefert beim (Re-)Connect das aktuelle Token — ein im ersten `connect` gemerktes JWT kann
+  /// nach Stunden (langer Encode) längst rotiert sein; dann würde `auth` stumm abgelehnt.
+  var tokenProvider: (() -> String)?
 
   init(urlSession: URLSession = .shared) {
     self.urlSession = urlSession
@@ -28,6 +33,9 @@ final class ABSAdminSocketClient {
   func connect(serverURL: URL, token: String) {
     let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return }
+    // Schon mit demselben Server verbunden (z. B. zweiter Encode-Job): nicht neu aufbauen — das
+    // Abreißen der laufenden Verbindung hat früher eine Reconnect-Kaskade ausgelöst.
+    if wantsConnection, webSocket != nil, baseURL == serverURL { return }
     wantsConnection = true
     self.token = trimmed
     self.baseURL = serverURL
@@ -45,6 +53,7 @@ final class ABSAdminSocketClient {
 
   func disconnect() {
     wantsConnection = false
+    reconnectAttempt = 0
     disconnectSocketOnly()
     onEvent?(.disconnected)
   }
@@ -57,8 +66,11 @@ final class ABSAdminSocketClient {
   }
 
   private func receiveLoop() async {
+    // Eigene Socket-Instanz merken: ein neuer `connect` ersetzt `self.webSocket` — dann darf diese
+    // (alte) Schleife nicht mehr reconnecten, sonst reißt sie die neue Verbindung wieder ab.
+    guard let ownSocket = webSocket else { return }
     while !Task.isCancelled {
-      guard let webSocket else { return }
+      guard let webSocket, webSocket === ownSocket else { return }
       do {
         let message = try await webSocket.receive()
         switch message {
@@ -72,11 +84,18 @@ final class ABSAdminSocketClient {
           break
         }
       } catch {
+        // Abgebrochen oder durch neue Verbindung ersetzt: nichts tun.
+        guard !Task.isCancelled, self.webSocket === ownSocket else { return }
         if wantsConnection, let baseURL {
-          // Kurz warten, dann Reconnect + Re-Auth (neue Socket-ID).
-          try? await Task.sleep(nanoseconds: 2_000_000_000)
-          guard wantsConnection else { return }
-          connect(serverURL: baseURL, token: token)
+          // Backoff 2, 4, 8 … max. 60 s — statt dauerhaft alle 2 s gegen einen toten Server.
+          let delay = min(60, 2 << min(reconnectAttempt, 5))
+          reconnectAttempt += 1
+          do { try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000) } catch { return }
+          guard wantsConnection, self.webSocket === ownSocket else { return }
+          let fresh = tokenProvider?().trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+          webSocket.cancel(with: .goingAway, reason: nil)
+          self.webSocket = nil
+          connect(serverURL: baseURL, token: fresh.isEmpty ? token : fresh)
         } else {
           onEvent?(.disconnected)
         }
@@ -113,6 +132,7 @@ final class ABSAdminSocketClient {
       switch sio {
       case 0:
         // Namespace verbunden → Auth
+        reconnectAttempt = 0
         sendEvent("auth", arguments: [token])
         onEvent?(.connected)
       case 2:

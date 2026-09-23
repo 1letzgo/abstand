@@ -43,6 +43,9 @@ final class DownloadManager: ObservableObject {
   nonisolated private static let wipFilename = "download-wip.json"
 
   private var downloadRunId: Int = 0
+  /// Während `cancelInFlightDownloads()` läuft: nichts neu starten — der Abbruch trifft alle Tasks
+  /// der geteilten Session und würde einen gerade gestarteten Download mitreißen.
+  private var isCancellingInFlight = false
 
   /// Zeitstempel des letzten Intra-Track-Progress-Emits (Throttling der Byte-Callback-Flut).
   private var lastIntraTrackEmit: Date = .distantPast
@@ -63,7 +66,12 @@ final class DownloadManager: ObservableObject {
     activeItemId = nil
     progress = 0
     if let client {
-      Task { await client.cancelInFlightDownloads() }
+      isCancellingInFlight = true
+      Task { @MainActor [weak self] in
+        await client.cancelInFlightDownloads()
+        self?.isCancellingInFlight = false
+        self?.startNextQueuedDownload()
+      }
     }
   }
 
@@ -83,10 +91,18 @@ final class DownloadManager: ObservableObject {
     activeClient = nil
     activeItemId = nil
     progress = 0
-    if let client {
-      Task { await client.cancelInFlightDownloads() }
+    guard let client else {
+      startNextQueuedDownload()
+      return
     }
-    startNextQueuedDownload()
+    // Erst nach dem Abbruch der laufenden URLSession-Tasks weitermachen — sonst trifft
+    // `cancelInFlightDownloads` (alle Tasks der geteilten Session) den gerade gestarteten nächsten Download.
+    isCancellingInFlight = true
+    Task { @MainActor [weak self] in
+      await client.cancelInFlightDownloads()
+      self?.isCancellingInFlight = false
+      self?.startNextQueuedDownload()
+    }
   }
 
   /// Wurzel `…/Downloads` (ohne Item-ID).
@@ -170,7 +186,7 @@ final class DownloadManager: ObservableObject {
   /// Startet den nächsten wartenden Download (FIFO), sofern keiner aktiv läuft.
   /// Wird nach jedem Completion-Pfad aufgerufen — auch nach gezieltem `cancel(itemId:)`.
   private func startNextQueuedDownload() {
-    guard activeItemId == nil, !downloadQueue.isEmpty else { return }
+    guard activeItemId == nil, !isCancellingInFlight, !downloadQueue.isEmpty else { return }
     let entry = downloadQueue.removeFirst()
     queuedItemIds = downloadQueue.map(\.storageItemId)
     downloadRunId += 1
@@ -301,8 +317,9 @@ final class DownloadManager: ObservableObject {
       reusePlaySessionTracks: reusePlaySessionTracks,
       completion: completion
     )
-    // Wenn gerade ein Download läuft → an Queue anhängen, späterer Start via `startNextQueuedDownload`.
-    if activeItemId != nil {
+    // Wenn gerade ein Download läuft (oder ein Abbruch noch aussteht) → an Queue anhängen,
+    // späterer Start via `startNextQueuedDownload`.
+    if activeItemId != nil || isCancellingInFlight {
       downloadQueue.append(entry)
       queuedItemIds = downloadQueue.map(\.storageItemId)
       return

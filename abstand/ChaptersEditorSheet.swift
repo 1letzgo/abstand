@@ -315,13 +315,10 @@ struct ChaptersEditorSheet: View {
         title: ch.title
       )
     }
-    let ok = await model.applyItemChapters(itemId: itemId, chapters: payload)
-    if ok {
-      dismiss()
+    if let failure = await model.applyItemChapters(itemId: itemId, chapters: payload) {
+      applyError = failure.isEmpty ? "Could not apply the chapters. Check your connection and permissions." : failure
     } else {
-      applyError = model.errorMessage?.isEmpty == false
-        ? model.errorMessage!
-        : "Could not apply the chapters. Check your connection and permissions."
+      dismiss()
     }
   }
 }

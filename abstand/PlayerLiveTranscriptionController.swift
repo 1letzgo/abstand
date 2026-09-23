@@ -137,6 +137,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   private var trackCache: PlayerTranscriptTrackCache?
   private var activeTrackKey: String?
   private var activeTrackDuration: Double = 0
+  private var productionRunId: UInt = 0
   private var productionTask: Task<Void, Never>?
   private var isActivatingTrack = false
   /// Entwertet nach dem Cache-Load-await eine ältere, überholte Track-Aktivierung.
@@ -796,6 +797,10 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     }
 
     productionTask?.cancel()
+    // Lauf-Kennung: ein abgebrochener Vorgänger-Lauf räumt beim Auslaufen sonst das
+    // `isProducingTranscript` des neuen Laufs ab → Neustart bei jedem Tick.
+    productionRunId &+= 1
+    let runId = productionRunId
     let assetURL = context.assetURL
     let locale = context.locale
     let trackIndex = context.trackIndex
@@ -820,7 +825,9 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       var segmentStart = start
       defer {
         PlayerTranscriptLibrary.endPriorityWork()
-        if self.sessionIsCurrent(generation), self.activeContext?.trackIndex == trackIndex {
+        if self.productionRunId == runId, self.sessionIsCurrent(generation),
+          self.activeContext?.trackIndex == trackIndex
+        {
           self.isProducingTranscript = false
         }
       }
@@ -858,10 +865,16 @@ final class PlayerLiveTranscriptionController: ObservableObject {
           trackIndex: trackIndex, locale: locale)
         // Lauf durch, aber kein einziges Wort — sonst bliebe die Karte dauerhaft im Ladezustand.
         // (`segmentStart == start` schließt aus, dass zwischendurch schon persistiert wurde.)
-        if pending.isEmpty, segmentStart == start, self.transcriptLines.isEmpty,
+        // Nur ein regulär durchgelaufener Lauf zählt — ein wegen Sprung abgebrochener endet ebenfalls leer.
+        if !Task.isCancelled, self.productionRunId == runId,
+          pending.isEmpty, segmentStart == start, self.transcriptLines.isEmpty,
           self.sessionIsCurrent(generation)
         {
-          await self.failTeleprompterSession(.transcriptionProgressStalled, generation: generation)
+          // Nicht hier im Lauf abwarten: `disable()` → `stopSession()` wartet auf genau diesen
+          // Task (`productionTask.value`) — das wäre ein Selbst-Deadlock.
+          Task { @MainActor [weak self] in
+            await self?.failTeleprompterSession(.transcriptionProgressStalled, generation: generation)
+          }
         }
       } catch {
         // Auch bei Abbruch sichern — sonst ist die bereits verbrauchte Rechenzeit verloren.
@@ -873,10 +886,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
           "readAlong production failed: \(error.localizedDescription)")
         // Nur melden, wenn nichts angezeigt werden kann — sonst läuft der Cache-Teil weiter.
         if self.transcriptLines.isEmpty, self.sessionIsCurrent(generation) {
-          await self.failTeleprompterSession(
-            message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
-            generation: generation
-          )
+          let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+          // Außerhalb des Laufs — siehe Stall-Pfad (Selbst-Deadlock über `stopSession()`).
+          Task { @MainActor [weak self] in
+            await self?.failTeleprompterSession(message: message, generation: generation)
+          }
         }
       }
     }

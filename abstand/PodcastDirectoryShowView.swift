@@ -18,7 +18,7 @@ struct PodcastDirectoryShowView: View {
   @State private var episodesExpanded = true
   @State private var showsAllEpisodes = false
   @State private var expandedEpisodeIds: Set<String> = []
-  @State private var subscribeFailed = false
+  @State private var subscribeError: String?
   @State private var coverTintColor: Color = AppTheme.background
   @State private var coverImageForTint: UIImage?
   /// Persistierter Cover-Durchschnitts-RGB (`DetailCoverAverageRGBCache`) — Seed beim Öffnen,
@@ -106,10 +106,13 @@ struct PodcastDirectoryShowView: View {
     .refreshable {
       await model.loadPodcastDirectoryPreview(for: hit, forceReload: true)
     }
-    .alert("Could not subscribe", isPresented: $subscribeFailed) {
-      Button("OK", role: .cancel) { subscribeFailed = false }
+    .alert("Could not subscribe", isPresented: Binding(
+      get: { subscribeError != nil },
+      set: { if !$0 { subscribeError = nil } }
+    )) {
+      Button("OK", role: .cancel) { subscribeError = nil }
     } message: {
-      Text(model.errorMessage ?? "The show could not be added to your library.")
+      Text(subscribeError ?? "")
     }
   }
 
@@ -180,8 +183,8 @@ struct PodcastDirectoryShowView: View {
         Button {
           Task {
             // Erfolg zeigt sich am Zustand („Open in library“) — der Feed-Cache bleibt gültig.
-            if await model.subscribeToPodcastDirectoryHit(hit) == false {
-              subscribeFailed = true
+            if let failure = await model.subscribeToPodcastDirectoryHitReportingError(hit), !failure.isEmpty {
+              subscribeError = failure
             }
           }
         } label: {

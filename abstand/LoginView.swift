@@ -5,6 +5,8 @@ struct LoginView: View {
   @Environment(\.dismiss) private var dismiss
   /// Sheet-Modus: weiteren Account hinzufügen (Felder leer, nach Erfolg schließen).
   var addAccountMode: Bool = false
+  /// Fehler des „Add account“-Sheets lokal — nicht über das globale `errorMessage` (Root-Alert).
+  @State private var addAccountError: String?
   @State private var server = ""
   @State private var username = ""
   @State private var password = ""
@@ -52,7 +54,7 @@ struct LoginView: View {
             }
           }
 
-          if let err = model.errorMessage {
+          if let err = addAccountMode ? addAccountError : model.errorMessage, !err.isEmpty {
             Text(err)
               .font(.footnote)
               .foregroundStyle(AppTheme.danger)
@@ -63,9 +65,14 @@ struct LoginView: View {
               busy = true
               defer { busy = false }
               if addAccountMode {
-                let ok = await model.addStoredAccount(
+                addAccountError = nil
+                if let failure = await model.addStoredAccount(
                   server: server, username: username, password: password)
-                if ok { dismiss() }
+                {
+                  addAccountError = failure
+                } else {
+                  dismiss()
+                }
               } else {
                 await model.login(server: server, username: username, password: password)
               }

@@ -265,17 +265,99 @@ private func continueHeroPlayPillToggle(
   }
 }
 
-@ViewBuilder
+/// Publisher „dieser Titel spielt gerade“ — Player-Identität + `isPlaying`. Karten halten `model`
+/// unbeobachtet (Performance in Lazy-Listen); ohne diesen gezielten Abo hinge Play/Pause am nächsten
+/// zufälligen Rerender der Karte.
+@MainActor
+private func playbackActivePublisher(
+  model: AppModel,
+  libraryItemId: String,
+  episodeId: String?
+) -> AnyPublisher<Bool, Never> {
+  let player = model.player
+  let wantEp = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+  return Publishers.CombineLatest3(player.$activeBook, player.$activePlaybackEpisodeId, player.$isPlaying)
+    .map { book, ep, playing in
+      let activeEp = ep?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      return playing && book?.id == libraryItemId && activeEp == wantEp
+    }
+    .removeDuplicates()
+    .dropFirst()
+    .eraseToAnyPublisher()
+}
+
 private func continueHeroPlayPill(
+  model: AppModel,
+  libraryItemId: String,
+  episodeId: String?,
   accent: Color,
   palette: AppColorPalette,
   caption: String,
-  showsPause: Bool = false,
   action: @escaping () -> Void
 ) -> some View {
-  let labelOnAccent = palette.foregroundOnAccent(accent)
   HStack {
-    Button(action: action) {
+    ContinueHeroPlayPillButton(
+      model: model,
+      libraryItemId: libraryItemId,
+      episodeId: episodeId,
+      accent: accent,
+      palette: palette,
+      caption: caption,
+      action: action
+    )
+    Spacer(minLength: 0)
+  }
+}
+
+/// Play-Pille mit Restzeit (Hero-/Continue-Karten) — Play/Pause beobachtet und beim Tippen optimistisch.
+private struct ContinueHeroPlayPillButton: View {
+  let model: AppModel
+  let libraryItemId: String
+  let episodeId: String?
+  let accent: Color
+  let palette: AppColorPalette
+  let caption: String
+  let action: () -> Void
+
+  @State private var showsPause = false
+  /// Einmal im init gebaut — pro Render neu abonniert würde der alte Wert den optimistischen überschreiben.
+  private let playerState: AnyPublisher<Bool, Never>
+
+  init(
+    model: AppModel,
+    libraryItemId: String,
+    episodeId: String?,
+    accent: Color,
+    palette: AppColorPalette,
+    caption: String,
+    action: @escaping () -> Void
+  ) {
+    self.model = model
+    self.libraryItemId = libraryItemId
+    self.episodeId = episodeId
+    self.accent = accent
+    self.palette = palette
+    self.caption = caption
+    self.action = action
+    playerState = playbackActivePublisher(model: model, libraryItemId: libraryItemId, episodeId: episodeId)
+  }
+
+  /// Scheitert die Aktion ohne Player-Änderung (offline, Fehler), käme kein Event — dann nach kurzer
+  /// Zeit auf den echten Zustand zurückfallen, statt dauerhaft „Pause“ zu zeigen.
+  private func reconcileAfterOptimisticToggle() {
+    Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 2_500_000_000)
+      showsPause = model.player.isPlaying
+        && model.isActivelyPlayingMedia(libraryItemId: libraryItemId, episodeId: episodeId)
+    }
+  }
+
+  var body: some View {
+    Button {
+      showsPause.toggle()
+      action()
+      reconcileAfterOptimisticToggle()
+    } label: {
       HStack(spacing: AppTheme.Layout.compactSpacing) {
         Image(systemName: showsPause ? "pause.fill" : "play.fill")
           .font(.caption.weight(.bold))
@@ -285,7 +367,7 @@ private func continueHeroPlayPill(
           .lineLimit(1)
           .minimumScaleFactor(0.75)
       }
-      .foregroundStyle(labelOnAccent)
+      .foregroundStyle(palette.foregroundOnAccent(accent))
       .padding(.horizontal, AppTheme.Layout.rowSpacing)
       .padding(.vertical, AppTheme.Layout.stackSpacing)
       .background(accent, in: Capsule())
@@ -293,7 +375,11 @@ private func continueHeroPlayPill(
     .buttonStyle(.plain)
     .accessibilityLabel(showsPause ? "Pause" : "Play")
     .accessibilityValue(showsPause ? "Playing" : "Noch \(caption)")
-    Spacer(minLength: 0)
+    .onAppear {
+      showsPause = model.player.isPlaying
+        && model.isActivelyPlayingMedia(libraryItemId: libraryItemId, episodeId: episodeId)
+    }
+    .onReceive(playerState) { showsPause = $0 }
   }
 }
 // MARK: - Podcast episode row
@@ -850,17 +936,14 @@ private struct LibraryHeroPodcastEpisodeCard: View {
         horizontalInset: coverInset,
         onTitleTap: { if opensDetailOnTap { openEpisodeDetail() } }
       ) {
-        let isCurrent = model.isActivelyPlayingMedia(
-          libraryItemId: episode.libraryItemId,
-          episodeId: episode.episodeId
-        )
-        let showsPause = isCurrent && model.player.isPlaying
         let isFinished = prog?.isFinished == true
         continueHeroPlayPill(
+          model: model,
+          libraryItemId: episode.libraryItemId,
+          episodeId: episode.episodeId,
           accent: model.appearanceAccentColor,
           palette: palette,
-          caption: playPillRemainingCaption,
-          showsPause: showsPause
+          caption: playPillRemainingCaption
         ) {
           continueHeroPlayPillToggle(
             model: model,
@@ -1009,17 +1092,14 @@ struct ContinueListeningHeroBookCard: View {
         onTitleTap: { showDetail = true },
         cardTint: tint
       ) {
-        let isCurrent = model.isActivelyPlayingMedia(
-          libraryItemId: book.id,
-          episodeId: nil
-        )
-        let showsPause = isCurrent && model.player.isPlaying
         let isFinished = prog?.isFinished == true
         continueHeroPlayPill(
+          model: model,
+          libraryItemId: book.id,
+          episodeId: nil,
           accent: model.appearanceAccentColor,
           palette: model.appearancePalette,
-          caption: playPillRemainingCaption,
-          showsPause: showsPause
+          caption: playPillRemainingCaption
         ) {
           continueHeroPlayPillToggle(
             model: model,
@@ -1212,17 +1292,14 @@ struct ContinueListeningHeroPodcastCard: View {
         onTitleTap: { showDetail = true },
         cardTint: tint
       ) {
-        let isCurrent = model.isActivelyPlayingMedia(
-          libraryItemId: episode.libraryItemId,
-          episodeId: episode.episodeId
-        )
-        let showsPause = isCurrent && model.player.isPlaying
         let isFinished = prog?.isFinished == true
         continueHeroPlayPill(
+          model: model,
+          libraryItemId: episode.libraryItemId,
+          episodeId: episode.episodeId,
           accent: model.appearanceAccentColor,
           palette: model.appearancePalette,
-          caption: playPillRemainingCaption,
-          showsPause: showsPause
+          caption: playPillRemainingCaption
         ) {
           continueHeroPlayPillToggle(
             model: model,
@@ -1855,23 +1932,24 @@ private struct LibraryRowPlayPill: View {
     self.episodeId = episodeId
     self.accent = accent
     self.action = action
-    let player = model.player
-    let wantEp = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    playerState = Publishers.CombineLatest3(player.$activeBook, player.$activePlaybackEpisodeId, player.$isPlaying)
-      .map { book, ep, playing in
-        let activeEp = ep?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return playing && book?.id == libraryItemId && activeEp == wantEp
-      }
-      .removeDuplicates()
-      .dropFirst()
-      .receive(on: DispatchQueue.main)
-      .eraseToAnyPublisher()
+    playerState = playbackActivePublisher(model: model, libraryItemId: libraryItemId, episodeId: episodeId)
+  }
+
+  /// Scheitert die Aktion ohne Player-Änderung (offline, Fehler), käme kein Event — dann nach kurzer
+  /// Zeit auf den echten Zustand zurückfallen, statt dauerhaft „Pause“ zu zeigen.
+  private func reconcileAfterOptimisticToggle() {
+    Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 2_500_000_000)
+      showsPause = model.player.isPlaying
+        && model.isActivelyPlayingMedia(libraryItemId: libraryItemId, episodeId: episodeId)
+    }
   }
 
   var body: some View {
     Button {
       showsPause.toggle()
       action()
+      reconcileAfterOptimisticToggle()
     } label: {
       Image(systemName: showsPause ? "pause.fill" : "play.fill")
         .font(.caption.weight(.bold))
@@ -2400,17 +2478,14 @@ private struct LibraryHeroBookRowCard: View {
             }
           }
         ) {
-          let isCurrent = model.isActivelyPlayingMedia(
-            libraryItemId: book.id,
-            episodeId: nil
-          )
-          let showsPause = isCurrent && model.player.isPlaying
           let isFinished = prog?.isFinished == true
           continueHeroPlayPill(
+            model: model,
+            libraryItemId: book.id,
+            episodeId: nil,
             accent: model.appearanceAccentColor,
             palette: palette,
-            caption: playPillRemainingCaption,
-            showsPause: showsPause
+            caption: playPillRemainingCaption
           ) {
             continueHeroPlayPillToggle(
               model: model,

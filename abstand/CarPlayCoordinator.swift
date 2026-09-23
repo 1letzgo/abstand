@@ -62,6 +62,13 @@ final class CarPlayCoordinator: NSObject {
       .sink { [weak self] _ in self?.refreshTemplatesIfConnected() }
       .store(in: &cancellables)
 
+    // Folgenwechsel innerhalb derselben Show ändert `activeBook.id` nicht — Markierung trotzdem nachziehen.
+    appModel.player.$activePlaybackEpisodeId
+      .removeDuplicates()
+      .receive(on: RunLoop.main)
+      .sink { [weak self] _ in self?.refreshTemplatesIfConnected() }
+      .store(in: &cancellables)
+
     // Play/Pause ändert nur die Markierung der laufenden Zeile — kein voller Neuaufbau.
     appModel.player.$isPlaying
       .removeDuplicates()
@@ -170,20 +177,11 @@ final class CarPlayCoordinator: NSObject {
 
   private func downloadsSections() -> [CPListSection] {
     guard let model = appModel, model.isLoggedIn else { return [] }
-    let books = model.downloadedShelfBooks
-    guard !books.isEmpty else {
+    let rows = model.downloadedRowsForCarPlay()
+    guard !rows.isEmpty else {
       return [messageSection("No downloads yet. Download on your iPhone to listen offline.")]
     }
-    let items = books.map { book -> CPListItem in
-      makeItem(
-        title: book.displayTitle,
-        detail: book.displayAuthors,
-        progressKey: book.id,
-        coverItemId: book.id,
-        model: model,
-        play: { await model.play(book: book) }
-      )
-    }
+    let items = rows.map { listItem(for: $0, model: model) }
     return [CPListSection(items: items, header: "Downloaded", sectionIndexTitle: nil)]
   }
 
@@ -235,12 +233,15 @@ final class CarPlayCoordinator: NSObject {
     if let progress = model.progressByItemId[progressKey], progress.duration > 0 {
       item.playbackProgress = CGFloat(min(1, max(0, progress.progress)))
     }
-    item.isPlaying = model.player.activeBook?.id == coverItemId && model.player.isPlaying
+    // Über den Fortschritts-Key vergleichen — die Show-ID allein markierte jede Folge der Show.
+    item.isPlaying = model.player.isPlaying && model.activePlaybackProgressLookupKey() == progressKey
     item.handler = { [weak self] _, completion in
       Task { @MainActor in
         // Completion in jedem Pfad — sonst bleibt die Zeile im Ladezustand hängen.
         defer { completion() }
         await play()
+        // Nur bei tatsächlich geladenem Titel (fehlgeschlagener Start → kein leerer Now-Playing-Screen).
+        guard model.player.activeBook != nil else { return }
         self?.showNowPlaying()
       }
     }
@@ -326,7 +327,9 @@ final class CarPlayCoordinator: NSObject {
   private func showNowPlaying() {
     guard let interfaceController else { return }
     let nowPlaying = CPNowPlayingTemplate.shared
-    guard interfaceController.topTemplate !== nowPlaying else { return }
+    // Schon im Stack (auch während einer noch laufenden Push-Animation, zwei schnelle Taps):
+    // ein zweiter Push desselben Templates wirft in CarPlay eine Exception.
+    guard !interfaceController.templates.contains(where: { $0 === nowPlaying }) else { return }
     interfaceController.pushTemplate(nowPlaying, animated: true, completion: nil)
   }
 }

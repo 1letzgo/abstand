@@ -470,13 +470,10 @@ struct EditMetadataSheet: View {
       .filter { !$0.name.isEmpty }
       .map { .init(name: $0.name, sequence: $0.sequence.nilIfEmpty) }
 
-    let ok = await model.applyMetadataMatch(itemId: itemId, patch: patch, coverURL: nil)
-    if ok {
-      dismiss()
+    if let failure = await model.applyMetadataMatch(itemId: itemId, patch: patch, coverURL: nil) {
+      saveError = failure.isEmpty ? "Could not save metadata. Check your connection and permissions." : failure
     } else {
-      saveError = model.errorMessage?.isEmpty == false
-        ? model.errorMessage!
-        : "Could not save metadata. Check your connection and permissions."
+      dismiss()
     }
   }
 
@@ -502,14 +499,11 @@ struct EditMetadataSheet: View {
   private func applyCover(url: String) async {
     isApplyingCover = true
     defer { isApplyingCover = false }
-    let ok = await model.applyCoverURL(itemId: itemId, url: url)
-    if ok {
+    if let failure = await model.applyCoverURL(itemId: itemId, url: url) {
+      coverApplyError = failure.isEmpty ? "Could not apply the cover. Check your connection and permissions." : failure
+    } else {
       pendingCoverURL = nil
       dismiss()
-    } else {
-      coverApplyError = model.errorMessage?.isEmpty == false
-        ? model.errorMessage!
-        : "Could not apply the cover. Check your connection and permissions."
     }
   }
 

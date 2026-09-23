@@ -35,6 +35,7 @@ struct SearchTabRootView: View {
     .tint(model.appearanceAccentColor)
     .onDisappear {
       // Suche zurücksetzen, wenn der Search-Tab verlassen wird.
+      model.cancelPendingSearches()
       model.searchText = ""
       model.podcastLibrarySearchText = ""
       model.clearSearchResults()
@@ -70,7 +71,7 @@ struct SearchTabRootView: View {
         .frame(maxWidth: .infinity)
         .multilineTextAlignment(.center)
         .padding(AppTheme.Layout.blockSpacing)
-    } else if model.isLoadingLibrary || model.isLoadingPodcasts, !hasAnyResults {
+    } else if model.isSearchingBooks || model.isLoadingPodcasts, !hasAnyResults {
       AbstandLoadingSpinner()
     } else if !hasAnyResults {
       Text("No results.")

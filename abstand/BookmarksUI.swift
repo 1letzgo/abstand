@@ -147,6 +147,9 @@ struct AddBookmarkTitleSheet: View {
   let libraryItemId: String
   @State private var timeSeconds = 0
   @State private var title = ""
+  /// Zuletzt automatisch gesetzter Titel — nur solange der Nutzer ihn nicht geändert hat, wird er
+  /// mit der Position mitgeführt (sonst überschrieb der Sekunden-Timer die Eingabe).
+  @State private var lastDefaultTitle = ""
   @State private var saving = false
 
   var body: some View {
@@ -205,7 +208,11 @@ struct AddBookmarkTitleSheet: View {
   private func refreshPositionAndDefaultTitle() {
     let at = model.player.snapshotPlaybackTimeSeconds()
     timeSeconds = at
-    title = model.defaultBookmarkTitle(atSeconds: at)
+    let fresh = model.defaultBookmarkTitle(atSeconds: at)
+    if title.isEmpty || title == lastDefaultTitle {
+      title = fresh
+    }
+    lastDefaultTitle = fresh
   }
 }
 

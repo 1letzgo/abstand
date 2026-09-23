@@ -313,6 +313,9 @@ final class AppModel: ObservableObject {
   /// lassen die Inhalte dahinter sichtbar springen.
   @Published private(set) var nowPlayingSheetDismissCompletedCounter: UInt = 0
   @Published var isLoadingLibrary = false
+  /// Eigener Lade-Status der Suche — `isLoadingLibrary` gehört dem Katalog-Reload (sonst setzt eine
+  /// abgebrochene Suche den Katalog-Spinner mitten im Laden zurück).
+  @Published private(set) var isSearchingBooks = false
   @Published var isLoadingPodcasts = false
   @Published var errorMessage: String? {
     didSet {
@@ -978,6 +981,10 @@ final class AppModel: ObservableObject {
   private var discardedProgressAtMs: [String: Int64] = [:]
   /// Serialisiert asynchrone Progress-Persists — ältere `replaceAllProgress`-Tasks dürfen nicht gewinnen.
   private var progressPersistGeneration: UInt64 = 0
+  /// Zählt Einzel-Zeilen-Writes (Wiedergabe). Getrennt von `progressPersistGeneration`, damit ein
+  /// Zeilen-Write einen anstehenden Voll-Persist nicht ausfallen lässt — der Voll-Persist schreibt nur
+  /// danach erneut, falls während seines Writes Zeilen-Writes liefen (sonst überschriebe er sie).
+  private var progressRowWriteGeneration: UInt64 = 0
   /// Serialisiert `/authorize`-Applies — älteres Authorize darf Discard nicht wieder einspielen.
   var authorizeApplyGeneration: UInt64 = 0
   /// eBook Mark-as-read / Reset: lokal gewünschter `ebookProgress`, bis der Server nachzieht
@@ -1048,8 +1055,10 @@ final class AppModel: ObservableObject {
       let server = note.userInfo?["serverURL"] as? String ?? ""
       let access = note.userInfo?["accessToken"] as? String ?? ""
       let refresh = note.userInfo?["refreshToken"] as? String ?? ""
+      let previous = note.userInfo?["previousRefreshToken"] as? String ?? ""
       MainActor.assumeIsolated {
-        self?.adoptRefreshedSessionTokens(serverURL: server, accessToken: access, refreshToken: refresh)
+        self?.adoptRefreshedSessionTokens(
+          serverURL: server, accessToken: access, refreshToken: refresh, previousRefreshToken: previous)
       }
     }
     // Player-Ticks nicht pauschal an `AppModel` — Floating-Bar hat `FloatingPlayerChromeController`.
@@ -1281,6 +1290,36 @@ final class AppModel: ObservableObject {
     downloadStorageIdByLibraryItemId = storageByLibraryItem
     downloadedShelfBooks = list
     invalidateDownloadedAudiobooksFullMetadataCache()
+  }
+
+  /// CarPlay „Downloaded“: je Download eine Zeile. Podcast-Folgen als eigene Folgen-Zeilen — als
+  /// `ABSBook`-Stub trügen sie nur die Show-ID und spielten eine beliebige geladene Folge dieser Show.
+  func downloadedRowsForCarPlay() -> [ABSStartShelfMergedRow] {
+    var rows: [ABSStartShelfMergedRow] = []
+    for id in downloadedItemIds.sorted() {
+      guard let root = try? downloads.downloadFolder(for: id),
+        let manifest = ABSDownloadManifest.load(from: root),
+        downloadManifestBelongsToActiveAccount(manifest)
+      else { continue }
+      let ep = manifest.episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      if ep.isEmpty {
+        rows.append(.book(ABSBook.fromDownloadManifest(manifest)))
+      } else {
+        let title = manifest.displayTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let show = manifest.displayAuthor?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        rows.append(.podcastEpisode(ABSPodcastEpisodeListItem(
+          libraryItemId: manifest.libraryItemId,
+          libraryId: manifest.libraryId,
+          episodeId: ep,
+          episodeTitle: title.isEmpty ? "Episode" : title,
+          showTitle: show,
+          authorLine: show,
+          duration: manifest.totalDuration ?? 0,
+          publishedAt: nil
+        )))
+      }
+    }
+    return rows
   }
 
   private func invalidateDownloadedAudiobooksFullMetadataCache() {
@@ -4893,6 +4932,11 @@ final class AppModel: ObservableObject {
         if reset {
           lastPodcastCatalogServerSyncAt = Date()
         }
+        // Ganze Seite lokal schon gespielt → Liste leer, ohne Zeile, die „mehr laden“ auslöst:
+        // direkt die nächste Seite holen (begrenzt, falls sehr viel gehört wurde).
+        if podcastEpisodes.isEmpty, rows.count >= 40, res.page < 5 {
+          await reloadPodcastLibrary(reset: false)
+        }
       }
     } catch {
       publishErrorUnlessBenignCancellation(error)
@@ -6941,9 +6985,27 @@ final class AppModel: ObservableObject {
     searchTask?.cancel()
     let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     searchTask = Task {
-      try? await Task.sleep(nanoseconds: 350_000_000)
+      // Abgebrochen (nächster Tastendruck) → nicht suchen; `try?` würde den Abbruch verschlucken.
+      do { try await Task.sleep(nanoseconds: 350_000_000) } catch { return }
       await performSearch(query: q)
     }
+  }
+
+  /// Beim Verlassen des Search-Tabs: laufende Suchen stoppen, sonst füllen sie die geleerten Ergebnisse wieder.
+  func cancelPendingSearches() {
+    searchTask?.cancel()
+    searchTask = nil
+    podcastLibrarySearchTask?.cancel()
+    podcastLibrarySearchTask = nil
+  }
+
+  /// Ergebnis nur übernehmen, wenn es noch zur aktuellen Eingabe gehört.
+  private func isCurrentBooksSearchQuery(_ q: String) -> Bool {
+    !Task.isCancelled && searchText.trimmingCharacters(in: .whitespacesAndNewlines) == q
+  }
+
+  private func isCurrentPodcastSearchQuery(_ q: String) -> Bool {
+    !Task.isCancelled && podcastLibrarySearchText.trimmingCharacters(in: .whitespacesAndNewlines) == q
   }
 
   func clearSearchResults() {
@@ -6969,7 +7031,7 @@ final class AppModel: ObservableObject {
     podcastLibrarySearchTask?.cancel()
     let q = podcastLibrarySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
     podcastLibrarySearchTask = Task {
-      try? await Task.sleep(nanoseconds: 350_000_000)
+      do { try await Task.sleep(nanoseconds: 350_000_000) } catch { return }
       await performPodcastLibrarySearch(query: q)
     }
   }
@@ -6991,6 +7053,7 @@ final class AppModel: ObservableObject {
     defer { isLoadingPodcasts = false }
     do {
       let res = try await c.search(libraryId: lib.id, query: q)
+      guard isCurrentPodcastSearchQuery(q) else { return }
       podcastLibrarySearchShows = res.podcastSearchShowLibraryItems()
       podcastLibrarySearchEpisodes = mergedPodcastLibrarySearchEpisodes(
         server: res.podcastEpisodeMatches, query: q)
@@ -7254,7 +7317,8 @@ final class AppModel: ObservableObject {
     }
     ensureLocalCatalogCachesInMemory()
     var byId: [String: ABSBook] = [:]
-    if let libId = selectedBooksLibrary?.id {
+    // Gleiche Bibliothek wie die Server-Suche (`booksCatalogLibrary`) — sonst springen die Treffer.
+    if let libId = booksCatalogLibrary?.id {
       for book in searchLocalBooks(libraryId: libId, query: q) {
         byId[book.id] = book
       }
@@ -7372,10 +7436,12 @@ final class AppModel: ObservableObject {
       return
     }
     guard let c = client, let lib = booksCatalogLibrary else { return }
-    isLoadingLibrary = true
-    defer { isLoadingLibrary = false }
+    isSearchingBooks = true
+    defer { isSearchingBooks = false }
     do {
       let res = try await c.search(libraryId: lib.id, query: q)
+      // Inzwischen neue Eingabe oder Tab verlassen → ältere Antwort verwerfen.
+      guard isCurrentBooksSearchQuery(q) else { return }
       searchBooks = res.bookSearchLibraryItems()
       searchAuthors = res.authors
       searchNarrators = res.narrators
@@ -8028,7 +8094,10 @@ final class AppModel: ObservableObject {
           attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable
         )
       } catch {
-        UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
+        // Überholt vom Nutzer-Tap: der neue Titel hat den Key schon gesetzt — nicht löschen.
+        if !AbstandErrorFilter.isBenignCancellation(error) {
+          UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
+        }
         publishErrorUnlessBenignCancellation(error)
       }
       return
@@ -8055,7 +8124,9 @@ final class AppModel: ObservableObject {
         attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable
       )
     } catch {
-      UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
+      if !AbstandErrorFilter.isBenignCancellation(error) {
+        UserDefaults.standard.removeObject(forKey: Keys.lastPlayedItemId)
+      }
     }
   }
 
@@ -8196,22 +8267,70 @@ final class AppModel: ObservableObject {
   /// Detail-Refresh übernimmt die aufrufende View per Sheet-`onDismiss` — hier kein `loadBookDetail`, um
   /// parallele SwiftData-Schreibvorgänge und doppelte Netzwerk-Loads zu vermeiden.
   @discardableResult
-  func applyMetadataMatch(itemId: String, patch: ABSItemMediaMetadataPatch, coverURL: String?) async -> Bool {
-    guard let c = client else { return false }
-    guard isNetworkReachable else {
-      errorMessage = "No network connection."
-      return false
-    }
+  /// - Returns: `nil` bei Erfolg, sonst Fehlertext für den Alert **im Sheet**. Bewusst kein globales
+  ///   `errorMessage`: dessen Root-Alert (`MainRootView`) würde über den offenen Metadaten-Sheets
+  ///   gleichzeitig mit dem Sheet-Alert präsentieren — UIKit bricht dann mit einer Alert-Assertion ab.
+  func applyMetadataMatch(itemId: String, patch: ABSItemMediaMetadataPatch, coverURL: String?) async -> String? {
+    guard let c = client else { return "Not connected to the server." }
+    guard isNetworkReachable else { return "No network connection." }
     do {
       try await c.updateItemMedia(itemId: itemId, patch: patch, coverURL: coverURL)
       if let coverURL, !coverURL.isEmpty {
         clearCoverImageCache()
       }
-      errorMessage = nil
-      return true
+      // Im Hintergrund: das Sheet soll direkt nach dem Speichern schließen, nicht auf den Reload warten.
+      Task { await refreshEditedBookEverywhere(itemId: itemId) }
+      return nil
     } catch {
-      publishErrorUnlessBenignCancellation(error)
-      return false
+      if AbstandErrorFilter.isBenignCancellation(error) { return nil }
+      return error.localizedDescription
+    }
+  }
+
+  /// Nach Metadaten-/Cover-Änderung: frischen Serverstand in alle geladenen Listen, Home-Regale und
+  /// den lokalen Store übernehmen — sonst zeigen Karten bis zum nächsten Katalog-Reload Titel, Autor
+  /// und Cover von vorher. Neues `updatedAt` erneuert zugleich den Cover-Cache-Key der Karten.
+  func refreshEditedBookEverywhere(itemId: String) async {
+    guard let c = client, let fresh = try? await c.item(id: itemId, expanded: true) else { return }
+    applyUpdatedBookToLoadedLists(fresh)
+    persistBookDetail(fresh)
+    if let store = currentLocalLibraryStore() {
+      do { try await store.upsertBooks([fresh]) } catch {
+        AppLog.library.warning("LocalStore upsertBooks failed: \(error.localizedDescription, privacy: .public)")
+      }
+    }
+  }
+
+  private func applyUpdatedBookToLoadedLists(_ fresh: ABSBook) {
+    let id = fresh.id
+    func patched(_ list: [ABSBook]) -> [ABSBook]? {
+      guard let i = list.firstIndex(where: { $0.id == id }) else { return nil }
+      var copy = list
+      copy[i] = fresh
+      return copy
+    }
+    if let l = patched(books) { books = l }
+    if let l = patched(searchBooks) { searchBooks = l }
+    if let l = patched(downloadedShelfBooks) { downloadedShelfBooks = l }
+    if let l = patched(browseEbooks) { browseEbooks = l }
+    if let l = patched(browseEbooksSupplementary) { browseEbooksSupplementary = l }
+    if let l = patched(entityDetailBooks) { entityDetailBooks = l }
+    if let l = patched(entityDetailAuthorStandaloneBooks) { entityDetailAuthorStandaloneBooks = l }
+    if startShelves.contains(where: { $0.books.contains { $0.id == id } }) {
+      startShelves = startShelves.map { section in
+        guard let books = patched(section.books) else { return section }
+        return ABSStartShelfSection(
+          id: section.id,
+          category: section.category,
+          displayTitle: section.displayTitle,
+          books: books,
+          podcastEpisodes: section.podcastEpisodes,
+          authors: section.authors,
+          series: section.series
+        )
+      }
+      recomputeStartBooksUnion(from: startShelves)
+      persistHomeShelvesSnapshot()
     }
   }
 
@@ -8259,34 +8378,32 @@ final class AppModel: ObservableObject {
 
   /// Setzt ein Cover per Remote-URL (`POST /api/items/:id/cover` mit `{ url }`) und aktualisiert das Detail.
   @discardableResult
-  func applyCoverURL(itemId: String, url: String) async -> Bool {
-    guard let c = client else { return false }
-    guard isNetworkReachable else {
-      errorMessage = "No network connection."
-      return false
-    }
+  /// - Returns: `nil` bei Erfolg, sonst Fehlertext für den Sheet-Alert (kein globales `errorMessage`,
+  ///   siehe `applyMetadataMatch`).
+  func applyCoverURL(itemId: String, url: String) async -> String? {
+    guard let c = client else { return "Not connected to the server." }
+    guard isNetworkReachable else { return "No network connection." }
     do {
       try await c.applyCoverURL(itemId: itemId, url: url)
       // Cache löschen + Detail-Refresh, damit das neue Cover sofort erscheint.
       clearCoverImageCache()
       _ = await loadBookDetail(id: itemId)
-      errorMessage = nil
-      return true
+      // Im Hintergrund: das Sheet soll direkt nach dem Speichern schließen, nicht auf den Reload warten.
+      Task { await refreshEditedBookEverywhere(itemId: itemId) }
+      return nil
     } catch {
-      publishErrorUnlessBenignCancellation(error)
-      return false
+      if AbstandErrorFilter.isBenignCancellation(error) { return nil }
+      return error.localizedDescription
     }
   }
 
   /// Kapitel speichern (`POST /api/items/:id/chapters`) und Detail anschließend aktualisieren.
   /// Ist das Buch im Player geladen, werden dessen Kapitel sofort mitgezogen (Mini-/Vollplayer).
-  @discardableResult
-  func applyItemChapters(itemId: String, chapters: [ABSItemChaptersPayload.Chapter]) async -> Bool {
-    guard let c = client else { return false }
-    guard isNetworkReachable else {
-      errorMessage = "No network connection."
-      return false
-    }
+  /// - Returns: `nil` bei Erfolg, sonst Fehlertext für den Sheet-Alert (kein globales `errorMessage`,
+  ///   siehe `applyMetadataMatch`).
+  func applyItemChapters(itemId: String, chapters: [ABSItemChaptersPayload.Chapter]) async -> String? {
+    guard let c = client else { return "Not connected to the server." }
+    guard isNetworkReachable else { return "No network connection." }
     do {
       try await c.updateItemChapters(itemId: itemId, chapters: chapters)
       _ = await loadBookDetail(id: itemId)
@@ -8294,11 +8411,10 @@ final class AppModel: ObservableObject {
         ABSChapter(id: $0.id, start: $0.start, end: $0.end, title: $0.title)
       }
       player.refreshActiveBookChapters(libraryItemId: itemId, chapters: absChapters)
-      errorMessage = nil
-      return true
+      return nil
     } catch {
-      publishErrorUnlessBenignCancellation(error)
-      return false
+      if AbstandErrorFilter.isBenignCancellation(error) { return nil }
+      return error.localizedDescription
     }
   }
 
@@ -8858,11 +8974,16 @@ final class AppModel: ObservableObject {
     }
 
     errorMessage = nil
+    // Account vor dem Request festhalten: eine späte Antwort darf nach einem Wechsel weder die
+    // Anzeige noch den SwiftData-Store des neuen Accounts befüllen.
+    let epoch = accountSessionEpoch
+    let storeAtRequest = currentLocalLibraryStore()
     do {
       let result = try await c.listeningStats()
+      guard epoch == accountSessionEpoch else { return }
       listeningStats = result.stats
       listeningStatsFetchedAt = Date()
-      if let store = currentLocalLibraryStore() {
+      if let store = storeAtRequest {
         do { try await store.replaceListeningStatsResponse(rawData: result.rawData) } catch {
           AppLog.library.warning("LocalStore replaceListeningStatsResponse failed: \(error.localizedDescription, privacy: .public)")
         }
@@ -9675,6 +9796,11 @@ final class AppModel: ObservableObject {
   func removeLocalDownload(bookId: String) {
     // Gezielter Cancel: entfernt das Item aus der Queue oder bricht nur es ab, falls aktiv.
     downloads.cancel(itemId: bookId)
+    // Abgebrochener aktiver Lauf ruft seine Completion nicht mehr auf — BG-Task hier beenden,
+    // wenn damit nichts mehr aktiv/wartend ist.
+    if downloads.activeItemId == nil, downloads.queuedItemIds.isEmpty {
+      endDownloadBackgroundExecution()
+    }
     downloads.deleteDownload(itemId: bookId)
     downloadedItemIds.remove(bookId)
     pendingDownloadCatalog.removeValue(forKey: bookId)
@@ -9858,7 +9984,10 @@ final class AppModel: ObservableObject {
   }
 
   /// Schreibt die aktuelle Player-Position in `progressByItemId` und in LocalStore (vor Server-PATCH).
-  func recordActivePlaybackProgressLocally(markPendingServerSync: Bool = true) {
+  /// - Parameter markPendingServerSync: `nil` = nur markieren, wenn keine Play-Session synct. Läuft eine
+  ///   Session, bringt deren Sync den Stand zum Server — ein dauerhafter Pending-Key würde sonst beim
+  ///   nächsten Offline→Online-Sync neuere Stände anderer Geräte per PATCH überschreiben.
+  func recordActivePlaybackProgressLocally(markPendingServerSync: Bool? = nil) {
     guard let book = player.activeBook else { return }
     let dur = player.totalDuration
     guard dur > 0 else { return }
@@ -9874,7 +10003,7 @@ final class AppModel: ObservableObject {
     }
     progressByItemId[p.progressLookupKey] = p
     clearDiscardedProgressKey(p.progressLookupKey)
-    if markPendingServerSync {
+    if markPendingServerSync ?? !player.isRemotePlaySessionActive {
       pendingLocalProgressSyncKeys.insert(p.progressLookupKey)
     }
     persistProgressRowToLocalStore(p)
@@ -10114,7 +10243,11 @@ final class AppModel: ObservableObject {
     var hadFailure = false
     for key in keysToSync {
       guard mayUseServerNetwork else { return false }
-      guard let p = progressByItemId[key] else { continue }
+      guard let p = progressByItemId[key] else {
+        // Kein lokaler Stand mehr (z. B. verworfen) — nichts zu syncen, Key nicht ewig mitschleppen.
+        pendingLocalProgressSyncKeys.remove(key)
+        continue
+      }
       if p.isFinished {
         finishedSnapshots[key] = p
       }
@@ -10139,7 +10272,11 @@ final class AppModel: ObservableObject {
               isFinished: false
             )
           )
-          pendingLocalProgressSyncKeys.remove(p.progressLookupKey)
+          // Während des PATCH lokal weitergeschrieben? Dann bleibt der Key für den nächsten Sync stehen.
+          let now = progressByItemId[key]
+          if now?.currentTime == p.currentTime, now?.isFinished == p.isFinished {
+            pendingLocalProgressSyncKeys.remove(p.progressLookupKey)
+          }
         }
       } catch {
         // Key bleibt in `pendingLocalProgressSyncKeys` (nie hier entfernt) — nächster Versuch holt ihn nach.
@@ -11021,6 +11158,7 @@ final class AppModel: ObservableObject {
           self?.handleM4BSocketEvent(event)
         }
       }
+      m4bAdminSocket.tokenProvider = { [weak self] in self?.token ?? "" }
       m4bSocketBound = true
     }
     m4bAdminSocket.connect(serverURL: base, token: tok)
@@ -11210,7 +11348,7 @@ final class AppModel: ObservableObject {
     let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
     let f = min(1, max(0, fraction))
     guard !id.isEmpty, f > 0.001 else { return }
-    if let local = EbookLocalStore.loadProgressFraction(libraryItemId: id), local >= 0.995, f < 0.995 {
+    if EbookLocalStore.isMarkedFinished(libraryItemId: id), f < 0.995 {
       return
     }
     EbookLocalStore.saveProgressFraction(f, libraryItemId: id)
@@ -11440,7 +11578,7 @@ final class AppModel: ObservableObject {
     let fraction = 1.0
     pendingEbookProgressOverrideByItemId[id] = fraction
     EbookLocalStore.clearReadiumLocator(libraryItemId: id, format: format)
-    EbookLocalStore.saveProgressFraction(fraction, libraryItemId: id)
+    EbookLocalStore.saveProgressFraction(fraction, libraryItemId: id, markFinished: true)
     lastSyncedEbookFractionByItemId[id] = fraction
     mergeEbookProgressIntoRow(libraryItemId: id, fraction: fraction)
     if ebookReaderSession?.libraryItemId == id {
@@ -12190,6 +12328,7 @@ final class AppModel: ObservableObject {
     guard let store = currentLocalLibraryStore() else { return }
     progressPersistGeneration &+= 1
     let generation = progressPersistGeneration
+    let rowGeneration = progressRowWriteGeneration
     let list = Array(progressByItemId.values)
     if !list.isEmpty {
       setHasCachedLaunchArtifacts(true)
@@ -12198,14 +12337,20 @@ final class AppModel: ObservableObject {
       // `self` einmal in ein `let` binden — eine `var`-Capture in nebenläufigem Code ist unter
       // Strict Concurrency nicht prüfbar (Swift 6: Fehler).
       let model = self
+      // Ein neuerer Voll-Persist ist unterwegs und schreibt den aktuelleren Snapshot.
       let stillCurrent = await MainActor.run { model?.progressPersistGeneration == generation }
       guard stillCurrent == true else { return }
       do { try await store.replaceAllProgress(list) } catch {
         AppLog.library.warning("LocalStore replaceAllProgress failed: \(error.localizedDescription, privacy: .public)")
       }
-      // Nach Write erneut prüfen — sonst überschreibt dieser Write einen neueren Now-Persist.
-      let stillCurrentAfter = await MainActor.run { model?.progressPersistGeneration == generation }
-      if stillCurrentAfter != true {
+      // Seit dem Snapshot Zeilen-Writes gelaufen? Dann könnte dieser Write sie überschrieben haben —
+      // mit frischem Snapshot erneut schreiben (terminiert, sobald keine Zeilen-Writes mehr kommen).
+      let needsRewrite = await MainActor.run { () -> Bool in
+        guard let model else { return false }
+        return model.progressPersistGeneration == generation
+          && model.progressRowWriteGeneration != rowGeneration
+      }
+      if needsRewrite {
         await MainActor.run { model?.persistProgressToLocalStore() }
       }
     }
@@ -12213,11 +12358,10 @@ final class AppModel: ObservableObject {
 
   /// Einzelne Progress-Zeile schreiben (Wiedergabe-Tick). Kein `replaceAllProgress` — das löscht die
   /// gesamte Tabelle und legt sie neu an, was bei Ticks alle paar Sekunden dauerhaft Schreiblast erzeugt.
-  /// Die Generation wird trotzdem hochgezählt: ein parallel laufender Voll-Persist merkt so, dass er
-  /// überholt wurde, und schreibt den aktuellen Snapshot danach erneut.
+  /// Zählt `progressRowWriteGeneration` hoch: ein parallel laufender Voll-Persist schreibt danach erneut.
   private func persistProgressRowToLocalStore(_ progress: ABSUserMediaProgress) {
     guard let store = currentLocalLibraryStore() else { return }
-    progressPersistGeneration &+= 1
+    progressRowWriteGeneration &+= 1
     setHasCachedLaunchArtifacts(true)
     Task.detached(priority: .utility) {
       do { try await store.upsertProgress([progress]) } catch {
@@ -12234,11 +12378,12 @@ final class AppModel: ObservableObject {
     while true {
       progressPersistGeneration &+= 1
       let generation = progressPersistGeneration
+      let rowGeneration = progressRowWriteGeneration
       let list = Array(progressByItemId.values)
       do { try await store.replaceAllProgress(list) } catch {
         AppLog.library.warning("LocalStore replaceAllProgress failed: \(error.localizedDescription, privacy: .public)")
       }
-      if progressPersistGeneration == generation { return }
+      if progressPersistGeneration == generation, progressRowWriteGeneration == rowGeneration { return }
     }
   }
 
@@ -12582,24 +12727,32 @@ final class AppModel: ObservableObject {
   }
 
   /// Abonniert einen Podcast aus der Verzeichnissuche (`POST /api/podcasts`). Erfordert typischerweise Admin-Rechte auf dem Server.
+  /// Abonnieren mit globaler Fehleranzeige — für Aufrufer ohne eigenen Alert.
+  @discardableResult
   func subscribeToPodcastDirectoryHit(_ hit: ABSPodcastDirectorySearchHit) async -> Bool {
-    guard podcastSubscribeInProgressDirectoryHitId == nil else { return false }
+    guard let failure = await subscribeToPodcastDirectoryHitReportingError(hit) else { return true }
+    if !failure.isEmpty { errorMessage = failure }
+    return false
+  }
+
+  /// - Returns: `nil` bei Erfolg, sonst Fehlertext (leer = still, z. B. Abbruch/bereits laufend).
+  ///   Views mit eigenem Alert nutzen diese Variante — ein zusätzliches globales `errorMessage` würde
+  ///   gleichzeitig präsentieren und UIKit mit einer Alert-Assertion abstürzen lassen.
+  func subscribeToPodcastDirectoryHitReportingError(_ hit: ABSPodcastDirectorySearchHit) async -> String? {
+    guard podcastSubscribeInProgressDirectoryHitId == nil else { return "" }
     guard let c = client, let lib = podcastCatalogLibrary, isNetworkReachable else {
-      errorMessage = "No network connection."
-      return false
+      return "No network connection."
     }
     let feed = (hit.feedUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     guard !feed.isEmpty else {
-      errorMessage = "Missing RSS feed URL for this result."
-      return false
+      return "Missing RSS feed URL for this result."
     }
     podcastSubscribeInProgressDirectoryHitId = hit.id
     defer { podcastSubscribeInProgressDirectoryHitId = nil }
     do {
       let folders = try await c.libraryFolders(libraryId: lib.id)
       guard let first = folders.first else {
-        errorMessage = "No library folders found for this podcast library."
-        return false
+        return "No library folders found for this podcast library."
       }
       let body = try buildPodcastSubscribeRequestBody(
         hit: hit, folderId: first.id, libraryId: lib.id, folderFullPath: first.fullPath)
@@ -12607,11 +12760,10 @@ final class AppModel: ObservableObject {
       await refreshProgressFromServer()
       await reloadPodcastShowsCatalog()
       await loadStartDashboard()
-      errorMessage = nil
-      return true
+      return nil
     } catch {
-      publishErrorUnlessBenignCancellation(error)
-      return false
+      if AbstandErrorFilter.isBenignCancellation(error) { return "" }
+      return error.localizedDescription
     }
   }
 

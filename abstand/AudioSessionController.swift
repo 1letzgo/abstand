@@ -20,9 +20,10 @@ final class AudioSessionController {
   private let session = AVAudioSession.sharedInstance()
   private var didConfigureCategory = false
 
-  private static let categoryOptions: AVAudioSession.CategoryOptions = [
-    .allowBluetoothHFP, .allowBluetoothA2DP, .allowAirPlay,
-  ]
+  /// Leer: `.playback` routet A2DP und AirPlay ohnehin. `.allowBluetoothHFP` (ehemals `.allowBluetooth`)
+  /// ist nur für Record-Kategorien gültig — mit `.playback` kann `setCategory` scheitern, dann bliebe
+  /// die Session auf `soloAmbient` (kein Hintergrund-Audio, Stummschalter wirkt).
+  private static let categoryOptions: AVAudioSession.CategoryOptions = []
 
   private init() {}
 

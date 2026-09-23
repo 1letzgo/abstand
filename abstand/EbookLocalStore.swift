@@ -362,7 +362,9 @@ enum EbookLocalStore {
     guard let session = requireSession() else { return }
     let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !id.isEmpty else { return }
-    if let finished = loadProgressFraction(libraryItemId: id), finished >= 0.995 { return }
+    // Nur ein explizit als gelesen markiertes Buch friert den Stand ein — bloßes Blättern ans Ende
+    // (letzte Seite, Endnoten) soll weiter gespeichert werden.
+    if isMarkedFinished(libraryItemId: id) { return }
     guard let json = try? locator.jsonString() else { return }
     let url = locatorFileURL(
       account: session.account, userId: session.userId, libraryItemId: id, format: format)
@@ -421,18 +423,22 @@ enum EbookLocalStore {
   }
 
   /// On-Device-Hilfs-Fortschritt (0…1) — ergänzt Server-`ebookProgress`, kein Readium-Locator.
-  static func saveProgressFraction(_ fraction: Double, libraryItemId: String) {
+  /// - Parameter markFinished: `true` nur bei explizitem „Mark as read“ — dann bleibt der Stand
+  ///   gegen spätere niedrigere Werte geschützt, bis „Mark as not read“ ihn löscht.
+  static func saveProgressFraction(_ fraction: Double, libraryItemId: String, markFinished: Bool = false) {
     guard let session = requireSession() else { return }
     let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !id.isEmpty else { return }
     let incoming = min(1, max(0, fraction))
-    if let existing = loadProgressFraction(libraryItemId: id), existing >= 0.995, incoming < 0.995 {
+    let wasMarkedFinished = isMarkedFinished(libraryItemId: id)
+    if !markFinished, wasMarkedFinished, incoming < 0.995 {
       return
     }
     let f = incoming
     let payload: [String: Double] = [
       "fraction": f,
       "updatedAt": Date().timeIntervalSince1970 * 1000,
+      "finished": (markFinished || (wasMarkedFinished && incoming >= 0.995)) ? 1 : 0,
     ]
     guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
     let url = progressFractionFileURL(
@@ -462,6 +468,21 @@ enum EbookLocalStore {
       ids.append(itemId)
     }
     return ids
+  }
+
+  /// Explizit „als gelesen markiert“ (nicht nur ≥ 99,5 % gelesen).
+  static func isMarkedFinished(libraryItemId: String) -> Bool {
+    guard let session = requireSession() else { return false }
+    let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !id.isEmpty else { return false }
+    let url = progressFractionFileURL(
+      account: session.account, userId: session.userId, libraryItemId: id)
+    guard let data = try? Data(contentsOf: url),
+      let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Double]
+    else { return false }
+    if let flag = dict["finished"] { return flag >= 1 }
+    // Altbestand ohne Flag: „Mark as read“ schrieb exakt 1.0 — so bleiben früher markierte Bücher gelesen.
+    return (dict["fraction"] ?? 0) >= 0.9999
   }
 
   static func loadProgressFraction(libraryItemId: String) -> Double? {

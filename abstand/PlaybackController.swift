@@ -214,6 +214,11 @@ final class PlaybackController: NSObject, ObservableObject {
   private var trackStarts: [Double] = []
   private var currentTrackIndex: Int = 0
   private var pendingListenSeconds: Double = 0
+  /// Zählt `playBook`-Aufrufe hoch — ein älterer Aufruf, der nach einem `await` feststellt, dass ein
+  /// neuerer läuft (z. B. Launch-Restore vs. Nutzer-Tap), verwirft seine Ergebnisse statt den Player zu überschreiben.
+  private var loadGeneration = 0
+  /// Zwischen Track-Index-Wechsel und neuem `AVPlayerItem`: Position nicht aus dem alten Item ableiten.
+  private var isSwitchingTrack = false
   private var lastListenTick: Date = .init()
   private var syncTask: Task<Void, Never>?
 
@@ -421,6 +426,9 @@ final class PlaybackController: NSObject, ObservableObject {
       sleepTimerPaused = false
       scheduleSleepTimerWakeIfNeeded()
     } else {
+      // Erst als pausiert markieren: der `$sleepEndDate`-Sink wertet `nil` sonst als „Timer aus“
+      // und verwirft die gerade gewählte Zeit. Start mit dem nächsten Play (`resumeSleepTimerIfNeeded`).
+      sleepTimerPaused = true
       sleepWakeTask?.cancel()
       sleepWakeTask = nil
       sleepEndDate = nil
@@ -642,7 +650,7 @@ final class PlaybackController: NSObject, ObservableObject {
     }
     // Timer nicht pausiert, aber evtl. im Hintergrund abgelaufen (Observer/Tick nicht gefeuert).
     if let end = sleepEndDate, Date() >= end {
-      clearSleepTimer()
+      markSleepTimerExpired()
       pause()
     }
   }
@@ -811,6 +819,8 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   func tearDownPlayer() {
+    // Laufende `playBook`-Aufrufe (z. B. langsamer Session-Start) nach Schließen/Logout nicht mehr anwenden.
+    loadGeneration &+= 1
     DebugLogCollector.shared.log("tearDownPlayer START activeBook=\(activeBook?.id ?? "nil") episodeId=\(activePlaybackEpisodeId ?? "nil") isPlaying=\(isPlaying)")
     playResumeTask?.cancel()
     playResumeTask = nil
@@ -825,7 +835,14 @@ final class PlaybackController: NSObject, ObservableObject {
     syncTask?.cancel()
     syncTask = nil
     if let sid = playSessionId, let client = apiClient {
+      // Noch nicht synchronisierte Hörzeit + Position vor dem Schließen senden — sonst gehen beim
+      // Buch-/Account-Wechsel bis zu einem Sync-Intervall Hörstatistik und Fortschritt verloren.
+      let listened = Int(pendingListenSeconds.rounded(.down))
+      let position = globalPosition
       Task {
+        if listened > 0 {
+          try? await client.syncPlaySession(sessionId: sid, timeListened: listened, currentTime: position)
+        }
         try? await client.closePlaySession(sessionId: sid)
       }
     }
@@ -845,6 +862,7 @@ final class PlaybackController: NSObject, ObservableObject {
     teardownEQTap()
     tracks = []
     trackStarts = []
+    isSwitchingTrack = false
     sortedChapters = []
     chapterCount = 0
     currentChapterOrdinal = 0
@@ -878,7 +896,12 @@ final class PlaybackController: NSObject, ObservableObject {
       await liveTranscription.disable()
     }
     tearDownPlayer()
-    audioSession.activateForPlayback(reclaimingOutput: true)
+    loadGeneration &+= 1
+    let generation = loadGeneration
+    // Launch-Restore (autoPlay: false) darf fremde Wiedergabe nicht unterbrechen — Aktivierung erst bei Play.
+    if autoPlay {
+      audioSession.activateForPlayback(reclaimingOutput: true)
+    }
     shouldAutoPlayAfterLoad = autoPlay
     apiClient = client
     activeBook = book
@@ -897,7 +920,8 @@ final class PlaybackController: NSObject, ObservableObject {
           book: book,
           root: root,
           resumeAt: resumeHint,
-          preferClientResumePosition: preferClientResumePosition
+          preferClientResumePosition: preferClientResumePosition,
+          generation: generation
         )
       } else {
         try await startRemotePlayback(
@@ -905,14 +929,40 @@ final class PlaybackController: NSObject, ObservableObject {
           book: book,
           resumeAt: resumeHint,
           episodeId: resolvedEpisodeId,
-          preferClientResumePosition: preferClientResumePosition
+          preferClientResumePosition: preferClientResumePosition,
+          generation: generation
         )
       }
+      try throwIfSuperseded(generation)
       scheduleCoverLoad(for: book.id)
       startPeriodicSync()
     } catch {
-      tearDownPlayer()
+      // Überholt: der neuere Aufruf besitzt den Player — nicht abreißen.
+      if generation == loadGeneration {
+        tearDownPlayer()
+      }
       throw error
+    }
+  }
+
+  private func throwIfSuperseded(_ generation: Int) throws {
+    if generation != loadGeneration { throw CancellationError() }
+  }
+
+  /// Nach `await startPlaySession`: überholter Aufruf schließt seine eigene Session, statt sie zu verwaisen.
+  private func closeSessionIfSuperseded(_ sessionId: String, client: ABSAPIClient, generation: Int) throws {
+    guard generation != loadGeneration else { return }
+    Task { try? await client.closePlaySession(sessionId: sessionId) }
+    throw CancellationError()
+  }
+
+  /// Rotierte Tokens auch in den Client des Players übernehmen — er kann eine eigene Instanz sein
+  /// (Offline-Wiedergabe) und würde mit dem alten Refresh-Token beim nächsten Erneuern 401 bekommen.
+  func adoptRefreshedTokens(accessToken: String, refreshToken: String) {
+    guard let client = apiClient else { return }
+    Task {
+      await client.setToken(accessToken)
+      if !refreshToken.isEmpty { await client.setRefreshToken(refreshToken) }
     }
   }
 
@@ -1030,7 +1080,8 @@ final class PlaybackController: NSObject, ObservableObject {
     book: ABSBook,
     root: URL,
     resumeAt resumeHint: Double,
-    preferClientResumePosition: Bool = false
+    preferClientResumePosition: Bool = false,
+    generation: Int
   ) async throws {
     playSessionId = nil
     var resumeAt = resumeHint
@@ -1038,11 +1089,17 @@ final class PlaybackController: NSObject, ObservableObject {
     let manifestChapters = manifest?.chapters?.map { ABSChapter(manifest: $0) }
 
     if attemptServerPlaySessionForLocal {
-      if let session = await startPlaySessionWithTimeout(
+      let session = await startPlaySessionWithTimeout(
         client: client,
         itemId: book.id,
         episodeId: activePlaybackEpisodeId
-      ) {
+      )
+      if let session {
+        try closeSessionIfSuperseded(session.id, client: client, generation: generation)
+      }
+      // Auch ohne Session (Timeout): ein überholter Aufruf darf Tracks/Kapitel nicht mehr setzen.
+      try throwIfSuperseded(generation)
+      if let session {
         playSessionId = session.id
         let uiBook = session.bookForPlayerUI()
         activeBook = uiBook
@@ -1104,6 +1161,7 @@ final class PlaybackController: NSObject, ObservableObject {
     if #available(iOS 15.0, *) {
       _ = try? await asset.load(.isPlayable)
     }
+    try throwIfSuperseded(generation)
     let item = AVPlayerItem(asset: asset)
     player = AVPlayer(playerItem: item)
     applyBackgroundPlaybackPolicy(player)
@@ -1113,7 +1171,7 @@ final class PlaybackController: NSObject, ObservableObject {
     player?.seek(to: CMTime(seconds: offsetInTrack, preferredTimescale: 600)) { [weak self] _ in
       guard let self else { return }
       Task { @MainActor [weak self] in
-        guard let self else { return }
+        guard let self, self.loadGeneration == generation else { return }
           self.globalPosition = resumeSnapshot
           self.updateChapterUI(global: resumeSnapshot)
           self.updateNowPlaying()
@@ -1134,7 +1192,8 @@ final class PlaybackController: NSObject, ObservableObject {
     book: ABSBook,
     resumeAt: Double,
     episodeId: String?,
-    preferClientResumePosition: Bool = false
+    preferClientResumePosition: Bool = false,
+    generation: Int
   ) async throws {
     let session = try await client.startPlaySession(
       itemId: book.id,
@@ -1142,6 +1201,7 @@ final class PlaybackController: NSObject, ObservableObject {
       deviceId: Self.stableDeviceId(),
       appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
     )
+    try closeSessionIfSuperseded(session.id, client: client, generation: generation)
     playSessionId = session.id
     let uiBook = session.bookForPlayerUI()
     activeBook = uiBook
@@ -1174,6 +1234,7 @@ final class PlaybackController: NSObject, ObservableObject {
       trackIndex: tracks[currentTrackIndex].index
     )
     let asset = AVURLAsset(url: streamURL, options: AVURLAsset.httpHeaderOptions(token: await client.currentToken()))
+    try throwIfSuperseded(generation)
     let item = AVPlayerItem(asset: asset)
     player = AVPlayer(playerItem: item)
     applyBackgroundPlaybackPolicy(player)
@@ -1183,7 +1244,7 @@ final class PlaybackController: NSObject, ObservableObject {
     player?.seek(to: CMTime(seconds: offsetInTrack, preferredTimescale: 600)) { [weak self] _ in
       guard let self else { return }
       Task { @MainActor [weak self] in
-        guard let self else { return }
+        guard let self, self.loadGeneration == generation else { return }
           self.globalPosition = resumeSnapshot
           self.updateChapterUI(global: resumeSnapshot)
           self.updateNowPlaying()
@@ -1302,7 +1363,8 @@ final class PlaybackController: NSObject, ObservableObject {
     pushNowPlayingPlaybackProgress()
     // Zeit-Timer: Wanduhr-abhängig.
     if isPlaying, let end = sleepEndDate, Date() >= end {
-      clearSleepTimer()
+      // Wie der Wake-Task: abgelaufen markieren (erlaubt den Neustart innerhalb der Grace-Zeit).
+      markSleepTimerExpired()
       pause()
     }
     // Kapitel-Timer: feuert, sobald die Wiedergabe das Ende des Ziel-Kapitels erreicht
@@ -1325,7 +1387,7 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   private func refreshGlobalFromPlayer() {
-    guard let p = player, let item = p.currentItem else { return }
+    guard !isSwitchingTrack, let p = player, let item = p.currentItem else { return }
     let local = p.currentTime().seconds
     if local.isFinite {
       globalPosition = globalTime(trackIndex: currentTrackIndex, localSeconds: local)
@@ -1342,7 +1404,7 @@ final class PlaybackController: NSObject, ObservableObject {
 
   /// Live-Position für Read-Along (AVPlayer), falls verfügbar — sonst `globalPosition`.
   var liveGlobalPlaybackPosition: Double {
-    if let p = player, p.currentItem != nil {
+    if !isSwitchingTrack, let p = player, p.currentItem != nil {
       let local = p.currentTime().seconds
       if local.isFinite {
         let g = globalTime(trackIndex: currentTrackIndex, localSeconds: local)
@@ -1352,6 +1414,19 @@ final class PlaybackController: NSObject, ObservableObject {
     let raw = globalPosition
     guard raw.isFinite, raw >= 0 else { return 0 }
     return raw
+  }
+
+  /// Vor dem Wechsel auf einen anderen Track: altes Item anhalten und dessen Ende-Observer lösen —
+  /// sonst kann das alte Item während des Ladens noch „zu Ende spielen“ und einen weiteren Track
+  /// überspringen, und der Tick rechnet neue Track-Startzeit + alte Item-Zeit.
+  private func prepareForTrackSwitch(keepsPlayingIntent: Bool) {
+    isSwitchingTrack = true
+    if let endObserver {
+      NotificationCenter.default.removeObserver(endObserver)
+    }
+    endObserver = nil
+    if keepsPlayingIntent { beginSuppressingEnginePauseSync(for: 3) }
+    player?.pause()
   }
 
   private func advanceToNextTrack() {
@@ -1367,6 +1442,7 @@ final class PlaybackController: NSObject, ObservableObject {
       }
       return
     }
+    prepareForTrackSwitch(keepsPlayingIntent: true)
     currentTrackIndex += 1
     liveTranscription.notifyPlaybackTrackAdvanced()
     Task {
@@ -1375,13 +1451,18 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   private func loadCurrentTrack(play: Bool, localOffset: Double, pauseOnFailure: Bool = true) async {
+    // Erfolg setzt das Flag schon in `replacePlayerItem` zurück — hier nur für Abbruch-/Fehlerpfade.
+    defer { isSwitchingTrack = false }
     guard let book = activeBook else { return }
     if let root = localRoot, Self.allTracksPresent(root: root, book: book) {
       let man = ABSDownloadManifest.load(from: root)
       guard
         let url = Self.resolvedLocalTrackURL(
           root: root, trackIndex: tracks[currentTrackIndex].index, manifest: man)
-      else { return }
+      else {
+        if pauseOnFailure { pause() }
+        return
+      }
       let asset = AVURLAsset(url: url)
       if #available(iOS 15.0, *) {
         _ = try? await asset.load(.isPlayable)
@@ -1389,7 +1470,10 @@ final class PlaybackController: NSObject, ObservableObject {
       replacePlayerItem(AVPlayerItem(asset: asset), localOffset: localOffset, play: play)
       return
     }
-    guard let client = apiClient, let sid = playSessionId else { return }
+    guard let client = apiClient, let sid = playSessionId else {
+      if pauseOnFailure { pause() }
+      return
+    }
     do {
       let streamURL = try await client.publicStreamURL(
         sessionId: sid,
@@ -1405,6 +1489,7 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   private func replacePlayerItem(_ item: AVPlayerItem, localOffset: Double, play: Bool) {
+    isSwitchingTrack = false
     removeTimeObserverIfNeeded()
     if let endObserver {
       NotificationCenter.default.removeObserver(endObserver)
@@ -1532,6 +1617,9 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Resume nach Pause, Unterbrechung oder Fremd-App: Session + Stream ggf. neu verbinden.
   private func performPlayResume() async {
     guard !Task.isCancelled else { return }
+    // Play-Command (Kopfhörer/Sperrbildschirm) ohne geladenen Titel: keine Session aktivieren,
+    // kein falsches „spielt“ — sonst würde fremde Wiedergabe grundlos unterbrochen.
+    guard activeBook != nil, player != nil else { return }
     beginSuppressingEnginePauseSync(for: 3)
 
     // Nach Telefonat/Fremd-App kann die Session einen Moment belegt sein — mit Wiederholungen.
@@ -1738,7 +1826,7 @@ final class PlaybackController: NSObject, ObservableObject {
 
   /// Aktuelle Abspielposition (frisch vom Player, falls möglich).
   func playbackGlobalPosition() -> Double {
-    if let p = player, p.currentItem != nil {
+    if !isSwitchingTrack, let p = player, p.currentItem != nil {
       let local = p.currentTime().seconds
       if local.isFinite {
         let g = globalTime(trackIndex: currentTrackIndex, localSeconds: local)
@@ -1800,14 +1888,19 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   func seek(global: Double) {
+    // Remote-Command (Sperrbildschirm, Kopfhörer, CarPlay) während Laden/nach Abriss: nichts zu seeken.
+    guard activeBook != nil, !trackStarts.isEmpty else { return }
     let g = min(max(0, global), max(totalDuration - 0.25, 0))
     let idx = trackIndex(forGlobal: g)
+    guard idx < trackStarts.count else { return }
     let offset = g - trackStarts[idx]
     if idx != currentTrackIndex {
+      let wasPlaying = isPlaying
+      prepareForTrackSwitch(keepsPlayingIntent: wasPlaying)
       currentTrackIndex = idx
       liveTranscription.notifyPlaybackTrackAdvanced()
       Task {
-        await loadCurrentTrack(play: isPlaying, localOffset: offset)
+        await loadCurrentTrack(play: wasPlaying, localOffset: offset)
       }
     } else {
       let position = g
@@ -1926,10 +2019,14 @@ final class PlaybackController: NSObject, ObservableObject {
     if let sid = playSessionId, let client = apiClient {
       if tl < 1, !force { return }
       pendingListenSeconds = max(0, raw - Double(tl))
+      let generation = loadGeneration
       do {
         try await client.syncPlaySession(
           sessionId: sid, timeListened: max(0, tl), currentTime: globalPosition)
       } catch {
+        // Inzwischen anderer Titel geladen: Zeit nicht dem neuen Titel gutschreiben, keine
+        // Session-Recovery für ihn anstoßen (der Abriss hat die alte Session bereits final gesynct).
+        guard generation == loadGeneration, playSessionId == sid else { return }
         pendingListenSeconds += Double(tl)
         if Self.isTransientNetworkError(error) { return }
         await recoverPlaySessionAfterSyncFailure(lostTimeListened: tl)

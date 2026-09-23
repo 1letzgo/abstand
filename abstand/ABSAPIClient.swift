@@ -157,6 +157,8 @@ actor ABSAPIClient {
         "serverURL": base.absoluteString,
         "accessToken": access,
         "refreshToken": refreshToken ?? "",
+        // Identifiziert die Session, die erneuert wurde — AppModel übernimmt nur, wenn es seine eigene ist.
+        "previousRefreshToken": current,
       ]
     )
     return true
@@ -215,7 +217,13 @@ actor ABSAPIClient {
     let stem = suggestedDestination.deletingPathExtension().lastPathComponent
     let dest = dir.appendingPathComponent("\(stem).\(format.fileExtension)")
     var lastError: Error?
-    for attempt in 0..<3 {
+    // Ein Retry nach Token-Refresh zählt nicht als Versuch (sonst scheitert ein 401 im letzten
+    // Versuch trotz erfolgreichem Refresh mit „Empty server response“).
+    var attemptLimit = 3
+    var refreshRetryUsed = false
+    var attempt = -1
+    while attempt + 1 < attemptLimit {
+      attempt += 1
       do {
         await refreshIfExpiringSoon()
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
@@ -225,7 +233,11 @@ actor ABSAPIClient {
           try? FileManager.default.removeItem(at: temp)
           throw ABSAPIError.emptyBody
         }
-        if await shouldRetryDownloadAfterRefresh(http, temp: temp) { continue }
+        if !refreshRetryUsed, await shouldRetryDownloadAfterRefresh(http, temp: temp) {
+          refreshRetryUsed = true
+          attemptLimit += 1
+          continue
+        }
         try Self.cleanupAndThrowForDownloadStatus(http, temp: temp)
         if FileManager.default.fileExists(atPath: dest.path) {
           try FileManager.default.removeItem(at: dest)
@@ -1252,7 +1264,11 @@ actor ABSAPIClient {
     maxAttempts: Int = 3
   ) async throws -> URL {
     var lastError: Error?
-    for attempt in 0..<maxAttempts {
+    var attemptLimit = maxAttempts
+    var refreshRetryUsed = false
+    var attempt = -1
+    while attempt + 1 < attemptLimit {
+      attempt += 1
       do {
         await refreshIfExpiringSoon()
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
@@ -1262,7 +1278,11 @@ actor ABSAPIClient {
           try? FileManager.default.removeItem(at: temp)
           throw ABSAPIError.emptyBody
         }
-        if await shouldRetryDownloadAfterRefresh(http, temp: temp) { continue }
+        if !refreshRetryUsed, await shouldRetryDownloadAfterRefresh(http, temp: temp) {
+          refreshRetryUsed = true
+          attemptLimit += 1
+          continue
+        }
         try Self.cleanupAndThrowForDownloadStatus(http, temp: temp)
         let ext = Self.pickAudioFileExtension(mimeType: http.mimeType, fileURL: temp)
         let stem = suggestedDestination.deletingPathExtension().lastPathComponent
@@ -1302,7 +1322,11 @@ actor ABSAPIClient {
     // und der Fortschritts-Callback schweigt → Sprung von 0 auf fertig bei Einzel-Track-Folgen).
     let knownSize: Int64? = await fetchExpectedContentLength(url: streamURL)
     var lastError: Error?
-    for attempt in 0..<maxAttempts {
+    var attemptLimit = maxAttempts
+    var refreshRetryUsed = false
+    var attempt = -1
+    while attempt + 1 < attemptLimit {
+      attempt += 1
       do {
         await refreshIfExpiringSoon()
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
@@ -1313,7 +1337,11 @@ actor ABSAPIClient {
           try? FileManager.default.removeItem(at: temp)
           throw ABSAPIError.emptyBody
         }
-        if await shouldRetryDownloadAfterRefresh(http, temp: temp) { continue }
+        if !refreshRetryUsed, await shouldRetryDownloadAfterRefresh(http, temp: temp) {
+          refreshRetryUsed = true
+          attemptLimit += 1
+          continue
+        }
         try Self.cleanupAndThrowForDownloadStatus(http, temp: temp)
         let ext = Self.pickAudioFileExtension(mimeType: http.mimeType, fileURL: temp)
         let stem = suggestedDestination.deletingPathExtension().lastPathComponent

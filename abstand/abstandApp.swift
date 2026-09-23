@@ -60,6 +60,8 @@ private struct AppRootContainer: View {
             NowPlayingDetailView()
               .environmentObject(model)
               .environmentObject(model.player)
+              // Wie am App-Root: ohne den Revision-Key rendern Theme-abhängige Views im Overlay nicht neu.
+              .environment(\.appearanceThemeRevision, model.appearanceThemeRevision)
               .tint(model.appearanceAccentColor)
               .themeAccentFromAppModel(model)
           }

@@ -661,7 +661,6 @@ extension AppModel {
     let key = accountKey.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !key.isEmpty else { return }
     let removingActive = key == activeAccountKey
-    if removingActive { syncStoredAccountFromSession() }
     // Serverseitige Session beenden, damit das Refresh-Token nicht 30 Tage gültig bleibt (best effort).
     if let removed = storedAccounts.first(where: { $0.accountKey == key }),
       let refresh = removed.refreshToken, !refresh.isEmpty,
@@ -673,7 +672,8 @@ extension AppModel {
     persistStoredAccounts()
     guard removingActive else { return }
     if let next = storedAccounts.first {
-      Task { await switchToAccount(next.accountKey) }
+      // Den entfernten Account beim Wechsel nicht wieder aus der laufenden Session einsortieren.
+      Task { await switchToAccount(next.accountKey, savingCurrentSession: false) }
       return
     }
     activeAccountKey = nil
@@ -685,14 +685,24 @@ extension AppModel {
     account.accountKey == activeAccountKey
   }
 
-  func switchToAccount(_ accountKey: String) async {
+  /// - Parameter savingCurrentSession: `false` beim Entfernen des aktiven Accounts — sonst legt
+  ///   `syncStoredAccountFromSession()` den gerade entfernten Account mit seinen (abgemeldeten)
+  ///   Tokens wieder in der Liste an.
+  func switchToAccount(_ accountKey: String, savingCurrentSession: Bool = true) async {
     guard !isSwitchingAccount else { return }
     guard accountKey != activeAccountKey,
       let account = storedAccounts.first(where: { $0.accountKey == accountKey })
     else { return }
     isSwitchingAccount = true
     defer { isSwitchingAccount = false }
-    syncStoredAccountFromSession()
+    if savingCurrentSession {
+      syncStoredAccountFromSession()
+    }
+    // Letzte Position des laufenden Titels noch im alten Account sichern (Store + Pending-Sync-Keys
+    // sind je Account persistiert) — der Abriss des Players synct Hörzeit und schließt die Session.
+    if player.activeBook != nil {
+      recordActivePlaybackProgressLocally(markPendingServerSync: true)
+    }
     persistDownloads(skipRefresh: true)
     CoverImageCache.evictMemory()
     coverImageCacheRevision &+= 1
@@ -777,11 +787,21 @@ extension AppModel {
 
   /// Vom Client erneuerte Tokens übernehmen (nur wenn sie zur aktiven Session gehören — nach einem
   /// Account-Wechsel kann noch ein Refresh des alten Clients eintreffen).
-  func adoptRefreshedSessionTokens(serverURL refreshedServer: String, accessToken: String, refreshToken newRefresh: String) {
+  func adoptRefreshedSessionTokens(
+    serverURL refreshedServer: String,
+    accessToken: String,
+    refreshToken newRefresh: String,
+    previousRefreshToken: String
+  ) {
     guard !accessToken.isEmpty,
       let active = ABSAPIClient.normalizeServerURL(serverURL)?.absoluteString,
       active.caseInsensitiveCompare(refreshedServer) == .orderedSame
     else { return }
+    // Gleicher Server reicht nicht: nach einem Wechsel A→B auf demselben Server kann ein alter Client
+    // von A noch erneuern — dessen Tokens dürfen B nicht überschreiben. Nur die eigene Session übernehmen.
+    let current = refreshToken.trimmingCharacters(in: .whitespacesAndNewlines)
+    // Legacy-Session ohne Refresh-Token erneuert nie selbst — fremde Rotation ebenfalls ignorieren.
+    guard !current.isEmpty, current == previousRefreshToken else { return }
     token = accessToken
     UserDefaults.standard.set(accessToken, forKey: Keys.token)
     if !newRefresh.isEmpty {
@@ -789,6 +809,16 @@ extension AppModel {
       UserDefaults.standard.set(newRefresh, forKey: Keys.refreshToken)
     }
     syncStoredAccountFromSession(markActive: false)
+    // Alle lebenden Clients angleichen (App-Client + ggf. eigene Player-Instanz aus dem Offline-Pfad) —
+    // sonst erneuert der andere Client später mit dem bereits rotierten Refresh-Token und fliegt raus.
+    if let c = client {
+      let refresh = newRefresh
+      Task {
+        await c.setToken(accessToken)
+        if !refresh.isEmpty { await c.setRefreshToken(refresh) }
+      }
+    }
+    player.adoptRefreshedTokens(accessToken: accessToken, refreshToken: newRefresh)
     // Cover-/Asset-Requests lesen `token` direkt — Views neu binden.
     objectWillChange.send()
   }
@@ -860,11 +890,12 @@ extension AppModel {
   }
 
   /// Neuen Account speichern, ohne die aktuelle Session zu wechseln.
-  func addStoredAccount(server: String, username: String, password: String) async -> Bool {
-    errorMessage = nil
+  /// - Returns: `nil` bei Erfolg, sonst Fehlertext für die Anzeige **im Sheet**. Kein globales
+  ///   `errorMessage`: dessen Root-Alert würde über dem offenen „Add account“-Sheet präsentieren, und
+  ///   der Kaltstart-Filter verschluckte Netzwerkfehler (Spinner stoppt ohne Hinweis).
+  func addStoredAccount(server: String, username: String, password: String) async -> String? {
     guard let url = ABSAPIClient.normalizeServerURL(server) else {
-      errorMessage = "Please enter a valid server URL."
-      return false
+      return "Please enter a valid server URL."
     }
     syncStoredAccountFromSession()
     let preserveActiveKey = activeAccountKey
@@ -878,10 +909,10 @@ extension AppModel {
       activeAccountKey = preserveActiveKey
       ABSStoredAccountsPersistence.saveActiveAccountKey(preserveActiveKey)
       persistStoredAccounts()
-      return true
+      return nil
     } catch {
-      publishErrorUnlessBenignCancellation(error)
-      return false
+      if AbstandErrorFilter.isBenignCancellation(error) { return "" }
+      return error.localizedDescription
     }
   }
 
