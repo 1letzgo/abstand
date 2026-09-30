@@ -122,6 +122,9 @@ struct ReadiumReaderView: View {
     }
     .background(readerBackground)
     .preferredColorScheme(chromeColorScheme)
+    // Alert-Buttons (Reset position, Mark as finished, Fehler) folgen dem Tint der Ansicht — ohne
+    // diese Zeile erscheint „Cancel" in der App-Akzentfarbe statt in der Reader-Schriftfarbe.
+    .tint(readerChromeForeground)
     .statusBarHidden(!showReaderChrome)
     .persistentSystemOverlays(showReaderChrome ? .automatic : .hidden)
     .onReceive(NotificationCenter.default.publisher(for: .readiumReaderToggleChrome)) { _ in
