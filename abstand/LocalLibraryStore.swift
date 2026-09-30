@@ -31,6 +31,18 @@ actor LocalLibraryStore {
     } catch {
       AppLog.bootstrap.error("SwiftData markOpened save failed: \(error.localizedDescription, privacy: .public)")
     }
+    pruneHistory()
+  }
+
+  /// SwiftData führt für jede Änderung eine Persistent-History, die nie aufgeräumt wird. Sie wird von
+  /// niemandem gelesen (kein CloudKit, keine Widgets) — bei jedem Öffnen komplett löschen, damit der Store
+  /// nicht wieder unbemerkt wächst.
+  private func pruneHistory() {
+    do {
+      try modelContext.deleteHistory(HistoryDescriptor<DefaultHistoryTransaction>())
+    } catch {
+      AppLog.bootstrap.warning("SwiftData pruneHistory failed: \(error.localizedDescription, privacy: .public)")
+    }
   }
 
   /// Einmalig nach Update: `catalogHasEbook`/`catalogHasSupplementaryEbook` aus gespeichertem Blob berechnen.
@@ -51,13 +63,32 @@ actor LocalLibraryStore {
 
   // MARK: - Progress
 
-  /// Komplett-Ersatz aller Progress-Zeilen — spiegelt das bisherige `saveProgress` (ganzes Array pro Schreibvorgang).
+  /// Gleicht alle Progress-Zeilen mit `list` ab: nur geänderte Zeilen schreiben, fehlende löschen.
+  /// Früher: Delete-All + Re-Insert bei jedem Aufruf — das hat die Persistent-History auf über 100 Mio.
+  /// Zeilen (mehrere GB) aufgebläht. Ohne echte Änderung wird gar nichts gespeichert.
   func replaceAllProgress(_ list: [ABSUserMediaProgress]) throws {
-    try modelContext.delete(model: LocalProgress.self)
-    for p in list {
-      modelContext.insert(LocalProgress(p))
+    var byKey: [String: LocalProgress] = [:]
+    for row in try modelContext.fetch(FetchDescriptor<LocalProgress>()) {
+      if byKey[row.progressLookupKey] != nil {
+        modelContext.delete(row)
+      } else {
+        byKey[row.progressLookupKey] = row
+      }
     }
-    try modelContext.save()
+    var keep = Set<String>()
+    for p in list {
+      let key = p.progressLookupKey
+      keep.insert(key)
+      if let row = byKey[key] {
+        if row.differs(from: p) { row.apply(p) }
+      } else {
+        modelContext.insert(LocalProgress(p))
+      }
+    }
+    for (key, row) in byKey where !keep.contains(key) {
+      modelContext.delete(row)
+    }
+    if modelContext.hasChanges { try modelContext.save() }
   }
 
   /// Einzelne Zeilen per `progressLookupKey` aktualisieren/anlegen — für laufende Wiedergabe.
@@ -72,12 +103,12 @@ actor LocalLibraryStore {
       )
       descriptor.fetchLimit = 1
       if let existing = try modelContext.fetch(descriptor).first {
-        existing.apply(p)
+        if existing.differs(from: p) { existing.apply(p) }
       } else {
         modelContext.insert(LocalProgress(p))
       }
     }
-    try modelContext.save()
+    if modelContext.hasChanges { try modelContext.save() }
   }
 
   /// Progress-Zeilen löschen, die im aktuellen Server-/Memory-Stand nicht mehr vorkommen.
@@ -1202,6 +1233,10 @@ enum LocalLibraryStoreManager {
       return container
     }
     let storeURL = directory.appendingPathComponent(localLibraryStoreFileName)
+    // Aufgeblähter Store (Persistent-History, mehrere GB): im Hintergrund verkleinern und währenddessen
+    // nicht öffnen — ein paralleles Öffnen würde an der Sperre scheitern und den Store unten neu anlegen.
+    // Der Bootstrap fällt solange auf das Netzwerk zurück; beim nächsten Zugriff ist der Store wieder da.
+    if LocalStoreMaintenance.compactInBackgroundIfOversized(storeURL) { return nil }
     removeLegacyLocalLibraryStoreIfPresent(in: directory)
     let configuration = ModelConfiguration(url: storeURL)
     if let container = try? ModelContainer(
@@ -1212,6 +1247,7 @@ enum LocalLibraryStoreManager {
       openedDirectory = directory
       openedContainer = container
       openedStore = LocalLibraryStore(modelContainer: container)
+      scheduleMaintenanceOfOtherStoresOnce(excluding: storeURL)
       return container
     }
     // Kaputter Migrationsstand (z. B. fehlgeschlagene Custom-Migration) — Store neu anlegen.
@@ -1231,6 +1267,18 @@ enum LocalLibraryStoreManager {
     openedContainer = container
     openedStore = LocalLibraryStore(modelContainer: container)
     return container
+  }
+
+  private static var didScheduleOtherStoreMaintenance = false
+
+  /// Einmal je Start: aufgeblähte Stores anderer Accounts/alter Server-URLs entfernen.
+  private static func scheduleMaintenanceOfOtherStoresOnce(excluding active: URL) {
+    guard !didScheduleOtherStoreMaintenance else { return }
+    didScheduleOtherStoreMaintenance = true
+    let accounts = baseDir.appendingPathComponent("accounts", isDirectory: true)
+    Task.detached(priority: .background) {
+      LocalStoreMaintenance.discardOversizedOtherStores(accountsDirectory: accounts, excluding: active)
+    }
   }
 
   /// Store-Dateiname (historisch `.v2` nach früherem Migrations-Wipe). Schema selbst: `LocalLibrarySchemaV4`.

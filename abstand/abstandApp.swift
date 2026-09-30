@@ -12,6 +12,8 @@ struct abstandApp: App {
     AppTheme.configureTabBarAppearance()
     // Muss vor Ende des App-Starts registriert sein (BGTaskScheduler-Vorgabe).
     PlayerTranscriptPrefetcher.registerBackgroundTask()
+    // Zwischendateien abgebrochener Downloads (CFNetworkDownload_*.tmp) wegräumen.
+    Task.detached(priority: .background) { LocalStoreMaintenance.removeStaleDownloadTempFiles() }
   }
 
   var body: some Scene {

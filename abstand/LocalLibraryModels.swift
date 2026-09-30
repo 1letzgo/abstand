@@ -49,6 +49,21 @@ final class LocalProgress {
     ebookLocation = p.ebookLocation
   }
 
+  /// Unterscheidet sich die Zeile vom neuen Stand? Ein Setzen gleicher Werte zählt für SwiftData trotzdem als
+  /// Änderung und landet in der Persistent-History — deshalb nur bei echtem Unterschied schreiben.
+  func differs(from p: ABSUserMediaProgress) -> Bool {
+    mediaProgressServerId != p.mediaProgressServerId
+      || libraryItemId != p.libraryItemId
+      || episodeId != p.episodeId
+      || duration != p.duration
+      || progress != p.progress
+      || currentTime != p.currentTime
+      || isFinished != p.isFinished
+      || lastUpdate != p.lastUpdate
+      || ebookProgress != p.ebookProgress
+      || ebookLocation != p.ebookLocation
+  }
+
   /// Bestehende Zeile auf den neuen Stand ziehen (Upsert-Pfad, siehe `LocalLibraryStore.upsertProgress`).
   func apply(_ p: ABSUserMediaProgress) {
     mediaProgressServerId = p.mediaProgressServerId
