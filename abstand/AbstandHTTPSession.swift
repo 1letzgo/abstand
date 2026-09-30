@@ -13,7 +13,7 @@ enum AbstandHTTPSession {
     // in einer Größe, die hier niemand steuert und die der eigene Prune nicht anfasst.
     cfg.urlCache = nil
     cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
-    return URLSession(configuration: cfg)
+    return URLSession(configuration: cfg, delegate: AbstandTrustDelegate.shared, delegateQueue: nil)
   }()
 
   /// URLRequest mit zentralem Bearer-Header — für alle Cover-/Cache-GETs außerhalb des API-Clients.
@@ -23,11 +23,16 @@ enum AbstandHTTPSession {
     if let trimmed = token?.trimmingCharacters(in: .whitespaces), !trimmed.isEmpty {
       req.setValue("Bearer \(trimmed)", forHTTPHeaderField: "Authorization")
     }
+    // Custom-Header nur für den eigenen Server — externe Hosts bekommen nichts (Origin-Abgleich).
+    AbstandCustomHeadersStore.apply(to: &req)
     return req
   }
 
-  /// Header-Options für `AVURLAsset` (Streaming-/Transkript-Laden) mit Bearer-Auth.
-  static func authorizedAssetHeaders(token: String) -> [String: Any] {
-    ["AVURLAssetHTTPHeaderFieldsKey": ["Authorization": "Bearer \(token)"]]
+  /// Header-Options für `AVURLAsset` (Streaming-/Transkript-Laden) mit Bearer-Auth und den
+  /// Custom-Headern des Servers.
+  static func authorizedAssetHeaders(token: String, url: URL) -> [String: Any] {
+    var headers = AbstandCustomHeadersStore.headers(for: url)
+    headers["Authorization"] = "Bearer \(token)"
+    return ["AVURLAssetHTTPHeaderFieldsKey": headers]
   }
 }

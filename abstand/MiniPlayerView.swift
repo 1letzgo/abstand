@@ -756,14 +756,80 @@ private struct SleepTimerPopoverControl<Label: View>: View {
 
   var body: some View {
     Button {
-      isPresented = true
+      // Ohne Slide-Animation des Covers — die Alert-Karte blendet sich selbst ein.
+      var transaction = Transaction()
+      transaction.disablesAnimations = true
+      withTransaction(transaction) { isPresented = true }
     } label: {
       label()
     }
     .buttonStyle(.plain)
-    .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-      SleepTimerPopoverContent()
-        .presentationCompactAdaptation(.popover)
+    .fullScreenCover(isPresented: $isPresented) {
+      SleepTimerAlertPresentation(isPresented: $isPresented)
+        .presentationBackground(.clear)
+    }
+  }
+}
+
+private enum SleepTimerAlertMetrics {
+  /// Abdunklung hinter der Karte (wie System-Alerts).
+  static let dimOpacity: Double = 0.4
+  /// Start-Skalierung der Einblendung (System-Alerts wachsen leicht auf 1.0).
+  static let appearScale: CGFloat = 1.08
+  static let appearDuration: Double = 0.22
+  static let dismissDuration: Double = 0.16
+}
+
+/// Sleep Timer im Stil eines System-Alerts: zentrierte Karte über abgedunkeltem Hintergrund,
+/// Steppers wie bisher, unten „Done“. Tippen daneben schließt ebenfalls.
+private struct SleepTimerAlertPresentation: View {
+  @EnvironmentObject private var model: AppModel
+  @Binding var isPresented: Bool
+  @State private var appeared = false
+
+  var body: some View {
+    let palette = model.appearancePalette
+    ZStack {
+      Color.black
+        .opacity(appeared ? SleepTimerAlertMetrics.dimOpacity : 0)
+        .ignoresSafeArea()
+        .onTapGesture { close() }
+        .accessibilityHidden(true)
+
+      VStack(spacing: 0) {
+        SleepTimerPopoverContent()
+        Divider()
+          .overlay(palette.textSecondary.opacity(0.2))
+        Button {
+          close()
+        } label: {
+          Text("Done")
+            .font(.body.weight(.semibold))
+            .foregroundStyle(model.appearanceAccentColor)
+            .frame(maxWidth: .infinity, minHeight: AppTheme.Layout.minTapTarget)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+      }
+      .frame(width: SleepTimerMetrics.popoverWidth)
+      .background(palette.card)
+      .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous))
+      .scaleEffect(appeared ? 1 : SleepTimerAlertMetrics.appearScale)
+      .opacity(appeared ? 1 : 0)
+      .accessibilityAddTraits(.isModal)
+    }
+    .onAppear {
+      withAnimation(.easeOut(duration: SleepTimerAlertMetrics.appearDuration)) { appeared = true }
+    }
+  }
+
+  private func close() {
+    withAnimation(.easeIn(duration: SleepTimerAlertMetrics.dismissDuration)) {
+      appeared = false
+    } completion: {
+      var transaction = Transaction()
+      transaction.disablesAnimations = true
+      withTransaction(transaction) { isPresented = false }
     }
   }
 }
@@ -1306,6 +1372,18 @@ struct NowPlayingDetailView: View {
 
   var body: some View {
     fullPlayerRootWithSnapshotHooks
+      // Fehler im Vollbild-Player hier zeigen — der Root-Alert liegt unter dem UIKit-Overlay.
+      .alert(
+        "Error",
+        isPresented: Binding(
+          get: { model.errorMessage != nil && model.isNowPlayingOverlayVisible },
+          set: { if !$0 { model.errorMessage = nil } }
+        )
+      ) {
+        Button("OK", role: .cancel) { model.errorMessage = nil }
+      } message: {
+        Text(model.errorMessage ?? "")
+      }
       .task {
         await player.liveTranscription.refreshReadAlongAvailability()
       }
@@ -2214,6 +2292,7 @@ struct NowPlayingDetailView: View {
       }
     }
   }
+
   private var teleprompterFontSizeControls: some View {
     let sizingHeight = teleprompterFontSizingReferenceHeight
     let stored = teleprompterFontSizeStorage > 0 ? CGFloat(teleprompterFontSizeStorage) : nil

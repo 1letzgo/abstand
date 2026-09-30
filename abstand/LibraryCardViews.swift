@@ -46,7 +46,13 @@ struct PodcastRssFeedDraftRow: View {
   var body: some View {
     let palette = model.appearancePalette
     let sid = (showId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    return VStack(alignment: .leading, spacing: 0) {
+    // Gleiche Zeilenhülle wie Buch-/Folgen-Zeilen (Kante, minHeight = Cover); Tap bleibt bei den Buttons.
+    return LibraryRowLayout.libraryRowCardChrome(
+      cardColor: palette.card,
+      showsBottomProgressBar: false,
+      progressValue: 0,
+      openDetails: nil
+    ) {
       HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
         LibraryRowLayout.coverSlot {
           LibraryRowLayout.rowCoverImage(
@@ -83,9 +89,7 @@ struct PodcastRssFeedDraftRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("RSS episode, not in library yet")
       }
-      .padding(.leading, 0)
     }
-    .abstandCardChrome(palette.card, shape: LibraryRowLayout.cardShape)
     .abstandThemeRefresh()
     .alert(
       "Delete episode?",
@@ -126,15 +130,18 @@ struct PodcastRssFeedDraftRow: View {
       .disabled(!model.isNetworkReachable)
       .accessibilityLabel("Delete episode from library")
     } else if inLibrary {
+      // Einheitlich mit den Podcast-Screens: Häkchen + „In library“, beides in Akzentfarbe.
       HStack(spacing: AppTheme.Layout.tightSpacing) {
         Image(systemName: "checkmark.circle.fill")
-          .foregroundStyle(model.appearanceAccentColor)
           .font(.caption)
         Text("In library")
           .font(.caption.weight(.medium))
-          .foregroundStyle(secondary)
+          .lineLimit(1)
       }
+      .foregroundStyle(model.appearanceAccentColor)
       .frame(minWidth: AppTheme.Layout.metaValueColumnMinWidth, alignment: .trailing)
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel("In library")
     } else if model.podcastRssDraftDownloadCompletedIds.contains(draft.id) {
       Text("Downloading")
         .font(.caption.weight(.medium))
@@ -465,6 +472,11 @@ struct PodcastEpisodeRowCard: View {
     .abstandThemeRefresh()
   }
 
+  /// Beendete Folge: Text und Play-Pille zurücknehmen.
+  private var episodeFinishedContentOpacity: Double {
+    prog?.isFinished == true ? LibraryRowLayout.finishedContentOpacity : 1
+  }
+
   private var podcastEpisodeRowCardBody: some View {
     LibraryRowLayout.libraryRowCardChrome(
       cardColor: model.appearancePalette.card,
@@ -483,6 +495,7 @@ struct PodcastEpisodeRowCard: View {
             cacheRevision: model.coverImageCacheRevision(forBookId: episode.libraryItemId)
           )
         }
+        .opacity(episodeFinishedContentOpacity)
 
         LibraryRowLayout.metadataColumn(showsProgressBar: showsBottomProgressBar) {
           VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
@@ -494,8 +507,10 @@ struct PodcastEpisodeRowCard: View {
                 .truncationMode(.tail)
                 .minimumScaleFactor(0.85)
                 .fixedSize(horizontal: false, vertical: true)
+                .opacity(episodeFinishedContentOpacity)
                 .frame(maxWidth: .infinity, alignment: .leading)
               LibraryRowStatusBadges(
+                color: model.appearancePalette.textSecondary,
                 isFinished: prog?.isFinished == true,
                 isDownloaded: live.isDownloaded,
                 isDownloading: live.isDownloading,
@@ -503,12 +518,14 @@ struct PodcastEpisodeRowCard: View {
               )
             }
             PodcastEpisodeCollapsedShowLine(episode: episode)
+              .opacity(episodeFinishedContentOpacity)
             Spacer(minLength: 0)
             LibraryRowLayout.metadataFooter(alignment: .bottom) {
               LibraryRowLayout.footerLeadingSlot {
                 Text(formatPlaybackTime(resolvedTotalDurationSeconds))
                   .font(.subheadline.monospacedDigit())
                   .foregroundStyle(model.appearancePalette.textSecondary)
+                  .opacity(episodeFinishedContentOpacity)
               }
             } trailing: {
               LibraryRowPlayPill(
@@ -527,6 +544,7 @@ struct PodcastEpisodeRowCard: View {
                   await model.playPodcastEpisode(episode, resumeAtOverride: isFinished ? 0 : nil)
                 }
               }
+              .opacity(episodeFinishedContentOpacity)
             }
           }
           .padding(.trailing, AppTheme.Layout.tightSpacing)
@@ -539,194 +557,6 @@ struct PodcastEpisodeRowCard: View {
         ? "Opens episode details. Play button starts playback."
         : "Play button starts playback."
     )
-  }
-
-
-
-  @ViewBuilder
-  private func podcastEpisodeExpandedBlock(_ d: ABSPodcastEpisodeExpandedDetail) -> some View {
-    let palette = model.appearancePalette
-    VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
-      Divider().background(palette.textSecondary.opacity(0.2))
-      podcastMetaRowShowFilter(episode: d.episode)
-      podcastMetaRowHostAuthorFilter(detail: d)
-      if let s = d.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
-        podcastMetaRow("Subtitle", s)
-      }
-      if let pub = d.pubDate?.trimmingCharacters(in: .whitespacesAndNewlines), !pub.isEmpty {
-        podcastMetaRow("Published", pub)
-      }
-      if let g = d.showGenres, !g.isEmpty {
-        podcastMetaRow("Categories", g.joined(separator: ", "))
-      }
-      podcastMetaRow(
-        "Episode",
-        absPlainText(fromHTML: d.episodeDescriptionHTML).nilIfEmpty ?? "—")
-      podcastMetaRow(
-        "Show notes",
-        absPlainText(fromHTML: d.showDescriptionHTML).nilIfEmpty ?? "—")
-      podcastEpisodeExpandedActionRow(episode: d.episode)
-    }
-    .padding(.horizontal, AppTheme.Layout.libraryRowCardInset)
-    .padding(.bottom, AppTheme.Layout.withinSectionSpacing)
-  }
-
-  private func podcastEpisodeExpandedActionRow(episode: ABSPodcastEpisodeListItem) -> some View {
-    let rowProgress = live.progress
-    let isFinished = rowProgress?.isFinished == true
-    return HStack(spacing: AppTheme.Layout.inlineSpacing) {
-      Group {
-        if live.isDownloading {
-          ZStack {
-            RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
-              .stroke(model.appearanceAccentColor.opacity(0.45), lineWidth: AppTheme.Layout.hairlineWidth)
-            ProgressView(value: live.downloadProgress)
-              .tint(model.appearanceAccentColor)
-              .scaleEffect(x: 1, y: 1.1, anchor: .center)
-              .padding(.horizontal, AppTheme.Layout.inlineSpacing)
-          }
-          .frame(maxWidth: .infinity)
-          .frame(height: MiniPlayerMetrics.controlMinHeight)
-          .accessibilityLabel("Download in progress")
-        } else if live.isDownloaded {
-          Button {
-            model.removeLocalDownload(bookId: model.podcastEpisodeOfflineStorageId(episode))
-          } label: {
-            Image(systemName: "arrow.down.circle.badge.xmark")
-              .font(.callout)
-              .foregroundStyle(model.appearanceAccentColor)
-          }
-          .buttonStyle(LibraryCardActionButtonStyle(variant: .downloaded))
-          .accessibilityLabel("Remove offline copy")
-        } else {
-          Button {
-            model.startDownloadPodcastEpisode(episode)
-          } label: {
-            Image(systemName: "arrow.down.circle")
-              .font(.callout)
-              .foregroundStyle(model.appearanceAccentColor)
-          }
-          .buttonStyle(LibraryCardActionButtonStyle(variant: .accent))
-          .accessibilityLabel("Download")
-        }
-      }
-      .frame(maxWidth: .infinity)
-
-      Button {
-        Task {
-          if isFinished {
-            await model.markPodcastEpisodeUnfinished(episode)
-          } else {
-            await model.markPodcastEpisodeFinished(episode)
-          }
-        }
-      } label: {
-        Image(systemName: isFinished ? "arrow.uturn.backward.circle" : "checkmark.circle")
-          .font(.callout)
-          .foregroundStyle(
-            model.isNetworkReachable
-              ? model.appearanceAccentColor
-              : model.appearancePalette.textSecondary)
-      }
-      .buttonStyle(LibraryCardActionButtonStyle(variant: isFinished ? .finished : .accent))
-      .disabled(!model.isNetworkReachable)
-      .accessibilityLabel(isFinished ? "Mark as not finished" : "Finished")
-    }
-    .frame(maxWidth: .infinity)
-    .fixedSize(horizontal: false, vertical: true)
-    .padding(.top, AppTheme.Layout.stackSpacing)
-  }
-
-  private func podcastMetaRowHostAuthorFilter(detail: ABSPodcastEpisodeExpandedDetail) -> some View {
-    let palette = model.appearancePalette
-    let authors = detail.showAuthors
-    let line = detail.episode.authorLine.trimmingCharacters(in: .whitespacesAndNewlines)
-    return HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
-      Text("HOST / AUTHOR")
-        .font(.caption.weight(.bold))
-        .foregroundStyle(palette.textSecondary)
-        .frame(width: AppTheme.Layout.metaLabelColumnWidth, alignment: .leading)
-      Group {
-        if !authors.isEmpty {
-          VStack(alignment: .leading, spacing: AppTheme.Layout.compactSpacing) {
-            ForEach(authors, id: \.id) { author in
-              Button {
-                model.openPodcastSearchFromText(author.name)
-              } label: {
-                Text(author.name)
-                  .font(DetailHeroTypography.metaLink)
-                  .abstandAccentForeground()
-                  .multilineTextAlignment(.leading)
-                  .fixedSize(horizontal: false, vertical: true)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-              }
-              .buttonStyle(.plain)
-            }
-          }
-        } else if !line.isEmpty, line != "—" {
-          Button {
-            model.openPodcastSearchFromText(line)
-          } label: {
-            Text(line)
-              .font(.subheadline)
-              .abstandAccentForeground()
-              .multilineTextAlignment(.leading)
-              .fixedSize(horizontal: false, vertical: true)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          }
-          .buttonStyle(.plain)
-        } else {
-          Text("—")
-            .font(.subheadline)
-            .foregroundStyle(palette.textPrimary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-    }
-  }
-
-  private func podcastMetaRowShowFilter(episode: ABSPodcastEpisodeListItem) -> some View {
-    let palette = model.appearancePalette
-    let title = episode.showTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-    return HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
-      Text("SHOW")
-        .font(.caption.weight(.bold))
-        .foregroundStyle(palette.textSecondary)
-        .frame(width: AppTheme.Layout.metaLabelColumnWidth, alignment: .leading)
-      if title.isEmpty || title == "—" {
-        Text("—")
-          .font(.subheadline)
-          .foregroundStyle(palette.textPrimary)
-          .fixedSize(horizontal: false, vertical: true)
-      } else {
-        Button {
-          model.openPodcastSearchFromText(title)
-        } label: {
-          Text(title)
-            .font(.subheadline)
-            .abstandAccentForeground()
-            .multilineTextAlignment(.leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .buttonStyle(.plain)
-      }
-    }
-  }
-
-  private func podcastMetaRow(_ k: String, _ v: String) -> some View {
-    let palette = model.appearancePalette
-    return HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
-      Text(k.uppercased())
-        .font(.caption.weight(.bold))
-        .foregroundStyle(palette.textSecondary)
-        .frame(width: AppTheme.Layout.metaLabelColumnWidth, alignment: .leading)
-      Text(v)
-        .font(.subheadline)
-        .foregroundStyle(palette.textPrimary)
-        .fixedSize(horizontal: false, vertical: true)
-    }
   }
 }
 
@@ -796,6 +626,11 @@ private struct LibraryHeroPodcastEpisodeCard: View {
   }
 
   private var prog: ABSUserMediaProgress? { live.progress }
+
+  /// Beendete Folge: Cover und Text zurücknehmen (wie kompakte Zeilen).
+  private var episodeFinishedOpacity: Double {
+    prog?.isFinished == true ? LibraryRowLayout.finishedContentOpacity : 1
+  }
 
   private var resolvedTotalDurationSeconds: Double {
     if episode.duration > 0 { return episode.duration }
@@ -896,6 +731,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
         )
         .clipShape(coverClip)
         .contentShape(coverClip)
+        .opacity(episodeFinishedOpacity)
         .onTapGesture {
           if opensDetailOnTap {
             openEpisodeDetail()
@@ -923,8 +759,14 @@ private struct LibraryHeroPodcastEpisodeCard: View {
       .aspectRatio(1, contentMode: .fit)
       .frame(maxWidth: .infinity)
       .overlay(alignment: .topTrailing) {
-        ContinueListeningHeroPodcastOfflineBadgeSlot(rowLive: live)
-          .fixedSize()
+        HStack(spacing: 0) {
+          if prog?.isFinished == true {
+            LibraryHeroFinishedBadge()
+              .fixedSize()
+          }
+          ContinueListeningHeroPodcastOfflineBadgeSlot(rowLive: live)
+            .fixedSize()
+        }
       }
       .clipped()
 
@@ -958,6 +800,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
           }
         }
       }
+      .opacity(episodeFinishedOpacity)
       .background(palette.card)
     }
     .background(palette.card)
@@ -1123,7 +966,8 @@ struct ContinueListeningHeroBookCard: View {
     .background(tint)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous))
     .abstandHeroCardOutline(palette: model.appearancePalette)
-    .task(id: book.id) {
+    // `updatedAt` mit im Key: nach Cover-/Metadaten-Änderung die Hintergrundfarbe neu ableiten.
+    .task(id: "\(book.id)|\(book.updatedAt?.timeIntervalSince1970 ?? 0)") {
       await refreshContinueHeroTint()
     }
     .onChange(of: model.appearanceThemeRevision) { _, _ in
@@ -1611,7 +1455,13 @@ struct PodcastShowRowCard: View {
 
   var body: some View {
     let palette = model.appearancePalette
-    return VStack(alignment: .leading, spacing: 0) {
+    // Gleiche Zeilenhülle wie Buch-/Folgen-Zeilen; Tap übernimmt der umgebende Button des Aufrufers.
+    return LibraryRowLayout.libraryRowCardChrome(
+      cardColor: palette.card,
+      showsBottomProgressBar: false,
+      progressValue: 0,
+      openDetails: nil
+    ) {
       HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
         LibraryRowLayout.coverSlot {
           LibraryRowLayout.rowCoverImage(
@@ -1638,7 +1488,7 @@ struct PodcastShowRowCard: View {
             LibraryRowLayout.metadataFooter {
               Group {
                 if let episodes = show.media.numTracks, episodes > 0 {
-                  Text("\(episodes) episodes")
+                  Text(episodes == 1 ? "1 episode" : "\(episodes) episodes")
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(palette.textSecondary)
                 } else if show.totalDuration > 0 {
@@ -1653,9 +1503,7 @@ struct PodcastShowRowCard: View {
           }
         }
       }
-      .padding(.leading, 0)
     }
-    .abstandCardChrome(palette.card, shape: LibraryRowLayout.cardShape)
     .abstandThemeRefresh()
   }
 
@@ -1665,17 +1513,17 @@ struct PodcastShowRowCard: View {
       EmptyView()
     } else if model.downloadedItemIds.contains(show.id) {
       Image(systemName: "arrow.down.circle.fill")
-        .foregroundStyle(model.appearanceAccentColor)
+        .foregroundStyle(model.appearancePalette.textSecondary)
         .font(.caption)
         .accessibilityLabel("Saved offline")
     } else if model.downloads.activeItemId == show.id {
       ProgressView(value: model.downloads.progress)
         .frame(width: AppTheme.Layout.compactIconButtonSize)
-        .tint(model.appearanceAccentColor)
+        .tint(model.appearancePalette.textSecondary)
         .accessibilityLabel("Downloading")
     } else if model.downloads.queuedItemIds.contains(show.id) {
       Image(systemName: "circle.dashed")
-        .foregroundStyle(model.appearanceAccentColor)
+        .foregroundStyle(model.appearancePalette.textSecondary)
         .font(.caption)
         .accessibilityLabel("Queued")
     }
@@ -1692,6 +1540,8 @@ enum LibraryRowLayout {
   /// Gleicher Radius wie die Home-Cover-Cards — Zeilen und Karten wirken als eine Familie.
   nonisolated static let cornerRadius = AppTheme.Layout.continueHeroCardCornerRadius
   nonisolated static let cardInset = AppTheme.Layout.libraryRowCardInset
+  /// Beendete Titel: Cover, Text, Häkchen und Play-Pille zurückgenommen (Download-Status bleibt voll).
+  nonisolated static let finishedContentOpacity: Double = 0.35
   nonisolated static let textInset = AppTheme.Layout.libraryRowTextInset
 
   static var cardShape: RoundedRectangle {
@@ -1877,7 +1727,8 @@ enum LibraryRowLayout {
 
 /// „Fertig“ + Download-Status oben rechts in kompakten Zeilen — schlichte Icons wie früher im Footer.
 private struct LibraryRowStatusBadges: View {
-  @Environment(\.themeAccent) private var themeAccent
+  /// Sekundäre Textfarbe (Palette) — Status-Icons treten hinter Titel und Play-Pille zurück.
+  let color: Color
   let isFinished: Bool
   let isDownloaded: Bool
   let isDownloading: Bool
@@ -1886,7 +1737,9 @@ private struct LibraryRowStatusBadges: View {
   var body: some View {
     HStack(spacing: AppTheme.Layout.compactSpacing) {
       if isFinished {
+        // Beendet: Häkchen wie Text und Cover zurückgenommen; Download-Status bleibt voll sichtbar.
         Image(systemName: "checkmark.circle.fill")
+          .opacity(LibraryRowLayout.finishedContentOpacity)
           .accessibilityLabel("Finished")
       }
       if isDownloaded {
@@ -1895,12 +1748,12 @@ private struct LibraryRowStatusBadges: View {
       } else if isDownloading {
         ProgressView(value: downloadProgress)
           .frame(width: AppTheme.Layout.compactIconButtonSize)
-          .tint(themeAccent)
+          .tint(color)
           .accessibilityLabel("Downloading")
       }
     }
     .font(.caption)
-    .foregroundStyle(themeAccent)
+    .foregroundStyle(color)
     .fixedSize()
   }
 }
@@ -2092,7 +1945,10 @@ struct LibraryHeroMultiColumnRows<Item: Identifiable, Card: View>: View {
         ForEach(0..<columnCount, id: \.self) { offset in
           let index = start + offset
           if index < items.count {
+            // Identität am Item, nicht an der Rasterposition — sonst behalten Karten nach
+            // Umsortieren/Filtern ihren `@State` (Live-Zustand des vorherigen Titels).
             card(items[index])
+              .id(items[index].id)
               .frame(maxWidth: .infinity)
           } else {
             Color.clear
@@ -2149,7 +2005,7 @@ private struct EbookTabListCard: View {
   }
 }
 
-/// Wählt kompakte Zeile, Cover-Karte oder Cover-only gemäß `libraryBookCardStyle`.
+/// Wählt kompakte Zeile oder Cover-Karte gemäß `libraryBookCardStyle`.
 struct LibraryBookListCard: View {
   let book: ABSBook
   let model: AppModel
@@ -2202,20 +2058,7 @@ struct LibraryBookListCard: View {
           progressOverride: progressOverride,
           authorLineOverride: authorLineOverride,
           showsDownloadStatus: showsDownloadStatus,
-          opensDetailOnTap: opensDetailOnTap,
-          showsMetadataBlock: true
-        )
-      case .coverOnly:
-        LibraryHeroBookRowCard(
-          book: book,
-          model: model,
-          showEbookBadge: showEbookBadge,
-          usesEbookProgressDisplay: usesEbookProgressDisplay,
-          progressOverride: progressOverride,
-          authorLineOverride: authorLineOverride,
-          showsDownloadStatus: showsDownloadStatus,
-          opensDetailOnTap: opensDetailOnTap,
-          showsMetadataBlock: false
+          opensDetailOnTap: opensDetailOnTap
         )
       case .compact:
         BookRowCard(
@@ -2236,8 +2079,7 @@ struct LibraryBookListCard: View {
   }
 }
 
-/// Library-Cover-Karte im Continue-Hero-Stil (Rasterzelle, ohne Play-Pille).
-/// Mit `showsMetadataBlock == false`: nur Cover + Cover-Icons, Tap → Detail (kein Start).
+/// Library-Cover-Karte im Continue-Hero-Stil (Rasterzelle).
 private struct LibraryHeroBookRowCard: View {
   let book: ABSBook
   let model: AppModel
@@ -2251,8 +2093,6 @@ private struct LibraryHeroBookRowCard: View {
   var coverAspectRatio: CGFloat = 1
   /// eBook-Lesefortschritt in Balken auf dem Cover.
   var usesEbookProgressDisplay = false
-  /// `false` = Cover-only (keine Titel/Autor-Zeile, keine Fortschrittsleiste/Gradient).
-  var showsMetadataBlock = true
 
   @State private var live: LibraryBookRowLiveState
   @State private var showDetail = false
@@ -2271,8 +2111,7 @@ private struct LibraryHeroBookRowCard: View {
     authorLineOverride: String? = nil,
     showsDownloadStatus: Bool = true,
     opensDetailOnTap: Bool = true,
-    coverAspectRatio: CGFloat = 1,
-    showsMetadataBlock: Bool = true
+    coverAspectRatio: CGFloat = 1
   ) {
     self.showEbookBadge = showEbookBadge
     self.usesEbookProgressDisplay = usesEbookProgressDisplay
@@ -2281,7 +2120,6 @@ private struct LibraryHeroBookRowCard: View {
     self.showsDownloadStatus = showsDownloadStatus
     self.opensDetailOnTap = opensDetailOnTap
     self.coverAspectRatio = coverAspectRatio
-    self.showsMetadataBlock = showsMetadataBlock
     self.model = model
     self.supplementaryEbookBadge = model.bookShowsSupplementaryEbookBadge(book)
     let resolvedBook = model.bookStubEnrichedForListDisplay(book)
@@ -2427,25 +2265,13 @@ private struct LibraryHeroBookRowCard: View {
   ) -> some View {
     let fullClip = RoundedRectangle(cornerRadius: outerCornerRadius, style: .continuous)
 
-    Group {
-      if showsMetadataBlock {
-        heroCardWithMetadata(palette: palette, coverInset: coverInset, barH: barH)
-      } else {
-        coverOnlyCard()
-      }
-    }
+    heroCardWithMetadata(palette: palette, coverInset: coverInset, barH: barH)
     .background(palette.card)
     .clipShape(fullClip)
     .abstandHeroCardOutline(palette: palette)
     .frame(maxWidth: .infinity, alignment: .top)
     .accessibilityElement(children: .contain)
     .accessibilityHint(opensDetailOnTap ? "Opens book details." : "")
-  }
-
-  /// Reines 1:1-Cover mit denselben Cover-Icons wie die Cover-Karte; Tap → Detail.
-  private func coverOnlyCard() -> some View {
-    let fullClip = RoundedRectangle(cornerRadius: outerCornerRadius, style: .continuous)
-    return coverStack(clip: fullClip, showsProgressChrome: false)
   }
 
   private func heroCardWithMetadata(
@@ -2465,6 +2291,7 @@ private struct LibraryHeroBookRowCard: View {
     return VStack(alignment: .leading, spacing: 0) {
       coverStack(clip: heroCoverClip, showsProgressChrome: true, barH: barH)
 
+      Group {
       if book.isPlayableAudiobook {
         // Wie Continue Listening / Podcast-Cover: Dauer als Play-Pille → Play↔Pause wie Detail.
         ContinueListeningHeroTextBlock(
@@ -2532,7 +2359,14 @@ private struct LibraryHeroBookRowCard: View {
         }
         .background(palette.card)
       }
+      }
+      .opacity(finishedContentOpacity)
     }
+  }
+
+  /// Beendet: Cover und Text zurücknehmen (wie kompakte Zeilen).
+  private var finishedContentOpacity: Double {
+    isFinished ? LibraryRowLayout.finishedContentOpacity : 1
   }
 
   private func coverStack<Clip: Shape>(
@@ -2550,6 +2384,7 @@ private struct LibraryHeroBookRowCard: View {
       )
       .clipShape(clip)
       .contentShape(clip)
+      .opacity(finishedContentOpacity)
       .onTapGesture {
         if opensDetailOnTap {
           showDetail = true
@@ -2590,6 +2425,10 @@ private struct LibraryHeroBookRowCard: View {
     }
     .overlay(alignment: .topTrailing) {
       HStack(spacing: 0) {
+        if isFinished {
+          LibraryHeroFinishedBadge()
+            .fixedSize()
+        }
         ebookAvailableBadge
         if showsDownloadStatus {
           ContinueListeningHeroBookOfflineBadgeSlot(rowLive: live)
@@ -2598,6 +2437,21 @@ private struct LibraryHeroBookRowCard: View {
       }
     }
     .clipped()
+  }
+}
+
+/// „Beendet“ auf Cover-Karten — gleiche Kapsel wie das Download-Badge, zurückgenommen wie der Rest
+/// einer beendeten Karte (Download-Status bleibt voll sichtbar).
+private struct LibraryHeroFinishedBadge: View {
+  var body: some View {
+    ContinueListeningHeroCoverPill {
+      Image(systemName: "checkmark.circle.fill")
+        .font(ContinueListeningHeroCoverPillMetrics.iconFont)
+        // Bewusst Weiß statt Palette: liegt auf der dunklen Badge-Kapsel über beliebigem Cover-Artwork.
+        .foregroundStyle(.white)
+    }
+    .opacity(LibraryRowLayout.finishedContentOpacity)
+    .accessibilityLabel("Finished")
   }
 }
 
@@ -2755,6 +2609,7 @@ struct BookRowCard: View {
             libraryRowCoverWithPlayBadge
           }
         }
+        .opacity(rowFinishedContentOpacity)
 
         LibraryRowLayout.metadataColumn(showsProgressBar: showsBottomProgressBar) {
           if showsPlaybackControls {
@@ -2823,14 +2678,21 @@ struct BookRowCard: View {
         .truncationMode(.tail)
         .minimumScaleFactor(0.85)
         .fixedSize(horizontal: false, vertical: true)
+        .opacity(rowFinishedContentOpacity)
         .frame(maxWidth: .infinity, alignment: .leading)
       LibraryRowStatusBadges(
+        color: model.appearancePalette.textSecondary,
         isFinished: rowIsFinished,
         isDownloaded: showsDownloadStatus && live.isDownloaded,
         isDownloading: showsDownloadStatus && live.isDownloading,
         downloadProgress: live.downloadProgress
       )
     }
+  }
+
+  /// Beendeter Titel: Text und Play-Pille zurücknehmen (Cover und Status-Icons bleiben voll).
+  private var rowFinishedContentOpacity: Double {
+    rowIsFinished ? LibraryRowLayout.finishedContentOpacity : 1
   }
 
   private var rowIsFinished: Bool {
@@ -2845,6 +2707,7 @@ struct BookRowCard: View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
       libraryRowTitleText
       BookCollapsedAuthorLine(book: book, authorOverride: authorLineOverride)
+        .opacity(rowFinishedContentOpacity)
       Spacer(minLength: 0)
       libraryRowMetaFooter
     }
@@ -2855,6 +2718,7 @@ struct BookRowCard: View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
       libraryRowTitleText
       BookCollapsedAuthorLine(book: book, authorOverride: authorLineOverride)
+        .opacity(rowFinishedContentOpacity)
       Spacer(minLength: 0)
       libraryRowMetaFooter
     }
@@ -2865,6 +2729,7 @@ struct BookRowCard: View {
   private var libraryRowMetaFooter: some View {
     LibraryRowLayout.metadataFooter(alignment: .bottom) {
       LibraryRowLayout.footerLeadingSlot {
+        Group {
         if usesEbookMetrics {
           if let label = ebookProgressLabel {
             Text(label)
@@ -2878,6 +2743,8 @@ struct BookRowCard: View {
             .font(.subheadline.monospacedDigit())
             .foregroundStyle(model.appearancePalette.textSecondary)
         }
+        }
+        .opacity(rowFinishedContentOpacity)
       }
     } trailing: {
       if showsAudiobookPlayControl, !usesEbookMetrics {
@@ -2897,284 +2764,8 @@ struct BookRowCard: View {
             await model.play(book: book, resumeAtOverride: isFinished ? 0 : nil)
           }
         }
+        .opacity(rowFinishedContentOpacity)
       }
-    }
-  }
-
-
-
-  @ViewBuilder
-  private func expandedBlock(_ d: ABSBook) -> some View {
-    let m = d.media.metadata
-    let rowProgress = d.id == book.id ? (progressOverride ?? live.progress) : model.progressByItemId[d.id]
-    let isFinished = rowProgress?.isFinished == true
-    let isDownloaded = d.id == book.id ? live.isDownloaded : model.downloadedItemIds.contains(d.id)
-    let isDownloading = d.id == book.id ? live.isDownloading : model.downloads.activeItemId == d.id
-    let isQueued = d.id == book.id ? live.isQueued : model.downloads.queuedItemIds.contains(d.id)
-    let downloadProgress = d.id == book.id ? live.downloadProgress : model.downloads.progress
-
-    VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
-      Divider().background(model.appearancePalette.textSecondary.opacity(0.2))
-      expandedAuthorRow(metadata: m)
-      expandedNarratorRow(metadata: m)
-      expandedSeriesRow(metadata: m)
-      metaRow("Year", m.publishedYear ?? "—")
-      metaRow("Publisher", m.publisher ?? "—")
-      metaRow("Genres", (m.genres ?? []).joined(separator: ", ").nilIfEmpty ?? "—")
-      metaRow(
-        "Description",
-        absPlainText(fromHTML: m.descriptionPlain ?? m.description).nilIfEmpty ?? "—")
-
-      HStack(spacing: AppTheme.Layout.inlineSpacing) {
-        Group {
-          if isDownloading {
-            ZStack {
-              RoundedRectangle(cornerRadius: MiniPlayerMetrics.controlCorner, style: .continuous)
-                .stroke(themeAccent.opacity(0.45), lineWidth: AppTheme.Layout.hairlineWidth)
-              ProgressView(value: downloadProgress)
-                .tint(themeAccent)
-                .scaleEffect(x: 1, y: 1.1, anchor: .center)
-                .padding(.horizontal, AppTheme.Layout.inlineSpacing)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: MiniPlayerMetrics.controlMinHeight)
-            .accessibilityLabel("Download in progress")
-          } else if isQueued {
-            // Wartet in der Download-Queue — noch nicht aktiv, kein Cancel hier (nur über Entfernen).
-            Image(systemName: "circle.dashed")
-              .font(.callout)
-              .foregroundStyle(themeAccent)
-              .frame(maxWidth: .infinity)
-              .frame(height: MiniPlayerMetrics.controlMinHeight)
-              .accessibilityLabel("Queued")
-          } else if isDownloaded {
-            Button {
-              model.removeLocalDownload(bookId: d.id)
-            } label: {
-              Image(systemName: "arrow.down.circle.badge.xmark")
-                .font(.callout)
-                .foregroundStyle(themeAccent)
-            }
-            .buttonStyle(LibraryCardActionButtonStyle(variant: .downloaded))
-            .accessibilityLabel("Remove offline copy")
-          } else {
-            Button {
-              model.startDownload(book: d)
-            } label: {
-              Image(systemName: "arrow.down.circle")
-                .font(.callout)
-                .foregroundStyle(themeAccent)
-            }
-            .buttonStyle(LibraryCardActionButtonStyle(variant: .neutral))
-            .accessibilityLabel("Download")
-          }
-        }
-        .frame(maxWidth: .infinity)
-
-        Button {
-          Task {
-            if isFinished {
-              await model.markUnfinished(bookId: d.id)
-            } else {
-              await model.markFinished(bookId: d.id)
-            }
-          }
-        } label: {
-          Image(systemName: isFinished ? "arrow.uturn.backward.circle" : "checkmark.circle")
-            .font(.callout)
-            .foregroundStyle(
-              model.isNetworkReachable
-                ? themeAccent
-                : model.appearancePalette.textSecondary)
-        }
-        .buttonStyle(LibraryCardActionButtonStyle(variant: isFinished ? .finished : .accent))
-        .disabled(!model.isNetworkReachable)
-        .accessibilityLabel(isFinished ? "Mark as not finished" : "Finished")
-      }
-      .frame(maxWidth: .infinity)
-      .fixedSize(horizontal: false, vertical: true)
-      .padding(.top, AppTheme.Layout.stackSpacing)
-    }
-    .padding(.horizontal, AppTheme.Layout.libraryRowCardInset)
-    .padding(.bottom, AppTheme.Layout.rowSpacing)
-  }
-
-  private func seriesDisplayLine(for s: ABSSeries) -> String {
-    if let q = s.sequence?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty {
-      return "\(s.name) (\(q))"
-    }
-    return s.name
-  }
-
-  private func applyAuthorFilterForActiveCatalog(authorId: String, displayName: String? = nil) {
-    if model.mainTab == .podcasts {
-      let q = (displayName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-      if !q.isEmpty { model.openPodcastSearchFromText(q) }
-    } else {
-      model.applyAuthorFilter(authorId: authorId, displayName: displayName)
-    }
-  }
-
-  private func applyNarratorFilterForActiveCatalog(narratorName: String) {
-    if model.mainTab == .podcasts {
-      model.openPodcastSearchFromText(narratorName)
-    } else {
-      model.applyNarratorFilter(narratorName: narratorName)
-    }
-  }
-
-  private func applySeriesFilterForActiveCatalog(seriesId: String, displayName: String? = nil) {
-    if model.mainTab == .podcasts {
-      let q = (displayName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-      if !q.isEmpty { model.openPodcastSearchFromText(q) }
-    } else {
-      model.applySeriesFilter(seriesId: seriesId, displayName: displayName)
-    }
-  }
-
-  private func narratorNamesForFilter(_ m: ABSBookMediaMetadata) -> [String] {
-    var ordered: [String] = []
-    var seen = Set<String>()
-    func add(_ raw: String) {
-      let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !t.isEmpty, seen.insert(t).inserted else { return }
-      ordered.append(t)
-    }
-    if let n = m.narratorName {
-      for part in n.split(separator: ",") {
-        add(String(part))
-      }
-    }
-    if let arr = m.narrators {
-      for s in arr { add(s) }
-    }
-    return ordered
-  }
-
-  private func authorPlainDisplayLine(_ m: ABSBookMediaMetadata) -> String {
-    let fromName = m.authorName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    if !fromName.isEmpty { return fromName }
-    if let a = m.authors, !a.isEmpty { return a.map(\.name).joined(separator: ", ") }
-    return "—"
-  }
-
-  @ViewBuilder
-  private func expandedAuthorRow(metadata: ABSBookMediaMetadata) -> some View {
-    if let authors = metadata.authors, !authors.isEmpty {
-      libraryMetaLabeledRow(title: "Author") {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
-          ForEach(authors, id: \.id) { author in
-            Button {
-              applyAuthorFilterForActiveCatalog(authorId: author.id, displayName: author.name)
-            } label: {
-              Text(author.name)
-                .font(.subheadline)
-                .abstandAccentForeground()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .multilineTextAlignment(.leading)
-            }
-            .buttonStyle(.plain)
-          }
-        }
-      }
-    } else {
-      let line = authorPlainDisplayLine(metadata)
-      if line == "—" {
-        metaRow("Author", "—")
-      } else {
-        libraryMetaLabeledRow(title: "Author") {
-          Button {
-            if model.mainTab == .podcasts {
-              model.openPodcastSearchFromText(line)
-            } else {
-              model.openBooksSearchFromText(line)
-            }
-          } label: {
-            Text(line)
-              .font(.subheadline)
-              .abstandAccentForeground()
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .multilineTextAlignment(.leading)
-          }
-          .buttonStyle(.plain)
-        }
-      }
-    }
-  }
-
-  @ViewBuilder
-  private func expandedNarratorRow(metadata: ABSBookMediaMetadata) -> some View {
-    let names = narratorNamesForFilter(metadata)
-    if names.isEmpty {
-      metaRow("Narrator", "—")
-    } else {
-      libraryMetaLabeledRow(title: "Narrator") {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
-          ForEach(names, id: \.self) { name in
-            Button {
-              applyNarratorFilterForActiveCatalog(narratorName: name)
-            } label: {
-              Text(name)
-                .font(.subheadline)
-                .abstandAccentForeground()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .multilineTextAlignment(.leading)
-            }
-            .buttonStyle(.plain)
-          }
-        }
-      }
-    }
-  }
-
-  @ViewBuilder
-  private func expandedSeriesRow(metadata: ABSBookMediaMetadata) -> some View {
-    if let seriesList = metadata.series, !seriesList.isEmpty {
-      libraryMetaLabeledRow(title: "Series") {
-        VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
-          ForEach(seriesList, id: \.id) { s in
-            Button {
-              applySeriesFilterForActiveCatalog(seriesId: s.id, displayName: s.name)
-            } label: {
-              Text(seriesDisplayLine(for: s))
-                .font(.subheadline)
-                .abstandAccentForeground()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .multilineTextAlignment(.leading)
-            }
-            .buttonStyle(.plain)
-          }
-        }
-      }
-    } else if let line = metadata.resolvedSeriesDisplay, !line.isEmpty {
-      metaRow("Series", line)
-    }
-  }
-
-  private func libraryMetaLabeledRow<Content: View>(
-    title: String,
-    @ViewBuilder content: () -> Content
-  ) -> some View {
-    HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
-      Text(title.uppercased())
-        .font(.caption.weight(.bold))
-        .foregroundStyle(model.appearancePalette.textSecondary)
-        .frame(width: AppTheme.Layout.metaLabelColumnWidth, alignment: .leading)
-      content()
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-  }
-
-  private func metaRow(_ k: String, _ v: String) -> some View {
-    HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
-      Text(k.uppercased())
-        .font(.caption.weight(.bold))
-        .foregroundStyle(model.appearancePalette.textSecondary)
-        .frame(width: AppTheme.Layout.metaLabelColumnWidth, alignment: .leading)
-      Text(v)
-        .font(.subheadline)
-        .foregroundStyle(model.appearancePalette.textPrimary)
-        .fixedSize(horizontal: false, vertical: true)
     }
   }
 }

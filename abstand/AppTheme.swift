@@ -224,9 +224,9 @@ enum AppTheme {
     static let achievementBadgeCornerRadius: CGFloat = 10
 
     /// Abstand Strip ↔ Großtitel oben.
-    static let horizontalBrowseStripToTitleSpacing: CGFloat = 8
+    static let horizontalBrowseStripToTitleSpacing: CGFloat = 4
     /// Abstand Strip ↔ Scroll-Inhalt / Sektionsüberschrift unten.
-    static let horizontalBrowseStripToContentSpacing: CGFloat = 16
+    static let horizontalBrowseStripToContentSpacing: CGFloat = 10
     static let horizontalBrowseStripVerticalPadding: CGFloat = 4
 
     /// „Continue listening“-Karten (horizontal scrollbar, einheitliche Höhe).
@@ -652,7 +652,7 @@ extension View {
       .environment(\.appearanceThemeRevision, model.appearanceThemeRevision)
   }
 
-  /// System-Scrollmaterial ausblenden, App-Hintergrund (#121212) — für `ScrollView` und `List`.
+  /// System-Scrollmaterial ausblenden, App-Hintergrund (Dark #353535) — für `ScrollView` und `List`.
   func abstandScrollScreenBackground(ignoreSafeArea: Bool = false) -> some View {
     modifier(AbstandScrollBackgroundModifier(ignoreSafeArea: ignoreSafeArea))
   }
@@ -671,7 +671,7 @@ extension View {
       .toolbarVisibility(.visible, for: .automatic)
   }
 
-  /// Detail-Screens (Autor/Serie/Buch/Folge): Tint + `#121212` bis unter die Tab-Bar (nicht am ScrollView abgeschnitten).
+  /// Detail-Screens (Autor/Serie/Buch/Folge): Tint + Palette-Hintergrund bis unter die Tab-Bar (nicht am ScrollView abgeschnitten).
   func abstandDetailScrollBackground(_ color: Color) -> some View {
     modifier(AbstandDetailScreenBackgroundModifier(tint: color))
       .abstandPushedDetailTabBarChrome()

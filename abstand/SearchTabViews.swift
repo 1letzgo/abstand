@@ -184,7 +184,7 @@ private struct BooksSearchBrowseView: View {
   ) -> some View {
     if !isEmpty {
       VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-        TabContentSectionTitle(title:title)
+        TabContentSectionTitle(title: title)
         content()
       }
     }
@@ -229,7 +229,7 @@ private struct PodcastLibrarySearchResultsView: View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
       if !model.podcastLibrarySearchShows.isEmpty {
         LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          TabContentSectionTitle(title:"Shows")
+          TabContentSectionTitle(title: "Shows")
           ForEach(model.podcastLibrarySearchShows) { show in
             Button {
               model.applyPodcastShowFilterSelection(show.id)
@@ -244,12 +244,22 @@ private struct PodcastLibrarySearchResultsView: View {
       }
 
       if !model.podcastLibrarySearchEpisodes.isEmpty {
-        LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-          ForEach(model.podcastLibrarySearchEpisodes) { episode in
-            LibraryPodcastListCard(
-              episode: episode,
-              model: model
-            )
+        VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+          TabContentSectionTitle(title: "Episodes")
+          // Cover-Karten zweispaltig wie im Podcasts-Tab — sonst kompakte Zeilen untereinander.
+          if model.libraryPodcastCardStyle == .heroCover {
+            LibraryHeroTwoColumnRows(
+              items: model.podcastLibrarySearchEpisodes,
+              spacing: AppTheme.Layout.withinSectionSpacing
+            ) { episode in
+              LibraryPodcastListCard(episode: episode, model: model)
+            }
+          } else {
+            LibraryPodcastCardsFlow {
+              ForEach(model.podcastLibrarySearchEpisodes) { episode in
+                LibraryPodcastListCard(episode: episode, model: model)
+              }
+            }
           }
         }
       }

@@ -173,6 +173,14 @@ final class AppModel: ObservableObject {
   @Published var sessionUserType: String = ""
   @Published private(set) var bookmarks: [ABSAudioBookmark] = []
   @Published var ebookReaderSession: EbookReaderPresentation?
+  /// Vollbild-Player (UIKit-Overlay) sichtbar — der globale Fehler-Alert am Root läge darunter;
+  /// Player und Reader zeigen `errorMessage` dann selbst an.
+  @Published var isNowPlayingOverlayVisible = false
+
+  /// Globaler Root-Alert nur, wenn kein Vollbild-Overlay (Player/Reader) darüber liegt.
+  var showsRootErrorAlert: Bool {
+    errorMessage != nil && !isNowPlayingOverlayVisible && ebookReaderSession == nil
+  }
   @Published var isPreparingEbook = false
   /// Debounce für `PATCH /api/me/progress` mit `ebookProgress` (Lese-Sync wie ABS-Web).
   private var ebookProgressSyncTask: Task<Void, Never>?
@@ -203,6 +211,9 @@ final class AppModel: ObservableObject {
   @Published private(set) var libraryCatalogScrollToTopEpoch: Int = 0
   @Published private(set) var browseEbooks: [ABSBook] = []
   @Published private(set) var browseEbooksSupplementary: [ABSBook] = []
+  /// Schnellfilter der eBooks-Kategorie — lokal über die geladenen Listen, eigener Zustand
+  /// (der Hörbuch-Filter lädt den Katalog neu und springt zurück auf „Audiobooks“).
+  @Published var ebookCatalogQuickFilter: LibraryCatalogQuickFilter?
   @Published private(set) var browseEbooksLoading = false
   @Published private(set) var browseEbooksTotal = 0
   private var browseEbooksNextPage = 0
@@ -513,9 +524,10 @@ final class AppModel: ObservableObject {
     didSet { UserDefaults.standard.set(smartDownloadOnWiFi, forKey: Keys.smartDlAutoWifi) }
   }
   /// Read-Along-Transkripte für heruntergeladene Bücher im Vordergrund vorproduzieren.
-  @Published var readAlongPrefetchEnabled: Bool = UserDefaults.standard.bool(
-    forKey: Keys.readAlongPrefetch
-  ) {
+  /// Standard an: ohne Vorproduktion finden Read Along, Teleprompter und Recap meist kein Transkript.
+  @Published var readAlongPrefetchEnabled: Bool =
+    UserDefaults.standard.object(forKey: Keys.readAlongPrefetch) as? Bool ?? true
+  {
     didSet {
       UserDefaults.standard.set(readAlongPrefetchEnabled, forKey: Keys.readAlongPrefetch)
       guard oldValue != readAlongPrefetchEnabled else { return }
@@ -998,7 +1010,7 @@ final class AppModel: ObservableObject {
   enum MainTab: String, CaseIterable, Hashable {
     case start = "Home"
     case search = "Search"
-    case library = "Audiobooks"
+    case library = "Books"
     case podcasts = "Podcasts"
     case settings = "Settings"
   }
@@ -1184,7 +1196,9 @@ final class AppModel: ObservableObject {
       }
     }
     floatingChrome.bind(model: self)
-    transcriptPrefetcher.configure(player: player)
+    transcriptPrefetcher.configure(player: player) { [weak self] in
+      self?.downloadedTranscriptJobs() ?? []
+    }
     transcriptPrefetcher.setEnabled(readAlongPrefetchEnabled)
     player.onActiveMediaPrepared = { [weak self] in
       guard let self, self.readAlongPrefetchEnabled else { return }
@@ -1290,6 +1304,52 @@ final class AppModel: ObservableObject {
     downloadStorageIdByLibraryItemId = storageByLibraryItem
     downloadedShelfBooks = list
     invalidateDownloadedAudiobooksFullMetadataCache()
+  }
+
+  /// Transkript-Aufträge für alle heruntergeladenen Titel (Hörbücher und Folgen) — unabhängig davon,
+  /// ob sie gerade im Player laufen. Quellen und Versatz wie im Player (`rebuildTrackStarts`).
+  func downloadedTranscriptJobs() -> [PlayerTranscriptJob] {
+    var jobs: [PlayerTranscriptJob] = []
+    for id in downloadedItemIds.sorted() {
+      guard let root = try? downloads.downloadFolder(for: id),
+        let manifest = ABSDownloadManifest.load(from: root),
+        downloadManifestBelongsToActiveAccount(manifest)
+      else { continue }
+      let tracks = manifest.tracks.sorted { $0.index < $1.index }
+      guard !tracks.isEmpty else { continue }
+      let offsets = tracks.map(\.startOffset)
+      let usesCumulative =
+        tracks.count > 1
+        && (offsets.allSatisfy { $0 == 0 } || !zip(offsets, offsets.dropFirst()).allSatisfy { $0.1 + 0.001 >= $0.0 })
+      var cursor = 0.0
+      var sources: [PlayerTranscriptTrackSource] = []
+      for (position, track) in tracks.enumerated() {
+        let offset = usesCumulative ? cursor : track.startOffset
+        cursor += track.duration
+        guard
+          let url = PlaybackController.resolvedLocalTrackURL(
+            root: root, trackIndex: track.index, manifest: manifest)
+        else { continue }
+        sources.append(
+          PlayerTranscriptTrackSource(
+            trackIndex: position, assetURL: url, globalOffset: offset, duration: track.duration))
+      }
+      guard sources.count == tracks.count else { continue }
+      let ep = manifest.episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      let languageTag: String? =
+        ep.isEmpty
+        ? (cachedBookDetail(id: manifest.libraryItemId)?.media.metadata.language
+          ?? bookFromLocalStore(libraryItemId: manifest.libraryItemId)?.media.metadata.language)
+        : podcastShowTranscriptionLanguage(for: manifest.libraryItemId)
+      jobs.append(
+        PlayerTranscriptJob(
+          storageId: id,
+          title: manifest.displayTitle ?? "",
+          languageTag: languageTag,
+          sources: sources
+        ))
+    }
+    return jobs
   }
 
   /// CarPlay „Downloaded“: je Download eine Zeile. Podcast-Folgen als eigene Folgen-Zeilen — als
@@ -2446,7 +2506,7 @@ final class AppModel: ObservableObject {
       for shelf in shelves {
         let key = shelf.category
         if var existing = byCategory[key] {
-          let books = dedupeContinueListeningBooks(existing.books + shelf.books)
+          let books = mergedShelfBooks(existing.books + shelf.books, category: key)
           let episodes = dedupePodcastEpisodesForHomeContinueList(
             existing.podcastEpisodes + shelf.podcastEpisodes)
           var authorsById: [String: ABSAuthorShelfEntity] = [:]
@@ -2476,6 +2536,30 @@ final class AppModel: ObservableObject {
     ingest(base)
     ingest(extra)
     return order.compactMap { byCategory[$0] }
+  }
+
+  /// Bücher eines Regals aus mehreren Bibliotheken zusammenführen — Reihenfolge je Regaltyp:
+  /// nur Continue listening sortiert nach „zuletzt gehört“; „Recently added“ nach Hinzufügedatum.
+  /// Vorher liefen alle Regale durch die Continue-Sortierung — gerade beendete Bücher rutschten
+  /// dadurch in „Recently added“ vor soeben hinzugefügte.
+  private func mergedShelfBooks(_ books: [ABSBook], category: String) -> [ABSBook] {
+    if category == Self.homeContinueCategory || category == "itemsInProgressFallback" {
+      return dedupeContinueListeningBooks(books)
+    }
+    var seen = Set<String>()
+    var out = books.filter { seen.insert($0.id).inserted }
+    if category == "newestItems" {
+      // Stabil: ohne Datum bleiben Einträge in Server-Reihenfolge hinter den datierten.
+      out = out.enumerated().sorted { lhs, rhs in
+        switch (lhs.element.addedAt, rhs.element.addedAt) {
+        case let (l?, r?) where l != r: return l > r
+        case (_?, nil): return true
+        case (nil, _?): return false
+        default: return lhs.offset < rhs.offset
+        }
+      }.map(\.element)
+    }
+    return out
   }
 
   /// Schwere Home-Nacharbeit (Downloads, Continue, eBooks) — nicht synchron blockieren (Pull-to-Refresh / UI).
@@ -4664,6 +4748,27 @@ final class AppModel: ObservableObject {
     return (catalogSortField.apiSortParameter, descending)
   }
 
+  func applyEbookCatalogQuickFilter(_ filter: LibraryCatalogQuickFilter?) {
+    guard ebookCatalogQuickFilter != filter else { return }
+    requestLibraryCatalogScrollToTop()
+    ebookCatalogQuickFilter = filter
+  }
+
+  /// eBook-Liste nach Schnellfilter — Fortschritt/Download beziehen sich aufs eBook, nicht aufs Hörbuch.
+  func browseEbooksFiltered(_ books: [ABSBook]) -> [ABSBook] {
+    guard let filter = ebookCatalogQuickFilter else { return books }
+    return books.filter { book in
+      let fraction = ebookDisplayProgressFraction(libraryItemId: book.id) ?? 0
+      switch filter {
+      case .inProgress: return fraction > 0.005 && fraction < 0.995
+      case .finished: return fraction >= 0.995
+      case .notStarted: return fraction <= 0.005
+      case .downloaded: return cachedEbookFormat(libraryItemId: book.id) != nil
+      case .ebooks, .ebooksSupplementary: return true
+      }
+    }
+  }
+
   func ensureBrowseEbooksLoaded() async {
     await loadBrowseEbooks(force: false)
   }
@@ -4677,7 +4782,8 @@ final class AppModel: ObservableObject {
     guard client != nil, booksCatalogLibrary != nil else { return }
     if browseEbooksLoading { return }
     if browseEbooks.isEmpty, browseEbooksSupplementary.isEmpty {
-      _ = restoreBrowseEbooksFromLocalStore()
+      // Online nur die exakte Server-Reihenfolge zeigen, sonst Spinner bis zur Antwort (wie Audiobooks).
+      _ = restoreBrowseEbooksFromLocalStore(requireOrderSnapshot: isNetworkReachable)
     }
     if !force, browseEbooksSessionFetchDone { return }
     if !isNetworkReachable {
@@ -4689,10 +4795,16 @@ final class AppModel: ObservableObject {
   }
 
   func loadMoreBrowseEbooksIfNeeded(currentItemId: String) async {
-    guard !browseEbooksLoading, browseEbooks.count < browseEbooksTotal else { return }
+    guard !browseEbooksLoading, hasMoreBrowseEbookPages else { return }
     guard let idx = browseEbooks.firstIndex(where: { $0.id == currentItemId }) else { return }
     guard idx >= browseEbooks.count - 8 else { return }
     await loadBrowseEbooksPage(reset: false)
+  }
+
+  /// Seiten-Ende anhand der Server-Zeilen — `browseEbooks.count` taugt nicht, weil Hörbücher
+  /// aus dem eBook-Filter in die Supplementary-Liste wandern.
+  private var hasMoreBrowseEbookPages: Bool {
+    browseEbooksTotal > 0 && browseEbooksNextPage * Self.libraryCatalogPageLimit < browseEbooksTotal
   }
 
   private func loadBrowseEbooksPage(reset: Bool) async {
@@ -4703,42 +4815,45 @@ final class AppModel: ObservableObject {
     }
     if browseEbooksLoading { return }
     if reset {
-      browseEbooksNextPage = 0
       if browseEbooks.isEmpty, browseEbooksSupplementary.isEmpty {
-        _ = restoreBrowseEbooksFromLocalStore()
-      }
-      if browseEbooks.isEmpty {
-        browseEbooksTotal = 0
+        _ = restoreBrowseEbooksFromLocalStore(requireOrderSnapshot: true)
       }
     } else {
-      guard browseEbooksTotal > 0, browseEbooks.count < browseEbooksTotal else { return }
+      guard hasMoreBrowseEbookPages else { return }
     }
-    let page = browseEbooksNextPage
     browseEbooksLoading = true
     defer { browseEbooksLoading = false }
     do {
       let (sort, descending) = browseEbooksSortKey()
-      let (ebookPage, _) = try await c.libraryItems(
-        libraryId: lib.id,
-        page: page,
-        limit: Self.libraryCatalogPageLimit,
-        sort: sort,
-        ascending: !descending,
-        minified: true,
-        filter: Self.catalogFilterKey(group: "ebooks", value: "ebook")
-      )
-      let rows = ebookPage.results.filter(\.isUsableEbookListRow)
-      browseEbooksTotal = ebookPage.total
-      if reset || page == 0 {
-        browseEbooks = rows
-      } else {
-        let seen = Set(browseEbooks.map(\.id))
-        browseEbooks.append(contentsOf: rows.filter { !seen.contains($0.id) })
-      }
-      browseEbooksNextPage = page + 1
-      rememberEbookFormatsFromCatalog(rows)
+      // Beim Reset alle Seiten sammeln und erst dann einmal veröffentlichen — sonst ersetzt Seite 0
+      // die vollständige Cache-Liste und die Liste springt beim Öffnen.
+      var page = reset ? 0 : browseEbooksNextPage
+      var total = browseEbooksTotal
+      var fetched: [ABSBook] = []
+      repeat {
+        let (ebookPage, _) = try await c.libraryItems(
+          libraryId: lib.id,
+          page: page,
+          limit: Self.libraryCatalogPageLimit,
+          sort: sort,
+          ascending: !descending,
+          minified: true,
+          filter: Self.catalogFilterKey(group: "ebooks", value: "ebook")
+        )
+        total = ebookPage.total
+        fetched.append(contentsOf: ebookPage.results)
+        page += 1
+        if ebookPage.results.isEmpty { break }
+      } while reset && page * Self.libraryCatalogPageLimit < total
 
-      if reset || page == 0 {
+      // Filter `ebooks.ebook` liefert auch Hörbücher mit Haupt-eBook — die gehören in die
+      // Sektion „Audiobooks with eBook“, nicht in die reine eBook-Liste.
+      let usable = fetched.filter(\.isUsableEbookListRow)
+      let rows = usable.filter { !$0.isPlayableAudiobook }
+      let audiobooksWithEbook = usable.filter(\.isPlayableAudiobook)
+      rememberEbookFormatsFromCatalog(usable)
+
+      if reset {
         let (supPage, _) = try await c.libraryItems(
           libraryId: lib.id,
           page: 0,
@@ -4748,17 +4863,32 @@ final class AppModel: ObservableObject {
           minified: false,
           filter: Self.catalogFilterKey(group: "ebooks", value: "supplementary")
         )
-        let supRows = supPage.results.filter(\.isPlayableAudiobook)
-        browseEbooksSupplementary = supRows
+        var supRows = supPage.results.filter(\.isPlayableAudiobook)
+        let supIds = Set(supRows.map(\.id))
+        supRows.append(contentsOf: audiobooksWithEbook.filter { !supIds.contains($0.id) })
         rememberEbookFormatsFromCatalog(supRows)
+        browseEbooksTotal = total
+        browseEbooksNextPage = page
+        browseEbooks = rows
+        browseEbooksSupplementary = supRows
+        saveBrowseEbooksOrder(libraryId: lib.id, pure: rows, supplementary: supRows)
         if let store = currentLocalLibraryStore() {
-          do { try await store.upsertEbookCatalogBooks(pure: browseEbooks, supplementary: supRows) } catch {
+          do { try await store.upsertEbookCatalogBooks(pure: rows, supplementary: supRows) } catch {
             AppLog.library.warning("LocalStore upsertEbookCatalogBooks failed: \(error.localizedDescription, privacy: .public)")
           }
         }
-      } else if let store = currentLocalLibraryStore() {
-        do { try await store.upsertEbookCatalogBooks(pure: rows, supplementary: []) } catch {
-          AppLog.library.warning("LocalStore upsertEbookCatalogBooks failed: \(error.localizedDescription, privacy: .public)")
+      } else {
+        browseEbooksTotal = total
+        browseEbooksNextPage = page
+        let seen = Set(browseEbooks.map(\.id))
+        browseEbooks.append(contentsOf: rows.filter { !seen.contains($0.id) })
+        let seenSup = Set(browseEbooksSupplementary.map(\.id))
+        let newAudiobooks = audiobooksWithEbook.filter { !seenSup.contains($0.id) }
+        browseEbooksSupplementary.append(contentsOf: newAudiobooks)
+        if let store = currentLocalLibraryStore() {
+          do { try await store.upsertEbookCatalogBooks(pure: rows, supplementary: newAudiobooks) } catch {
+            AppLog.library.warning("LocalStore upsertEbookCatalogBooks failed: \(error.localizedDescription, privacy: .public)")
+          }
         }
       }
     } catch {
@@ -4767,11 +4897,77 @@ final class AppModel: ObservableObject {
     refreshEbookContinueReadingShelf()
   }
 
+  /// Reihenfolge + Zuordnung (rein / mit Hörbuch) des letzten Server-Abrufs — der Cache-Start zeigt
+  /// damit exakt dieselbe Liste wie danach der Server, statt nach Titel sortierter Flag-Treffer.
+  private struct BrowseEbooksOrderSnapshot: Codable {
+    let sortKey: String
+    let pure: [String]
+    let supplementary: [String]
+  }
+
+  private func browseEbooksOrderSortKey() -> String {
+    let (sort, descending) = browseEbooksSortKey()
+    return "\(sort)|\(descending)"
+  }
+
+  private func browseEbooksOrderDefaultsKey(libraryId: String) -> String {
+    "\(Keys.ebookBrowseOrderPrefix)\(libraryId)"
+  }
+
+  private func saveBrowseEbooksOrder(libraryId: String, pure: [ABSBook], supplementary: [ABSBook]) {
+    let snapshot = BrowseEbooksOrderSnapshot(
+      sortKey: browseEbooksOrderSortKey(),
+      pure: pure.map(\.id),
+      supplementary: supplementary.map(\.id)
+    )
+    guard let data = try? ABSJSON.encoder().encode(snapshot) else { return }
+    UserDefaults.standard.set(data, forKey: browseEbooksOrderDefaultsKey(libraryId: libraryId))
+  }
+
+  private func loadBrowseEbooksOrder(libraryId: String) -> BrowseEbooksOrderSnapshot? {
+    guard
+      let data = UserDefaults.standard.data(forKey: browseEbooksOrderDefaultsKey(libraryId: libraryId)),
+      let snapshot = try? ABSJSON.decoder().decode(BrowseEbooksOrderSnapshot.self, from: data),
+      snapshot.sortKey == browseEbooksOrderSortKey()
+    else { return nil }
+    return snapshot
+  }
+
+  /// Sortierwechsel: gemerkte Liste der neuen Sortierung sofort zeigen, sonst leeren →
+  /// Spinner bis zur Server-Antwort (wie der Hörbuch-Katalog). Nie die alte Reihenfolge stehen lassen.
+  func prepareBrowseEbooksForSortChange() {
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction) {
+      guard !restoreBrowseEbooksFromLocalStore(requireOrderSnapshot: isNetworkReachable) else { return }
+      browseEbooks = []
+      browseEbooksSupplementary = []
+      browseEbooksTotal = 0
+      browseEbooksNextPage = 0
+    }
+  }
+
+  /// `requireOrderSnapshot`: nur mit gemerkter Server-Reihenfolge der aktuellen Sortierung
+  /// wiederherstellen (online) — der Titel-sortierte Flag-Fallback bleibt fürs Offline-Lesen.
   @discardableResult
-  private func restoreBrowseEbooksFromLocalStore() -> Bool {
+  private func restoreBrowseEbooksFromLocalStore(requireOrderSnapshot: Bool = false) -> Bool {
     guard let context = currentLocalLibraryMainContext(), let lib = booksCatalogLibrary else { return false }
-    let pure = LocalLibraryQueries.browsePureEbooks(context: context, libraryId: lib.id)
-    let supp = LocalLibraryQueries.browseSupplementaryEbooks(context: context, libraryId: lib.id)
+    var pure = LocalLibraryQueries.browsePureEbooks(context: context, libraryId: lib.id)
+    var supp = LocalLibraryQueries.browseSupplementaryEbooks(context: context, libraryId: lib.id)
+    if let snapshot = loadBrowseEbooksOrder(libraryId: lib.id) {
+      var byId: [String: ABSBook] = [:]
+      for book in pure + supp { byId[book.id] = book }
+      let orderedPure = snapshot.pure.compactMap { byId[$0] }
+      let orderedSupp = snapshot.supplementary.compactMap { byId[$0] }
+      if !orderedPure.isEmpty || !orderedSupp.isEmpty {
+        pure = orderedPure
+        supp = orderedSupp
+      } else if requireOrderSnapshot {
+        return false
+      }
+    } else if requireOrderSnapshot {
+      return false
+    }
     guard !pure.isEmpty || !supp.isEmpty else { return false }
     browseEbooks = pure
     browseEbooksSupplementary = supp
@@ -5551,6 +5747,7 @@ final class AppModel: ObservableObject {
     browseCollectionsTotal = 0
     browseEbooks = []
     browseEbooksSupplementary = []
+    ebookCatalogQuickFilter = nil
     browseEbooksLoading = false
     browseEbooksTotal = 0
     browseEbooksNextPage = 0
@@ -5703,8 +5900,12 @@ final class AppModel: ObservableObject {
       requestLibraryCatalogScrollToTop()
       switch kind {
       case .allCatalogs:
-        await reloadLibrary(reset: true)
+        prepareBrowseEbooksForSortChange()
+        // Parallel: sonst stünde die geleerte eBook-Liste während des Hörbuch-Reloads ohne
+        // Spinner da („No eBooks“).
+        async let catalogReload: Void = reloadLibrary(reset: true)
         await loadBrowseEbooks(force: true)
+        await catalogReload
       case .browseAuthors:
         await reloadBrowseAuthorsAfterSortChange()
       case .browseSeries:
@@ -8293,6 +8494,7 @@ final class AppModel: ObservableObject {
   func refreshEditedBookEverywhere(itemId: String) async {
     guard let c = client, let fresh = try? await c.item(id: itemId, expanded: true) else { return }
     applyUpdatedBookToLoadedLists(fresh)
+    player.refreshActiveBookMetadata(fresh)
     persistBookDetail(fresh)
     if let store = currentLocalLibraryStore() {
       do { try await store.upsertBooks([fresh]) } catch {
@@ -9782,6 +9984,8 @@ final class AppModel: ObservableObject {
         if ok {
           model.downloadedItemIds.insert(storageItemId)
           model.persistDownloads()
+          // Neuer Download → in die Transkript-Warteschlange (läuft sofort, falls die App offen ist).
+          model.transcriptPrefetcher.scheduleIfNeeded()
           await model.applyLocalPlaybackIfDownloadMatchesCurrent(storageId: storageItemId)
         } else if model.downloads.activeItemId != storageItemId,
           !model.downloads.queuedItemIds.contains(storageItemId)
@@ -11253,6 +11457,14 @@ final class AppModel: ObservableObject {
   }
 
   /// Ein bereits lokal gespeichertes eBook bleibt auch ohne Serververbindung lesbar.
+  /// Bereits heruntergeladenes EPUB (kein Download) — Quelle für den eBook-Text im Teleprompter.
+  func cachedEpubURL(libraryItemId: String) -> URL? {
+    guard let cached = EbookLocalStore.cachedEbookIfPresent(account: cacheAccountURL(), libraryItemId: libraryItemId),
+      cached.format == .epub
+    else { return nil }
+    return cached.url
+  }
+
   func cachedEbookFormat(libraryItemId: String) -> ABSEbookFormat? {
     EbookLocalStore.cachedEbookIfPresent(
       account: cacheAccountURL(),
@@ -11501,6 +11713,16 @@ final class AppModel: ObservableObject {
     let clamped = min(1, max(0, f))
     EbookLocalStore.saveProgressFraction(clamped, libraryItemId: libraryItemId)
     return clamped
+  }
+
+  /// Lesefortschritt, den der Server meldet (ohne lokalen Hilfs-Cache) — für den Abgleich beim Öffnen,
+  /// wenn lokal schon ein seitengenauer Locator liegt. `nil` bei fertig gelesen, ohne Stand oder wenn
+  /// der lokale Stand noch nicht gesendet wurde (dann ist er der neuere).
+  func serverEbookFractionForReader(libraryItemId: String) -> Double? {
+    let id = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let pending = pendingEbookProgressSync, pending.libraryItemId == id { return nil }
+    guard let f = progressByItemId[id]?.ebookProgress, f.isFinite, f > 0.005, f < 0.995 else { return nil }
+    return min(1, f)
   }
 
   /// Vor dem Öffnen: kein Locator löschen — seitengenaues Resume bleibt lokal erhalten.

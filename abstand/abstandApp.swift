@@ -10,6 +10,8 @@ struct abstandApp: App {
     let s = AppLog.launchSignposter.beginInterval("appInit")
     defer { AppLog.launchSignposter.endInterval("appInit", s) }
     AppTheme.configureTabBarAppearance()
+    // Muss vor Ende des App-Starts registriert sein (BGTaskScheduler-Vorgabe).
+    PlayerTranscriptPrefetcher.registerBackgroundTask()
   }
 
   var body: some Scene {
@@ -38,6 +40,7 @@ private struct AppRootContainer: View {
         ) {
           MainRootView()
         }
+        .equatable()
         // `.sheet` zeigt sich auf iPadOS im Querformat immer als eingerückte, schwebende Karte
         // (auch mit `.presentationSizing(.page)`) — nicht randlos wie in Apple Music.
         // `.fullScreenCover` wäre randlos, entfernt aber die App dahinter komplett aus der
@@ -71,6 +74,7 @@ private struct AppRootContainer: View {
         }
         .onChange(of: nowPlayingSheetPresented) { _, presented in
           model.player.setNowPlayingUIVisible(presented)
+          model.isNowPlayingOverlayVisible = presented
         }
         .onChange(of: model.nowPlayingSheetDismissCounter) { _, _ in
           nowPlayingSheetPresented = false
@@ -102,7 +106,7 @@ private struct AppRootContainer: View {
         // Cache-first: Listen stehen bereits aus der lokalen DB — hier nur die DB still
         // fortschreiben, wenn der letzte Server-Abgleich zu lange her ist.
         model.refreshCatalogsIfStaleOnForeground()
-        // Transkript-Vorproduktion läuft ausschließlich im Vordergrund.
+        // Transkript-Vorproduktion im Vordergrund fortsetzen.
         model.transcriptPrefetcher.scheduleIfNeeded()
       } else if phase == .background {
         // Nur Teleprompter beenden. Die Audio-Session bleibt unangetastet — iOS hält die
@@ -110,7 +114,9 @@ private struct AppRootContainer: View {
         // `.inactive` bewusst ausgenommen: das feuert auch bei Control Center, App-Switcher
         // oder Anruf-Banner, wo die App gleich wieder aktiv ist.
         model.player.handleEnterBackground()
+        // Vordergrund-Lauf beenden; Rest übernimmt iOS später am Strom (Hintergrundverarbeitung).
         model.transcriptPrefetcher.stop()
+        model.transcriptPrefetcher.scheduleBackgroundProcessingIfNeeded()
       }
     }
     .alert("Connecting ABS Server", isPresented: serverConnectionAlertPresented) {

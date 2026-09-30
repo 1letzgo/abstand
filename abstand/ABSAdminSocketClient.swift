@@ -26,7 +26,11 @@ final class ABSAdminSocketClient {
   /// nach Stunden (langer Encode) längst rotiert sein; dann würde `auth` stumm abgelehnt.
   var tokenProvider: (() -> String)?
 
-  init(urlSession: URLSession = .shared) {
+  /// Eigene Session mit Trust-Delegate (selbstsignierte Zertifikate lokaler Server wie im API-Client).
+  init(
+    urlSession: URLSession = URLSession(
+      configuration: .default, delegate: AbstandTrustDelegate.shared, delegateQueue: nil)
+  ) {
     self.urlSession = urlSession
   }
 
@@ -43,6 +47,7 @@ final class ABSAdminSocketClient {
     guard let wsURL = Self.socketIOWebSocketURL(from: serverURL) else { return }
     var request = URLRequest(url: wsURL)
     request.timeoutInterval = 30
+    AbstandCustomHeadersStore.apply(to: &request)
     let task = urlSession.webSocketTask(with: request)
     webSocket = task
     task.resume()

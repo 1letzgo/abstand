@@ -74,7 +74,7 @@ func continueListeningCardTint(fromAverageRed r: CGFloat, green g: CGFloat, blue
 /// Kartenfläche für Buch-/Folgen-Detail, abgestimmt auf den Cover-Tint-Hintergrund
 /// (`abstandDetailScrollBackground`): gleiche Farbfamilie wie der getönte Hintergrund statt der
 /// neutralen Palette-`card`. Dark: etwas heller als der Tint (erhabene Fläche, gleiches Delta wie
-/// Palette #121212 → #252525). Light: die tatsächlich gerenderte Fläche (Tint 0.42 über Papier)
+/// Palette-Hintergrund → -Karte). Light: die tatsächlich gerenderte Fläche (Tint 0.42 über Papier)
 /// nachbilden und leicht abdunkeln (Verhältnis Papier → Karte der Light-Palette, ~0.93).
 /// Ohne echten Cover-Tint (Fallback = Palette-Hintergrund) konvergiert das Ergebnis auf die
 /// normale Palette-`card`-Fläche.
@@ -465,12 +465,17 @@ struct DetailHeroPrimaryButton: View {
     case play
     case pause
     case read
+    /// Podcast-Verzeichnis: gleiche Pille wie Play auf der Buchseite.
+    case subscribe
+    case subscribing
 
     var systemImage: String {
       switch self {
       case .play: "play.fill"
       case .pause: "pause.fill"
       case .read: "book.closed.fill"
+      case .subscribe: "plus"
+      case .subscribing: "arrow.down.circle"
       }
     }
 
@@ -479,6 +484,8 @@ struct DetailHeroPrimaryButton: View {
       case .play: "Play"
       case .pause: "Pause"
       case .read: "Read"
+      case .subscribe: "Subscribe"
+      case .subscribing: "Subscribing…"
       }
     }
 
@@ -487,10 +494,21 @@ struct DetailHeroPrimaryButton: View {
       case .play: "Play"
       case .pause: "Pause"
       case .read: "Read eBook"
+      case .subscribe: "Subscribe"
+      case .subscribing: "Subscribing"
+      }
+    }
+
+    /// Aktionen ohne Fortschritt (Abo) — kein „percent listened“ vorlesen.
+    private var reportsProgress: Bool {
+      switch self {
+      case .play, .pause, .read: true
+      case .subscribe, .subscribing: false
       }
     }
 
     func progressAccessibilityValue(fillAmount: Double, isFinished: Bool, isEmpty: Bool) -> String {
+      guard reportsProgress else { return "" }
       if isFinished { return "Finished" }
       if isEmpty { return "Not started" }
       switch self {
@@ -498,6 +516,8 @@ struct DetailHeroPrimaryButton: View {
         return "\(Int(fillAmount * 100)) percent listened"
       case .read:
         return "\(Int(fillAmount * 100)) percent read"
+      case .subscribe, .subscribing:
+        return ""
       }
     }
   }
@@ -702,6 +722,38 @@ struct DetailHeroActionsBar: View {
   }
 }
 
+/// Einzelne Primäraktion ohne Mark-Button (z. B. Abonnieren im Podcast-Verzeichnis) — gleiche Pille,
+/// Breite und Höhe wie der Play-Button der Buchseite (`DetailHeroActionsBar`, eine Aktion).
+struct DetailHeroStandalonePrimaryAction: View {
+  let kind: DetailHeroPrimaryButton.Kind
+  var enabled: Bool = true
+  let action: () -> Void
+
+  var body: some View {
+    HStack(spacing: DetailHeroLayoutMetrics.actionRowSpacing) {
+      Spacer(minLength: 0)
+      // Platzhalter statt Mark-Button — hält die Pille an derselben Stelle wie auf der Buchseite.
+      Color.clear
+        .frame(width: DetailHeroLayoutMetrics.sideControlSize, height: DetailHeroLayoutMetrics.sideControlSize)
+      DetailHeroPrimaryButton(
+        kind: kind,
+        progress01: 0,
+        isFinished: false,
+        enabled: enabled,
+        action: action
+      )
+      .containerRelativeFrame(.horizontal) { width, _ in
+        width * DetailHeroLayoutMetrics.singlePrimaryWidthFraction
+      }
+      Color.clear
+        .frame(width: DetailHeroLayoutMetrics.sideControlSize, height: DetailHeroLayoutMetrics.sideControlSize)
+      Spacer(minLength: 0)
+    }
+    .frame(height: DetailHeroLayoutMetrics.primaryControlHeight)
+    .frame(maxWidth: .infinity)
+  }
+}
+
 // MARK: - Detail metadata (stacked label + content)
 
 enum DetailMetaLayoutMetrics {
@@ -731,7 +783,7 @@ enum DetailMetaLabelIcon {
     case "tags": "tag.fill"
     case "description", "about": "text.alignleft"
     case "show": "dot.radiowaves.left.and.right"
-    case "host": "person.wave.2.fill"
+    case "host", "hosts": "person.wave.2.fill"
     case "subtitle": "text.quote"
     case "published": "calendar.badge.clock"
     case "categories": "folder.fill"
@@ -740,6 +792,13 @@ enum DetailMetaLabelIcon {
     case "chapters": "list.bullet"
     case "bookmarks": "bookmark.fill"
     case "listening history": "clock.arrow.circlepath"
+    case "language": "globe"
+    case "feed type": "dot.radiowaves.left.and.right"
+    case "total runtime": "clock.fill"
+    case "first release": "calendar"
+    case "rss feed", "feed": "dot.radiowaves.up.forward"
+    case "links": "link"
+    case "episodes": "list.bullet"
     default: nil
     }
   }

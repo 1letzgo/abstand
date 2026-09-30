@@ -302,7 +302,10 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
   let snapshot: TabAccessoryMiniPlayerSnapshot
   let chrome: FloatingPlayerChromeController
 
-  @EnvironmentObject private var model: AppModel
+  // Bewusst kein `@EnvironmentObject model`: das koppelte die Leiste an jede der ~180 Model-Änderungen
+  // (Download-Fortschritt, Ticks …) — das Tab-Zubehör baute sich laufend neu und riss die
+  // Navigationsleiste (Books-Dropdowns) mit. Daten kommen nur über `snapshot` (Player-Ereignisse),
+  // Farben über die Palette + Revision-Key (erlaubte Ausnahme, siehe CLAUDE.md).
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -316,23 +319,15 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
     lhs.snapshot == rhs.snapshot && lhs.themeRevision == rhs.themeRevision
   }
 
+  private var palette: AppColorPalette {
+    let _ = themeRevision
+    return AppTheme.palette
+  }
+
   private var horizontalPadding: CGFloat {
     horizontalSizeClass == .regular
       ? MiniPlayerMetrics.accessoryHorizontalPaddingRegular
       : MiniPlayerMetrics.accessoryHorizontalPaddingCompact
-  }
-
-  /// Direkt aus dem lokalen Cache, bevor der asynchrone Artwork-Loader die Player-Farbe setzt.
-  private var backgroundTint: Color {
-    guard let itemId = snapshot.activeBookId else { return model.player.miniPlayerBarFillColor }
-    let scope = model.coverImageCacheScopeId(for: itemId, tier: .hero)
-    return CoverDominantTintSeed.resolve(
-      account: snapshot.coverCacheAccount,
-      itemId: itemId,
-      heroScopeId: scope,
-      fallbackScopeId: itemId,
-      revision: snapshot.coverRevision
-    )?.tint ?? model.player.miniPlayerBarFillColor
   }
 
   var body: some View {
@@ -356,7 +351,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
     }
     .frame(maxWidth: .infinity, minHeight: Self.rowMinHeight + Self.rowMinHeightOuterMargin, alignment: .center)
     .padding(.horizontal, horizontalPadding)
-    .background(backgroundTint)
+    // Kein Cover-Tint mehr: die Leiste nutzt das neutrale System-Material des Tab-Accessorys.
     .contentShape(Rectangle())
   }
 
@@ -373,13 +368,13 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
         Text(snapshot.primaryLine)
           .font(.footnote)
           .fontWeight(.medium)
-          .foregroundStyle(model.appearancePalette.textPrimary)
+          .foregroundStyle(palette.textPrimary)
           .lineLimit(1)
           .frame(maxWidth: .infinity, alignment: .leading)
         if let subtitle = snapshot.subtitleText {
           Text(subtitle)
             .font(.caption)
-            .foregroundStyle(model.appearancePalette.textSecondary)
+            .foregroundStyle(palette.textSecondary)
             .fontWeight(.medium)
             .lineLimit(1)
         }
@@ -402,7 +397,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
           systemName: PlaybackController.gobackwardSystemImage(
             seconds: snapshot.skipBackwardSeconds))
           .font(.headline.weight(.medium))
-          .foregroundStyle(model.appearancePalette.textPrimary)
+          .foregroundStyle(palette.textPrimary)
           .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
           .contentShape(Rectangle())
       }
@@ -422,12 +417,12 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
           if busy {
             ProgressView()
               .progressViewStyle(.circular)
-              .tint(model.appearancePalette.foregroundOnAccent(themeAccent))
+              .tint(palette.foregroundOnAccent(themeAccent))
               .scaleEffect(0.72)
           } else {
             Image(systemName: snapshot.isPlaying ? "pause.fill" : "play.fill")
               .font(.footnote.weight(.semibold))
-              .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
+              .foregroundStyle(palette.foregroundOnAccent(themeAccent))
           }
         }
         .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)
@@ -469,7 +464,7 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
         .overlay {
           Image(systemName: "waveform")
             .font(.caption2)
-            .foregroundStyle(model.appearancePalette.textSecondary)
+            .foregroundStyle(palette.textSecondary)
         }
     }
   }

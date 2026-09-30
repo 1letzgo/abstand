@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Apple Podcasts storefront (Add-Podcast-View)
 
@@ -78,8 +79,7 @@ struct PodcastAddFromSearchView: View {
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .background(model.appearancePalette.background)
-    .navigationTitle("Add podcast")
-    .navigationBarTitleDisplayMode(.inline)
+    // Titel + Anzeigemodus setzt die Shell (`PodcastCatalogTabShell`).
     .navigationDestination(item: $previewHit) { hit in
       PodcastDirectoryShowView(hit: hit)
     }
@@ -175,7 +175,7 @@ struct PodcastAddFromSearchView: View {
           "Results come from Apple Podcasts (\(model.podcastDirectoryCountryCode().uppercased()) store). Subscribing adds the show to your Audiobookshelf library."
         )
       )
-      .padding(.horizontal)
+      .padding(.horizontal, AppTheme.Layout.screenPadding)
     } else if model.podcastDirectorySearchLoading {
       AbstandLoadingSpinner()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -231,50 +231,61 @@ struct PodcastAddFromSearchView: View {
       }
       .padding(.horizontal, AppTheme.Layout.tabPaddingH)
       .padding(.top, AppTheme.Layout.tightSpacing)
-      .padding(.bottom, AppTheme.Layout.scrollBottomInsetBase)
+      .padding(
+        .bottom,
+        AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset
+      )
     }
     .abstandScrollScreenBackground()
   }
 }
 
+/// Chart-Kategorien als Text-Kapseln im Expanding-Dock-Farbschema, in der gemeinsamen
+/// horizontalen Browse-Reihe. `AbstandExpandingDockChip` selbst passt nicht: Er zeigt inaktive
+/// Einträge nur als Icon — Kategorien ohne sichtbaren Namen wären nicht unterscheidbar.
 private struct PodcastChartsCategoryPillStrip: View {
   @EnvironmentObject private var model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let categories: [ABSPodcastCharts.ChartCategory]
   let selectedGenreId: Int?
   let onSelect: (Int?) -> Void
 
-  private var accent: Color { model.appearanceAccentColor }
-
   var body: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: AppTheme.Layout.inlineSpacing) {
+    let colors = AppTheme.ExpandingDock.Colors(
+      palette: model.appearancePalette,
+      accent: themeAccent
+    )
+    AbstandHorizontalBrowseStripScroll(verticalContentPadding: AppTheme.Layout.pillVerticalPadding) {
+      HStack(spacing: AppTheme.ExpandingDock.itemSpacing) {
         ForEach(categories) { category in
           let selected = selectedGenreId == category.genreId
           Button {
-            onSelect(category.genreId)
+            guard !selected else { return }
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            withAnimation(reduceMotion ? nil : AppTheme.ExpandingDock.selectionAnimation) {
+              onSelect(category.genreId)
+            }
           } label: {
             Text(category.title)
-              .font(.subheadline.weight(.medium))
-              .foregroundStyle(selected ? accent : model.appearancePalette.textPrimary)
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(selected ? colors.activeForeground : colors.inactiveForeground)
               .lineLimit(1)
-              .padding(.horizontal, AppTheme.Layout.cardPadding)
-              .padding(.vertical, AppTheme.Layout.rowVerticalPadding)
-              .background(model.appearancePalette.card, in: Capsule(style: .continuous))
-              .overlay {
-                Capsule(style: .continuous)
-                  .strokeBorder(selected ? accent : Color.clear, lineWidth: AppTheme.Layout.boldStrokeWidth)
-              }
+              .fixedSize(horizontal: true, vertical: false)
+              .padding(.horizontal, AppTheme.ExpandingDock.horizontalPadding)
+              .frame(minHeight: AppTheme.Layout.minTapTarget, alignment: .center)
+              .background(
+                selected ? colors.activeBackground : colors.inactiveBackground,
+                in: Capsule(style: .continuous)
+              )
+              .contentShape(Capsule(style: .continuous))
           }
-          .buttonStyle(.plain)
+          .buttonStyle(AbstandExpandingDockButtonStyle())
+          .accessibilityAddTraits(selected ? .isSelected : [])
         }
       }
-      .padding(.vertical, AppTheme.Layout.cardShadowYSubtle)
     }
-    .contentMargins(.horizontal, AppTheme.Layout.tabPaddingH, for: .scrollContent)
-    .scrollContentBackground(.hidden)
-    .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     .fixedSize(horizontal: false, vertical: true)
-    .abstandThemeRefresh()
   }
 }
 
@@ -330,7 +341,7 @@ private struct PodcastDirectoryHitRow: View {
             Spacer(minLength: 0)
             LibraryRowLayout.metadataFooter {
               if let n = hit.trackCount, n > 0 {
-                Text("\(n) episodes")
+                Text(n == 1 ? "1 episode" : "\(n) episodes")
                   .font(.subheadline.monospacedDigit())
                   .foregroundStyle(palette.textSecondary)
               }
@@ -360,13 +371,15 @@ private struct PodcastDirectoryHitRow: View {
   @ViewBuilder
   private var subscribeControl: some View {
     if model.podcastDirectoryHitIsInLibrary(hit) {
-      Text("In library")
+      // Einheitlicher „In library“-Status: Icon + Text im Akzent.
+      Label("In library", systemImage: "checkmark.circle.fill")
         .font(.caption.weight(.semibold))
-        .foregroundStyle(model.appearancePalette.textSecondary)
+        .foregroundStyle(model.appearanceAccentColor)
     } else {
       Button(action: onSubscribe) {
         if model.podcastSubscribeInProgressDirectoryHitId == hit.id {
           ProgressView()
+            .controlSize(.small)
             .tint(model.appearancePalette.foregroundOnAccent(model.appearanceAccentColor))
         } else {
           Text("Subscribe")

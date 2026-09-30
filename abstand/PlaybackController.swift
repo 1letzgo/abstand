@@ -1233,7 +1233,7 @@ final class PlaybackController: NSObject, ObservableObject {
       sessionId: session.id,
       trackIndex: tracks[currentTrackIndex].index
     )
-    let asset = AVURLAsset(url: streamURL, options: AVURLAsset.httpHeaderOptions(token: await client.currentToken()))
+    let asset = AVURLAsset(url: streamURL, options: AVURLAsset.httpHeaderOptions(token: await client.currentToken(), url: streamURL))
     try throwIfSuperseded(generation)
     let item = AVPlayerItem(asset: asset)
     player = AVPlayer(playerItem: item)
@@ -1479,7 +1479,7 @@ final class PlaybackController: NSObject, ObservableObject {
         sessionId: sid,
         trackIndex: tracks[currentTrackIndex].index
       )
-      let asset = AVURLAsset(url: streamURL, options: AVURLAsset.httpHeaderOptions(token: await client.currentToken()))
+      let asset = AVURLAsset(url: streamURL, options: AVURLAsset.httpHeaderOptions(token: await client.currentToken(), url: streamURL))
       replacePlayerItem(AVPlayerItem(asset: asset), localOffset: localOffset, play: play)
     } catch {
       if pauseOnFailure {
@@ -1919,6 +1919,18 @@ final class PlaybackController: NSObject, ObservableObject {
     updateNowPlaying()
   }
 
+  /// Nach Metadaten-/Cover-Änderung: Titel/Autor/Cover des laufenden Hörbuchs ohne Neu-Start
+  /// übernehmen (Mini-Player, Now Playing). Tracks und Kapitel bleiben unangetastet.
+  func refreshActiveBookMetadata(_ fresh: ABSBook) {
+    guard let current = activeBook, current.id == fresh.id else { return }
+    let ep = activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard ep.isEmpty else { return }
+    activeBook = current.replacingMetadata(from: fresh)
+    nowPlayingArtwork = nil
+    scheduleCoverLoad(for: fresh.id)
+    updateNowPlaying()
+  }
+
   /// Nach „Edit Chapters“: Kapitel der aktiven Hörbuch-Wiedergabe ohne Neu-Start aktualisieren.
   func refreshActiveBookChapters(libraryItemId: String, chapters: [ABSChapter]) {
     guard activeBook?.id == libraryItemId else { return }
@@ -2323,6 +2335,17 @@ final class PlaybackController: NSObject, ObservableObject {
     return "\(bookId)-\(currentTrackIndex)"
   }
 
+  /// Schlüssel der Transkriptdateien — wie der Download-Ordner: Hörbuch = Item-ID,
+  /// Podcast-Folge = `<Show-ID>-<Folgen-ID>`. Mit der Show-ID allein teilten sich alle Folgen
+  /// einer Sendung dieselben Transkripte (Track 0) und vermischten sich.
+  var transcriptionStorageId: String? {
+    guard let book = activeBook else { return nil }
+    let ep = activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let bookId = book.id.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !ep.isEmpty else { return bookId }
+    return "\(bookId)-\(ep)".replacingOccurrences(of: "/", with: "_")
+  }
+
   var preferredTranscriptionLanguageTag: String? {
     transcriptionLanguageOverride ?? activeBook?.media.metadata.language
   }
@@ -2458,7 +2481,7 @@ private extension Array {
 }
 
 private extension AVURLAsset {
-  static func httpHeaderOptions(token: String) -> [String: Any] {
-    AbstandHTTPSession.authorizedAssetHeaders(token: token)
+  static func httpHeaderOptions(token: String, url: URL) -> [String: Any] {
+    AbstandHTTPSession.authorizedAssetHeaders(token: token, url: url)
   }
 }

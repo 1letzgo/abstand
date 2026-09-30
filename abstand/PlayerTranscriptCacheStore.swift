@@ -179,6 +179,54 @@ enum PlayerTranscriptCacheStore {
     }
   }
 
+  // MARK: eBook-Abgleich
+
+  /// Abgleich Transkript ↔ eBook (`EbookTrackAlignment`) liegt neben dem Transkript desselben Tracks —
+  /// `removeAll` und „Clear cache" nehmen ihn dadurch automatisch mit.
+  private static func alignmentFileURL(
+    account: URL,
+    bookId: String,
+    trackIndex: Int,
+    localeIdentifier: String
+  ) -> URL {
+    let locale = localeIdentifier.replacingOccurrences(of: "/", with: "_")
+    return bookDir(account: account, bookId: bookId)
+      .appendingPathComponent("a\(trackIndex)-\(locale).bin")
+  }
+
+  static func loadAlignment(
+    account: URL?,
+    bookId: String,
+    trackIndex: Int,
+    localeIdentifier: String
+  ) -> Data? {
+    guard let account, !bookId.isEmpty else { return nil }
+    return try? Data(
+      contentsOf: alignmentFileURL(
+        account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeIdentifier))
+  }
+
+  static func saveAlignment(
+    _ data: Data,
+    account: URL?,
+    bookId: String,
+    trackIndex: Int,
+    localeIdentifier: String
+  ) {
+    guard let account, !bookId.isEmpty else { return }
+    var url = alignmentFileURL(
+      account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeIdentifier)
+    do {
+      try data.write(to: url, options: .atomic)
+      var values = URLResourceValues()
+      values.isExcludedFromBackup = true
+      try? url.setResourceValues(values)
+    } catch {
+      AppLog.playback.warning(
+        "ebook alignment write failed: \(error.localizedDescription, privacy: .public)")
+    }
+  }
+
   /// Alle Transkripte eines Buchs entfernen (Download gelöscht, Sprache gewechselt).
   static func removeAll(account: URL?, bookId: String) {
     guard let account, !bookId.isEmpty else { return }

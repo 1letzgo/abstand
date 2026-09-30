@@ -2,13 +2,23 @@ import Combine
 import SwiftUI
 
 /// `TabView` + `tabViewBottomAccessory` ohne `MainRootView`-Rebuilds — nur `FloatingAccessoryGate` + Sheet-Binding.
-struct MainTabShellView<Content: View>: View {
+/// `Equatable`: `AppRootContainer` beobachtet das ganze `AppModel` und würde die Hülle samt
+/// Tab-Zubehör sonst bei jeder Model-Änderung neu aufbauen — das riss die Navigationsleiste
+/// (Books-Dropdowns) mit. Der Inhalt (`MainRootView`) beobachtet das Model selbst und bleibt aktuell.
+struct MainTabShellView<Content: View>: View, Equatable {
   @ObservedObject var gate: FloatingAccessoryGate
   let chrome: FloatingPlayerChromeController
   @Binding var nowPlayingSheetPresented: Bool
   @ViewBuilder var content: () -> Content
 
   @State private var keyboardVisible = false
+
+  nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+    MainActor.assumeIsolated {
+      lhs.gate === rhs.gate && lhs.chrome === rhs.chrome
+        && lhs.nowPlayingSheetPresented == rhs.nowPlayingSheetPresented
+    }
+  }
 
   var body: some View {
     // Auch offline normales Tab-Zubehör — Mini-Player wie im Online-Modus.

@@ -48,7 +48,7 @@ struct BooksEntityDetailView: View {
   @State private var headerTintColor: Color = AppTheme.background
   @State private var headerCoverImageForTint: UIImage?
 
-  /// Kein Cover, kein Cover-Tint — nur Standard-Hintergrund (#121212).
+  /// Kein Cover, kein Cover-Tint — nur Standard-Hintergrund (Palette).
   private var usesPlainDetailBackground: Bool {
     switch nav.kind {
     case .narrator, .genre, .tag, .collection: return true

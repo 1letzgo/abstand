@@ -118,6 +118,19 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   var canGenerateRecap: Bool { SystemLanguageModel.default.availability == .available }
 
   private var finalizedWords: [PlayerTranscriptWord] = []
+  /// Angehängtes EPUB des Hörbuchs (bereits geladen) — dann zeigt der Teleprompter dessen Text.
+  private var ebookIndex: EbookReadAlongIndex?
+  /// eBook-Wörter des Abgleichs für den aktiven Track (globale Zeit). `nil`, solange noch kein
+  /// verlässlicher Abgleich vorliegt — dann zeigt der Teleprompter den Erkennungstext.
+  private var ebookDisplay: EbookDisplayWords?
+  /// Abgleich läuft gebündelt im Hintergrund — der Main-Thread (60-fps-Scroll) wird nie blockiert.
+  private static let ebookAlignCoalesceNanoseconds: UInt64 = 1_500_000_000
+  private var ebookAlignTask: Task<Void, Never>?
+  private var ebookAlignEpoch: UInt = 0
+  /// Anzahl `finalizedWords`, für die zuletzt ein Abgleich gerechnet wurde.
+  private var ebookAlignedWordCount = -1
+  /// Teleprompter zeigt gerade eBook-Text (sonst Erkennungstext) — für den Quellen-Hinweis.
+  @Published private(set) var isShowingEbookText = false
   private var recapBookId: String?
   private var recapPlaybackTime: Double?
   /// Inkrementelle ID pro Recap-Versuch — erlaubt Timeout-Erkennung bei mehreren Aufrufen.
@@ -350,7 +363,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
     player.syncGlobalPositionFromPlayer()
     let end = player.liveGlobalPlaybackPosition
-    let bookId = player.activeBook?.id
+    // Transkript-Schlüssel (bei Podcasts je Folge), nicht die Show-ID.
+    let bookId = player.transcriptionStorageId
     if
       let recapText,
       recapBookId == bookId,
@@ -668,7 +682,8 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
     resetTranscriptContent()
     boundPlayer = player
-    activeTranscriptionBookId = player.activeBook?.id
+    activeTranscriptionBookId = player.transcriptionStorageId
+    loadEbookTextIfAvailable(player: player, generation: generation)
     player.syncGlobalPositionFromPlayer()
     guard player.activeBook != nil else { throw PlayerLiveTranscriptionError.noActivePlayback }
     guard let context = await player.makeTranscriptionAudioContext() else {
@@ -748,11 +763,13 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     activeTrackKey = trackKey
     activeTrackDuration = trackDuration
     finalizedWords = []
+    invalidateEbookDisplay()
     lineAccumulator.reset()
     trackCache =
       loaded ?? PlayerTranscriptTrackCache(localeIdentifier: localeId, trackIndex: context.trackIndex)
 
     rebuildDisplayFromCache()
+    scheduleEbookAlignment()
     let playbackLocal = player.transcriptionLocalPlaybackSeconds(
       trackGlobalOffset: context.trackGlobalOffset)
     startProduction(fromLocalTime: playbackLocal - Self.preRollSeconds, generation: generation)
@@ -777,8 +794,112 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       )
     }
     lineAccumulator.rebuildLines(
-      from: finalizedWords, maxCharactersPerLine: lineAccumulator.maxCharactersPerLine)
+      from: displayWords(), maxCharactersPerLine: lineAccumulator.maxCharactersPerLine)
     publishWords()
+  }
+
+  // MARK: eBook-Text
+
+  /// eBook-Index im Hintergrund laden; danach Zeilen mit eBook-Text neu aufbauen.
+  private func loadEbookTextIfAvailable(player: PlaybackController, generation: UInt) {
+    ebookIndex = nil
+    invalidateEbookDisplay()
+    isShowingEbookText = false
+    let ep = player.activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard ep.isEmpty, let bookId = player.activeBook?.id else { return }
+    Task { [weak self] in
+      let index = await TeleprompterEbookTextProvider.shared.index(
+        forLibraryItemId: bookId, model: AppModel.shared)
+      guard let self, let index, self.sessionIsCurrent(generation) else { return }
+      self.ebookIndex = index
+      self.invalidateEbookDisplay()
+      self.scheduleEbookAlignment()
+    }
+  }
+
+  /// Anzeige-Wörter: eBook-Text, wo der Abgleich greift — sonst der Erkennungstext.
+  private func displayWords() -> [PlayerTranscriptWord] {
+    guard let display = ebookDisplay, !display.words.isEmpty, !finalizedWords.isEmpty else {
+      if isShowingEbookText { isShowingEbookText = false }
+      return finalizedWords
+    }
+    if !isShowingEbookText { isShowingEbookText = true }
+    return Self.merged(display: display, recognized: finalizedWords)
+  }
+
+  /// eBook-Wörter plus die Erkennungswörter außerhalb der lückenlosen eBook-Läufe, nach Zeit gemischt.
+  private nonisolated static func merged(
+    display: EbookDisplayWords,
+    recognized: [PlayerTranscriptWord]
+  ) -> [PlayerTranscriptWord] {
+    var kept: [PlayerTranscriptWord] = []
+    kept.reserveCapacity(recognized.count / 8)
+    var span = 0
+    for word in recognized {
+      let middle = (word.globalStart + word.globalEnd) / 2
+      while span < display.spans.count, display.spans[span].end <= middle { span += 1 }
+      if span < display.spans.count, display.spans[span].start <= middle { continue }
+      kept.append(word)
+    }
+    var out: [PlayerTranscriptWord] = []
+    out.reserveCapacity(display.words.count + kept.count)
+    var i = 0
+    var j = 0
+    while i < display.words.count || j < kept.count {
+      if j >= kept.count || (i < display.words.count && display.words[i].globalStart <= kept[j].globalStart) {
+        out.append(display.words[i])
+        i += 1
+      } else {
+        out.append(kept[j])
+        j += 1
+      }
+    }
+    return out
+  }
+
+  private func invalidateEbookDisplay() {
+    ebookAlignEpoch &+= 1
+    ebookAlignTask?.cancel()
+    ebookAlignTask = nil
+    ebookAlignedWordCount = -1
+    ebookDisplay = nil
+  }
+
+  /// Abgleich gebündelt im Hintergrund rechnen, sobald neue Erkennungswörter vorliegen. Das Ergebnis
+  /// ist deterministisch und steht als Ganzes — kein Einfrieren, Einsortieren oder Teil-Abgleich.
+  private func scheduleEbookAlignment() {
+    guard ebookIndex != nil, ebookAlignTask == nil, finalizedWords.count != ebookAlignedWordCount else { return }
+    let epoch = ebookAlignEpoch
+    ebookAlignTask = Task { [weak self] in
+      try? await Task.sleep(nanoseconds: Self.ebookAlignCoalesceNanoseconds)
+      guard let self else { return }
+      guard !Task.isCancelled, epoch == self.ebookAlignEpoch, let index = self.ebookIndex,
+        let context = self.activeContext
+      else {
+        if epoch == self.ebookAlignEpoch { self.ebookAlignTask = nil }
+        return
+      }
+      let count = self.finalizedWords.count
+      let offset = context.trackGlobalOffset
+      let input = self.finalizedWords.map {
+        AlignmentInputWord(text: $0.text, start: $0.globalStart - offset, end: $0.globalEnd - offset)
+      }
+      let alignment = await Task.detached(priority: .utility) {
+        EbookAlignmentBuilder.build(words: input, index: index)
+      }.value
+      guard !Task.isCancelled, epoch == self.ebookAlignEpoch else { return }
+      self.ebookAlignTask = nil
+      self.ebookAlignedWordCount = count
+      let previous = self.ebookDisplay?.words.count ?? 0
+      self.ebookDisplay = alignment.isEmpty ? nil : alignment.displayWords(index: index, globalOffset: offset)
+      if previous > 0 || self.ebookDisplay != nil {
+        self.lineAccumulator.rebuildLines(
+          from: self.displayWords(), maxCharactersPerLine: self.lineAccumulator.maxCharactersPerLine)
+        self.publishWords()
+      }
+      // Während des Abgleichs dazugekommene Wörter nachziehen.
+      if self.finalizedWords.count != count { self.scheduleEbookAlignment() }
+    }
   }
 
   /// Produktionslauf für die erste nicht abgedeckte Stelle ab `fromLocalTime`.
@@ -910,17 +1031,23 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       )
     }
     guard let firstStart = mapped.first?.globalStart else { return }
-    if firstStart > tail {
+    if firstStart > tail, ebookDisplay == nil {
       // Normalfall: der Lauf produziert hinter allem bereits Angezeigten.
       finalizedWords.append(contentsOf: mapped)
       lineAccumulator.appendFinalizedWords(mapped)
+    } else if firstStart > tail {
+      // eBook-Text: neue Erkennungswörter hängen hinter den eBook-Läufen — Zeilen neu aufbauen.
+      finalizedWords.append(contentsOf: mapped)
+      lineAccumulator.rebuildLines(
+        from: displayWords(), maxCharactersPerLine: lineAccumulator.maxCharactersPerLine)
     } else {
       // Der Cache enthält schon ein späteres Segment (z. B. früher gehörtes Kapitelende) —
       // dann muss einsortiert und neu umgebrochen werden statt angehängt.
       finalizedWords = Self.mergedByTime(finalizedWords + mapped)
       lineAccumulator.rebuildLines(
-        from: finalizedWords, maxCharactersPerLine: lineAccumulator.maxCharactersPerLine)
+        from: displayWords(), maxCharactersPerLine: lineAccumulator.maxCharactersPerLine)
     }
+    scheduleEbookAlignment()
     publishWords()
   }
 
@@ -1091,6 +1218,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
   private func resetTranscriptContent() {
     finalizedWords = []
+    invalidateEbookDisplay()
     lineAccumulator.reset()
     transcriptLines = []
     isTeleprompterReady = false
@@ -1148,7 +1276,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       lineAccumulator.maxCharactersPerLine = limit
       return
     }
-    lineAccumulator.rebuildLines(from: finalizedWords, maxCharactersPerLine: limit)
+    lineAccumulator.rebuildLines(from: displayWords(), maxCharactersPerLine: limit)
     publishWords()
   }
 

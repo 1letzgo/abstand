@@ -38,6 +38,20 @@ final class ReadiumReaderService {
 
   private init() {}
 
+  /// Publikation nur öffnen (ohne Navigator) — z. B. für den eBook-Text im Teleprompter.
+  func openPublication(localFileURL: URL) async throws -> Publication {
+    guard let absolute = FileURL(url: localFileURL) else { throw ReadiumReaderError.invalidFileURL }
+    let asset: Asset
+    switch await assetRetriever.retrieve(url: absolute) {
+    case let .success(a): asset = a
+    case let .failure(err): throw ReadiumReaderError.openFailed(err.localizedDescription)
+    }
+    switch await publicationOpener.open(asset: asset, allowUserInteraction: false, sender: nil) {
+    case let .success(pub): return pub
+    case let .failure(err): throw ReadiumReaderError.openFailed(err.localizedDescription)
+    }
+  }
+
   func makeReader(
     localFileURL: URL,
     libraryItemId: String,

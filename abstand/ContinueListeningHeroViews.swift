@@ -286,6 +286,9 @@ private var orderSignature: String {
         }
       }
     }
+    // Platz vorab reservieren: Zeilen entstehen erst in `onAppear`, die Breite erst nach dem Layout —
+    // ohne Mindesthöhe springt das Regal beim Laden von 0 auf volle Höhe.
+    .frame(minHeight: cardWidth + AppTheme.Layout.continueHeroMetadataBlockHeight, alignment: .top)
     .background {
       GeometryReader { geo in
         Color.clear.preference(key: ContinueCarouselViewportWidthKey.self, value: geo.size.width)

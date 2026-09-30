@@ -464,7 +464,7 @@ private struct SettingsCardAutoDownloadIntervalRow: View {
   }
 }
 
-/// Aktionszeile in einer Settings-Karte (Clear cache, Log out, Unsubscribe, …).
+/// Aktionszeile in einer Settings-Karte (Clear cache, Log out, Remove from library, …).
 /// `tint` färbt Symbol + Titel (z. B. `AppTheme.danger`), `isBusy` ersetzt das Endsymbol
 /// durch einen Spinner — damit sehen alle Aktionszeilen der App gleich aus.
 private struct SettingsCardActionRow: View {
@@ -986,7 +986,7 @@ struct SettingsAccountView: View {
       NavigationStack {
         LoginView(addAccountMode: true)
           .environmentObject(model)
-          .navigationBarTitleDisplayMode(.inline)
+          .toolbarTitleDisplayMode(.inline)
           .toolbar {
             ToolbarItem(placement: .cancellationAction) {
               Button("Cancel") { showAddAccount = false }
@@ -1173,6 +1173,7 @@ struct SettingsChangePasswordView: View {
             HStack(spacing: AppTheme.Layout.inlineSpacing) {
               if busy {
                 ProgressView()
+                  .controlSize(.small)
                   .tint(model.appearancePalette.foregroundOnAccent(model.appearanceAccentColor))
               }
               Text("Save password")
@@ -1191,7 +1192,7 @@ struct SettingsChangePasswordView: View {
       }
     }
     .navigationTitle("Change Password")
-    .navigationBarTitleDisplayMode(.inline)
+    .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
   }
 
@@ -1285,23 +1286,24 @@ private struct SettingsPlaybackContent: View {
     }
   }
 
-  /// Status der Transkript-Vorproduktion (läuft nur im Vordergrund).
-  private var teleprompterPrefetchSubtitle: String {
-    guard model.readAlongPrefetchEnabled else {
-      return String(
-        localized:
-          "Transcribes downloaded audiobooks while the app is open, so the teleprompter and recap start without waiting.",
-        comment: "Teleprompter prefetch hint")
-    }
+  /// Status der Transkript-Vorproduktion (Vordergrund + nachts am Strom) — nur bei eingeschaltetem
+  /// Schalter; ausgeschaltet gibt es keinen Erklärtext.
+  private var teleprompterPrefetchSubtitle: String? {
+    guard model.readAlongPrefetchEnabled else { return nil }
     if let reason = model.transcriptPrefetcher.pausedReason { return reason }
     if model.transcriptPrefetcher.isRunning {
       let total = model.transcriptPrefetcher.totalTracks
       let done = model.transcriptPrefetcher.preparedTracks
-      return String(
-        format: String(localized: "Preparing… %d of %d tracks", comment: "Teleprompter prefetch state"),
-        done, total)
+      let progress = String(
+        format: String(localized: "%d of %d tracks", comment: "Teleprompter prefetch state"), done, total)
+      if let title = model.transcriptPrefetcher.currentJobTitle {
+        return "Preparing \(title) · \(progress)"
+      }
+      return "Preparing… \(progress)"
     }
-    return String(localized: "Up to date for the current audiobook.", comment: "Teleprompter prefetch state")
+    return String(
+      localized: "Downloaded titles are up to date. More is prepared overnight while charging.",
+      comment: "Teleprompter prefetch state")
   }
 }
 
@@ -2534,9 +2536,10 @@ struct ServerAdminPodcastShowView: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
-    .background(model.appearancePalette.background)
+    // Hintergrund auch hinter dem Segment-Picker — die Tabs bringen ihren eigenen Scroll-Screen mit.
+    .abstandScrollScreenBackground(ignoreSafeArea: true)
     .navigationTitle(showTitle)
-    .navigationBarTitleDisplayMode(.inline)
+    .toolbarTitleDisplayMode(.inline)
     .toolbar {
       if selectedTab == .feed {
         ToolbarItem(placement: .topBarTrailing) {
@@ -2562,11 +2565,11 @@ struct ServerAdminPodcastShowView: View {
             .foregroundStyle(AppTheme.danger)
         }
         .disabled(!model.isNetworkReachable)
-        .accessibilityLabel("Remove show from library")
+        .accessibilityLabel("Remove from library")
       }
     }
     .alert(
-      "Remove show?",
+      "Remove from library?",
       isPresented: Binding(
         get: { removeConfirmation != nil },
         set: { if !$0 { removeConfirmation = nil } }
@@ -2621,21 +2624,18 @@ private struct ServerAdminPodcastRssSection: View {
     let drafts = model.podcastRssFeedCachedDrafts(forShowId: showId)
     let unavailable = model.podcastRssFeedUnavailableMessage(forShowId: showId)
 
-    ScrollView {
-      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-        let libraryOnly = libraryEpisodesNotInFeed(showId: showId, drafts: drafts)
+    let libraryOnly = libraryEpisodesNotInFeed(showId: showId, drafts: drafts)
 
+    ServerAdminScrollScreen {
+      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
         if let unavailable {
-          Text(unavailable)
-            .font(.subheadline)
-            .foregroundStyle(model.appearancePalette.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
+          AbstandInlineNotice(text: unavailable, isError: true)
         }
 
         if loading, drafts.isEmpty, libraryOnly.isEmpty, unavailable == nil {
           AbstandLoadingSpinner(verticalPadding: AppTheme.Layout.emptyStateVerticalPadding)
         } else if drafts.isEmpty, libraryOnly.isEmpty, unavailable == nil {
-          AbstandInlineNotice(text: "No episodes found in the feed.")
+          AbstandSectionEmptyState(text: "No episodes found in the feed.", isStandalone: true)
         } else {
           ForEach(drafts) { draft in
             PodcastRssFeedDraftRow(
@@ -2645,21 +2645,15 @@ private struct ServerAdminPodcastRssSection: View {
             )
           }
           if !libraryOnly.isEmpty {
-            Text("In library only")
-              .font(.subheadline.weight(.semibold))
-              .foregroundStyle(model.appearancePalette.textSecondary)
-              .padding(.top, AppTheme.Layout.inlineSpacing)
+            TabContentSectionTitle(title: "In library only")
+              .padding(.top, AppTheme.Layout.withinSectionSpacing)
             ForEach(libraryOnly, id: \.progressLookupKey) { episode in
               ServerAdminPodcastLibraryEpisodeRow(showId: showId, episode: episode)
             }
           }
         }
       }
-      .padding(.horizontal, AppTheme.Layout.tabPaddingH)
-      .padding(
-        .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
-    .abstandScrollScreenBackground()
     .refreshable {
       await model.reloadPodcastShowEpisodeListForCurrentShow(showId)
       await model.ensurePodcastRssFeedLoaded(forShowId: showId, forceReload: true)
@@ -2689,34 +2683,67 @@ private struct ServerAdminPodcastLibraryEpisodeRow: View {
     return d.formatted(date: .abbreviated, time: .omitted)
   }
 
+  private var showTitle: String {
+    let t = model.podcastShows.first(where: { $0.id == showId })?.displayTitle
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return t.isEmpty ? "—" : t
+  }
+
+  // Gleiches Zeilenlayout wie `PodcastRssFeedDraftRow` (Show-Cover links, Mülltonne rechts unten).
   var body: some View {
-    HStack(alignment: .center, spacing: AppTheme.Layout.rowSpacing) {
-      VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
-        Text(episode.episodeTitle)
-          .font(.body.weight(.medium))
-          .foregroundStyle(model.appearancePalette.textPrimary)
-          .multilineTextAlignment(.leading)
-          .lineLimit(3)
-        Text(publishedCaption)
-          .font(.caption)
-          .foregroundStyle(model.appearancePalette.textSecondary)
+    let palette = model.appearancePalette
+    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines)
+    LibraryRowLayout.libraryRowCardChrome(
+      cardColor: palette.card,
+      showsBottomProgressBar: false,
+      progressValue: 0
+    ) {
+      HStack(alignment: .top, spacing: LibraryRowLayout.cardInset) {
+        LibraryRowLayout.coverSlot {
+          LibraryRowLayout.rowCoverImage(
+            url: model.coverURL(for: sid),
+            token: model.token,
+            itemId: sid,
+            cacheAccount: model.coverImageCacheAccountDirectory(),
+            cacheRevision: model.coverImageCacheRevision(forBookId: sid)
+          )
+        }
+        .accessibilityHidden(true)
+
+        LibraryRowLayout.metadataColumn(showsProgressBar: false) {
+          VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
+            Text(episode.episodeTitle)
+              .font(.headline.weight(.semibold))
+              .foregroundStyle(palette.textPrimary)
+              .lineLimit(1)
+              .truncationMode(.tail)
+              .minimumScaleFactor(0.85)
+              .fixedSize(horizontal: false, vertical: true)
+            LibraryRowCollapsedMetaLine(label: "Show", value: showTitle)
+            Spacer(minLength: 0)
+            HStack(spacing: AppTheme.Layout.inlineSpacing) {
+              Text(publishedCaption)
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(palette.textSecondary)
+              Spacer(minLength: 0)
+              Button {
+                deleteConfirmation = true
+              } label: {
+                Image(systemName: "trash")
+                  .font(.title3)
+                  .foregroundStyle(AppTheme.danger)
+              }
+              .buttonStyle(.plain)
+              .frame(minWidth: AppTheme.Layout.metaValueColumnMinWidth, alignment: .trailing)
+              .disabled(!model.isNetworkReachable)
+              .accessibilityLabel("Delete episode from library")
+            }
+          }
+          .padding(.trailing, AppTheme.Layout.tightSpacing)
+        }
       }
-      Spacer(minLength: 0)
-      Button {
-        deleteConfirmation = true
-      } label: {
-        Image(systemName: "trash")
-          .font(.title3)
-          .foregroundStyle(AppTheme.danger)
-      }
-      .buttonStyle(.plain)
-      .disabled(!model.isNetworkReachable)
-      .accessibilityLabel("Delete episode from library")
     }
-    .padding(AppTheme.Layout.detailSectionCardPadding)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(model.appearancePalette.card)
-    .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.libraryRowCornerRadius, style: .continuous))
+    .abstandThemeRefresh()
     .alert("Delete episode?", isPresented: $deleteConfirmation) {
       Button("Delete", role: .destructive) {
         Task { await model.deletePodcastEpisodeFromLibrary(showLibraryItemId: showId, episode: episode) }
@@ -2946,7 +2973,7 @@ private struct ServerAdminPodcastSettingsSection: View {
           } label: {
             SettingsCardActionRow(
               icon: "minus.circle",
-              title: "Unsubscribe",
+              title: "Remove from library",
               tint: AppTheme.danger,
               isEnabled: model.isNetworkReachable
             )

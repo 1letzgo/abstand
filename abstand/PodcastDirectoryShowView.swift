@@ -67,12 +67,22 @@ struct PodcastDirectoryShowView: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
-        heroSection
-        subscribeSection
-        feedStateSection
-        metadataCards
-        episodesSection
+      // Rhythmus wie `BookDetailView`: Hero, Aktionsleiste und Meta-Karten in einem Block.
+      VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+        VStack(spacing: 0) {
+          heroSection
+          VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
+            subscribeSection
+              .padding(.top, AppTheme.Layout.detailPlayButtonTopPadding)
+              .padding(.bottom, AppTheme.Layout.detailPlayButtonBottomPadding)
+            VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
+              feedStateSection
+              metadataCards
+              episodesSection
+            }
+            .padding(.top, AppTheme.Layout.detailMetaAfterPlaySpacing)
+          }
+        }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.horizontal, AppTheme.Layout.tabPaddingH)
@@ -96,14 +106,18 @@ struct PodcastDirectoryShowView: View {
     }
     .task(id: hit.id) {
       seedCoverTintFromLocalCache()
-      await model.loadPodcastDirectoryPreview(for: hit)
       await loadCoverTint()
     }
-    // Erst nach dem Abonnieren sinnvoll — deshalb an `isInLibrary` gekoppelt und nicht an `hit.id`.
+    // Feed (mit allen Folgen) erst nach dem Abonnieren laden — vorher reichen die Verzeichnisdaten
+    // (Titel, Host, Cover, Beschreibung, Genres, Folgenzahl, letztes Release) für die Seite.
+    // Erst nach dem Abonnieren sinnvoll — deshalb an `libraryShow` gekoppelt und nicht an `hit.id`.
     .task(id: libraryShow?.id) {
+      guard isInLibrary else { return }
+      await model.loadPodcastDirectoryPreview(for: hit)
       await model.loadPodcastDirectoryLibraryEpisodeTitles(for: hit)
     }
     .refreshable {
+      guard isInLibrary else { return }
       await model.loadPodcastDirectoryPreview(for: hit, forceReload: true)
     }
     .alert("Could not subscribe", isPresented: Binding(
@@ -120,7 +134,7 @@ struct PodcastDirectoryShowView: View {
 
   @ViewBuilder
   private var heroSection: some View {
-    VStack(spacing: DetailMetaLayoutMetrics.sectionCardSpacing) {
+    VStack(spacing: 0) {
       DetailHeroCoverFrame {
         SquareCoverImageView(
           url: coverURL,
@@ -162,42 +176,36 @@ struct PodcastDirectoryShowView: View {
   }
 
   private var latestEpisodeLabel: String? {
-    guard let ms = preview?.latestEpisodePublishedAt, ms > 0 else { return nil }
-    return Self.dateLabel(millis: ms)
+    if let ms = preview?.latestEpisodePublishedAt, ms > 0 { return Self.dateLabel(millis: ms) }
+    // Ohne Feed: iTunes-`releaseDate` ist das Datum der neuesten Folge.
+    return hit.releaseDate.flatMap(Self.dateLabel(isoDay:))
   }
 
   // MARK: Subscribe
 
   @ViewBuilder
   private var subscribeSection: some View {
+    // Gleiche Pille und Maße wie der Play-Button der Buchseite.
     VStack(spacing: DetailMetaLayoutMetrics.linkRowSpacing) {
       if isInLibrary {
-        Button {
-          guard let show = libraryShow else { return }
-          Task { await model.openPodcastShowCatalog(showId: show.id) }
-        } label: {
-          Label("Open in library", systemImage: "checkmark.circle.fill")
-        }
-        .buttonStyle(AbstandPrimaryButtonStyle())
+        // Abonniert: kein „Open in library“ — die Folgenliste darunter (Einzel-Download) ist die
+        // eigentliche Aktion. Einheitlicher „In library“-Status (Icon + Text, Akzent).
+        Label("In library", systemImage: "checkmark.circle.fill")
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(themeAccent)
+          .frame(maxWidth: .infinity)
       } else {
-        Button {
+        DetailHeroStandalonePrimaryAction(
+          kind: isSubscribing ? .subscribing : .subscribe,
+          enabled: canSubscribe && !isSubscribing
+        ) {
           Task {
             // Erfolg zeigt sich am Zustand („Open in library“) — der Feed-Cache bleibt gültig.
             if let failure = await model.subscribeToPodcastDirectoryHitReportingError(hit), !failure.isEmpty {
               subscribeError = failure
             }
           }
-        } label: {
-          HStack(spacing: AppTheme.Layout.inlineSpacing) {
-            if isSubscribing {
-              ProgressView()
-                .tint(palette.foregroundOnAccent(model.appearanceAccentColor))
-            }
-            Text(isSubscribing ? "Subscribing…" : "Subscribe")
-          }
         }
-        .buttonStyle(AbstandPrimaryButtonStyle())
-        .disabled(!canSubscribe || isSubscribing)
 
         Text(subscribeHint)
           .font(.caption)
@@ -206,9 +214,7 @@ struct PodcastDirectoryShowView: View {
           .frame(maxWidth: .infinity)
       }
     }
-    .frame(maxWidth: AppTheme.Layout.readableFormMaxWidth)
     .frame(maxWidth: .infinity)
-    .padding(.top, AppTheme.Layout.detailPlayButtonTopPadding)
   }
 
   private var canSubscribe: Bool {
@@ -230,10 +236,11 @@ struct PodcastDirectoryShowView: View {
 
   @ViewBuilder
   private var feedStateSection: some View {
+    // Kein Lade-Spinner: der Feed liefert nur Zusatzdetails (Beschreibung, Laufzeit, Folgenzahl) —
+    // die Seite steht sofort mit den Verzeichnisdaten, Details erscheinen still nach.
+    // Ein Spinner an dieser Stelle wirkte wie eine Folgenliste, die nie erscheint.
     if preview == nil {
-      if isLoading {
-        AbstandLoadingSpinner(verticalPadding: AppTheme.Layout.emptyStateVerticalPadding)
-      } else if let loadError {
+      if !isLoading, let loadError {
         DetailDetailSectionCard {
           DetailMetaField(title: "Feed") {
             VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.linkRowSpacing) {
@@ -330,25 +337,23 @@ struct PodcastDirectoryShowView: View {
 
   // MARK: Episodes
 
+  /// Folgenliste nur, wenn daraus auch einzelne Folgen geladen werden können (Sendung abonniert,
+  /// Download-Recht) — als reine Leseliste hilft sie beim Hinzufügen nicht.
+  private var showsEpisodeList: Bool {
+    isInLibrary && model.podcastDirectoryCanDownloadEpisodes
+  }
+
   @ViewBuilder
   private var episodesSection: some View {
-    if let preview, !preview.episodes.isEmpty {
+    if showsEpisodeList, let preview, !preview.episodes.isEmpty {
       DetailMetaDisclosure(title: "Episodes", isExpanded: $episodesExpanded) {
         VStack(alignment: .leading, spacing: 0) {
-          if !isInLibrary, model.podcastDirectoryCanDownloadEpisodes {
-            // Ohne Library-Item gibt es kein Ziel für `download-episodes` — das erklärt den
-            // fehlenden Download-Button, statt ihn wirkungslos anzuzeigen.
-            AbstandInlineNotice(
-              text: "Subscribe to this show to download individual episodes to your server.")
-              .padding(.bottom, AppTheme.Layout.rowVerticalPadding)
-          }
           let episodes = visibleEpisodes(from: preview.episodes)
           // Position als Identität — manche Feeds vergeben denselben GUID mehrfach.
           ForEach(Array(episodes.enumerated()), id: \.offset) { idx, episode in
             episodeRow(episode)
             if idx < episodes.count - 1 {
-              Divider()
-                .overlay(palette.textSecondary.opacity(0.15))
+              Divider().background(palette.textSecondary.opacity(0.15))
             }
           }
           if preview.episodes.count > initialEpisodeCount {
@@ -364,10 +369,10 @@ struct PodcastDirectoryShowView: View {
         }
       }
       .tint(model.appearanceAccentColor)
-    } else if preview != nil, !isLoading {
+    } else if showsEpisodeList, preview != nil, !isLoading {
       DetailDetailSectionCard {
         DetailMetaField(title: "Episodes") {
-          AbstandInlineNotice(text: "This feed does not list any episodes yet.")
+          AbstandSectionEmptyState(text: "This feed does not list any episodes yet.")
         }
       }
     }
@@ -482,7 +487,7 @@ struct PodcastDirectoryShowView: View {
       coverTintColor = coverDominantBackgroundTint(
         fromAverageRed: rgb.r, green: rgb.g, blue: rgb.b)
     } else {
-      coverTintColor = AppTheme.background
+      coverTintColor = palette.background
     }
   }
 

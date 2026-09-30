@@ -2387,6 +2387,33 @@ extension ABSBook {
     )
   }
 
+  /// Nur Metadaten (Titel, Autor, Beschreibung …) und `updatedAt` aus `other` übernehmen — Spuren,
+  /// Kapitel und Dauer der laufenden Wiedergabe bleiben (Metadaten-Edit während des Hörens).
+  func replacingMetadata(from other: ABSBook) -> ABSBook {
+    guard id == other.id else { return self }
+    let mergedMedia = ABSBookMedia(
+      metadata: other.media.metadata,
+      duration: media.duration,
+      size: media.size,
+      numTracks: media.numTracks,
+      chapters: media.chapters,
+      tracks: media.tracks,
+      podcastEpisodes: media.podcastEpisodes,
+      ebookFile: media.ebookFile ?? other.media.ebookFile,
+      ebookFormat: media.ebookFormat ?? other.media.ebookFormat,
+      tags: other.media.tags ?? media.tags
+    )
+    return ABSBook(
+      id: id,
+      libraryId: libraryId,
+      media: mergedMedia,
+      addedAt: addedAt,
+      updatedAt: other.updatedAt ?? updatedAt,
+      mediaId: mediaId,
+      libraryFiles: libraryFiles
+    )
+  }
+
   /// Kapitel aus anderer Quelle übernehmen (z. B. Katalog, wenn altes Manifest ohne `chapters`).
   func withChapters(_ chapters: [ABSChapter]) -> ABSBook {
     guard !chapters.isEmpty else { return self }

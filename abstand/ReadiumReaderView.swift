@@ -53,6 +53,14 @@ struct ReadiumReaderView: View {
   @State private var showsReaderChromeHint = false
   /// Verhindert Sync mit Anfangs-Locator, bevor Server-Resume oder gespeicherte Position gilt.
   @State private var isInitialReaderLoad = true
+  /// Sprung zur Hörposition (nur EPUB, nur wenn dieses Hörbuch im Player geladen ist).
+  @State private var narrationJump: EbookNarrationJumpController?
+  /// Server steht deutlich weiter als der lokale Locator (z. B. auf einem anderen Gerät gelesen):
+  /// Angebot statt stillem Überschreiben. Solange es offen ist, geht kein Fortschritt zum Server.
+  @State private var serverPositionOffer: ServerPositionOffer?
+
+  /// So viel weiter (Anteil am Buch) muss der Server sein, damit das Angebot erscheint.
+  private static let serverPositionOfferThreshold = 0.02
 
   private var chromeColorScheme: ColorScheme {
     readerTheme == .dark ? .dark : .light
@@ -94,8 +102,22 @@ struct ReadiumReaderView: View {
           .allowsHitTesting(showReaderChrome)
       }
 
-      if showsReaderChromeHint {
+      if showsReaderChromeHint, serverPositionOffer == nil {
         readerChromeHint
+      }
+
+      if let offer = serverPositionOffer, !showReaderChrome {
+        EbookServerPositionBanner(
+          offer: offer,
+          foreground: readerChromeForeground,
+          secondary: readerChromeSecondary,
+          onStay: { withAnimation(.snappy(duration: 0.25)) { serverPositionOffer = nil } },
+          onContinue: {
+            withAnimation(.snappy(duration: 0.25)) { serverPositionOffer = nil }
+            Task { await seekToProgression(offer.serverFraction) }
+          }
+        )
+        .transition(.move(edge: .bottom).combined(with: .opacity))
       }
     }
     .background(readerBackground)
@@ -112,15 +134,31 @@ struct ReadiumReaderView: View {
       guard let locator = note.userInfo?[ReadiumReaderProgressInfo.locatorKey] as? Locator else { return }
       let pages = note.userInfo?[ReadiumReaderProgressInfo.bookPageProgressKey] as? BookPageProgress
       applyProgress(from: locator, bookPages: pages)
+      narrationJump?.readerLocationDidChange()
+      // Offenes Server-Angebot: der (ältere) lokale Stand darf den Server nicht überschreiben.
+      guard serverPositionOffer == nil else { return }
       model.scheduleEbookProgressSync(
         libraryItemId: libraryItemId,
         fraction: ReadiumReaderProgressInfo.fraction(from: locator)
       )
     }
+    .onDisappear { narrationJump?.stop() }
     .task(id: localFileURL.path) {
       fontSize = EpubReaderSettings.loadFontSize()
       continuousScroll = EpubReaderSettings.loadContinuousScroll()
       await loadNavigator()
+    }
+    // Fehler während der Reader offen ist hier zeigen — der Root-Alert liegt unter dem Cover.
+    .alert(
+      "Error",
+      isPresented: Binding(
+        get: { model.errorMessage != nil && model.ebookReaderSession != nil },
+        set: { if !$0 { model.errorMessage = nil } }
+      )
+    ) {
+      Button("OK", role: .cancel) { model.errorMessage = nil }
+    } message: {
+      Text(model.errorMessage ?? "")
     }
     .alert("Reset reading position?", isPresented: $confirmResetReadingPosition) {
       Button("Cancel", role: .cancel) {}
@@ -228,6 +266,10 @@ struct ReadiumReaderView: View {
         }
 
         Spacer(minLength: 0)
+
+        if let narrationJump {
+          EbookNarrationJumpButton(controller: narrationJump)
+        }
 
         Button {
           continuousScroll.toggle()
@@ -513,12 +555,27 @@ struct ReadiumReaderView: View {
         )
       }
       if format == .epub, let epub = epubNavigator {
+        narrationJump?.stop()
+        narrationJump = EbookNarrationJumpController(
+          model: model,
+          libraryItemId: libraryItemId,
+          navigator: epub
+        )
         if let current = epub.currentLocation {
           applyProgress(from: current)
         }
         await ReadiumReaderService.shared.refreshEpubProgressDisplay(epub: epub)
       } else if let current = pdfNavigator?.currentLocation {
         applyProgress(from: current)
+      }
+      // Lokaler Locator vorhanden, Server aber weiter: anbieten statt stumm die alte Seite zu öffnen.
+      if let saved = savedLocator,
+        let server = model.serverEbookFractionForReader(libraryItemId: libraryItemId)
+      {
+        let local = ReadiumReaderProgressInfo.fraction(from: saved)
+        if server - local >= Self.serverPositionOfferThreshold {
+          serverPositionOffer = ServerPositionOffer(serverFraction: server, localFraction: local)
+        }
       }
       isLoading = false
       if !didShowReaderChromeHint {
@@ -575,4 +632,105 @@ private final class ReaderNavigatorContainerViewController: UIViewController {
 extension Notification.Name {
   static let readiumReaderToggleChrome = Notification.Name("abstand.readiumReaderToggleChrome")
   static let readiumReaderProgressDidChange = Notification.Name("abstand.readiumReaderProgressDidChange")
+}
+
+/// Springt zur Seite der aktuellen Hörposition und markiert die letzten Wörter — nur sichtbar, wenn das
+/// Hörbuch im Player geladen ist.
+private struct EbookNarrationJumpButton: View {
+  @ObservedObject var controller: EbookNarrationJumpController
+  // Blendet den Button mit dem Player-Zustand ein und aus.
+  @EnvironmentObject private var player: PlaybackController
+
+  var body: some View {
+    if controller.isAvailable {
+      Button {
+        controller.jumpToNarration()
+      } label: {
+        Group {
+          if controller.isBusy {
+            ProgressView().controlSize(.small)
+          } else {
+            Image(systemName: "headphones").font(.body)
+          }
+        }
+        .frame(width: AppTheme.Layout.iconButtonSize, height: AppTheme.Layout.iconButtonSize)
+      }
+      .disabled(controller.isBusy)
+      .accessibilityLabel("Go to audiobook position")
+      .alert(
+        "Can't jump to the audiobook position",
+        isPresented: Binding(
+          get: { controller.notice != nil },
+          set: { if !$0 { controller.notice = nil } })
+      ) {
+        Button("OK", role: .cancel) {}
+      } message: {
+        Text(controller.notice ?? "")
+      }
+    }
+  }
+}
+
+// MARK: - Server-Position
+
+struct ServerPositionOffer: Equatable {
+  let serverFraction: Double
+  let localFraction: Double
+}
+
+/// Unten im Reader: „Auf einem anderen Gerät weitergelesen" — zur Serverposition springen oder hier
+/// bleiben. Der Server kennt nur einen Prozentwert, der Sprung ist deshalb ungefähr, nicht seitengenau.
+/// Farben kommen vom Reader-Theme (wie beim Catch-up-Banner).
+private struct EbookServerPositionBanner: View {
+  @EnvironmentObject private var model: AppModel
+  let offer: ServerPositionOffer
+  let foreground: SwiftUI.Color
+  let secondary: SwiftUI.Color
+  let onStay: () -> Void
+  let onContinue: () -> Void
+
+  private func percent(_ fraction: Double) -> String { "\(Int((fraction * 100).rounded())) %" }
+
+  var body: some View {
+    VStack {
+      Spacer()
+      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+        HStack(alignment: .top, spacing: AppTheme.Layout.rowSpacing) {
+          Image(systemName: "arrow.triangle.2.circlepath")
+            .font(.subheadline)
+            .foregroundStyle(model.appearanceAccentColor)
+            .padding(.top, AppTheme.Layout.hairlineSpacing)
+          VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
+            Text("You've read further elsewhere")
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(foreground)
+            Text("Your synced position is at \(percent(offer.serverFraction)), this device is at \(percent(offer.localFraction)).")
+              .font(.caption)
+              .foregroundStyle(secondary)
+          }
+          Spacer(minLength: 0)
+        }
+        HStack(spacing: AppTheme.Layout.rowSpacing) {
+          Button(action: onStay) {
+            Text("Stay here")
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(foreground)
+              .frame(minHeight: AppTheme.Layout.minTapTarget)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          Spacer(minLength: 0)
+          Button("Go to \(percent(offer.serverFraction))", action: onContinue)
+            .buttonStyle(AbstandProminentButtonStyle())
+        }
+      }
+      .padding(AppTheme.Layout.cardPadding)
+      .background(
+        .regularMaterial,
+        in: RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous)
+      )
+      .padding(.horizontal, AppTheme.Layout.screenPadding)
+      .padding(.bottom, AppTheme.Layout.blockSpacing)
+    }
+  }
 }

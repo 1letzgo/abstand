@@ -30,6 +30,8 @@ extension AppModel {
   /// Kaltstart-Signal je Account: LocalStore hält Home-Regale oder Fortschritt.
   /// Ersetzt einen synchronen SwiftData-Fetch, der sonst im View-Body und im Bootstrap-Fenster läuft.
   static let hasCachedLaunchArtifacts = "abstand_has_cached_launch_artifacts"
+  /// Reihenfolge der eBooks-Browse-Liste je Bibliothek (Präfix + `libraryId`, JSON).
+  static let ebookBrowseOrderPrefix = "abstand_ebook_browse_order_"
   static let catalogSortField = "abstand_catalog_sort_field"
   static let catalogSortDescending = "abstand_catalog_sort_descending"
   /// Sortierung nur Podcast-Bibliothek (Shows-Leiste + Fallback `libraryItems` für Folgen).

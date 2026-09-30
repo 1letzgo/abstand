@@ -11,6 +11,9 @@ struct LoginView: View {
   @State private var username = ""
   @State private var password = ""
   @State private var busy = false
+  /// Custom-Header für diesen Server (Keychain) — vor dem Login gespeichert, damit schon der
+  /// Login-Request sie trägt (SSO / Reverse-Proxy).
+  @State private var customHeaders: [ServerHTTPHeader] = []
 
   var body: some View {
     ZStack {
@@ -43,6 +46,7 @@ struct LoginView: View {
             AbstandLabeledTextField(
               title: "Password", text: $password, isSecure: true, textContentType: .password,
               submitLabel: .go)
+            ServerCustomHeadersDisclosure(headers: $customHeaders)
           }
           .onAppear {
             if addAccountMode {
@@ -52,6 +56,7 @@ struct LoginView: View {
             } else if server.isEmpty {
               server = model.serverURL
             }
+            customHeaders = AbstandCustomHeadersStore.load(forServer: server)
           }
 
           if let err = addAccountMode ? addAccountError : model.errorMessage, !err.isEmpty {
@@ -64,6 +69,8 @@ struct LoginView: View {
             Task {
               busy = true
               defer { busy = false }
+              // Header-Werte gehören in den Keychain, nie in die UserDefaults-Konfiguration.
+              AbstandCustomHeadersStore.save(customHeaders, forServer: server)
               if addAccountMode {
                 addAccountError = nil
                 if let failure = await model.addStoredAccount(

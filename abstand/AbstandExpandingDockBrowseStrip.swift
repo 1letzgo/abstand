@@ -71,6 +71,7 @@ struct AbstandPinnedBrowseStrip: View {
           accessibilityHint: "Chooses which library to browse",
           onSelect: onSelectLibrary
         )
+        .equatable()
         .frame(maxWidth: .infinity)
 
         AbstandBrowseStripDropdownPill(
@@ -81,6 +82,7 @@ struct AbstandPinnedBrowseStrip: View {
           accessibilityHint: secondaryAccessibilityHint,
           onSelect: onSelectSecondary
         )
+        .equatable()
         .frame(maxWidth: .infinity)
       }
       .padding(.horizontal, AppTheme.ExpandingDock.horizontalPadding)
@@ -98,8 +100,13 @@ struct AbstandPinnedBrowseStrip: View {
 }
 
 /// Fixierte Dropdown-Pill im Expanding-Dock-Stil (Library- oder Sektionswahl).
-struct AbstandBrowseStripDropdownPill: View {
-  @EnvironmentObject private var model: AppModel
+///
+/// Equatable und bewusst **ohne** `@EnvironmentObject AppModel`: Der Strip hängt im Katalog-Layout,
+/// das bei jedem `objectWillChange` des Models neu evaluiert wird (Download-Fortschritt alle
+/// 450 ms, Play/Pause, Fortschritt …). Ein `Menu`, dessen Label/Inhalt dabei jedes Mal neu
+/// gebaut wird, flackert — auch im geöffneten Zustand. Farben kommen deshalb über den
+/// Revision-Key + `AppTheme.palette` (siehe CLAUDE.md, Ausnahme zur Palette-Regel).
+struct AbstandBrowseStripDropdownPill: View, Equatable {
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
 
@@ -114,10 +121,21 @@ struct AbstandBrowseStripDropdownPill: View {
   var labelWidth: CGFloat? = nil
   let onSelect: (String) -> Void
 
+  /// `onSelect` bleibt außen vor — Closures sind nicht vergleichbar, und die Aufrufer fangen
+  /// nur stabile Referenzen (Model) ein.
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.items == rhs.items
+      && lhs.selectionID == rhs.selectionID
+      && lhs.fallbackSystemImage == rhs.fallbackSystemImage
+      && lhs.accessibilityLabel == rhs.accessibilityLabel
+      && lhs.accessibilityHint == rhs.accessibilityHint
+      && lhs.labelWidth == rhs.labelWidth
+  }
+
   private var dockColors: AppTheme.ExpandingDock.Colors {
     let _ = themeRevision
     return AppTheme.ExpandingDock.Colors(
-      palette: model.appearancePalette,
+      palette: AppTheme.palette,
       accent: themeAccent
     )
   }

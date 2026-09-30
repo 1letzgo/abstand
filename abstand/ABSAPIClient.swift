@@ -60,7 +60,8 @@ actor ABSAPIClient {
     // setzen eigene `URLRequest.timeoutInterval`-Overrides.
     cfg.timeoutIntervalForRequest = 12
     cfg.timeoutIntervalForResource = 3_600
-    self.urlSession = URLSession(configuration: cfg)
+    // Selbstsignierte Zertifikate nur für lokale/private Server (wie stashy).
+    self.urlSession = URLSession(configuration: cfg, delegate: AbstandTrustDelegate.shared, delegateQueue: nil)
 
     // Download-Session: eigenes Limit, damit Streaming-API nicht hinter Downloads in die Warteschlange gerät.
     let dlCfg = URLSessionConfiguration.default
@@ -68,7 +69,8 @@ actor ABSAPIClient {
     dlCfg.timeoutIntervalForRequest = 60
     dlCfg.timeoutIntervalForResource = 3_600
     dlCfg.httpMaximumConnectionsPerHost = 4
-    self.downloadURLSession = URLSession(configuration: dlCfg)
+    self.downloadURLSession = URLSession(
+      configuration: dlCfg, delegate: AbstandTrustDelegate.shared, delegateQueue: nil)
   }
 
 
@@ -134,6 +136,7 @@ actor ABSAPIClient {
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue(current, forHTTPHeaderField: "x-refresh-token")
+    AbstandCustomHeadersStore.apply(to: &req)
     guard let (data, resp) = try? await Self.loginSession.data(for: req),
       let http = resp as? HTTPURLResponse
     else { return false }
@@ -228,6 +231,7 @@ actor ABSAPIClient {
         await refreshIfExpiringSoon()
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        AbstandCustomHeadersStore.apply(to: &req)
         let (temp, resp) = try await downloadURLSession.download(for: req)
         guard let http = resp as? HTTPURLResponse else {
           try? FileManager.default.removeItem(at: temp)
@@ -275,7 +279,7 @@ actor ABSAPIClient {
     cfg.waitsForConnectivity = true
     cfg.timeoutIntervalForRequest = 12
     cfg.timeoutIntervalForResource = 20
-    return URLSession(configuration: cfg)
+    return URLSession(configuration: cfg, delegate: AbstandTrustDelegate.shared, delegateQueue: nil)
   }()
 
   static func login(server: URL, username: String, password: String) async throws -> ABSLoginResponse {
@@ -286,6 +290,7 @@ actor ABSAPIClient {
     // Neues JWT-Auth: Refresh-Token im Body statt nur als Cookie (alte Server ignorieren den Header).
     req.setValue("true", forHTTPHeaderField: "x-return-tokens")
     req.httpBody = try ABSJSON.encoder().encode(ABSLoginRequest(username: username, password: password))
+    AbstandCustomHeadersStore.apply(to: &req)
     let (data, resp) = try await loginSession.data(for: req)
     guard let http = resp as? HTTPURLResponse else { throw ABSAPIError.emptyBody }
     // Bewusst NICHT `throwForStatus`: 401 beim Login heißt falsche Zugangsdaten, nicht abgelaufener
@@ -306,6 +311,7 @@ actor ABSAPIClient {
     var req = URLRequest(url: server.appendingPathComponent("logout"), timeoutInterval: 10)
     req.httpMethod = "POST"
     req.setValue(refreshToken, forHTTPHeaderField: "x-refresh-token")
+    AbstandCustomHeadersStore.apply(to: &req)
     _ = try? await loginSession.data(for: req)
   }
 
@@ -359,6 +365,7 @@ actor ABSAPIClient {
     req.httpMethod = method
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    AbstandCustomHeadersStore.apply(to: &req)
     req.httpBody = body
     return req
   }
@@ -1273,6 +1280,7 @@ actor ABSAPIClient {
         await refreshIfExpiringSoon()
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        AbstandCustomHeadersStore.apply(to: &req)
         let (temp, resp) = try await downloadURLSession.download(for: req)
         guard let http = resp as? HTTPURLResponse else {
           try? FileManager.default.removeItem(at: temp)
@@ -1331,6 +1339,7 @@ actor ABSAPIClient {
         await refreshIfExpiringSoon()
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        AbstandCustomHeadersStore.apply(to: &req)
         let delegate = FileDownloadProgressDelegate(onProgress: progress, knownExpectedBytes: knownSize)
         let (temp, resp) = try await downloadURLSession.download(for: req, delegate: delegate)
         guard let http = resp as? HTTPURLResponse else {
@@ -1375,6 +1384,7 @@ actor ABSAPIClient {
     var req = URLRequest(url: url, timeoutInterval: 30)
     req.httpMethod = "HEAD"
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    AbstandCustomHeadersStore.apply(to: &req)
     guard let resp = try? await downloadURLSession.data(for: req).1 as? HTTPURLResponse,
       (200..<300).contains(resp.statusCode) else {
       return nil

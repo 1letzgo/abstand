@@ -35,8 +35,6 @@ enum AppearanceMode: String, CaseIterable, Identifiable, Hashable {
 enum LibraryBookCardStyle: String, CaseIterable, Identifiable, Hashable {
   case compact
   case heroCover
-  /// Nur Cover (1:1) mit Status-Icons — ohne Titel/Autor darunter.
-  case coverOnly
 
   var id: String { rawValue }
 
@@ -44,7 +42,6 @@ enum LibraryBookCardStyle: String, CaseIterable, Identifiable, Hashable {
     switch self {
     case .compact: "Compact row"
     case .heroCover: "Cover card"
-    case .coverOnly: "Cover only"
     }
   }
 
@@ -52,7 +49,7 @@ enum LibraryBookCardStyle: String, CaseIterable, Identifiable, Hashable {
   var usesMultiColumnGrid: Bool {
     switch self {
     case .compact: false
-    case .heroCover, .coverOnly: true
+    case .heroCover: true
     }
   }
 
@@ -61,17 +58,18 @@ enum LibraryBookCardStyle: String, CaseIterable, Identifiable, Hashable {
     switch self {
     case .compact: 1
     case .heroCover: 2
-    case .coverOnly: 3
     }
   }
 
   private static let storageKey = AppModel.Keys.libraryBookCardStyle
 
+  /// Entfernter Stil „Cover only“ → nächstverwandtes Raster („Cover card“).
+  private static let removedCoverOnlyRawValue = "coverOnly"
+
   static func load(from defaults: UserDefaults = .standard) -> LibraryBookCardStyle {
-    guard let raw = defaults.string(forKey: storageKey),
-      let style = LibraryBookCardStyle(rawValue: raw)
-    else { return .compact }
-    return style
+    guard let raw = defaults.string(forKey: storageKey) else { return .compact }
+    if raw == removedCoverOnlyRawValue { return .heroCover }
+    return LibraryBookCardStyle(rawValue: raw) ?? .compact
   }
 
   func persist(to defaults: UserDefaults = .standard) {
@@ -206,7 +204,7 @@ struct AppColorPalette: Equatable {
     return derived(from: accent, isDarkLike: isDarkLike)
   }
 
-  /// Light: Hintergrund/Karten aus Akzentfarbe; Dark: feste Flächen (#121212 / #252525).
+  /// Light: Hintergrund/Karten aus Akzentfarbe; Dark: feste Flächen (#353535 / #454545).
   static func derived(from accent: Color, isDarkLike: Bool) -> AppColorPalette {
     if isDarkLike {
       return fixedDarkPalette()
@@ -240,8 +238,9 @@ struct AppColorPalette: Equatable {
   private static func fixedDarkPalette() -> AppColorPalette {
     AppColorPalette(
       isDarkLike: true,
-      background: Color(red: 18 / 255, green: 18 / 255, blue: 18 / 255),
-      card: Color(red: 37 / 255, green: 37 / 255, blue: 37 / 255),
+      background: Color(red: 53 / 255, green: 53 / 255, blue: 53 / 255),
+      // Karten bleiben eine Stufe heller als der Hintergrund (gleicher Abstand wie zuvor).
+      card: Color(red: 69 / 255, green: 69 / 255, blue: 69 / 255),
       textPrimary: .white,
       textSecondary: Color(red: 176 / 255, green: 176 / 255, blue: 176 / 255),
       progressTrack: Color.white.opacity(0.14),

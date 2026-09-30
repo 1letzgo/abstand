@@ -293,6 +293,8 @@ private struct HomeCoverCardCarousel<Item: Identifiable, Card: View>: View {
         }
       }
     }
+    // Mindesthöhe vorab (Cover + Textblock) — sonst springt das Regal, sobald die Breite gemessen ist.
+    .frame(minHeight: cardWidth + AppTheme.Layout.libraryHeroMetadataBlockHeight, alignment: .top)
     .background {
       GeometryReader { geo in
         Color.clear.preference(key: HomeShelfCoverViewportWidthKey.self, value: geo.size.width)

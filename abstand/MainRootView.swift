@@ -127,7 +127,8 @@ struct MainRootView: View {
     .alert(
       "Error",
       isPresented: Binding(
-        get: { model.errorMessage != nil },
+        // Liegt der Vollbild-Player oder Reader darüber, zeigen die den Fehler selbst.
+        get: { model.showsRootErrorAlert },
         set: { if !$0 { model.errorMessage = nil } }
       )
     ) {
@@ -277,7 +278,7 @@ struct MainRootView: View {
       ?? libraryItems.first?.id
       ?? ""
     let sectionItems = BooksBrowseSection.audiobookStripOrder.map {
-      AbstandBrowseStripItem(id: $0.rawValue, label: $0.rawValue, systemImage: $0.systemImage)
+      AbstandBrowseStripItem(id: $0.rawValue, label: $0.title, systemImage: $0.systemImage)
     }
     return AbstandPinnedBrowseStrip(
       libraryPickerItems: libraryItems,
@@ -325,19 +326,16 @@ struct MainRootView: View {
     case .tags:
       booksBrowseTagsListBody
     case .ebooks, .ebooksSupplementary:
-      // eBooks/Supplementary sind jetzt Katalog-Filter, keine eigenen Abschnitte mehr.
-      booksCatalogBookListBody
+      booksEbookListBody
     }
   }
 
   private var booksCatalogBookListBody: some View {
     let rows = model.booksForDisplay()
     return LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      // Immer „Books" — wie „New episodes" im Podcast-Tab. Vorher stand hier der
-      // Bibliotheksname, und nur bei genau einer aktiven Bibliothek: die Liste bekam ihre
-      // Überschrift also je nach Kontoeinstellung oder gar nicht. Welche Bibliothek gemeint
-      // ist, sagt ohnehin die Picker-Pill darüber.
-      TabContentSectionTitle(title: "Books")
+      // Immer „Audiobooks" — wie „New episodes" im Podcast-Tab. Welche Bibliothek gemeint
+      // ist, sagt die Picker-Pill darüber.
+      TabContentSectionTitle(title: BooksBrowseSection.books.title)
       if model.isLibraryCatalogFiltered {
         catalogFilterBanner
       }
@@ -354,6 +352,59 @@ struct MainRootView: View {
           libraryCatalogBookCard(book)
         }
       }
+    }
+  }
+
+  /// Eigene eBooks-Kategorie: reine eBooks, darunter Hörbücher mit angehängtem eBook.
+  private var booksEbookListBody: some View {
+    let pure = model.browseEbooksFiltered(model.browseEbooks)
+    let supplementary = model.browseEbooksFiltered(model.browseEbooksSupplementary)
+    return LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      TabContentSectionTitle(title: BooksBrowseSection.ebooks.title)
+      if model.browseEbooksLoading, pure.isEmpty, supplementary.isEmpty {
+        AbstandLoadingSpinner()
+      } else if pure.isEmpty {
+        AbstandSectionEmptyState(
+          text: model.ebookCatalogQuickFilter == nil
+            ? "No eBooks in this library." : "No eBooks match the current filter.")
+      } else {
+        ebookCards(pure, loadsMore: true)
+      }
+      if !supplementary.isEmpty {
+        TabContentSectionTitle(title: "Audiobooks with eBook")
+          .padding(.top, AppTheme.Layout.sectionSpacing)
+        ebookCards(supplementary, loadsMore: false)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func ebookCards(_ books: [ABSBook], loadsMore: Bool) -> some View {
+    if model.libraryBookCardStyle.usesMultiColumnGrid {
+      LibraryHeroMultiColumnRows(
+        items: books,
+        columns: model.libraryBookCardStyle.phoneGridColumns,
+        spacing: AppTheme.Layout.withinSectionSpacing
+      ) { book in
+        ebookCard(book, loadsMore: loadsMore)
+      }
+    } else {
+      ForEach(books) { book in
+        ebookCard(book, loadsMore: loadsMore)
+      }
+    }
+  }
+
+  private func ebookCard(_ book: ABSBook, loadsMore: Bool) -> some View {
+    LibraryBookListCard(
+      book: book,
+      model: model,
+      showEbookBadge: model.bookShowsSupplementaryEbookBadge(book),
+      usesEbookProgressDisplay: true
+    )
+    .task(id: book.id) {
+      guard loadsMore else { return }
+      await model.loadMoreBrowseEbooksIfNeeded(currentItemId: book.id)
     }
   }
 

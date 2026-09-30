@@ -1,16 +1,26 @@
+import BackgroundTasks
 import Combine
 import Foundation
 import Speech
 import SwiftUI
 import UIKit
 
-/// Produziert Read-Along-Transkripte für das laufende, heruntergeladene Hörbuch im Voraus —
-/// **nur solange die App im Vordergrund ist**. Damit ist der Teleprompter beim Einschalten
-/// bereits gefüllt und der Recap kostet keine eigene Spracherkennung mehr.
+/// Ein heruntergeladener Titel, für den Transkripte vorproduziert werden.
+struct PlayerTranscriptJob {
+  /// Schlüssel der Transkriptdateien (= Download-Ordner; bei Folgen `<Show>-<Folge>`).
+  let storageId: String
+  let title: String
+  let languageTag: String?
+  let sources: [PlayerTranscriptTrackSource]
+}
+
+/// Produziert Read-Along-Transkripte für heruntergeladene Titel im Voraus — der laufende Titel
+/// zuerst (ab Abspielposition), dann alle anderen Downloads. Läuft im Vordergrund und per
+/// iOS-Hintergrundverarbeitung (`BGProcessingTask`, nur am Strom — typischerweise nachts).
+/// Damit sind Read Along, Teleprompter und Recap meist sofort bereit.
 ///
-/// Bewusste Grenzen: kein Hintergrundmodus (die App hat nur `audio`), Pause bei Stromsparmodus
-/// und bei thermischer Drosselung, und Vorrang für Teleprompter/Recap
-/// (`PlayerTranscriptLibrary.isPriorityWorkActive`).
+/// Grenzen: Pause bei Stromsparmodus und thermischer Drosselung, Vorrang für Teleprompter/Recap
+/// (`PlayerTranscriptLibrary.isPriorityWorkActive`), nur bereits installierte Sprachmodelle.
 @MainActor
 final class PlayerTranscriptPrefetcher: ObservableObject {
   /// Reihenfolge: aktueller Track ab Abspielposition, dann die folgenden, zuletzt der Anfang.
@@ -29,10 +39,27 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
   /// und zwei Vorproduktionen liefen parallel.
   private var runGeneration: UInt = 0
   private weak var player: PlaybackController?
+  private var jobsProvider: (() -> [PlayerTranscriptJob])?
   private var isEnabled = false
+  /// Titel, der gerade vorbereitet wird (Einstellungen-Anzeige).
+  @Published private(set) var currentJobTitle: String?
 
-  func configure(player: PlaybackController) {
+  /// Laufende iOS-Hintergrundverarbeitung (nur dann darf ohne aktive App gearbeitet werden).
+  private var backgroundTask: BGProcessingTask?
+  /// Nach dem Lauf noch offene Arbeit (unvollständige Tracks) → neue Hintergrund-Anfrage.
+  private var runLeftWorkPending = false
+
+  static let backgroundTaskIdentifier = "de.letzgo.abstand.transcripts"
+  /// Einzige Instanz (im `AppModel`) — für den beim App-Start registrierten Hintergrund-Handler.
+  private(set) weak static var current: PlayerTranscriptPrefetcher?
+
+  init() {
+    Self.current = self
+  }
+
+  func configure(player: PlaybackController, jobs: @escaping () -> [PlayerTranscriptJob]) {
     self.player = player
+    self.jobsProvider = jobs
   }
 
   /// Einstellung geändert, Buch gewechselt, App in den Vordergrund: Lauf neu bewerten.
@@ -46,13 +73,14 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
   }
 
   func scheduleIfNeeded() {
-    guard isEnabled, task == nil, let player else { return }
-    // Nur im Vordergrund (Design-Vorgabe). Ein Titel, der aus CarPlay/Sperrbildschirm im Hintergrund
-    // geladen wird, startet sonst stundenlange Analyse im Hintergrund — der Vordergrund-Wechsel
-    // (`abstandApp`, scenePhase) plant ohnehin neu.
-    guard UIApplication.shared.applicationState == .active else { return }
-    guard player.isReadAlongDownloadReady, player.activeBook != nil else { return }
-    guard SpeechTranscriber.isAvailable else { return }
+    guard isEnabled, task == nil, player != nil else { return }
+    // Im Vordergrund oder in einer von iOS gewährten Hintergrundverarbeitung (am Strom). Ein Titel,
+    // der per CarPlay/Sperrbildschirm im Hintergrund geladen wird, startet sonst ungefragt Arbeit.
+    guard UIApplication.shared.applicationState == .active || backgroundTask != nil else { return }
+    guard SpeechTranscriber.isAvailable else {
+      finishBackgroundTask(success: true)
+      return
+    }
     runGeneration &+= 1
     let generation = runGeneration
     task = Task { @MainActor [weak self] in
@@ -61,6 +89,67 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
       self.task = nil
       self.isRunning = false
       self.pausedReason = nil
+      self.currentJobTitle = nil
+      self.finishBackgroundTask(success: true)
+    }
+  }
+
+  // MARK: Hintergrundverarbeitung
+
+  /// Beim App-Start (vor Ende des Launches) registrieren — Pflicht für `BGTaskScheduler`.
+  static func registerBackgroundTask() {
+    BGTaskScheduler.shared.register(forTaskWithIdentifier: backgroundTaskIdentifier, using: nil) { task in
+      let box = BackgroundTaskBox(task)
+      Task { @MainActor in
+        guard let processing = box.task as? BGProcessingTask, let prefetcher = Self.current else {
+          box.task.setTaskCompleted(success: false)
+          return
+        }
+        prefetcher.handleBackgroundTask(processing)
+      }
+    }
+  }
+
+  /// Beim Wechsel in den Hintergrund: iOS um Rechenzeit bitten — nur am Strom, damit Akku und
+  /// Wärme kein Thema sind (typisch nachts beim Laden).
+  func scheduleBackgroundProcessingIfNeeded() {
+    guard isEnabled, SpeechTranscriber.isAvailable else { return }
+    guard !(jobsProvider?() ?? []).isEmpty || player?.transcriptionStorageId != nil else { return }
+    let request = BGProcessingTaskRequest(identifier: Self.backgroundTaskIdentifier)
+    request.requiresExternalPower = true
+    request.requiresNetworkConnectivity = false
+    do {
+      try BGTaskScheduler.shared.submit(request)
+    } catch {
+      DebugLogCollector.shared.log("readAlong prefetch: background request failed \(error.localizedDescription)")
+    }
+  }
+
+  private func handleBackgroundTask(_ processing: BGProcessingTask) {
+    backgroundTask = processing
+    processing.expirationHandler = { [weak self] in
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        // Zeit abgelaufen: Lauf abbrechen (Zwischenstand ist gesichert) und später weitermachen.
+        self.runLeftWorkPending = true
+        self.stop()
+        self.finishBackgroundTask(success: false)
+      }
+    }
+    stop()
+    scheduleIfNeeded()
+    // Nichts gestartet (aus, kein Player …) → iOS sofort Bescheid geben, sonst wertet es die
+    // Aufgabe als hängend und plant die App künftig seltener ein.
+    if task == nil { finishBackgroundTask(success: true) }
+  }
+
+  private func finishBackgroundTask(success: Bool) {
+    guard let processing = backgroundTask else { return }
+    backgroundTask = nil
+    processing.setTaskCompleted(success: success)
+    if runLeftWorkPending {
+      runLeftWorkPending = false
+      scheduleBackgroundProcessingIfNeeded()
     }
   }
 
@@ -78,53 +167,84 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
     // nach ein paar Büchern „37 von 12 Tracks“.
     preparedTracks = 0
     totalTracks = 0
-    guard let player, let bookId = player.activeBook?.id, !bookId.isEmpty else { return }
+    runLeftWorkPending = false
 
-    // Sprache: nur bereits installierte Modelle — ein Download im Hintergrund wäre eine
-    // Überraschung auf fremdem Mobilfunk.
-    guard
-      let resolution = try? await SpeechTranscriptionLocaleResolver.resolve(
-        preferredLanguageTag: player.preferredTranscriptionLanguageTag
-      )
-    else { return }
-    // Nur die Buchsprache vorproduzieren. Bei Fallback wäre das Ergebnis in einer fremden
-    // Sprache transkribiert — stundenlange Rechenzeit für ein unbrauchbares Transkript.
-    guard !resolution.usedFallback else { return }
-    let locale = resolution.locale
+    // Reihenfolge: laufender Titel (ab Abspielposition), dann alle anderen Downloads.
+    var jobs: [(job: PlayerTranscriptJob, startGlobal: Double?)] = []
+    if let player, player.isReadAlongDownloadReady, let activeId = player.transcriptionStorageId {
+      let sources = player.localTranscriptionTrackSources()
+      if !sources.isEmpty {
+        jobs.append((
+          PlayerTranscriptJob(
+            storageId: activeId,
+            title: player.activeBook?.displayTitle ?? "",
+            languageTag: player.preferredTranscriptionLanguageTag,
+            sources: sources
+          ),
+          player.liveGlobalPlaybackPosition
+        ))
+      }
+    }
+    let activeId = jobs.first?.job.storageId
+    for job in jobsProvider?() ?? [] where job.storageId != activeId {
+      jobs.append((job, nil))
+    }
+    guard !jobs.isEmpty else { return }
+    totalTracks = jobs.reduce(0) { $0 + $1.job.sources.count }
+
+    // Sprachauflösung einmal je Sprache.
+    var localeByTag: [String: Locale?] = [:]
     let installed = await SpeechTranscriber.installedLocales
-    guard
-      installed.contains(where: {
-        SpeechTranscriptionLocaleResolver.matchLocale(locale, in: [$0]) != nil
-      })
-    else { return }
-
-    let sources = player.localTranscriptionTrackSources()
-    guard !sources.isEmpty else { return }
-    totalTracks = sources.count
-
-    let currentIndex = sources.firstIndex {
-      $0.globalRange.contains(player.liveGlobalPlaybackPosition)
-    } ?? 0
-    // Erst ab hier nach vorn, danach der übersprungene Anfang.
-    let ordered = Array(sources[currentIndex...]) + Array(sources[..<currentIndex])
 
     isRunning = true
-    for source in ordered {
+    for (job, startGlobal) in jobs {
       if Task.isCancelled { return }
-      // Aktueller Track ab Abspielposition, alle anderen von vorn.
-      let from =
-        source.trackIndex == sources[currentIndex].trackIndex
-        ? max(0, player.liveGlobalPlaybackPosition - source.globalOffset)
-        : 0
-      let completed = await prepare(
-        bookId: bookId, source: source, locale: locale, from: from, generation: generation)
-      if Task.isCancelled { return }
-      // Nur zählen, was wirklich durchgelaufen ist — sonst meldet die Einstellung Fortschritt,
-      // den es nicht gibt (abgebrochene oder fehlgeschlagene Tracks).
-      if completed { preparedTracks += 1 }
+      let tag = job.languageTag ?? ""
+      if localeByTag[tag] == nil {
+        localeByTag[tag] = await Self.installedLocale(forLanguageTag: job.languageTag, installed: installed)
+      }
+      // Nur die Buchsprache und nur installierte Modelle — kein Download im Hintergrund, kein
+      // stundenlanges Transkribieren in einer fremden Sprache.
+      guard let locale = localeByTag[tag] ?? nil else { continue }
+      currentJobTitle = job.title.isEmpty ? nil : job.title
+
+      let sources = job.sources
+      let currentIndex = startGlobal.flatMap { g in sources.firstIndex { $0.globalRange.contains(g) } } ?? 0
+      // Erst ab hier nach vorn, danach der übersprungene Anfang.
+      let ordered = Array(sources[currentIndex...]) + Array(sources[..<currentIndex])
+      for source in ordered {
+        if Task.isCancelled { return }
+        // Laufender Track ab Abspielposition, alle anderen von vorn.
+        let from =
+          (startGlobal != nil && source.trackIndex == sources[currentIndex].trackIndex)
+          ? max(0, (startGlobal ?? 0) - source.globalOffset)
+          : 0
+        let completed = await prepare(
+          bookId: job.storageId, source: source, locale: locale, from: from, generation: generation)
+        if Task.isCancelled { return }
+        // Nur zählen, was wirklich durchgelaufen ist — sonst meldet die Einstellung Fortschritt,
+        // den es nicht gibt (abgebrochene oder fehlgeschlagene Tracks).
+        if completed {
+          preparedTracks += 1
+        } else {
+          runLeftWorkPending = true
+        }
+      }
     }
     isRunning = false
     pausedReason = nil
+  }
+
+  /// Installiertes Sprachmodell für die Buchsprache — `nil` bei Fallback oder fehlendem Modell.
+  private static func installedLocale(forLanguageTag tag: String?, installed: [Locale]) async -> Locale? {
+    guard
+      let resolution = try? await SpeechTranscriptionLocaleResolver.resolve(preferredLanguageTag: tag),
+      !resolution.usedFallback
+    else { return nil }
+    let locale = resolution.locale
+    guard installed.contains(where: { SpeechTranscriptionLocaleResolver.matchLocale(locale, in: [$0]) != nil })
+    else { return nil }
+    return locale
   }
 
   /// `true`, wenn der Track vollständig abgedeckt ist.
@@ -206,4 +326,10 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
       return nil
     }
   }
+}
+
+/// `BGTask` ist nicht Sendable — der Handler reicht die Instanz nur an den MainActor weiter.
+private final class BackgroundTaskBox: @unchecked Sendable {
+  let task: BGTask
+  init(_ task: BGTask) { self.task = task }
 }

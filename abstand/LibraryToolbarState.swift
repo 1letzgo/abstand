@@ -9,6 +9,7 @@ final class BooksLibraryToolbarState: ObservableObject {
   @Published var catalogSortField: CatalogSortField = .addedAt
   @Published var catalogSortDescending: Bool = true
   @Published var libraryCatalogQuickFilter: LibraryCatalogQuickFilter?
+  @Published var ebookCatalogQuickFilter: LibraryCatalogQuickFilter?
   @Published var isLibraryCatalogFiltered = false
   @Published var isAllFilterActive = true
   @Published var browseAuthorsSortField: BooksBrowseAuthorsSortField = .name
@@ -37,6 +38,7 @@ final class BooksLibraryToolbarState: ObservableObject {
       model.$catalogSortField.map { _ in () }.eraseToAnyPublisher(),
       model.$catalogSortDescending.map { _ in () }.eraseToAnyPublisher(),
       model.$libraryCatalogQuickFilter.map { _ in () }.eraseToAnyPublisher(),
+      model.$ebookCatalogQuickFilter.map { _ in () }.eraseToAnyPublisher(),
       model.$activeLibraryFilter.map { _ in () }.eraseToAnyPublisher(),
       model.$browseAuthorsSortField.map { _ in () }.eraseToAnyPublisher(),
       model.$browseAuthorsSortDescending.map { _ in () }.eraseToAnyPublisher(),
@@ -73,6 +75,7 @@ final class BooksLibraryToolbarState: ObservableObject {
     catalogSortField = .addedAt
     catalogSortDescending = true
     libraryCatalogQuickFilter = nil
+    ebookCatalogQuickFilter = nil
     isLibraryCatalogFiltered = false
     isAllFilterActive = true
     browseAuthorsSortField = .name
@@ -94,6 +97,7 @@ final class BooksLibraryToolbarState: ObservableObject {
     setIfChanged(\.catalogSortField, model.catalogSortField)
     setIfChanged(\.catalogSortDescending, model.catalogSortDescending)
     setIfChanged(\.libraryCatalogQuickFilter, model.libraryCatalogQuickFilter)
+    setIfChanged(\.ebookCatalogQuickFilter, model.ebookCatalogQuickFilter)
     setIfChanged(\.isLibraryCatalogFiltered, model.isLibraryCatalogFiltered)
     let allActive =
       model.libraryCatalogQuickFilter == nil
@@ -137,6 +141,10 @@ final class BooksLibraryToolbarState: ObservableObject {
 
   func applyLibraryCatalogQuickFilter(_ filter: LibraryCatalogQuickFilter) {
     model?.applyLibraryCatalogQuickFilter(filter)
+  }
+
+  func applyEbookCatalogQuickFilter(_ filter: LibraryCatalogQuickFilter?) {
+    model?.applyEbookCatalogQuickFilter(filter)
   }
 
   func applyBrowseAuthorsSortField(_ field: BooksBrowseAuthorsSortField) {
@@ -305,6 +313,7 @@ struct BooksLibraryToolbarSnapshot: Equatable {
   var catalogSortField: CatalogSortField
   var catalogSortDescending: Bool
   var libraryCatalogQuickFilter: LibraryCatalogQuickFilter?
+  var ebookCatalogQuickFilter: LibraryCatalogQuickFilter?
   var isLibraryCatalogFiltered: Bool
   var isAllFilterActive: Bool
   var browseAuthorsSortField: BooksBrowseAuthorsSortField
@@ -326,6 +335,7 @@ struct BooksLibraryToolbarSnapshot: Equatable {
     catalogSortField = state.catalogSortField
     catalogSortDescending = state.catalogSortDescending
     libraryCatalogQuickFilter = state.libraryCatalogQuickFilter
+    ebookCatalogQuickFilter = state.ebookCatalogQuickFilter
     isLibraryCatalogFiltered = state.isLibraryCatalogFiltered
     isAllFilterActive = state.isAllFilterActive
     browseAuthorsSortField = state.browseAuthorsSortField
@@ -373,6 +383,8 @@ private struct BooksLibraryToolbarBodyStandard: ToolbarContent {
     switch snapshot.booksBrowseSection {
     case .books:
       BrowseBooksCatalogToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
+    case .ebooks, .ebooksSupplementary:
+      BrowseEbooksCatalogToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
     case .author:
       BrowseAuthorsSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
     case .narrators:
@@ -433,6 +445,32 @@ private struct BrowseBooksCatalogToolbarContent: ToolbarContent {
         isAllFilterActive: snapshot.isAllFilterActive,
         onClear: { toolbarState.clearCatalogFilter() },
         onSelect: { toolbarState.applyLibraryCatalogQuickFilter($0) }
+      )
+      .equatable()
+      BooksCatalogSortToolbarMenu(
+        sortField: snapshot.catalogSortField,
+        sortDescending: snapshot.catalogSortDescending,
+        onSortFieldChange: { toolbarState.applyCatalogSortField($0) },
+        onSortDescendingChange: { toolbarState.applyCatalogSortDescending($0) }
+      )
+      .equatable()
+    }
+  }
+}
+
+/// Wie der Hörbuch-Katalog: Filter (lokal, eigener Zustand) + dieselbe Sortierung.
+private struct BrowseEbooksCatalogToolbarContent: ToolbarContent {
+  let snapshot: BooksLibraryToolbarSnapshot
+  let toolbarState: BooksLibraryToolbarState
+
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .topBarTrailing) {
+      BooksCatalogFilterToolbarMenu(
+        isActive: snapshot.ebookCatalogQuickFilter != nil,
+        libraryCatalogQuickFilter: snapshot.ebookCatalogQuickFilter,
+        isAllFilterActive: snapshot.ebookCatalogQuickFilter == nil,
+        onClear: { toolbarState.applyEbookCatalogQuickFilter(nil) },
+        onSelect: { toolbarState.applyEbookCatalogQuickFilter($0) }
       )
       .equatable()
       BooksCatalogSortToolbarMenu(
@@ -516,8 +554,7 @@ private struct BrowseCollectionsSortToolbarContent: ToolbarContent {
 
 /// Navigation + Toolbar; Katalog kommt als `let model`-Child (ohne `@EnvironmentObject` am Shell).
 struct BooksLibraryTabShell<Catalog: View>: View {
-  @EnvironmentObject private var model: AppModel
-  @ObservedObject var toolbarState: BooksLibraryToolbarState
+  let toolbarState: BooksLibraryToolbarState
   @ViewBuilder var catalog: () -> Catalog
 
   var body: some View {
@@ -530,12 +567,26 @@ struct BooksLibraryTabShell<Catalog: View>: View {
         .abstandTabScreenChrome()
         .navigationTitle(AppModel.MainTab.library.rawValue)
         .toolbarTitleDisplayMode(.inlineLarge)
-        .toolbar {
-          if model.booksBrowseSection != .search {
-            BooksLibraryToolbarContent(toolbarState: toolbarState)
-          }
-        }
+        .modifier(BooksLibraryToolbarModifier(toolbarState: toolbarState))
         .booksEntityDetailNavigation(for: .library)
+    }
+  }
+}
+
+/// Eigener Modifier, damit die Toolbar **nur** bei `toolbarState`-Änderungen neu evaluiert wird.
+/// Der Shell-Body läuft bei jedem `AppModel.objectWillChange` (Parent `MainRootView` beobachtet
+/// das Model; Download-Fortschritt, Play/Pause …). Ein `.toolbar { … }` direkt im Shell baute
+/// dabei jedes Mal die Bar-Items samt Filter-/Sort-`Menu` neu → Menüs flackerten. Der Modifier
+/// hält nur die Referenz auf `toolbarState` — SwiftUI überspringt seinen Body, solange die
+/// gleich bleibt und `toolbarState` nichts publiziert.
+private struct BooksLibraryToolbarModifier: ViewModifier {
+  @ObservedObject var toolbarState: BooksLibraryToolbarState
+
+  func body(content: Content) -> some View {
+    content.toolbar {
+      if toolbarState.booksBrowseSection != .search {
+        BooksLibraryToolbarContent(toolbarState: toolbarState)
+      }
     }
   }
 }

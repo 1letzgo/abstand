@@ -32,6 +32,13 @@ enum PlayerTranscriptProducerError: Error {
 enum PlayerTranscriptProducer {
   /// Audio in Blöcken lesen; nach jedem Block kurz kooperativ abgeben.
   private static let buffersPerYield = 64
+  /// Wie weit (Audiosekunden) das Füttern der Erkennung vorauslaufen darf. Ohne Grenze landet bei
+  /// langen Einzeldatei-Hörbüchern fast die ganze Datei als PCM im Speicher (GB-Bereich).
+  private static let maxFeedLeadSeconds: Double = 120
+  /// Bei Stille liefert die Erkennung keine Ergebnisse — dann nach dieser Wartezeit trotzdem
+  /// ein Stück weiterfüttern, statt sich festzuwarten.
+  private static let stallNudgeNanoseconds: UInt64 = 1_500_000_000
+  private static let throttleSleepNanoseconds: UInt64 = 100_000_000
 
   /// Transkribiert `[startSeconds, endSeconds)` der Datei und liefert Wort-Batches.
   /// Der Stream endet, wenn der Bereich fertig ist oder der Aufrufer ihn abbricht.
@@ -79,12 +86,14 @@ enum PlayerTranscriptProducer {
 
     let (stream, input) = AsyncStream<AnalyzerInput>.makeStream()
     try await analyzer.start(inputSequence: stream)
+    let gate = FeedGate(analyzedThrough: startSeconds)
 
     // Ergebnisse einsammeln, während parallel gefüttert wird.
     let resultsTask = Task {
       for try await result in transcriber.results where result.isFinal {
         if Task.isCancelled { return }
         let words = Self.words(from: result.text, offset: startSeconds)
+        if let end = words.last?.end { gate.advance(to: end) }
         guard !words.isEmpty else { continue }
         continuation.yield(
           PlayerTranscriptProductionBatch(
@@ -102,7 +111,8 @@ enum PlayerTranscriptProducer {
         startSeconds: startSeconds,
         endSeconds: endSeconds,
         targetFormat: format,
-        input: input
+        input: input,
+        gate: gate
       )
       input.finish()
       // Ohne Finalisieren bleibt der letzte Satz im Analyzer hängen.
@@ -130,7 +140,8 @@ enum PlayerTranscriptProducer {
     startSeconds: Double,
     endSeconds: Double?,
     targetFormat: AVAudioFormat,
-    input: AsyncStream<AnalyzerInput>.Continuation
+    input: AsyncStream<AnalyzerInput>.Continuation,
+    gate: FeedGate
   ) async throws -> Double {
     let asset = AVURLAsset(url: assetURL)
     let tracks = try await asset.loadTracks(withMediaType: .audio)
@@ -185,6 +196,19 @@ enum PlayerTranscriptProducer {
         sinceYield = 0
         await Task.yield()
       }
+
+      // Gegendruck: nicht mehr als `maxFeedLeadSeconds` vor der Erkennung. Stille (keine Ergebnisse)
+      // löst nach `stallNudge` einen Schub aus, damit das Füttern nie ganz stehen bleibt.
+      var waited: UInt64 = 0
+      while startSeconds + fedSeconds - gate.analyzedThrough > Self.maxFeedLeadSeconds,
+        waited < Self.stallNudgeNanoseconds, !Task.isCancelled
+      {
+        try? await Task.sleep(nanoseconds: Self.throttleSleepNanoseconds)
+        waited += Self.throttleSleepNanoseconds
+      }
+      if waited >= Self.stallNudgeNanoseconds {
+        gate.advance(to: startSeconds + fedSeconds - Self.maxFeedLeadSeconds / 2)
+      }
     }
 
     if Task.isCancelled { throw CancellationError() }
@@ -232,5 +256,24 @@ enum PlayerTranscriptProducer {
       sample, at: 0, frameCount: Int32(frames), into: buffer.mutableAudioBufferList)
     guard status == noErr else { return nil }
     return buffer
+  }
+}
+
+/// Erkennungsfortschritt (Track-Sekunden), geteilt zwischen Ergebnis- und Fütter-Task.
+private final class FeedGate: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: Double
+
+  init(analyzedThrough: Double) { value = analyzedThrough }
+
+  var analyzedThrough: Double {
+    lock.lock(); defer { lock.unlock() }
+    return value
+  }
+
+  func advance(to time: Double) {
+    lock.lock()
+    if time > value { value = time }
+    lock.unlock()
   }
 }

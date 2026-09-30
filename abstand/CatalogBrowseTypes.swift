@@ -112,10 +112,18 @@ enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
   var id: String { rawValue }
 
   /// Unterbereiche im Audiobook-Bereich des gemeinsamen Medien-Tabs.
-  /// eBooks/Supplementary sind als Katalog-Filter verfügbar (nicht als eigener Strip-Abschnitt).
+  /// eBooks sind eine eigene Kategorie direkt nach „Audiobooks“ (nicht mehr als Katalog-Filter).
   static let audiobookStripOrder: [BooksBrowseSection] = [
-    .books, .series, .author, .collections, .genres, .narrators, .tags,
+    .books, .ebooks, .series, .author, .collections, .genres, .narrators, .tags,
   ]
+
+  /// Anzeigename in der Leiste. `rawValue` bleibt unverändert (Identität / Auswahl-ID).
+  var title: String {
+    switch self {
+    case .books: return "Audiobooks"
+    default: return rawValue
+    }
+  }
 
   var systemImage: String {
     switch self {

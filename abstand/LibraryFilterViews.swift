@@ -31,11 +31,7 @@ struct BooksCatalogFilterToolbarMenu: View, Equatable {
       Divider()
 
       filterButton(.downloaded)
-
-      Divider()
-
-      filterButton(.ebooks)
-      filterButton(.ebooksSupplementary)
+      // eBooks haben eine eigene Kategorie in der Leiste (nicht mehr als Filter).
     } label: {
       Image(
         systemName: isActive
