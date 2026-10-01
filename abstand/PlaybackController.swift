@@ -1608,6 +1608,9 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   func play() {
+    // Der Nutzer will hören: ein gerade ladender Launch-Restore (`autoPlay: false`) darf den Titel nach dem
+    // Laden nicht wieder pausieren und auf die alte Position setzen.
+    shouldAutoPlayAfterLoad = true
     playResumeTask?.cancel()
     playResumeTask = Task { @MainActor [weak self] in
       await self?.performPlayResume()

@@ -8315,6 +8315,9 @@ final class AppModel: ObservableObject {
       } else {
         return
       }
+      // Während des Netzwerk-Abrufs hat der Nutzer evtl. schon selbst gestartet (Continue listening):
+      // dann nicht mit dem alten, pausierten Stand darüberladen.
+      guard player.activeBook == nil else { return }
       try await player.playBook(
         client: c,
         book: book,
