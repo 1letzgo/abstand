@@ -260,8 +260,6 @@ final class AppModel: ObservableObject {
   /// Pro Tab eigener Navigationszustand (sonst zeigt z. B. Settings den Library-Autor).
   @Published var libraryEntityDetailNav: BooksEntityDetailNav?
   @Published var homeEntityDetailNav: BooksEntityDetailNav?
-  /// Detailseite (Buch oder Podcast-Folge), die aus dem Player heraus geöffnet wird — der Home-Stack zeigt sie.
-  @Published var homePlayerDetailRoute: PlayerDetailRoute?
   @Published var searchEntityDetailNav: BooksEntityDetailNav?
   @Published private(set) var entityDetailBooks: [ABSBook] = []
   @Published private(set) var entityDetailLoading = false
@@ -1008,12 +1006,6 @@ final class AppModel: ObservableObject {
   private var suppressedContinueListeningKeys: Set<String> = []
   private var lastPeriodicPlaybackProgressSaveAt: Date?
   private static let periodicPlaybackProgressSaveInterval: TimeInterval = 5
-
-  /// Ziel des Titel-Links im Player.
-  enum PlayerDetailRoute: Hashable {
-    case book(id: String)
-    case episode(ABSPodcastEpisodeListItem)
-  }
 
   enum MainTab: String, CaseIterable, Hashable {
     case start = "Home"
@@ -4269,7 +4261,6 @@ final class AppModel: ObservableObject {
     isPreparingPlayback = false
     libraryEntityDetailNav = nil
     homeEntityDetailNav = nil
-    homePlayerDetailRoute = nil
     searchEntityDetailNav = nil
     localProgressLoaded = false
   }
@@ -8786,22 +8777,6 @@ final class AppModel: ObservableObject {
 
   func requestPresentNowPlayingSheet() {
     nowPlayingSheetPresentationCounter &+= 1
-  }
-
-  /// Titel im Player angetippt: Player schließen, zum Home-Tab wechseln und dort die Detailseite des
-  /// laufenden Buchs bzw. der laufenden Folge öffnen.
-  func openDetailOfActivePlayback() {
-    guard let book = player.activeBook else { return }
-    let route: PlayerDetailRoute =
-      podcastEpisodeForActivePlayback().map { .episode($0) } ?? .book(id: book.id)
-    homePlayerDetailRoute = nil
-    mainTab = .start
-    requestDismissNowPlayingSheet()
-    // Erst nach der Dismiss-Animation pushen — sonst läuft die Navigation unter dem Overlay ins Leere.
-    Task { @MainActor [weak self] in
-      try? await Task.sleep(nanoseconds: 450_000_000)
-      self?.homePlayerDetailRoute = route
-    }
   }
 
   func requestDismissNowPlayingSheet() {

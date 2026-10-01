@@ -23,15 +23,6 @@ struct HomeTabRootView: View {
         await model.probeServerConnectionIfNeeded()
       }
       .booksEntityDetailNavigation(for: .start)
-      // Titel im Player angetippt: Detailseite des laufenden Buchs / der laufenden Folge.
-      .navigationDestination(item: $model.homePlayerDetailRoute) { route in
-        switch route {
-        case .book(let id):
-          BookDetailView(bookId: id)
-        case .episode(let episode):
-          PodcastEpisodeDetailView(episode: episode)
-        }
-      }
     }
   }
 }

@@ -1864,20 +1864,12 @@ struct NowPlayingDetailView: View {
   private func fullPlayerTitleArea(book: ABSBook) -> some View {
     let secondary = fullPlayerSecondaryLine(for: book)
     return VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
-      // Titel öffnet die Detailseite des Buchs bzw. der Folge (Player schließt dabei).
-      Button {
-        model.openDetailOfActivePlayback()
-      } label: {
-        Text(book.displayTitle)
-          .font(.title2.weight(.bold))
-          .foregroundStyle(model.appearancePalette.textPrimary)
-          .multilineTextAlignment(.leading)
-          .lineLimit(3)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityHint("Opens the details")
+      Text(book.displayTitle)
+        .font(.title2.weight(.bold))
+        .foregroundStyle(model.appearancePalette.textPrimary)
+        .multilineTextAlignment(.leading)
+        .lineLimit(3)
+        .frame(maxWidth: .infinity, alignment: .leading)
       if !secondary.isEmpty, secondary != "—" {
         Text(secondary)
           .font(.title3)
@@ -1889,6 +1881,7 @@ struct NowPlayingDetailView: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.bottom, MiniPlayerMetrics.titleToScrubberSpacing)
+    .accessibilityElement(children: .combine)
   }
 
   /// Bei aktiver Podcast-Folge die Show, sonst Autor — nicht `authorLine` aus dem Playback-Stub.
