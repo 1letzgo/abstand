@@ -261,8 +261,11 @@ private struct FullPlayerScrubberSection: View {
     VStack(alignment: .leading, spacing: FullPlayerScrubberLayout.blockSpacing) {
       bookScrubberBlock(pos: pos, dur: dur)
 
-      if showsChapterProgress, let chapter = chapterProgressForDisplay() {
-        chapterProgressSection(chapter: chapter)
+      // Kapitelzeile immer reservieren, solange es Kapitel gibt: liefert `currentChapterProgress` beim
+      // Einblenden des Players kurz `nil`, würde sonst der ganze Block (und mit ihm die Zeiten)
+      // um eine Zeile springen — das „Wippen“ beim Einschieben.
+      if showsChapterProgress {
+        chapterProgressSection(chapter: chapterProgressForDisplay())
       }
     }
     .frame(maxWidth: .infinity)
@@ -317,8 +320,11 @@ private struct FullPlayerScrubberSection: View {
 
   @ViewBuilder
   private func chapterProgressSection(
-    chapter: (position: Double, duration: Double, start: Double)
+    chapter resolved: (position: Double, duration: Double, start: Double)?
   ) -> some View {
+    // Ohne Kapitelstand Platzhalter mit gleicher Höhe, Laufzeiten unsichtbar.
+    let isPlaceholder = resolved == nil
+    let chapter = resolved ?? (position: 0, duration: 1, start: 0)
     let chPos = min(max(0, chapter.position), chapter.duration)
     VStack(alignment: .leading, spacing: FullPlayerScrubberLayout.barToTimeSpacing) {
       GeometryReader { geo in
@@ -344,6 +350,7 @@ private struct FullPlayerScrubberSection: View {
         Text(formatPlaybackTime(chPos))
           .font(.caption)
           .foregroundStyle(model.appearancePalette.textSecondary)
+          .opacity(isPlaceholder ? 0 : 1)
         Spacer()
         Text(chapterCaption)
           .font(.caption)
@@ -355,6 +362,7 @@ private struct FullPlayerScrubberSection: View {
         Text(formatPlaybackTime(max(0, chapter.duration - chPos)))
           .font(.caption)
           .foregroundStyle(model.appearancePalette.textSecondary)
+          .opacity(isPlaceholder ? 0 : 1)
       }
       .monospacedDigit()
     }
@@ -1856,12 +1864,20 @@ struct NowPlayingDetailView: View {
   private func fullPlayerTitleArea(book: ABSBook) -> some View {
     let secondary = fullPlayerSecondaryLine(for: book)
     return VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
-      Text(book.displayTitle)
-        .font(.title2.weight(.bold))
-        .foregroundStyle(model.appearancePalette.textPrimary)
-        .multilineTextAlignment(.leading)
-        .lineLimit(3)
-        .frame(maxWidth: .infinity, alignment: .leading)
+      // Titel öffnet die Detailseite des Buchs bzw. der Folge (Player schließt dabei).
+      Button {
+        model.openDetailOfActivePlayback()
+      } label: {
+        Text(book.displayTitle)
+          .font(.title2.weight(.bold))
+          .foregroundStyle(model.appearancePalette.textPrimary)
+          .multilineTextAlignment(.leading)
+          .lineLimit(3)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityHint("Opens the details")
       if !secondary.isEmpty, secondary != "—" {
         Text(secondary)
           .font(.title3)
@@ -1873,7 +1889,6 @@ struct NowPlayingDetailView: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.bottom, MiniPlayerMetrics.titleToScrubberSpacing)
-    .accessibilityElement(children: .combine)
   }
 
   /// Bei aktiver Podcast-Folge die Show, sonst Autor — nicht `authorLine` aus dem Playback-Stub.
