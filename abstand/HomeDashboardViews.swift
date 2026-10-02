@@ -174,23 +174,23 @@ struct StartDashboardView: View {
         }
       }
     } else {
-      // Alle anderen Settings-Regale: Cover-Cards wie „New episodes“ (Cover + Titel + Metazeile).
+      // Alle anderen Settings-Regale: Kompaktkarten (≈ 3/4 Breite), ohne Play — nur Link zur Detailseite.
       VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
         TabContentSectionTitle(title: shelf.displayTitle)
         if shelf.hasBooks {
-          HomeBooksCoverCardCarousel(
+          HomeBooksCompactCarousel(
             books: shelf.books,
             usesEbookProgressDisplay: shelf.category == "continueEbooks"
           )
         }
         if shelf.hasSeries {
-          HomeSeriesCoverCardCarousel(series: shelf.series)
+          HomeSeriesCompactCarousel(series: shelf.series)
         }
         if shelf.hasAuthors {
-          HomeAuthorsCoverCardCarousel(authors: shelf.authors)
+          HomeAuthorsCompactCarousel(authors: shelf.authors)
         }
         if shelf.hasPodcastEpisodes {
-          HomePodcastEpisodesCoverCardCarousel(episodes: shelf.podcastEpisodes)
+          HomePodcastEpisodesCompactCarousel(episodes: shelf.podcastEpisodes)
         }
       }
     }
@@ -304,53 +304,79 @@ private struct HomeCoverCardCarousel<Item: Identifiable, Card: View>: View {
   }
 }
 
-private struct HomeBooksCoverCardCarousel: View {
+// MARK: - Home: Kompaktkarten-Reihen
+
+/// Karussell der Kompaktkarten: Karte ≈ 3/4 der Regalbreite, Scrollverhalten und Abstände wie bei den
+/// Cover-Cards. Feste Mindesthöhe (Cover-Seite) — das Regal springt nicht, sobald die Breite gemessen ist.
+private struct HomeCompactCardCarousel<Item: Identifiable, Card: View>: View {
+  let items: [Item]
+  @ViewBuilder let card: (Item) -> Card
+  @State private var viewportWidth: CGFloat = 0
+
+  private var cardWidth: CGFloat {
+    AppTheme.Layout.homeCompactCardWidth(forViewportWidth: viewportWidth)
+  }
+
+  var body: some View {
+    AbstandHorizontalBrowseStripScroll(
+      appliesHorizontalContentInset: false,
+      verticalContentPadding: 0
+    ) {
+      HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
+        ForEach(items) { item in
+          card(item)
+            .frame(width: cardWidth)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+    }
+    .frame(minHeight: AppTheme.Layout.homeCompactCardCoverSide, alignment: .top)
+    .background {
+      GeometryReader { geo in
+        Color.clear.preference(key: HomeShelfCoverViewportWidthKey.self, value: geo.size.width)
+      }
+    }
+    .onPreferenceChange(HomeShelfCoverViewportWidthKey.self) { viewportWidth = $0 }
+  }
+}
+
+private struct HomeBooksCompactCarousel: View {
   @EnvironmentObject private var model: AppModel
   let books: [ABSBook]
   var usesEbookProgressDisplay = false
 
   var body: some View {
-    HomeCoverCardCarousel(items: books) { book in
-      LibraryBookListCard(
-        book: book,
-        model: model,
-        showEbookBadge: model.bookShowsSupplementaryEbookBadge(book),
-        opensDetailOnTap: true,
-        usesEbookProgressDisplay: usesEbookProgressDisplay || book.isPureEbookLibraryItem,
-        styleOverride: .heroCover
-      )
+    HomeCompactCardCarousel(items: books) { book in
+      HomeBookCompactCard(book: book, model: model, usesEbookProgressDisplay: usesEbookProgressDisplay)
     }
   }
 }
 
-private struct HomePodcastEpisodesCoverCardCarousel: View {
+private struct HomePodcastEpisodesCompactCarousel: View {
   @EnvironmentObject private var model: AppModel
   let episodes: [ABSPodcastEpisodeListItem]
 
   var body: some View {
-    HomeCoverCardCarousel(items: episodes) { episode in
-      LibraryPodcastListCard(
-        episode: episode,
-        model: model,
-        styleOverride: .heroCover
-      )
+    HomeCompactCardCarousel(items: episodes) { episode in
+      HomeEpisodeCompactCard(episode: episode, model: model)
     }
   }
 }
 
-private struct HomeSeriesCoverCardCarousel: View {
+private struct HomeSeriesCompactCarousel: View {
   @EnvironmentObject private var model: AppModel
   let series: [ABSLibrarySeriesListItem]
 
   var body: some View {
-    HomeCoverCardCarousel(items: series) { item in
+    HomeCompactCardCarousel(items: series) { item in
       let coverId = model.browseSeriesCoverBookIds(from: item.books).first
       let count = item.books?.count ?? 0
       let authors = item.cardAuthorsLine?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      HomeEntityCoverCard(
+      HomeEntityCompactCard(
         title: item.name,
-        detailLabel: authors.isEmpty ? "Books" : "Author",
-        detailValue: authors.isEmpty ? (count > 0 ? "\(count)" : "—") : authors,
+        subtitleLabel: authors.isEmpty ? "Books" : "Author",
+        subtitle: authors.isEmpty ? (count > 0 ? "\(count)" : "—") : authors,
+        footer: count > 0 ? (count == 1 ? "1 book" : "\(count) books") : "",
         accessibilityHint: "Opens series details."
       ) {
         if let coverId {
@@ -372,6 +398,73 @@ private struct HomeSeriesCoverCardCarousel: View {
         )
       }
     }
+  }
+}
+
+private struct HomeAuthorsCompactCarousel: View {
+  @EnvironmentObject private var model: AppModel
+  let authors: [ABSAuthorShelfEntity]
+
+  var body: some View {
+    HomeCompactCardCarousel(items: authors) { author in
+      HomeEntityCompactCard(
+        title: author.name,
+        subtitleLabel: "Books",
+        subtitle: author.numBooks.map { "\($0)" } ?? "—",
+        footer: author.numBooks.map { $0 == 1 ? "1 book" : "\($0) books" } ?? "",
+        accessibilityHint: "Opens author details."
+      ) {
+        if author.hasAuthorImage {
+          SquareCoverImageView(
+            url: model.authorImageURL(authorId: author.id),
+            token: model.token,
+            itemId: "author:\(author.id)",
+            cacheAccount: model.coverImageCacheAccountDirectory(),
+            cacheRevision: 0
+          )
+        } else {
+          HomeEntityCoverPlaceholder(systemImage: "person.fill")
+        }
+      } onOpen: {
+        model.openAuthorDetail(
+          authorId: author.id,
+          displayName: author.name,
+          numBooks: author.numBooks
+        )
+      }
+    }
+  }
+}
+
+/// Serie/Autor als Kompaktkarte: Cover links, Name (eine Zeile), Metazeile, Buchanzahl unten.
+private struct HomeEntityCompactCard<Cover: View>: View {
+  @EnvironmentObject private var model: AppModel
+  let title: String
+  let subtitleLabel: String
+  let subtitle: String
+  let footer: String
+  let accessibilityHint: String
+  @ViewBuilder let cover: () -> Cover
+  let onOpen: () -> Void
+
+  var body: some View {
+    HomeCompactCard(
+      title: title,
+      subtitleLabel: subtitleLabel,
+      subtitle: subtitle,
+      accessibilityHint: accessibilityHint,
+      cover: cover,
+      footer: {
+        if !footer.isEmpty {
+          Text(footer)
+            .font(.subheadline.monospacedDigit())
+            .foregroundStyle(model.appearancePalette.textSecondary)
+            .lineLimit(1)
+        }
+      },
+      badges: { EmptyView() },
+      onOpen: onOpen
+    )
   }
 }
 

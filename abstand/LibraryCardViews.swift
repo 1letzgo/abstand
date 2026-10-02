@@ -1558,11 +1558,12 @@ enum LibraryRowLayout {
   @ViewBuilder
   static func metadataColumn<Content: View>(
     showsProgressBar: Bool,
+    rowHeight: CGFloat = LibraryRowLayout.coverSide,
     @ViewBuilder content: () -> Content
   ) -> some View {
     content()
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-      .frame(height: metadataMinHeight(showsProgressBar: showsProgressBar))
+      .frame(height: metadataMinHeight(showsProgressBar: showsProgressBar, rowHeight: rowHeight))
       // Feste Texthöhe neben dem Cover — wie bei der Facet-Kachel bis `accessibility1` skalieren
       // und dort deckeln, statt bei den größten AX-Stufen Titel/Meta zu beschneiden.
       .dynamicTypeSize(...DynamicTypeSize.accessibility1)
@@ -1586,8 +1587,11 @@ enum LibraryRowLayout {
   }
 
   /// Text-Inhalt innerhalb der Zeile; mit `textInset` oben/unten = `coverSide`.
-  static func metadataMinHeight(showsProgressBar: Bool) -> CGFloat {
-    coverSide - textInset - bodyBottomInset(showsProgressBar: showsProgressBar)
+  static func metadataMinHeight(
+    showsProgressBar: Bool,
+    rowHeight: CGFloat = LibraryRowLayout.coverSide
+  ) -> CGFloat {
+    rowHeight - textInset - bodyBottomInset(showsProgressBar: showsProgressBar)
   }
 
   /// Kartenhülle: volle Fläche (inkl. Leerzonen) öffnet Details; Play bleibt eigener Button.
@@ -1597,12 +1601,13 @@ enum LibraryRowLayout {
     showsBottomProgressBar: Bool,
     progressValue: Double,
     openDetails: (() -> Void)? = nil,
+    rowHeight: CGFloat = LibraryRowLayout.coverSide,
     @ViewBuilder content: () -> Content
   ) -> some View {
     let base = VStack(alignment: .leading, spacing: 0) {
       content()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(minHeight: coverSide, alignment: .top)
+        .frame(minHeight: rowHeight, alignment: .top)
         .padding(.leading, 0)
     }
     .overlay(alignment: .bottom) {

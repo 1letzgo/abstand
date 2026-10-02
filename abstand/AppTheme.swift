@@ -275,6 +275,20 @@ enum AppTheme {
     static let homeNewestEpisodesCardMaxWidth: CGFloat = 220
     static let homeNewestEpisodesCardFallbackWidth: CGFloat = 160
 
+    /// Home-Kompaktkarten (alle Regale außer „Continue listening“): rund 3/4 der Regalbreite.
+    static let homeCompactCardWidthFraction: CGFloat = 3.0 / 4.0
+    static let homeCompactCardMinWidth: CGFloat = 240
+    /// Obergrenze gegen überbreite Karten auf dem iPad.
+    static let homeCompactCardMaxWidth: CGFloat = 400
+    static let homeCompactCardFallbackWidth: CGFloat = 260
+    /// Cover-Seite der Home-Kompaktkarten — bestimmt ihre Höhe (Kompaktzeile der Library: 100).
+    static let homeCompactCardCoverSide: CGFloat = 80
+
+    static func homeCompactCardWidth(forViewportWidth viewport: CGFloat) -> CGFloat {
+      guard viewport > 1 else { return homeCompactCardFallbackWidth }
+      return min(homeCompactCardMaxWidth, max(homeCompactCardMinWidth, viewport * homeCompactCardWidthFraction))
+    }
+
     static func homeNewestEpisodesVisibleCards(
       horizontalSizeClass: UserInterfaceSizeClass?
     ) -> CGFloat {
