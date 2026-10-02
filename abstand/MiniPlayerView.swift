@@ -137,6 +137,8 @@ private struct FullPlayerProgressTrack: View {
   var chapterMarkers: [Double] = []
   var showsScrubThumb = false
   var trackHeight: CGFloat = FullPlayerProgressLayout.trackHeight
+        .frame(width: w, height: trackHeight)
+        .clipShape(Capsule(style: .continuous))
   var rowHeight: CGFloat = FullPlayerProgressLayout.rowHeight
   var accessibilityLabelText = "Playback position"
   var onSeek: ((Double) -> Void)?
@@ -146,34 +148,26 @@ private struct FullPlayerProgressTrack: View {
     return min(1, max(0, value / total))
   }
 
-  private var trackCornerRadius: CGFloat { trackHeight / 2 }
-
   var body: some View {
     let _ = themeRevision
     return GeometryReader { geo in
       let w = geo.size.width
       let fillWidth = max(0, w * fraction)
-      let fillTrailingRadius = fraction >= 0.999 ? trackCornerRadius : 0.0
       ZStack(alignment: .leading) {
-        Capsule(style: .continuous)
-          .fill(model.appearancePalette.progressTrack)
-          .frame(height: trackHeight)
-        themeAccent
-          .frame(width: fillWidth, height: trackHeight)
-          .clipShape(
-            UnevenRoundedRectangle(
-              topLeadingRadius: trackCornerRadius,
-              bottomLeadingRadius: trackCornerRadius,
-              bottomTrailingRadius: fillTrailingRadius,
-              topTrailingRadius: fillTrailingRadius,
-              style: .continuous
-            )
-          )
-        ForEach(Array(chapterMarkers.enumerated()), id: \.element) { _, marker in
+        // Spur, Füllung und Kapitelmarken als gerade Rechtecke — erst die Kapsel schneidet sie rund zu.
+        // So bleiben Anfang und Ende immer sauber abgerundet, auch bei sehr kleinem/fast vollem
+        // Fortschritt und bei Kapitelgrenzen dicht am Rand (vorher ragten deren Ecken über die Rundung).
+        ZStack(alignment: .leading) {
           Rectangle()
-            .fill(model.appearancePalette.textSecondary.opacity(0.65))
-            .frame(width: AppTheme.Layout.hairlineWidth, height: trackHeight)
-            .offset(x: max(0, w * marker - 0.5))
+            .fill(model.appearancePalette.progressTrack)
+          themeAccent
+            .frame(width: fillWidth)
+          ForEach(Array(chapterMarkers.enumerated()), id: \.element) { _, marker in
+            Rectangle()
+              .fill(model.appearancePalette.textSecondary.opacity(0.65))
+              .frame(width: AppTheme.Layout.hairlineWidth)
+              .offset(x: max(0, w * marker - 0.5))
+          }
         }
         if showsScrubThumb {
           Circle()

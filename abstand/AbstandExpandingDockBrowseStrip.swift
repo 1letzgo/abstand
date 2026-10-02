@@ -9,24 +9,80 @@ struct AbstandExpandingDockBrowseStrip: View {
   /// `false`: kein Leading-Padding (z. B. als Sekundär-Strip in `AbstandPinnedBrowseStrip`,
   /// wo der Divider bereits den Leading-Abstand definiert — sonst doppeltes Padding).
   var appliesLeadingPadding: Bool = true
+  /// Erstes Element bleibt links stehen (z. B. „New“ im Podcast-Tab); der Rest scrollt darunter durch.
+  var pinnedLeadingItem: AbstandBrowseStripItem? = nil
   let onSelect: (String) -> Void
 
+  @Environment(\.appearanceThemeRevision) private var themeRevision
+
+  private func chip(for item: AbstandBrowseStripItem) -> some View {
+    AbstandExpandingDockChip(
+      item: item,
+      isSelected: item.id == selectionID,
+      onSelect: {
+        guard item.id != selectionID else { return }
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        withAnimation(reduceMotion ? nil : AppTheme.ExpandingDock.selectionAnimation) {
+          onSelect(item.id)
+        }
+      }
+    )
+  }
+
   var body: some View {
+    if let pinnedLeadingItem {
+      pinnedBody(pinned: pinnedLeadingItem)
+    } else {
+      scrollingBody
+    }
+  }
+
+  /// Fixes erstes Element links; daneben scrollen die übrigen Chips und werden zum fixen Chip hin
+  /// ausgeblendet. Reines Stack-Layout ohne Messung: der fixe Chip bestimmt selbst, wo der Scrollbereich
+  /// beginnt (er wächst/schrumpft mit der Auswahl), und die Überblendung ist ein `overlay` — sie
+  /// beeinflusst die Höhe des Streifens nicht.
+  private func pinnedBody(pinned: AbstandBrowseStripItem) -> some View {
+    let _ = themeRevision
+    let background = AppTheme.palette.background
+    let leading = appliesLeadingPadding ? AppTheme.ExpandingDock.horizontalPadding : 0
+    let fade = AppTheme.ExpandingDock.pinnedChipFadeWidth
+    let scrolling = items.filter { $0.id != pinned.id }
+    return HStack(spacing: 0) {
+      chip(for: pinned)
+        .padding(.leading, leading)
+        .padding(.vertical, AppTheme.ExpandingDock.verticalPadding)
+        .zIndex(1)
+        .animation(reduceMotion ? nil : AppTheme.ExpandingDock.selectionAnimation, value: selectionID)
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: AppTheme.ExpandingDock.itemSpacing) {
+          ForEach(scrolling) { item in chip(for: item) }
+        }
+        // Ruhestellung: erster Chip liegt direkt hinter der Überblendung.
+        .padding(.leading, fade)
+        .padding(.trailing, AppTheme.ExpandingDock.horizontalPadding)
+        .padding(.vertical, AppTheme.ExpandingDock.verticalPadding)
+        .animation(reduceMotion ? nil : AppTheme.ExpandingDock.selectionAnimation, value: selectionID)
+      }
+      .scrollContentBackground(.hidden)
+      .overlay(alignment: .leading) {
+        LinearGradient(
+          colors: [background, background.opacity(0)],
+          startPoint: .leading,
+          endPoint: .trailing
+        )
+        .frame(width: fade)
+        .allowsHitTesting(false)
+      }
+      .abstandHorizontalScrollRow()
+    }
+    .abstandThemeRefresh()
+  }
+
+  private var scrollingBody: some View {
     ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: AppTheme.ExpandingDock.itemSpacing) {
-        ForEach(items) { item in
-          AbstandExpandingDockChip(
-            item: item,
-            isSelected: item.id == selectionID,
-            onSelect: {
-              guard item.id != selectionID else { return }
-              UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-              withAnimation(reduceMotion ? nil : AppTheme.ExpandingDock.selectionAnimation) {
-                onSelect(item.id)
-              }
-            }
-          )
-        }
+        ForEach(items) { item in chip(for: item) }
       }
       .padding(
         .leading,
@@ -52,6 +108,8 @@ struct AbstandPinnedBrowseStrip: View {
 
   let secondaryItems: [AbstandBrowseStripItem]
   let secondarySelectionID: String
+  /// Nur im Dock-Strip (eine Library): dieses Element bleibt links stehen, der Rest scrollt darunter durch.
+  var pinnedLeadingItem: AbstandBrowseStripItem? = nil
   let onSelectSecondary: (String) -> Void
   var secondaryAccessibilityLabel: String = "Browse"
   var secondaryAccessibilityHint: String = "Chooses which section to browse"
@@ -93,6 +151,7 @@ struct AbstandPinnedBrowseStrip: View {
         items: secondaryItems,
         selectionID: secondarySelectionID,
         appliesLeadingPadding: true,
+        pinnedLeadingItem: pinnedLeadingItem,
         onSelect: onSelectSecondary
       )
     }

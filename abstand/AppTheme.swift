@@ -88,6 +88,8 @@ enum AppTheme {
     static let activeTrailingPadding: CGFloat = 18
     static let iconLabelSpacing: CGFloat = 9
     static let centerWhenFewThreshold = 4
+    /// Überblendung am fixierten ersten Chip; zugleich Abstand zum ersten scrollenden Chip.
+    static let pinnedChipFadeWidth: CGFloat = 12
     /// Zweiseitiger Media-Kind-Umschalter (Audiobooks ↔ Podcasts) in der Library-Leiste.
     static let binarySwitchInnerPadding: CGFloat = 4
     static let binarySwitchSegmentWidth: CGFloat = 42

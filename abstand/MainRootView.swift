@@ -538,6 +538,8 @@ struct MainRootView: View {
       },
       secondaryItems: podcastDockStripItems,
       secondarySelectionID: podcastCatalogScrollSelection,
+      // „New“ bleibt links stehen, die Sendungen scrollen darunter durch.
+      pinnedLeadingItem: podcastDockStripItems.first,
       onSelectSecondary: { id in
         if id == Self.podcastCatalogNewSectionId {
           model.podcastCatalogStripSectionId = id
