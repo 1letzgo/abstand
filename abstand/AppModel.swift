@@ -175,7 +175,14 @@ final class AppModel: ObservableObject {
   @Published var ebookReaderSession: EbookReaderPresentation?
   /// Vollbild-Player (UIKit-Overlay) sichtbar — der globale Fehler-Alert am Root läge darunter;
   /// Player und Reader zeigen `errorMessage` dann selbst an.
-  @Published var isNowPlayingOverlayVisible = false
+  /// Bewusst kein `@Published`: der Flip fällt genau auf den Start der Present-/Dismiss-Animation,
+  /// und ein `objectWillChange` dort ließ jede Model-beobachtende View der App neu rendern (Ruckler).
+  /// Nur der Fehler-Alert hängt daran — also nur bei offenem Fehler benachrichtigen.
+  var isNowPlayingOverlayVisible = false {
+    willSet {
+      if newValue != isNowPlayingOverlayVisible, errorMessage != nil { objectWillChange.send() }
+    }
+  }
 
   /// Globaler Root-Alert nur, wenn kein Vollbild-Overlay (Player/Reader) darüber liegt.
   var showsRootErrorAlert: Bool {
@@ -317,12 +324,15 @@ final class AppModel: ObservableObject {
 
   @Published var mainTab: MainTab = .start
   @Published var mediaCatalogKind: MediaCatalogKind = .audiobooks
-  @Published private(set) var nowPlayingSheetPresentationCounter: UInt = 0
-  @Published private(set) var nowPlayingSheetDismissCounter: UInt = 0
-  /// Erhöht, **nachdem** die UIKit-Dismiss-Animation durch ist. Aufräumarbeiten an den
+  /// Öffnen (`true`) / Schließen (`false`) des Vollbild-Players. Bewusst Subject statt `@Published`-
+  /// Zähler: ein `objectWillChange` genau zum Animationsstart ließ jede Model-beobachtende View der App
+  /// neu rendern — das Ein-/Ausfahren ruckelte.
+  let nowPlayingSheetRequests = PassthroughSubject<Bool, Never>()
+  /// Feuert, **nachdem** die UIKit-Dismiss-Animation durch ist. Aufräumarbeiten an den
   /// Katalog-ScrollViews hängen hieran — während der Animation kosten sie Frames und
-  /// lassen die Inhalte dahinter sichtbar springen.
-  @Published private(set) var nowPlayingSheetDismissCompletedCounter: UInt = 0
+  /// lassen die Inhalte dahinter sichtbar springen. Subject statt `@Published`: sonst rendert
+  /// jede Model-beobachtende View (Home-Regale samt SwiftData-Lookups) neu (~150 ms Main-Thread).
+  let nowPlayingSheetDismissCompleted = PassthroughSubject<Void, Never>()
   @Published var isLoadingLibrary = false
   /// Eigener Lade-Status der Suche — `isLoadingLibrary` gehört dem Katalog-Reload (sonst setzt eine
   /// abgebrochene Suche den Katalog-Spinner mitten im Laden zurück).
@@ -8776,17 +8786,17 @@ final class AppModel: ObservableObject {
   }
 
   func requestPresentNowPlayingSheet() {
-    nowPlayingSheetPresentationCounter &+= 1
+    nowPlayingSheetRequests.send(true)
   }
 
   func requestDismissNowPlayingSheet() {
     Self.debugLog.log("requestDismissNowPlayingSheet CALLED")
-    nowPlayingSheetDismissCounter &+= 1
+    nowPlayingSheetRequests.send(false)
   }
 
   /// Vom `FullScreenOverlayPresenter` nach abgeschlossener Dismiss-Animation gemeldet.
   func notifyNowPlayingSheetDismissCompleted() {
-    nowPlayingSheetDismissCompletedCounter &+= 1
+    nowPlayingSheetDismissCompleted.send()
   }
 
   /// Nach `play` / `playPodcastEpisode`: nur wenn online und Setting aktiv.

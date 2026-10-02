@@ -117,7 +117,7 @@ struct MainRootView: View {
       podcastCatalogToolbarState.resetForAccountSwitch()
       podcastDetailEpisode = nil
     }
-    .onChange(of: model.nowPlayingSheetDismissCompletedCounter) { _, _ in
+    .onReceive(model.nowPlayingSheetDismissCompleted) { _ in
       // UIKit-Overlay-Dismiss kann die Katalog-ScrollViews aus dem Layout bringen. Erst **nach**
       // der Animation aufräumen: währenddessen kostete das Frames und ließ die Inhalte hinter
       // dem schließenden Player sichtbar springen.

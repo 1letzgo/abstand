@@ -1,22 +1,25 @@
 import Combine
 import SwiftUI
 
-/// `TabView` + `tabViewBottomAccessory` ohne `MainRootView`-Rebuilds — nur `FloatingAccessoryGate` + Sheet-Binding.
+/// `TabView` + `tabViewBottomAccessory` ohne `MainRootView`-Rebuilds — nur `FloatingAccessoryGate`.
+/// Bewusst **kein** Now-Playing-Flag als Parameter: ein Wechsel machte die Hülle ungleich, baute
+/// `MainRootView` samt Home-Regalen neu (SwiftData-Lookups je Karte) und blockierte den Main-Thread
+/// ~200 ms genau während der Present-/Dismiss-Animation.
 /// `Equatable`: `AppRootContainer` beobachtet das ganze `AppModel` und würde die Hülle samt
 /// Tab-Zubehör sonst bei jeder Model-Änderung neu aufbauen — das riss die Navigationsleiste
 /// (Books-Dropdowns) mit. Der Inhalt (`MainRootView`) beobachtet das Model selbst und bleibt aktuell.
 struct MainTabShellView<Content: View>: View, Equatable {
   @ObservedObject var gate: FloatingAccessoryGate
   let chrome: FloatingPlayerChromeController
-  @Binding var nowPlayingSheetPresented: Bool
+  /// Namespace der Zoom-Transition Mini-Player → Vollbild-Player (stabil über die App-Laufzeit).
+  let nowPlayingZoom: Namespace.ID
   @ViewBuilder var content: () -> Content
 
   @State private var keyboardVisible = false
 
   nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
     MainActor.assumeIsolated {
-      lhs.gate === rhs.gate && lhs.chrome === rhs.chrome
-        && lhs.nowPlayingSheetPresented == rhs.nowPlayingSheetPresented
+      lhs.gate === rhs.gate && lhs.chrome === rhs.chrome && lhs.nowPlayingZoom == rhs.nowPlayingZoom
     }
   }
 
@@ -27,7 +30,7 @@ struct MainTabShellView<Content: View>: View, Equatable {
         FloatingTabBottomAccessoryModifier(
           gate: gate,
           chrome: chrome,
-          sheetPresented: nowPlayingSheetPresented,
+          nowPlayingZoom: nowPlayingZoom,
           keyboardVisible: keyboardVisible
         )
       )
@@ -44,7 +47,7 @@ struct MainTabShellView<Content: View>: View, Equatable {
 private struct FloatingTabBottomAccessoryModifier: ViewModifier {
   @ObservedObject var gate: FloatingAccessoryGate
   let chrome: FloatingPlayerChromeController
-  let sheetPresented: Bool
+  let nowPlayingZoom: Namespace.ID
   let keyboardVisible: Bool
 
   func body(content: Content) -> some View {
@@ -59,9 +62,15 @@ private struct FloatingTabBottomAccessoryModifier: ViewModifier {
       FloatingAccessoryLayer(
         gate: gate,
         chrome: chrome,
-        sheetPresented: sheetPresented,
         keyboardVisible: keyboardVisible
       )
+      // Quelle der Zoom-Transition zum Vollbild-Player (siehe `abstandApp.swift`).
+      .matchedTransitionSource(id: NowPlayingZoomTransition.sourceID, in: nowPlayingZoom)
     }
   }
+}
+
+/// Gemeinsame ID für `matchedTransitionSource` (Mini-Player) und `.navigationTransition(.zoom)` (Vollbild-Player).
+enum NowPlayingZoomTransition {
+  static let sourceID = "nowPlayingMiniPlayer"
 }

@@ -1206,8 +1206,20 @@ enum LocalLibraryStoreManager {
     SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
   }
 
+  /// Je (Server, User) gemerkt — läuft bei jedem SwiftData-Lookup (auch aus View-`body`s) und kostete
+  /// sonst jedes Mal zwei SHA256 + zwei `createDirectory`-Syscalls. Verzeichnisse werden nie gelöscht.
+  private static var accountStoreDirectoryMemo: [String: URL] = [:]
+
   /// Account-Verzeichnis für den SwiftData-Store — getrennt pro Server-URL (+ optional User-ID).
   static func accountStoreDirectory(serverURL: String, userId: String?) -> URL {
+    let key = serverURL + "\u{0}" + (userId ?? "")
+    if let cached = accountStoreDirectoryMemo[key] { return cached }
+    let url = computeAccountStoreDirectory(serverURL: serverURL, userId: userId)
+    accountStoreDirectoryMemo[key] = url
+    return url
+  }
+
+  private static func computeAccountStoreDirectory(serverURL: String, userId: String?) -> URL {
     let serverRoot = baseDir.appendingPathComponent("accounts", isDirectory: true)
       .appendingPathComponent(sha256Hex(serverURL), isDirectory: true)
     try? fm.createDirectory(at: serverRoot, withIntermediateDirectories: true)

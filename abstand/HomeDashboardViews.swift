@@ -346,7 +346,39 @@ private struct HomeBooksCompactCarousel: View {
   var usesEbookProgressDisplay = false
 
   var body: some View {
-    HomeCompactCardCarousel(items: books) { book in
+    // Dieser `body` läuft bei jeder `AppModel`-Änderung — während der Wiedergabe u. a. alle paar
+    // Sekunden durch den periodischen Fortschritts-Save. Die eigentliche Arbeit (Anreicherung per
+    // Katalog + SwiftData, Karten-Inits) liegt deshalb im `Equatable`-Inhalt und läuft nur, wenn sich
+    // die Regal-Bücher ändern. Fortschritt/Download beobachten die Karten selbst (`LibraryBookRowLiveState`).
+    HomeBooksCompactCarouselContent(
+      books: books,
+      catalogRevision: model.books.count,
+      usesEbookProgressDisplay: usesEbookProgressDisplay,
+      model: model
+    )
+    .equatable()
+  }
+}
+
+private struct HomeBooksCompactCarouselContent: View, Equatable {
+  let books: [ABSBook]
+  /// Katalog nachgeladen → Anreicherung neu (Stubs bekommen dann eBook-/Spur-Metadaten).
+  let catalogRevision: Int
+  let usesEbookProgressDisplay: Bool
+  /// Bewusst nicht beobachtet (kein `@EnvironmentObject`) — siehe `HomeBooksCompactCarousel`.
+  let model: AppModel
+
+  nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.catalogRevision == rhs.catalogRevision
+      && lhs.usesEbookProgressDisplay == rhs.usesEbookProgressDisplay
+      && lhs.books.map(\.id) == rhs.books.map(\.id)
+      && lhs.books.map(\.updatedAt) == rhs.books.map(\.updatedAt)
+  }
+
+  var body: some View {
+    // Anreicherung (Katalog + SwiftData) einmal hier statt im Karten-Init — siehe `HomeBookCompactCard.init`.
+    let enriched = books.map { model.bookStubEnrichedForListDisplay($0) }
+    HomeCompactCardCarousel(items: enriched) { book in
       HomeBookCompactCard(book: book, model: model, usesEbookProgressDisplay: usesEbookProgressDisplay)
     }
   }

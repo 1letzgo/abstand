@@ -83,10 +83,13 @@ struct HomeBookCompactCard: View {
 
   private var usesEbookMetrics: Bool { book.isPureEbookLibraryItem || usesEbookProgressDisplay }
 
-  init(book: ABSBook, model: AppModel, usesEbookProgressDisplay: Bool = false) {
+  /// `book` muss bereits per `bookStubEnrichedForListDisplay` angereichert sein (macht das Karussell
+  /// einmal pro `body`). Hier nicht: `ForEach` ruft den Karten-Init auch ohne Parent-Rebuild erneut auf
+  /// (z. B. beim Öffnen/Schließen des Vollbild-Players) — je Karte SwiftData-Lookups im Init kosteten
+  /// dort sichtbar Frames.
+  init(book resolved: ABSBook, model: AppModel, usesEbookProgressDisplay: Bool = false) {
     self.model = model
     self.usesEbookProgressDisplay = usesEbookProgressDisplay
-    let resolved = model.bookStubEnrichedForListDisplay(book)
     self.book = resolved
     let ebookMetrics = resolved.isPureEbookLibraryItem || usesEbookProgressDisplay
     _live = State(

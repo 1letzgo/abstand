@@ -3,32 +3,6 @@ import Combine
 import SwiftUI
 import UIKit
 
-// MARK: - Display-Eckenradius (für abgerundete obere Ecken des Vollbild-Players)
-
-enum AbstandDisplayCorners {
-  /// Physischer Eckenradius des Displays — Apple bietet dafür keine öffentliche API, das
-  /// private Symbol `_displayCornerRadius` ist aber unter allen modernen iOS-Versionen
-  /// stabil verfügbar. Fällt das Symbol weg, greift ein grober Näherungswert pro Geräteklasse.
-  /// Liefert den Screen über die aktive Window-Szene statt `UIScreen.main` (deprecated iOS 26).
-  static var radius: CGFloat {
-    let screen = UIApplication.shared.connectedScenes
-      .compactMap({ $0 as? UIWindowScene })
-      .flatMap({ $0.windows })
-      .first(where: { $0.isKeyWindow })?
-      .screen
-      ?? UIApplication.shared.connectedScenes
-        .compactMap({ $0 as? UIWindowScene })
-        .first?
-        .screen
-    if let screen, let value = screen.value(forKey: "_displayCornerRadius") as? CGFloat {
-      return value
-    }
-    return UIDevice.current.userInterfaceIdiom == .pad
-      ? MiniPlayerMetrics.fullPlayerCornerRadiusFallbackPad
-      : MiniPlayerMetrics.fullPlayerCornerRadiusFallbackPhone
-  }
-}
-
 // MARK: - Abspielgeschwindigkeit (Label, locale Zahlenformat)
 
 private func miniPlayerFormatPlaybackRate(_ rate: Float) -> String {
@@ -59,10 +33,6 @@ enum MiniPlayerMetrics {
 
   /// Now-Playing-Sheet: seitlicher Abstand zum Rand (Safe Area kommt zusätzlich).
   static let fullPlayerCoverInset: CGFloat = 20
-  /// Fallback-Eckenradius für `UIScreen.displayCornerRadius`, falls das private Symbol
-  /// mal verschwindet — grobe Näherung an moderne iPhones/iPads mit abgerundetem Display.
-  static let fullPlayerCornerRadiusFallbackPhone: CGFloat = 47
-  static let fullPlayerCornerRadiusFallbackPad: CGFloat = 18
   /// Quadratisches Cover: Rand-Marge innerhalb der zugeteilten Fläche (Portrait-Spalte
   /// oder Landscape-Hälfte) — `aspectRatio(.fit)` füllt den Rest proportional.
   static let fullPlayerCoverCardMargin: CGFloat = 28
@@ -137,8 +107,6 @@ private struct FullPlayerProgressTrack: View {
   var chapterMarkers: [Double] = []
   var showsScrubThumb = false
   var trackHeight: CGFloat = FullPlayerProgressLayout.trackHeight
-        .frame(width: w, height: trackHeight)
-        .clipShape(Capsule(style: .continuous))
   var rowHeight: CGFloat = FullPlayerProgressLayout.rowHeight
   var accessibilityLabelText = "Playback position"
   var onSeek: ((Double) -> Void)?
@@ -169,6 +137,8 @@ private struct FullPlayerProgressTrack: View {
               .offset(x: max(0, w * marker - 0.5))
           }
         }
+        .frame(width: w, height: trackHeight)
+        .clipShape(Capsule(style: .continuous))
         if showsScrubThumb {
           Circle()
             .fill(themeAccent)
@@ -1302,6 +1272,16 @@ private struct NowPlayingCoverHeaderShell<Content: View>: View {
   }
 }
 
+/// Letztes Ergebnis von `CoverDominantTintSeed.resolve` für den Vollbild-Player (ein Eintrag reicht:
+/// es läuft immer nur ein Titel). `nil`-Treffer werden mitgecacht, damit Fehlversuche nicht jedes Mal
+/// erneut auf die Platte gehen — danach greift ohnehin der asynchron geladene `coverTintColor`;
+/// `onDisappear` setzt den Eintrag zurück.
+@MainActor
+private enum FullPlayerCoverTintMemo {
+  static var key: String?
+  static var tint: Color?
+}
+
 struct NowPlayingDetailView: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -1323,11 +1303,16 @@ struct NowPlayingDetailView: View {
   @State private var coverImageForTint: UIImage?
   @State private var cachedCoverAverageRGB: (r: Double, g: Double, b: Double)?
   @State private var didSeedCoverTintFromCache = false
-  /// Ersatz für den nativen Sheet-Drag-Indicator/Swipe-to-dismiss, seit `.fullScreenCover`
-  /// (für echtes Vollbild auf iPad) statt `.sheet` verwendet wird.
-  @State private var dismissDragOffset: CGFloat = 0
 
   private var player: PlaybackController { model.player }
+
+  /// Startzustand direkt aus dem Player — sonst rendert der erste Durchlauf (mitten in der
+  /// Present-Animation) den Platzhalter ohne Titel und `onAppear` baut gleich danach den ganzen
+  /// Player ein zweites Mal auf.
+  init(seedFrom player: PlaybackController? = nil) {
+    _activeBook = State(initialValue: player?.activeBook)
+    _isTeleprompterActive = State(initialValue: player?.liveTranscription.isTeleprompterModeActive ?? false)
+  }
 
   /// Cover durch Teleprompter, Recap oder Kapitel-/Sessions-/Bookmarks-Panel ersetzt.
   private var isCoverPanelExpanded: Bool {
@@ -1390,6 +1375,8 @@ struct NowPlayingDetailView: View {
         await player.liveTranscription.refreshReadAlongAvailability()
       }
       .onDisappear {
+        // Beim nächsten Öffnen frisch auflösen — der async Tint-Load hat den Cache evtl. inzwischen gefüllt.
+        FullPlayerCoverTintMemo.key = nil
         player.liveTranscription.wordLookupSelection = nil
         if player.liveTranscription.isTeleprompterModeActive {
           Task { @MainActor in
@@ -1530,37 +1517,14 @@ struct NowPlayingDetailView: View {
         fullPlayerDismissGrabber
       }
       .frame(width: geo.size.width, height: geo.size.height)
-      // Obere Ecken im echten Display-Radius abgerundet: Im Ruhezustand (Offset 0) deckt sich
-      // das exakt mit der physischen Display-Rundung (unsichtbar, da vom Gehäuse ohnehin
-      // verdeckt) — sobald beim Drag-to-dismiss der Inhalt vom oberen Bildschirmrand wegrutscht,
-      // wird die Rundung sichtbar und die Karte wirkt wie in Apple Music wie eine echte Karte.
-      .clipShape(
-        UnevenRoundedRectangle(
-          topLeadingRadius: AbstandDisplayCorners.radius,
-          bottomLeadingRadius: 0,
-          bottomTrailingRadius: 0,
-          topTrailingRadius: AbstandDisplayCorners.radius,
-          style: .continuous
-        )
-      )
-      // Der ganze Stack (inkl. Hintergrund) wird beim Drag verschoben: Der hostende
-      // `UIHostingController` ist per `FullScreenOverlayPresenter` transparent, dahinter bleibt
-      // die App (per `.overFullScreen`) aktiv im Hintergrund — die Lücke oben zeigt also die
-      // echte App statt einer leeren Fläche, genau wie beim Herunterziehen in Apple Music.
-      .offset(y: dismissDragOffset)
-      .animation(
-        reduceMotion ? nil : .interactiveSpring(response: 0.3, dampingFraction: 0.86),
-        value: dismissDragOffset
-      )
-      .gesture(fullPlayerDismissDragGesture)
     }
     .ignoresSafeArea()
     // Panel-Steuerbuttons (Kapitel, Teleprompter, …) in Cover-Kartenfarbe wie Buch-Detail.
     .detailSectionCardsTinted(fromBackgroundTint: resolvedFullPlayerCoverTint)
   }
 
-  /// Kleiner Griff wie beim nativen Sheet-Drag-Indicator — rein visuell, die Geste liegt auf
-  /// dem ganzen Stack (Kind-Views wie `ScrollView` gewinnen die Geste trotzdem zuerst).
+  /// Kleiner Griff wie beim nativen Sheet-Drag-Indicator — rein visuell; das Herunterziehen zum
+  /// Schließen liefert die Zoom-Transition des `fullScreenCover` (siehe `abstandApp.swift`).
   private var fullPlayerDismissGrabber: some View {
     Capsule()
       .fill(model.appearancePalette.textSecondary.opacity(0.35))
@@ -1581,38 +1545,6 @@ struct NowPlayingDetailView: View {
       .flatMap { $0.windows }
       .first { $0.isKeyWindow }?
       .safeAreaInsets.top ?? 0
-  }
-
-  /// Ersatz für `.presentationDragIndicator` + Swipe-to-dismiss von `.sheet`, seit
-  /// `NowPlayingDetailView` per `.fullScreenCover` präsentiert wird (siehe `abstandApp.swift`).
-  /// Nur eindeutig vertikale Nach-unten-Gesten zählen, damit horizontales Scrollen (Kapitel,
-  /// Teleprompter) sowie vertikales Scrollen in Panels unangetastet bleibt.
-  private var fullPlayerDismissDragGesture: some Gesture {
-    DragGesture(minimumDistance: 24)
-      .onChanged { value in
-        guard value.translation.height > 0,
-          abs(value.translation.height) > abs(value.translation.width) * 1.5
-        else { return }
-        // Rubber-Banding: Karte folgt dem Finger, wird zum Rand hin zunehmend zäher.
-        dismissDragOffset = 60 * log(1 + value.translation.height / 60)
-      }
-      .onEnded { value in
-        guard value.translation.height > 0,
-          abs(value.translation.height) > abs(value.translation.width) * 1.5
-        else {
-          dismissDragOffset = 0
-          return
-        }
-        let shouldDismiss = value.translation.height > 110 || value.predictedEndTranslation.height > 500
-        if shouldDismiss {
-          // Offset bewusst NICHT zurücksetzen: Die Karte bleibt an der aktuellen Fingerposition
-          // stehen, der System-Dismiss (`FullScreenOverlayPresenter`) übernimmt nahtlos von dort
-          // weiter nach unten — ein Reset auf 0 würde vorher sichtbar zurückspringen.
-          model.requestDismissNowPlayingSheet()
-        } else {
-          dismissDragOffset = 0
-        }
-      }
   }
 
   /// iPhone-Querformat meldet `verticalSizeClass == .compact`; iPad bleibt in beiden
@@ -1640,17 +1572,30 @@ struct NowPlayingDetailView: View {
   }
 
   /// Liest den lokalen Tint-Cache schon während des ersten Body-Renderings.
+  /// Memoisiert: `body` läuft bei jeder `AppModel`-Änderung (auch mitten in der Present-/Dismiss-
+  /// Animation) — ungecacht kostete das pro Render zwei Datei-Reads + JSON-Decode, ohne RGB-Cache
+  /// sogar Cover-Decode + Pixelanalyse auf dem Main-Thread. Das ließ das Ein-/Ausfahren ruckeln.
   private var resolvedFullPlayerCoverTint: Color {
     guard let book = activeBook ?? player.activeBook else { return coverTintColor }
+    let account = model.coverImageCacheAccountDirectory()
     let scope = model.coverImageCacheScopeId(for: book.id, tier: .hero)
     let revision = model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
-    return CoverDominantTintSeed.resolve(
-      account: model.coverImageCacheAccountDirectory(),
-      itemId: book.id,
-      heroScopeId: scope,
-      fallbackScopeId: book.id,
-      revision: revision
-    )?.tint ?? coverTintColor
+    let key = "\(account?.path ?? "")|\(scope)|\(revision)|\(themeRevision)"
+    let seed: Color?
+    if FullPlayerCoverTintMemo.key == key {
+      seed = FullPlayerCoverTintMemo.tint
+    } else {
+      seed = CoverDominantTintSeed.resolve(
+        account: account,
+        itemId: book.id,
+        heroScopeId: scope,
+        fallbackScopeId: book.id,
+        revision: revision
+      )?.tint
+      FullPlayerCoverTintMemo.key = key
+      FullPlayerCoverTintMemo.tint = seed
+    }
+    return seed ?? coverTintColor
   }
 
   private func seedCoverTintFromCacheIfNeeded(for book: ABSBook) {
@@ -1704,9 +1649,13 @@ struct NowPlayingDetailView: View {
       token: model.token
     ) else { return }
     guard activeBook?.id == book.id else { return }
+    // Pixelanalyse (CIAreaAverage) einmal und abseits des Main-Threads — vorher lief sie beim Öffnen
+    // zweimal auf dem Main-Thread, genau während der Present-Animation (im Profil sichtbar).
+    let rgb = await Task.detached(priority: .userInitiated) { coverAverageRGB(from: image) }.value
+    guard activeBook?.id == book.id else { return }
     coverImageForTint = image
-    coverTintColor = coverDominantBackgroundTint(from: image)
-    if let (r, g, b) = coverAverageRGB(from: image) {
+    if let (r, g, b) = rgb {
+      coverTintColor = coverDominantBackgroundTint(fromAverageRed: r, green: g, blue: b)
       cachedCoverAverageRGB = (Double(r), Double(g), Double(b))
       DetailCoverAverageRGBCache.save(
         account: model.coverImageCacheAccountDirectory(),
@@ -1715,6 +1664,8 @@ struct NowPlayingDetailView: View {
         green: Double(g),
         blue: Double(b)
       )
+    } else {
+      coverTintColor = AppTheme.background
     }
   }
 

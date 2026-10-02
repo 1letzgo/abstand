@@ -276,11 +276,11 @@ extension FloatingPlayerChromeController {
 struct FloatingAccessoryLayer: View {
   @ObservedObject var gate: FloatingAccessoryGate
   let chrome: FloatingPlayerChromeController
-  let sheetPresented: Bool
   let keyboardVisible: Bool
 
   private var showsFloatingPlayer: Bool {
-    gate.chromeVisible && !sheetPresented && !keyboardVisible && chrome.playbackController != nil
+    // Bleibt beim offenen Vollbild-Player sichtbar: er ist Quelle/Ziel der Zoom-Transition.
+    gate.chromeVisible && !keyboardVisible && chrome.playbackController != nil
   }
 
   var body: some View {
