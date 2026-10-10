@@ -224,6 +224,9 @@ final class BooksLibraryToolbarState: ObservableObject {
 final class PodcastCatalogToolbarState: ObservableObject {
   @Published var sortField: PodcastCatalogSortField = .addedAt
   @Published var sortDescending: Bool = true
+  /// Folgen-Sortierung, solange eine Sendung gewählt ist.
+  @Published var episodeSortField: PodcastEpisodeSortField = .publishedAt
+  @Published var episodeSortDescending: Bool = true
   @Published private(set) var isServerRoot = false
   @Published private(set) var isNetworkReachable = true
   @Published private(set) var hasPodcastLibrary = false
@@ -241,6 +244,8 @@ final class PodcastCatalogToolbarState: ObservableObject {
     Publishers.MergeMany(
       model.$podcastCatalogSortField.map { _ in () }.eraseToAnyPublisher(),
       model.$podcastCatalogSortDescending.map { _ in () }.eraseToAnyPublisher(),
+      model.$podcastEpisodeSortField.map { _ in () }.eraseToAnyPublisher(),
+      model.$podcastEpisodeSortDescending.map { _ in () }.eraseToAnyPublisher(),
       model.$isServerRoot.map { _ in () }.eraseToAnyPublisher(),
       model.$isNetworkReachable.map { _ in () }.eraseToAnyPublisher(),
       model.$selectedPodcastLibrary.map { _ in () }.eraseToAnyPublisher(),
@@ -266,6 +271,8 @@ final class PodcastCatalogToolbarState: ObservableObject {
     detach()
     sortField = .addedAt
     sortDescending = true
+    episodeSortField = .publishedAt
+    episodeSortDescending = true
     isServerRoot = false
     isNetworkReachable = true
     hasPodcastLibrary = false
@@ -277,6 +284,10 @@ final class PodcastCatalogToolbarState: ObservableObject {
     if sortField != model.podcastCatalogSortField { sortField = model.podcastCatalogSortField }
     if sortDescending != model.podcastCatalogSortDescending {
       sortDescending = model.podcastCatalogSortDescending
+    }
+    if episodeSortField != model.podcastEpisodeSortField { episodeSortField = model.podcastEpisodeSortField }
+    if episodeSortDescending != model.podcastEpisodeSortDescending {
+      episodeSortDescending = model.podcastEpisodeSortDescending
     }
     if isServerRoot != model.isServerRoot { isServerRoot = model.isServerRoot }
     if isNetworkReachable != model.isNetworkReachable { isNetworkReachable = model.isNetworkReachable }
@@ -302,6 +313,17 @@ final class PodcastCatalogToolbarState: ObservableObject {
     guard let model, model.podcastCatalogSortDescending != descending else { return }
     model.podcastCatalogSortDescending = descending
     model.schedulePodcastCatalogSortReload()
+  }
+
+  /// Folgen werden lokal sortiert (`AppModel.sortPodcastShowEpisodes`) — kein Server-Reload nötig.
+  func applyEpisodeSortField(_ field: PodcastEpisodeSortField) {
+    guard let model, model.podcastEpisodeSortField != field else { return }
+    model.podcastEpisodeSortField = field
+  }
+
+  func applyEpisodeSortDescending(_ descending: Bool) {
+    guard let model, model.podcastEpisodeSortDescending != descending else { return }
+    model.podcastEpisodeSortDescending = descending
   }
 }
 
@@ -661,8 +683,14 @@ struct PodcastCatalogToolbarContent: ToolbarContent {
         .accessibilityLabel("Show settings")
       }
 
-      PodcastCatalogSortToolbarSnapshot(toolbarState: toolbarState)
-        .equatable()
+      // Gewählte Sendung: Sortierung der Folgen. „New“-Ansicht: Sortierung der Sendungs-Leiste.
+      if snapshot.isPodcastNewView {
+        PodcastCatalogSortToolbarSnapshot(toolbarState: toolbarState)
+          .equatable()
+      } else {
+        PodcastEpisodeSortToolbarSnapshot(toolbarState: toolbarState)
+          .equatable()
+      }
     }
   }
 }
@@ -692,6 +720,32 @@ struct PodcastCatalogTabShell<Catalog: View>: View {
           PodcastCatalogToolbarContent(toolbarState: toolbarState)
         }
     }
+  }
+}
+
+/// Wert-Snapshot der Folgen-Sortierung — offenes Menü bleibt bei Katalog-Ticks stabil.
+struct PodcastEpisodeSortToolbarSnapshot: View, Equatable {
+  let sortField: PodcastEpisodeSortField
+  let sortDescending: Bool
+  let toolbarState: PodcastCatalogToolbarState
+
+  init(toolbarState: PodcastCatalogToolbarState) {
+    self.toolbarState = toolbarState
+    sortField = toolbarState.episodeSortField
+    sortDescending = toolbarState.episodeSortDescending
+  }
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.sortField == rhs.sortField && lhs.sortDescending == rhs.sortDescending
+  }
+
+  var body: some View {
+    PodcastEpisodeSortToolbarMenu(
+      sortField: sortField,
+      sortDescending: sortDescending,
+      onSortFieldChange: { toolbarState.applyEpisodeSortField($0) },
+      onSortDescendingChange: { toolbarState.applyEpisodeSortDescending($0) }
+    )
   }
 }
 

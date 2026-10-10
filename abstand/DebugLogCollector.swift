@@ -25,6 +25,24 @@ final class DebugLogCollector {
 
   private init() {}
 
+  /// Aufrufer für Diagnose-Einträge — nur in Debug-Builds (Symbolnamen), im Release leer.
+  static func callerHint(depth: Int = 3) -> String {
+    #if DEBUG
+      // Logging-Hilfen selbst und Property-Accessoren (didSet/Setter) überspringen.
+      let frames = Thread.callStackSymbols
+        .filter { $0.contains("7abstand") }
+        .filter { !$0.contains("DebugLogCollector") && !$0.contains("SbvW") && !$0.contains("Sbvs") }
+        .prefix(depth)
+        .compactMap { line -> String? in
+          let parts = line.split(separator: " ", omittingEmptySubsequences: true)
+          return parts.count > 3 ? String(parts[3]) : nil
+        }
+      return frames.isEmpty ? "" : " via " + frames.joined(separator: " <- ")
+    #else
+      return ""
+    #endif
+  }
+
   func log(_ message: @autoclosure () -> String) {
     guard isCollecting else { return }
     buffer.append(Entry(timestamp: Date(), message: message()))

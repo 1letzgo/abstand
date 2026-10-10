@@ -57,6 +57,24 @@ final class AppModel: ObservableObject {
       UserDefaults.standard.set(podcastCatalogSortDescending, forKey: Keys.podcastCatalogSortDescending)
     }
   }
+  /// Folgen einer gewählten Sendung — getrennt von der Shows-Sortierung (`podcastCatalogSort*`),
+  /// die nur die Sendungs-Leiste betrifft. Standard: neueste zuerst.
+  @Published var podcastEpisodeSortField: PodcastEpisodeSortField =
+    PodcastEpisodeSortField(
+      rawValue: UserDefaults.standard.string(forKey: Keys.podcastEpisodeSortField) ?? ""
+    ) ?? .publishedAt
+  {
+    didSet {
+      UserDefaults.standard.set(podcastEpisodeSortField.rawValue, forKey: Keys.podcastEpisodeSortField)
+    }
+  }
+  @Published var podcastEpisodeSortDescending: Bool =
+    UserDefaults.standard.object(forKey: Keys.podcastEpisodeSortDescending) as? Bool ?? true
+  {
+    didSet {
+      UserDefaults.standard.set(podcastEpisodeSortDescending, forKey: Keys.podcastEpisodeSortDescending)
+    }
+  }
 
   /// Alle Bibliotheken vom Server (Bücher und Podcasts).
   @Published var libraries: [ABSLibrary] = []
@@ -5204,8 +5222,9 @@ final class AppModel: ObservableObject {
     if offlineHomeUIActive {
       // Offline nur, was tatsächlich lokal liegt — nicht der volle (evtl. veraltete) Server-Cache.
       let sid = showId?.trimmingCharacters(in: .whitespacesAndNewlines)
-      let downloaded = podcastEpisodesFromLocalDownloadManifests(showId: sid?.isEmpty == true ? nil : sid)
-      return Self.sortPodcastEpisodesNewestFirst(ABSPodcastEpisodeListItem.dedupeRows(downloaded))
+      let showFilter = sid?.isEmpty == true ? nil : sid
+      let downloaded = ABSPodcastEpisodeListItem.dedupeRows(podcastEpisodesFromLocalDownloadManifests(showId: showFilter))
+      return showFilter == nil ? Self.sortPodcastEpisodesNewestFirst(downloaded) : sortPodcastShowEpisodes(downloaded)
     }
     let offlineList = !isNetworkReachable
     var pool: [ABSPodcastEpisodeListItem]
@@ -5223,6 +5242,7 @@ final class AppModel: ObservableObject {
       if offlineList {
         pool += podcastEpisodesFromLocalDownloadManifests(showId: sid)
       }
+      return sortPodcastShowEpisodes(ABSPodcastEpisodeListItem.dedupeRows(pool))
     } else {
       pool = podcastEpisodes
       if offlineList {
@@ -5582,6 +5602,27 @@ final class AppModel: ObservableObject {
       duration: dur,
       publishedAt: nil
     )
+  }
+
+  /// Folgen einer Sendung nach der im Podcasts-Tab gewählten Sortierung; Gleichstand → Datum, dann Titel.
+  func sortPodcastShowEpisodes(_ rows: [ABSPodcastEpisodeListItem]) -> [ABSPodcastEpisodeListItem] {
+    let descending = podcastEpisodeSortDescending
+    switch podcastEpisodeSortField {
+    case .publishedAt:
+      let newestFirst = Self.sortPodcastEpisodesNewestFirst(rows)
+      return descending ? newestFirst : Array(newestFirst.reversed())
+    case .title:
+      return rows.sorted {
+        let order = $0.episodeTitle.localizedStandardCompare($1.episodeTitle)
+        if order != .orderedSame { return descending ? order == .orderedDescending : order == .orderedAscending }
+        return ($0.publishedAt ?? 0) > ($1.publishedAt ?? 0)
+      }
+    case .duration:
+      return rows.sorted {
+        if $0.duration != $1.duration { return descending ? $0.duration > $1.duration : $0.duration < $1.duration }
+        return ($0.publishedAt ?? 0) > ($1.publishedAt ?? 0)
+      }
+    }
   }
 
   private static func sortPodcastEpisodesNewestFirst(_ rows: [ABSPodcastEpisodeListItem]) -> [ABSPodcastEpisodeListItem] {
@@ -9028,7 +9069,9 @@ final class AppModel: ObservableObject {
         episodeId: manifestEpisodeId,
         autoPlay: autoPlay,
         attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable,
-        preferClientResumePosition: restartFromBeginning
+        // Explizites Sprungziel (Session-/Lesezeichen-Sprung, Umschalten auf Download) gewinnt —
+        // sonst nimmt der Player `max(Server-Position, Ziel)` und ein Sprung zurück verpufft.
+        preferClientResumePosition: restartFromBeginning || resumeAtOverride != nil
       )
       UserDefaults.standard.set(resolved.id, forKey: Keys.lastPlayedItemId)
       if autoPlay {
@@ -9096,7 +9139,9 @@ final class AppModel: ObservableObject {
         transcriptionLanguageOverride: podcastShowTranscriptionLanguage(for: episode.libraryItemId),
         autoPlay: autoPlay,
         attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable,
-        preferClientResumePosition: restartFromBeginning
+        // Explizites Sprungziel (Session-/Lesezeichen-Sprung, Umschalten auf Download) gewinnt —
+        // sonst nimmt der Player `max(Server-Position, Ziel)` und ein Sprung zurück verpufft.
+        preferClientResumePosition: restartFromBeginning || resumeAtOverride != nil
       )
       UserDefaults.standard.set(stub.id, forKey: Keys.lastPlayedItemId)
       if autoPlay {

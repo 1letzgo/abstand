@@ -31,7 +31,6 @@ private struct AppRootContainer: View {
   @Environment(\.colorScheme) private var systemColorScheme
   @Environment(\.scenePhase) private var scenePhase
   @State private var nowPlayingSheetPresented = false
-  @Namespace private var nowPlayingZoom
 
   var body: some View {
     let _ = model.appearanceThemeRevision
@@ -39,26 +38,30 @@ private struct AppRootContainer: View {
       if model.isLoggedIn {
         MainTabShellView(
           gate: model.floatingChrome.gate,
-          chrome: model.floatingChrome,
-          nowPlayingZoom: nowPlayingZoom
+          chrome: model.floatingChrome
         ) {
           MainRootView()
         }
         .equatable()
         // Vollbild-Player wie in Apple Music: wächst per Zoom-Transition aus dem Mini-Player im
-        // `tabViewBottomAccessory` heraus und schrumpft beim Schließen wieder hinein
-        // (`matchedTransitionSource` dort, `.navigationTransition(.zoom)` hier). Die Zoom-Transition
-        // bringt das interaktive Herunterziehen zum Schließen selbst mit; dahinter bleibt die App sichtbar.
-        // Bekannter iOS-26.1+-Bug: der Zoom greift nur mit einem `$`-Binding auf `@State` — nicht auf
-        // `@Published`/`@Observable` oder ein selbst gebautes `Binding` (sonst Fallback-Animation).
-        .fullScreenCover(
-          isPresented: $nowPlayingSheetPresented,
-          onDismiss: { model.notifyNowPlayingSheetDismissCompleted() }
-        ) {
-          NowPlayingDetailView(seedFrom: model.player)
-            .environmentObject(model)
-            .environmentObject(model.player)
-            .navigationTransition(.zoom(sourceID: NowPlayingZoomTransition.sourceID, in: nowPlayingZoom))
+        // `tabViewBottomAccessory` heraus und schrumpft beim Schließen wieder hinein. UIKit-Zoom statt
+        // `.fullScreenCover` + `.navigationTransition(.zoom)`, weil nur dort Geste und Ausrichtung
+        // einstellbar sind (siehe `NowPlayingZoomPresenter`). Der Presenter liegt außerhalb des
+        // SwiftUI-Baums — `EnvironmentObject`s und Theme darum explizit setzen (`model.player` fehlte
+        // früher → Absturz in Unteransichten mit `@EnvironmentObject private var player`).
+        .background {
+          NowPlayingZoomPresenter(
+            isPresented: $nowPlayingSheetPresented,
+            onDismissCompleted: { model.notifyNowPlayingSheetDismissCompleted() }
+          ) {
+            NowPlayingDetailView(seedFrom: model.player)
+              .environmentObject(model)
+              .environmentObject(model.player)
+              // Wie am App-Root: ohne den Revision-Key rendern Theme-abhängige Views im Overlay nicht neu.
+              .environment(\.appearanceThemeRevision, model.appearanceThemeRevision)
+              .tint(model.appearanceAccentColor)
+              .themeAccentFromAppModel(model)
+          }
         }
         .onReceive(model.nowPlayingSheetRequests) { present in
           nowPlayingSheetPresented = present
@@ -86,6 +89,9 @@ private struct AppRootContainer: View {
       model.reapplyAppearance(systemColorScheme: scheme)
     }
     .onChange(of: scenePhase) { _, phase in
+      DebugLogCollector.shared.log(
+        "scenePhase -> \(phase) isPlaying=\(model.player.isPlaying) lowPower=\(ProcessInfo.processInfo.isLowPowerModeEnabled)"
+      )
       if phase == .active {
         model.player.handleReturnToForeground()
         // Self-Heal: Podcast-Liste nachladen, falls während Sperre eine Folge beendet wurde

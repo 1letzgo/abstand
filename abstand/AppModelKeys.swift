@@ -37,6 +37,9 @@ extension AppModel {
   /// Sortierung nur Podcast-Bibliothek (Shows-Leiste + Fallback `libraryItems` für Folgen).
   static let podcastCatalogSortField = "abstand_podcast_catalog_sort_field"
   static let podcastCatalogSortDescending = "abstand_podcast_catalog_sort_descending"
+  /// Folgen-Sortierung einer gewählten Sendung (Podcasts-Tab).
+  static let podcastEpisodeSortField = "abstand_podcast_episode_sort_field"
+  static let podcastEpisodeSortDescending = "abstand_podcast_episode_sort_descending"
   /// Früher: kombinierter `CatalogItemsSort`-RawValue (Migration einmalig).
   static let legacyCatalogItemsSort = "abstand_catalog_items_sort"
   static let smartDlAutoWifi = "abstand_smart_dl_auto_wifi"

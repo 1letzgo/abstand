@@ -96,6 +96,23 @@ enum PodcastCatalogSortField: String, CaseIterable, Identifiable, Hashable {
   }
 }
 
+/// Folgen-Sortierung einer gewählten Sendung im Podcasts-Tab (lokal, ohne Server-Reload).
+enum PodcastEpisodeSortField: String, CaseIterable, Identifiable, Hashable {
+  case publishedAt
+  case title
+  case duration
+
+  var id: String { rawValue }
+
+  var menuTitle: String {
+    switch self {
+    case .publishedAt: return "Release date"
+    case .title: return "Title"
+    case .duration: return "Duration"
+    }
+  }
+}
+
 /// Unterbereiche im Audiobooks-Tab (horizontale Leiste wie Podcast-„Shows“).
 enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
   case books = "Books"
@@ -373,6 +390,8 @@ extension CatalogSortField: AbstandSortMenuField {
 extension PodcastCatalogSortField: AbstandSortMenuField {
   var suppressesSortOrderPicker: Bool { self == .random }
 }
+
+extension PodcastEpisodeSortField: AbstandSortMenuField {}
 
 extension BooksBrowseAuthorsSortField: AbstandSortMenuField {}
 extension BooksBrowseNarratorsSortField: AbstandSortMenuField {}

@@ -522,9 +522,10 @@ private struct SleepTimerUtilityMenuLabel: View {
 }
 
 private enum SleepTimerMetrics {
-  static let popoverWidth: CGFloat = 272
-  static let minuteStep = 15
-  static let minuteMax = 120
+  /// Feste Auswahl wie in Apple Podcasts/Books — ein Tipp statt Stepper-Klicks.
+  static let minutePresets = [5, 10, 15, 30, 45, 60, 90, 120]
+  /// „Ende von n Kapiteln“: Auswahl bis maximal so viele Kapitel (begrenzt auf die verbleibenden).
+  static let maxChapterOption = 5
 }
 
 private func sleepTimerOffLabel() -> String {
@@ -536,272 +537,119 @@ private func sleepTimerMinutesLabel(_ minutes: Int) -> String {
   return String(format: String(localized: "%lld min", comment: "Sleep timer: minutes"), minutes)
 }
 
-private func sleepTimerChaptersLabel(_ count: Int) -> String {
-  if count <= 0 { return sleepTimerOffLabel() }
-  return String(format: String(localized: "%lld ch.", comment: "Sleep timer: chapter count"), count)
-}
-
-private func sleepTimerMinutesAccessibilityLabel(_ minutes: Int) -> String {
-  if minutes <= 0 {
-    return String(localized: "Sleep timer by time, off", comment: "Sleep timer accessibility")
+private func sleepTimerChaptersMenuLabel(_ count: Int) -> String {
+  if count <= 1 {
+    return String(localized: "End of Chapter", comment: "Sleep timer: stop at end of current chapter")
   }
   return String(
-    format: String(localized: "Sleep timer by time, %lld minutes", comment: "Sleep timer accessibility"),
-    minutes
-  )
-}
-
-private func sleepTimerChaptersAccessibilityLabel(_ count: Int) -> String {
-  if count <= 0 {
-    return String(localized: "Sleep timer by chapters, off", comment: "Sleep timer accessibility")
-  }
-  return String(
-    format: String(localized: "Sleep timer by chapters, %lld chapters", comment: "Sleep timer accessibility"),
+    format: String(localized: "End of %lld Chapters", comment: "Sleep timer: stop after n chapters"),
     count
   )
 }
 
-/// Capsule-Stepper wie im Referenz-Screenshot (– / Wert / +).
-private struct SleepTimerCapsuleStepper: View {
-  @EnvironmentObject private var model: AppModel
-  let centerText: String
-  /// Kleines Icon vor „Off“, um Minuten- vs. Kapitel-Zeile zu unterscheiden.
-  let offLeadingIcon: String?
-  let isOff: Bool
-  let centerAccessibilityLabel: String
-  let minusEnabled: Bool
-  let plusEnabled: Bool
-  var capsuleFill: Color = AppTheme.background
-  let onMinus: () -> Void
-  let onPlus: () -> Void
+/// Sleep-Timer-Knopf: natives `Menu` plus darübergelegter Countdown.
+/// Der Countdown tickt jede Sekunde und `PlaybackController` meldet laufend Änderungen — läge beides
+/// im `Menu`, würde das geöffnete Menü bei jedem Update neu aufgebaut und flackern (vgl. CLAUDE.md,
+/// `BooksCatalogFilterToolbarMenu`). Darum: `Menu` als `Equatable` ohne Beobachtung, Countdown als
+/// nicht antippbares Overlay.
+private struct SleepTimerControl: View {
+  @ObservedObject var player: PlaybackController
+  let model: AppModel
+
+  private var chapterOptions: [Int] {
+    guard player.chapterCount > 0 else { return [] }
+    let available = min(SleepTimerMetrics.maxChapterOption, player.maxSleepChapterCount())
+    return available >= 1 ? Array(1...available) : []
+  }
 
   var body: some View {
-    HStack(spacing: 0) {
-      stepperButton(systemName: "minus", enabled: minusEnabled, action: onMinus)
-      HStack(spacing: AppTheme.Layout.compactSpacing) {
-        if isOff, let offLeadingIcon {
-          Image(systemName: offLeadingIcon)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(model.appearancePalette.textSecondary)
-            .accessibilityHidden(true)
+    SleepTimerMenu(mode: player.sleepTimerMode, chapterOptions: chapterOptions, model: model)
+      .equatable()
+      .overlay {
+        SleepTimerUtilityMenuLabel(player: player)
+          .allowsHitTesting(false)
+          .accessibilityHidden(true)
+      }
+  }
+}
+
+/// Aus · Minuten-Vorgaben · Kapitelende. Erneutes Wählen derselben Dauer startet den Countdown neu.
+private struct SleepTimerMenu: View, Equatable {
+  let mode: SleepTimerMode
+  let chapterOptions: [Int]
+  /// Nur für die Aktionen — bewusst nicht beobachtet.
+  let model: AppModel
+  @Environment(\.themeAccent) private var themeAccent
+
+  nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.mode == rhs.mode && lhs.chapterOptions == rhs.chapterOptions
+  }
+
+  var body: some View {
+    Menu {
+      Button {
+        model.applySleepTimer(minutes: 0)
+      } label: {
+        row(sleepTimerOffLabel(), selected: mode == .off)
+      }
+      Section {
+        ForEach(SleepTimerMetrics.minutePresets, id: \.self) { minutes in
+          Button {
+            model.applySleepTimer(minutes: minutes)
+          } label: {
+            row(sleepTimerMinutesLabel(minutes), selected: mode == .minutes(minutes))
+          }
         }
-        Text(centerText)
-          .font(.body.weight(.medium))
-          .monospacedDigit()
-          .foregroundStyle(model.appearancePalette.textPrimary)
-          .lineLimit(1)
-          .minimumScaleFactor(0.85)
       }
-      .frame(maxWidth: .infinity)
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel(centerAccessibilityLabel)
-      stepperButton(systemName: "plus", enabled: plusEnabled, action: onPlus)
-    }
-    .padding(.horizontal, AppTheme.Layout.compactSpacing)
-    .padding(.vertical, AppTheme.Layout.compactSpacing)
-    .background(
-      Capsule(style: .continuous)
-        .fill(capsuleFill)
-    )
-  }
-
-  private func stepperButton(systemName: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-    Button(action: action) {
-      Image(systemName: systemName)
-        .font(.body.weight(.semibold))
-        .foregroundStyle(model.appearancePalette.textPrimary)
-        .frame(width: AppTheme.Layout.minTapTarget, height: AppTheme.Layout.minTapTarget)
-        .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .disabled(!enabled)
-    .opacity(enabled ? 1 : 0.32)
-    .accessibilityLabel(
-      systemName.contains("minus")
-        ? String(localized: "Decrease sleep timer", comment: "Accessibility")
-        : String(localized: "Increase sleep timer", comment: "Accessibility")
-    )
-  }
-}
-
-private struct SleepTimerPopoverContent: View {
-  @EnvironmentObject private var model: AppModel
-  @EnvironmentObject private var player: PlaybackController
-
-  @State private var minutes = 0
-  @State private var chapters = 0
-
-  private var palette: AppColorPalette { model.appearancePalette }
-
-  private var maxChapters: Int { player.maxSleepChapterCount() }
-  private var showsChapterRow: Bool { player.chapterCount > 0 }
-  private var chapterTimerActive: Bool {
-    if case .chapters = player.sleepTimerMode { return true }
-    return false
-  }
-
-  var body: some View {
-    VStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-      Text("Sleep Timer", comment: "Sleep timer popover title")
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(palette.textPrimary)
-        .frame(maxWidth: .infinity)
-        .padding(.bottom, AppTheme.Layout.hairlineSpacing)
-
-      SleepTimerCapsuleStepper(
-        centerText: sleepTimerMinutesLabel(minutes),
-        offLeadingIcon: "clock",
-        isOff: minutes <= 0,
-        centerAccessibilityLabel: sleepTimerMinutesAccessibilityLabel(minutes),
-        minusEnabled: minutes > 0,
-        plusEnabled: minutes < SleepTimerMetrics.minuteMax,
-        capsuleFill: palette.background,
-        onMinus: { adjustMinutes(by: -SleepTimerMetrics.minuteStep) },
-        onPlus: { adjustMinutes(by: SleepTimerMetrics.minuteStep) }
-      )
-
-      if showsChapterRow {
-        SleepTimerCapsuleStepper(
-          centerText: sleepTimerChaptersLabel(chapters),
-          offLeadingIcon: "list.number",
-          isOff: chapters <= 0,
-          centerAccessibilityLabel: sleepTimerChaptersAccessibilityLabel(chapters),
-          minusEnabled: chapters > 0 && (chapters > 1 || chapterTimerActive),
-          plusEnabled: chapters < maxChapters,
-          capsuleFill: palette.background,
-          onMinus: { adjustChapters(by: -1) },
-          onPlus: { adjustChapters(by: 1) }
-        )
+      if !chapterOptions.isEmpty {
+        Section {
+          ForEach(chapterOptions, id: \.self) { count in
+            Button {
+              model.applySleepTimer(chapters: count)
+            } label: {
+              row(sleepTimerChaptersMenuLabel(count), selected: mode == .chapters(count))
+            }
+          }
+        }
       }
-    }
-    .padding(.horizontal, AppTheme.Layout.screenPadding)
-    .padding(.vertical, AppTheme.Layout.cardPadding)
-    .frame(width: SleepTimerMetrics.popoverWidth)
-    .background(palette.card)
-    .onAppear(perform: syncFromActiveTimer)
-  }
-
-  private func syncFromActiveTimer() {
-    switch player.sleepTimerMode {
-    case .off:
-      minutes = 0
-      chapters = 0
-    case .minutes(let m):
-      minutes = m
-      chapters = 0
-    case .chapters(let c):
-      minutes = 0
-      chapters = min(max(1, c), max(1, maxChapters))
-    }
-  }
-
-  private func adjustMinutes(by delta: Int) {
-    let next = min(SleepTimerMetrics.minuteMax, max(0, minutes + delta))
-    minutes = next
-    if next <= 0 {
-      chapters = 0
-    }
-    model.applySleepTimer(minutes: next)
-  }
-
-  private func adjustChapters(by delta: Int) {
-    let cap = max(1, maxChapters)
-    let previous = chapters
-    let next = min(cap, max(0, chapters + delta))
-    if next <= 0 {
-      chapters = 0
-      minutes = 0
-      model.applySleepTimer(minutes: 0)
-      return
-    }
-    minutes = 0
-    chapters = next
-    if !model.applySleepTimer(chapters: next) {
-      chapters = previous
-    }
-  }
-}
-
-private struct SleepTimerPopoverControl<Label: View>: View {
-  @ViewBuilder let label: () -> Label
-  @State private var isPresented = false
-
-  var body: some View {
-    Button {
-      // Ohne Slide-Animation des Covers — die Alert-Karte blendet sich selbst ein.
-      var transaction = Transaction()
-      transaction.disablesAnimations = true
-      withTransaction(transaction) { isPresented = true }
     } label: {
-      label()
-    }
-    .buttonStyle(.plain)
-    .fullScreenCover(isPresented: $isPresented) {
-      SleepTimerAlertPresentation(isPresented: $isPresented)
-        .presentationBackground(.clear)
-    }
-  }
-}
-
-private enum SleepTimerAlertMetrics {
-  /// Abdunklung hinter der Karte (wie System-Alerts).
-  static let dimOpacity: Double = 0.4
-  /// Start-Skalierung der Einblendung (System-Alerts wachsen leicht auf 1.0).
-  static let appearScale: CGFloat = 1.08
-  static let appearDuration: Double = 0.22
-  static let dismissDuration: Double = 0.16
-}
-
-/// Sleep Timer im Stil eines System-Alerts: zentrierte Karte über abgedunkeltem Hintergrund,
-/// Steppers wie bisher, unten „Done“. Tippen daneben schließt ebenfalls.
-private struct SleepTimerAlertPresentation: View {
-  @EnvironmentObject private var model: AppModel
-  @Binding var isPresented: Bool
-  @State private var appeared = false
-
-  var body: some View {
-    let palette = model.appearancePalette
-    ZStack {
-      Color.black
-        .opacity(appeared ? SleepTimerAlertMetrics.dimOpacity : 0)
-        .ignoresSafeArea()
-        .onTapGesture { close() }
-        .accessibilityHidden(true)
-
-      VStack(spacing: 0) {
-        SleepTimerPopoverContent()
-        Divider()
-          .overlay(palette.textSecondary.opacity(0.2))
-        Button {
-          close()
-        } label: {
-          Text("Done")
-            .font(.body.weight(.semibold))
-            .foregroundStyle(model.appearanceAccentColor)
-            .frame(maxWidth: .infinity, minHeight: AppTheme.Layout.minTapTarget)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+      // Platzhalter in Größe der sichtbaren Beschriftung (die liegt als Overlay darüber).
+      VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
+        Text(verbatim: "00:00")
+          .font(.subheadline.weight(.medium))
+          .frame(
+            maxWidth: .infinity,
+            minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
+            maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight
+          )
+        Text("Sleep", comment: "Player control label")
+          .font(.caption2)
       }
-      .frame(width: SleepTimerMetrics.popoverWidth)
-      .background(palette.card)
-      .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous))
-      .scaleEffect(appeared ? 1 : SleepTimerAlertMetrics.appearScale)
-      .opacity(appeared ? 1 : 0)
-      .accessibilityAddTraits(.isModal)
+      .hidden()
+      .frame(maxWidth: .infinity)
+      .contentShape(Rectangle())
     }
-    .onAppear {
-      withAnimation(.easeOut(duration: SleepTimerAlertMetrics.appearDuration)) { appeared = true }
+    .menuOrder(.fixed)
+    .accessibilityLabel(String(localized: "Sleep timer", comment: "Accessibility"))
+    .accessibilityValue(accessibilityValue)
+  }
+
+  private var accessibilityValue: String {
+    switch mode {
+    case .off: return sleepTimerOffLabel()
+    case .minutes(let m): return sleepTimerMinutesLabel(m)
+    case .chapters(let n): return sleepTimerChaptersMenuLabel(n)
     }
   }
 
-  private func close() {
-    withAnimation(.easeIn(duration: SleepTimerAlertMetrics.dismissDuration)) {
-      appeared = false
-    } completion: {
-      var transaction = Transaction()
-      transaction.disablesAnimations = true
-      withTransaction(transaction) { isPresented = false }
+  private func row(_ title: String, selected: Bool) -> some View {
+    HStack {
+      Text(title)
+      Spacer(minLength: AppTheme.Layout.stackSpacing)
+      if selected {
+        Image(systemName: "checkmark")
+          .foregroundStyle(themeAccent)
+      }
     }
   }
 }
@@ -916,9 +764,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
         )
       )
 
-      SleepTimerPopoverControl {
-        SleepTimerUtilityMenuLabel(player: model.player)
-      }
+      SleepTimerControl(player: model.player, model: model)
 
       VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
         FullPlayerAirPlayButton()
@@ -1524,7 +1370,7 @@ struct NowPlayingDetailView: View {
   }
 
   /// Kleiner Griff wie beim nativen Sheet-Drag-Indicator — rein visuell; das Herunterziehen zum
-  /// Schließen liefert die Zoom-Transition des `fullScreenCover` (siehe `abstandApp.swift`).
+  /// Schließen liefert die Zoom-Transition (siehe `NowPlayingZoomPresenter`).
   private var fullPlayerDismissGrabber: some View {
     Capsule()
       .fill(model.appearancePalette.textSecondary.opacity(0.35))

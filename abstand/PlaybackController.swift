@@ -82,7 +82,13 @@ final class PlaybackController: NSObject, ObservableObject {
   @Published private(set) var activePlaybackEpisodeId: String?
   /// Lokale Show-Vorgabe für die Spracherkennung; hat Vorrang vor den Item-Metadaten.
   private(set) var transcriptionLanguageOverride: String?
-  @Published private(set) var isPlaying = false
+  @Published private(set) var isPlaying = false {
+    didSet {
+      guard oldValue != isPlaying else { return }
+      // Feld-Diagnose (z. B. „pausiert im Hintergrund“): jeder Wechsel mit Auslöser im Debug-Export.
+      DebugLogCollector.shared.log("isPlaying -> \(isPlaying)\(DebugLogCollector.callerHint())")
+    }
+  }
   /// Laufende Position — absichtlich **nicht** `@Published`, damit SwiftUI nicht ~3×/s invalidiert
   /// (`tabViewBottomAccessory`, Listen). Vollplayer nutzt `TimelineView`; Sync/Now Playing lesen hier.
   private(set) var globalPosition: Double = 0
@@ -274,11 +280,19 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Bewusstes Resume/Reload: kurzzeitiges Engine-`.paused` (Seek/Item-Replace) nicht als Pause werten.
   /// Sonst stoppt die Wiedergabe ~1–2 s nach Session-/Track-Neustart wieder.
   private var suppressEnginePauseSyncUntil: Date?
+  /// Hält die App beim Track-Wechsel im Hintergrund wach: zwischen Ende des alten und Start des neuen
+  /// Tracks läuft kein Audio — iOS darf die App dann suspendieren (im Energiesparmodus schneller),
+  /// der Seek-/Play-Abschluss des neuen Tracks liefe nie, die Wiedergabe bliebe stehen.
+  private var trackSwitchBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+  /// Längste Wartezeit auf den Wiedergabestart nach dem Track-Wechsel (Streaming puffert erst).
+  private static let trackSwitchPlaybackWaitSeconds: TimeInterval = 15
 
   /// Intelligenter Sleep-Timer: letzte Konfiguration + Zeitstempel bei natürlichem Ablauf.
   /// Wenn die Wiedergabe innerhalb von `sleepTimerGraceSeconds` nach Ablauf neu startet,
   /// wird der Timer mit derselben Dauer (nur `.minutes`) automatisch wiederhergestellt.
   private static let sleepTimerGraceSeconds: TimeInterval = 60
+  /// Sleep-Timer blendet vor dem Stopp aus, statt abrupt abzuschneiden (weckt sonst auf).
+  private static let sleepTimerFadeSeconds: TimeInterval = 15
   private var lastExpiredSleepMode: SleepTimerMode?
   private var lastExpiredSleepSeconds: TimeInterval?
   private var lastExpiredSleepDate: Date?
@@ -690,6 +704,9 @@ final class PlaybackController: NSObject, ObservableObject {
     guard let p = player, p.currentItem != nil else { return }
     let enginePlaying = Self.engineIndicatesPlaying(p)
     guard isPlaying != enginePlaying else { return }
+    DebugLogCollector.shared.log(
+      "engine sync isPlaying=\(isPlaying) -> \(enginePlaying) status=\(p.timeControlStatus.rawValue) wait=\(p.reasonForWaitingToPlay?.rawValue ?? "-") item=\(p.currentItem?.status.rawValue ?? -1) rate=\(p.rate) suppressed=\(suppressEnginePauseSyncUntil.map { $0 > Date() } ?? false) bg=\(UIApplication.shared.applicationState == .background)"
+    )
     if enginePlaying {
       isPlaying = true
       lastListenTick = Date()
@@ -892,6 +909,9 @@ final class PlaybackController: NSObject, ObservableObject {
     /// Bei Neustart nach „Fertig“: Client-Position statt Server-Ende (`max(session, resume)`).
     preferClientResumePosition: Bool = false
   ) async throws {
+    DebugLogCollector.shared.log(
+      "playBook book=\(book.id) autoPlay=\(autoPlay) resumeAt=\(Int(resumeHint))\(DebugLogCollector.callerHint(depth: 2))"
+    )
     if liveTranscription.isTeleprompterModeActive {
       await liveTranscription.disable()
     }
@@ -1176,6 +1196,10 @@ final class PlaybackController: NSObject, ObservableObject {
           self.updateChapterUI(global: resumeSnapshot)
           self.updateNowPlaying()
           if self.shouldAutoPlayAfterLoad {
+            // Play-Tipp während eines Launch-Restores (`autoPlay: false`): `performPlayResume` bricht
+            // ohne Player ab, die Session wurde also nie für `.playback` konfiguriert/aktiviert. Ohne das
+            // spielt iOS mit der Default-Kategorie — die stoppt beim Wechsel in den Hintergrund (Stille).
+            self.audioSession.activateForPlayback(reclaimingOutput: true)
             self.applyPlayingRate()
             self.isPlaying = true
           } else {
@@ -1249,6 +1273,10 @@ final class PlaybackController: NSObject, ObservableObject {
           self.updateChapterUI(global: resumeSnapshot)
           self.updateNowPlaying()
           if self.shouldAutoPlayAfterLoad {
+            // Play-Tipp während eines Launch-Restores (`autoPlay: false`): `performPlayResume` bricht
+            // ohne Player ab, die Session wurde also nie für `.playback` konfiguriert/aktiviert. Ohne das
+            // spielt iOS mit der Default-Kategorie — die stoppt beim Wechsel in den Hintergrund (Stille).
+            self.audioSession.activateForPlayback(reclaimingOutput: true)
             self.applyPlayingRate()
             self.isPlaying = true
           } else {
@@ -1376,6 +1404,32 @@ final class PlaybackController: NSObject, ObservableObject {
       clearSleepTimer()
       pause()
     }
+    applySleepTimerFadeVolume()
+  }
+
+  /// Echtzeit bis zum Sleep-Timer-Stopp; `nil` ohne aktiven Timer oder bei Pause.
+  /// Kapitel-Timer: Medienzeit bis Kapitelende, umgerechnet über die Wiedergabegeschwindigkeit.
+  private func sleepTimerSecondsUntilStop() -> TimeInterval? {
+    guard isPlaying else { return nil }
+    if let end = sleepEndDate { return end.timeIntervalSinceNow }
+    if let target = sleepTimerChapterTarget, target < sortedChapters.count {
+      let mediaRemaining = chapterEndTime(at: target) - playbackGlobalPosition()
+      return mediaRemaining / Double(max(0.1, playbackRate))
+    }
+    return nil
+  }
+
+  /// Lautstärke in den letzten `sleepTimerFadeSeconds` linear auf 0 — sonst volle Lautstärke.
+  /// Pro Tick neu berechnet: Pause, Verlängern oder Ausschalten des Timers stellt sofort 100 % her.
+  private func applySleepTimerFadeVolume() {
+    guard let player else { return }
+    var target: Float = 1
+    if let remaining = sleepTimerSecondsUntilStop(), remaining < Self.sleepTimerFadeSeconds {
+      target = Float(max(0, remaining / Self.sleepTimerFadeSeconds))
+    }
+    if abs(player.volume - target) > 0.001 {
+      player.volume = target
+    }
   }
 
   private func accumulateListenTime() {
@@ -1442,12 +1496,46 @@ final class PlaybackController: NSObject, ObservableObject {
       }
       return
     }
+    beginTrackSwitchBackgroundTask()
     prepareForTrackSwitch(keepsPlayingIntent: true)
     currentTrackIndex += 1
     liveTranscription.notifyPlaybackTrackAdvanced()
+    let appState = UIApplication.shared.applicationState
+    DebugLogCollector.shared.log(
+      "advanceToNextTrack -> track \(currentTrackIndex + 1)/\(tracks.count) local=\(localRoot != nil) background=\(appState == .background) lowPower=\(ProcessInfo.processInfo.isLowPowerModeEnabled)"
+    )
     Task {
       await loadCurrentTrack(play: true, localOffset: 0)
+      await waitUntilEnginePlaysOrTimeout()
+      endTrackSwitchBackgroundTask()
     }
+  }
+
+  /// Wartet, bis der neue Track tatsächlich hörbar läuft (Seek-Abschluss + Puffer), höchstens
+  /// `trackSwitchPlaybackWaitSeconds` — solange bleibt die Hintergrund-Ausführung reserviert.
+  private func waitUntilEnginePlaysOrTimeout() async {
+    let deadline = Date().addingTimeInterval(Self.trackSwitchPlaybackWaitSeconds)
+    while Date() < deadline {
+      if let p = player, p.timeControlStatus == .playing { return }
+      if !isPlaying { return }
+      try? await Task.sleep(nanoseconds: 250_000_000)
+    }
+    DebugLogCollector.shared.log("advanceToNextTrack: engine not playing after \(Int(Self.trackSwitchPlaybackWaitSeconds)) s")
+  }
+
+  private func beginTrackSwitchBackgroundTask() {
+    endTrackSwitchBackgroundTask()
+    trackSwitchBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "abstand.trackSwitch") {
+      [weak self] in
+      // Ablauf: Hintergrundzeit aufgebraucht — sauber freigeben, sonst beendet iOS die App.
+      MainActor.assumeIsolated { self?.endTrackSwitchBackgroundTask() }
+    }
+  }
+
+  private func endTrackSwitchBackgroundTask() {
+    guard trackSwitchBackgroundTask != .invalid else { return }
+    UIApplication.shared.endBackgroundTask(trackSwitchBackgroundTask)
+    trackSwitchBackgroundTask = .invalid
   }
 
   private func loadCurrentTrack(play: Bool, localOffset: Double, pauseOnFailure: Bool = true) async {
@@ -1682,6 +1770,7 @@ final class PlaybackController: NSObject, ObservableObject {
       restoreSleepTimerIfWithinGraceIfNeeded()
     }
     resumeSleepTimerIfNeeded()
+    applySleepTimerFadeVolume()
     updateNowPlaying()
   }
 
@@ -1782,9 +1871,12 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   func pause() {
+    DebugLogCollector.shared.log("pause()\(DebugLogCollector.callerHint())")
     accumulateListenTime()
     pauseSleepTimer()
     player?.pause()
+    // Nach Sleep-Timer-Ausblenden: nächstes Play wieder in voller Lautstärke.
+    player?.volume = 1
     isPlaying = false
     updateNowPlaying()
     Task { await flushSync(force: true) }

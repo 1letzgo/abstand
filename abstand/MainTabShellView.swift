@@ -11,15 +11,13 @@ import SwiftUI
 struct MainTabShellView<Content: View>: View, Equatable {
   @ObservedObject var gate: FloatingAccessoryGate
   let chrome: FloatingPlayerChromeController
-  /// Namespace der Zoom-Transition Mini-Player → Vollbild-Player (stabil über die App-Laufzeit).
-  let nowPlayingZoom: Namespace.ID
   @ViewBuilder var content: () -> Content
 
   @State private var keyboardVisible = false
 
   nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
     MainActor.assumeIsolated {
-      lhs.gate === rhs.gate && lhs.chrome === rhs.chrome && lhs.nowPlayingZoom == rhs.nowPlayingZoom
+      lhs.gate === rhs.gate && lhs.chrome === rhs.chrome
     }
   }
 
@@ -30,7 +28,6 @@ struct MainTabShellView<Content: View>: View, Equatable {
         FloatingTabBottomAccessoryModifier(
           gate: gate,
           chrome: chrome,
-          nowPlayingZoom: nowPlayingZoom,
           keyboardVisible: keyboardVisible
         )
       )
@@ -47,7 +44,6 @@ struct MainTabShellView<Content: View>: View, Equatable {
 private struct FloatingTabBottomAccessoryModifier: ViewModifier {
   @ObservedObject var gate: FloatingAccessoryGate
   let chrome: FloatingPlayerChromeController
-  let nowPlayingZoom: Namespace.ID
   let keyboardVisible: Bool
 
   func body(content: Content) -> some View {
@@ -64,13 +60,9 @@ private struct FloatingTabBottomAccessoryModifier: ViewModifier {
         chrome: chrome,
         keyboardVisible: keyboardVisible
       )
-      // Quelle der Zoom-Transition zum Vollbild-Player (siehe `abstandApp.swift`).
-      .matchedTransitionSource(id: NowPlayingZoomTransition.sourceID, in: nowPlayingZoom)
+      // Quelle der Zoom-Transition zum Vollbild-Player (siehe `NowPlayingZoomPresenter`).
+      .background { NowPlayingZoomSourceAnchor() }
     }
   }
 }
 
-/// Gemeinsame ID für `matchedTransitionSource` (Mini-Player) und `.navigationTransition(.zoom)` (Vollbild-Player).
-enum NowPlayingZoomTransition {
-  static let sourceID = "nowPlayingMiniPlayer"
-}
