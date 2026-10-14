@@ -1,5 +1,6 @@
 package de.letzgo.abstand.data
 
+import de.letzgo.abstand.store.EbookLocalStore
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -716,19 +717,6 @@ enum class AbsEbookFormat(val rawValue: String) {
     }
 }
 
-/**
- * Platzhalter für die Abfragen, die `ABSBook` auf iOS an `EbookLocalStore` stellt (lokaler
- * E-Book-Cache). Der Store selbst ist noch nicht portiert; er hängt sich hier ein, sobald es ihn gibt.
- */
-object EbookLocalStoreHooks {
-    /** iOS: `EbookLocalStore.knownFormat(libraryItemId:)`. */
-    @Volatile var knownFormat: (libraryItemId: String) -> AbsEbookFormat? = { null }
-    /** iOS: `EbookLocalStore.cachedEbookIfPresent(account:libraryItemId:)?.format`. */
-    @Volatile var cachedEbookFormat: (account: File, libraryItemId: String) -> AbsEbookFormat? = { _, _ -> null }
-    /** iOS: `EbookLocalStore.cachedEbookFileByteCount(account:libraryItemId:)`. */
-    @Volatile var cachedEbookFileByteCount: (account: File?, libraryItemId: String) -> Long? = { _, _ -> null }
-}
-
 /** iOS: `ABSBook` (Library-Item: Hörbuch, eBook oder Podcast-Sendung). */
 @Serializable(with = AbsBookSerializer::class)
 data class AbsBook(
@@ -908,14 +896,14 @@ data class AbsBook(
                 if (files.any { it.isEpub }) out.add(AbsEbookFormat.epub)
                 if (files.any { it.isPdf }) out.add(AbsEbookFormat.pdf)
             }
-            EbookLocalStoreHooks.knownFormat(id)?.let(out::add)
+            EbookLocalStore.knownFormat(id)?.let(out::add)
             return out
         }
 
     /** Hat eine lesbare oder angehängte Datei des angegebenen Formats (EPUB/PDF). */
     fun hasAttachedEbookFormat(format: AbsEbookFormat, account: File? = null): Boolean {
         if (format in attachedEbookFormats) return true
-        if (account != null && EbookLocalStoreHooks.cachedEbookFormat(account, id) == format) return true
+        if (account != null && EbookLocalStore.cachedEbookIfPresent(account, id)?.second == format) return true
         // Hörbuch in der E-Book-Liste ohne Format-Metadaten (minified): meist supplementäres EPUB.
         if (format == AbsEbookFormat.epub && isAudiobookLibraryItem && hasAttachedEbook && attachedEbookFormats.isEmpty()) return true
         return false
@@ -1017,7 +1005,7 @@ data class AbsBook(
 
     /** E-Book-Dateigröße: lokal gecacht oder aus expandiertem `libraryFiles` — nie Hörbuch-`media.size`. */
     fun resolvedAttachedEbookFileByteCount(account: File?): Long? =
-        EbookLocalStoreHooks.cachedEbookFileByteCount(account, id) ?: attachedEbookLibraryFileByteCount
+        EbookLocalStore.cachedEbookFileByteCount(account, id) ?: attachedEbookLibraryFileByteCount
 
     /** Podcast-Sendungen in `GET /libraries/…/items`: meist **ohne** `numTracks`/Dauer. */
     val isListablePodcastLibraryItem: Boolean

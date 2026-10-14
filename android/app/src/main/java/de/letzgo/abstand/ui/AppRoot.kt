@@ -1,51 +1,170 @@
 package de.letzgo.abstand.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import de.letzgo.abstand.data.AbsApiClient
+import de.letzgo.abstand.model.AppModel
+import de.letzgo.abstand.model.MainTab
+import de.letzgo.abstand.model.SessionStore
+import de.letzgo.abstand.ui.components.AbstandEmptyScreen
+import de.letzgo.abstand.ui.components.CoverEnvironment
+import de.letzgo.abstand.ui.components.LocalCoverEnvironment
+import de.letzgo.abstand.ui.components.TabRootScaffold
+import de.letzgo.abstand.ui.login.LoginScreen
+import de.letzgo.abstand.ui.settings.SettingsTabRoot
 
-/** iOS: `AppModel.MainTab` — gleiche Labels, gleiche Reihenfolge. */
-enum class MainTab(val label: String, val icon: ImageVector) {
-    Start("Home", SF.houseFill),
-    Library("Books", SF.booksVerticalFill),
-    Podcasts("Podcasts", SF.micFill),
-    Settings("Settings", SF.gearshapeFill),
-    Search("Search", SF.magnifyingglass),
+/** Tab-Symbole (iOS: `MainRootView` `.tabItem { Label(…, systemImage:) }`). */
+val MainTab.icon: ImageVector
+    get() = when (this) {
+        MainTab.start -> SF.houseFill
+        MainTab.library -> SF.booksVerticalFill
+        MainTab.podcasts -> SF.micFill
+        MainTab.settings -> SF.gearshapeFill
+        MainTab.search -> SF.magnifyingglass
+    }
+
+/**
+ * iOS: `AppRootContainer` — abgemeldet [LoginScreen], angemeldet die Tab-Shell. Setzt den
+ * Cover-Kontext der Session ([LocalCoverEnvironment]).
+ */
+@Composable
+fun AppRoot(model: AppModel = AppModel.shared) {
+    val session = model.session
+    val loggedIn by session.isLoggedIn.collectAsState()
+    val serverURL by session.serverURL.collectAsState()
+    val activeAccountKey by session.activeAccountKey.collectAsState()
+    val username by session.sessionUsername.collectAsState()
+    val coverRevision by session.coverImageCacheRevision.collectAsState()
+    val tokenRevision by session.tokenRevision.collectAsState()
+    val coverEnvironment = remember(loggedIn, serverURL, activeAccountKey, username, coverRevision, tokenRevision) {
+        CoverEnvironment(
+            serverBaseURL = AbsApiClient.normalizeServerURL(serverURL),
+            accountDir = if (loggedIn) session.cacheAccountDir() else null,
+            revision = coverRevision,
+        )
+    }
+    CompositionLocalProvider(LocalCoverEnvironment provides coverEnvironment) {
+        if (loggedIn) MainTabShell(session) else LoginScreen(session)
+    }
 }
 
-/** iOS: `AppRootContainer` + `MainTabShellView` (Scaffold-Platzhalter bis die Screens portiert sind). */
+/**
+ * iOS: `MainTabShellView(MainRootView)` — Material-`NavigationBar` mit Home, Books, Podcasts,
+ * Settings, Search; jeder Tab mit eigenem Back-Stack. Sichtbarkeit von Books/Podcasts folgt den
+ * gecachten Flags, die der Session-Store erst nach dem Bootstrap umschaltet — die Tab-Struktur
+ * bleibt während des Starts stabil. Tab-Inhalte bleiben beim Wechsel erhalten (Zustand je Tab).
+ */
 @Composable
-fun AppRoot() {
-    var tab by rememberSaveable { mutableStateOf(MainTab.Start) }
+private fun MainTabShell(session: SessionStore) {
+    val palette = Theme.palette
+    val selected by session.mainTab.collectAsState()
+    val showBooks by session.showAudiobooksTab.collectAsState()
+    val showPodcasts by session.showPodcastsTab.collectAsState()
+    val epoch by session.accountSessionEpoch.collectAsState()
+    val visibleTabs = MainTab.entries.filter {
+        when (it) {
+            MainTab.library -> showBooks
+            MainTab.podcasts -> showPodcasts
+            else -> true
+        }
+    }
+    // Navigatoren je Tab; nach Accountwechsel frisch (iOS: `accountSessionEpoch` invalidiert Tab-Views).
+    val navigators = remember(epoch) { MainTab.entries.associateWith { TabNavigator(it) } }
+    val stateHolder = rememberSaveableStateHolder()
+    val current = if (selected in visibleTabs) selected else MainTab.start
+
+    // System-Zurück an der Wurzel eines anderen Tabs → Home (Android-Konvention; iOS hat kein Zurück).
+    BackHandler(enabled = current != MainTab.start && navigators.getValue(current).backStack.isEmpty()) {
+        session.selectMainTab(MainTab.start)
+    }
+
     Scaffold(
+        containerColor = palette.background,
+        contentColor = palette.textPrimary,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            NavigationBar {
-                MainTab.entries.forEach { t ->
+            NavigationBar(containerColor = palette.card) {
+                visibleTabs.forEach { tab ->
                     NavigationBarItem(
-                        selected = tab == t,
-                        onClick = { tab = t },
-                        icon = { Icon(t.icon, contentDescription = null) },
-                        label = { Text(t.label) },
+                        selected = tab == current,
+                        onClick = {
+                            // Erneutes Tippen auf den aktiven Tab: zurück zur Wurzel (iOS-Verhalten).
+                            if (tab == current) navigators.getValue(tab).popToRoot() else session.selectMainTab(tab)
+                        },
+                        icon = { Icon(tab.icon, contentDescription = null) },
+                        label = { Text(tab.label) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Theme.accent,
+                            selectedTextColor = Theme.accent,
+                            indicatorColor = Theme.accent.copy(alpha = 0.16f),
+                            unselectedIconColor = palette.textSecondary,
+                            unselectedTextColor = palette.textSecondary,
+                        ),
                     )
                 }
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-            Text(tab.label)
+        Box(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())) {
+            val navigator = navigators.getValue(current)
+            stateHolder.SaveableStateProvider("$epoch/${current.name}") {
+                CompositionLocalProvider(LocalTabNavigator provides navigator) {
+                    TabStackHost(navigator) { TabRootContent(current) }
+                }
+            }
         }
     }
+
+    ErrorAlert(session)
+}
+
+/** Wurzel je Tab — Platzhalter, bis die Screens portiert sind (Settings: Account-Sektionen). */
+@Composable
+private fun TabRootContent(tab: MainTab) {
+    when (tab) {
+        MainTab.settings -> SettingsTabRoot()
+        MainTab.start -> PlaceholderTabRoot(tab, "Continue listening, recent additions and shelves appear here.")
+        MainTab.library -> PlaceholderTabRoot(tab, "Your audiobook library appears here.")
+        MainTab.podcasts -> PlaceholderTabRoot(tab, "Your podcasts appear here.")
+        MainTab.search -> PlaceholderTabRoot(tab, "Search your libraries.")
+    }
+}
+
+@Composable
+private fun PlaceholderTabRoot(tab: MainTab, description: String) {
+    TabRootScaffold(title = tab.label) { padding ->
+        AbstandEmptyScreen(title = tab.label, icon = tab.icon, description = description, modifier = Modifier.padding(padding))
+    }
+}
+
+/** iOS: Root-Alert für `errorMessage`. */
+@Composable
+private fun ErrorAlert(session: SessionStore) {
+    val message by session.errorMessage.collectAsState()
+    val text = message ?: return
+    AlertDialog(
+        onDismissRequest = { session.setErrorMessage(null) },
+        title = { Text("Error") },
+        text = { Text(text) },
+        confirmButton = { TextButton(onClick = { session.setErrorMessage(null) }) { Text("OK") } },
+    )
 }

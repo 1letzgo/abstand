@@ -60,7 +60,21 @@ abstand.debug.password=…
 | `data/ApiClient.kt` | `ABSAPIClient` |
 | `ui/Theme.kt`, `ui/components/` | `AppTheme`, `AppAppearance`, shared view building blocks |
 | `ui/Icons.kt` | SF Symbols mapping |
-| `ui/AppRoot.kt` | `abstandApp` / `AppRootContainer` / `MainTabShellView` |
+| `ui/AppRoot.kt`, `ui/TabNavigation.kt` | `abstandApp` / `AppRootContainer` / `MainTabShellView` / `MainRootView` (tabs, per-tab `NavigationStack`) |
+| `store/LocalLibraryModels.kt`, `store/LocalLibraryDao.kt` (Room, schema in `app/schemas/`) | `LocalLibraryModels.swift` (SwiftData `@Model`s, schema V4) |
+| `store/LocalLibraryStore.kt` (`LocalLibraryStore`, `LocalLibraryStoreManager`) | `LocalLibraryStore.swift` |
+| `store/LocalLibraryQueries.kt` | `LocalLibraryQueries` (in `LocalLibraryStore.swift`) |
+| `store/LocalStoreMaintenance.kt` | `LocalStoreMaintenance.swift` |
+| `store/AccountCacheDirectory.kt` | `AccountCacheDirectory.swift` |
+| `store/ActiveLibraryIdsStore.kt` | `ActiveLibraryIdsStore.swift` |
+| `store/EbookLocalStore.kt` | `EbookLocalStore.swift` |
+| `store/CoverImageCache.kt` (`CoverImageCache`, `CoverImageLoader`, Coil fetcher) | `CoverImageCache.swift`, `CoverImageLoader.swift` |
+| `ui/components/CoverImage.kt` | `CoverImageView.swift` (`CoverImageView`, `SquareCoverImageView`) |
+| `model/AppModel.kt` (facade), `model/SessionParticipant.kt` (`MainTab`, extension points) | `AppModel` (split into stores) |
+| `model/SessionStore.kt`, `model/SessionLogic.kt` | `AppModelSessionAuth.swift` + bootstrap/login/account/library parts of `AppModel.swift` |
+| `ui/login/LoginScreen.kt` | `LoginView.swift` |
+| `ui/login/ServerCustomHeadersEditor.kt` | `ServerCustomHeadersEditor.swift` |
+| `ui/settings/SettingsAccountSections.kt` | Accounts/Account sections of `ServerAdminViews.swift` |
 
 (Extended as screens are ported.)
 
@@ -70,6 +84,11 @@ abstand.debug.password=…
 - Network only through `Net.client` / `Net.imageClient` (LAN self-signed TLS, custom headers per
   server origin, bearer for the active server) and `ApiClient` for API calls.
 - Colours only from the palette (`Theme.palette`, accent); spacing only from the tokens.
+- Local persistence: one Room DB per account (`filesDir/ABStandLocalStore/accounts/<sha>/users/<sha>/`),
+  file caches under `filesDir/ABStandLibraryCache/…` (same scheme as iOS). Playback tick → `upsertProgress`;
+  `replaceAllProgress` only for a full server sync.
+- New domain stores hook into bootstrap/login/account switching via `SessionParticipant`
+  (`AppModel.register` before `start()`), never by adding catalog/home logic to `SessionStore`.
 - `AppModel` is not ported as one object: state lives in focused stores (session, catalog,
   podcasts, home, player, stats) exposing `StateFlow`s, method names follow iOS.
 - Inline comments German, user-facing strings English (like iOS).
