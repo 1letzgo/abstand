@@ -104,7 +104,12 @@ fun rememberMiniPlayerSnapshot(wiring: PlayerWiring): MiniPlayerSnapshot {
     val primary = remember(b, showTitle) { playerDashTitleLine(b, showTitle) }.let { line ->
         if (line.isNotBlank() && line != "—" && line != "…") line else if (connecting) "Loading…" else ""
     }
-    val subtitle = if (connecting) "Loading…" else formatPlaybackDurationShortHuman(remainingMinutes * 60.0 + REMAINING_ROUNDING_SECONDS)
+    // Ohne bekannte Dauer (Restore lädt noch) keine Restzeit — sonst kurz „< 1 min“.
+    val subtitle = when {
+        connecting -> "Loading…"
+        total <= 0 -> ""
+        else -> formatPlaybackDurationShortHuman(remainingMinutes * 60.0 + REMAINING_ROUNDING_SECONDS)
+    }
     return MiniPlayerSnapshot(
         activeBookId = b.id,
         primaryLine = primary,

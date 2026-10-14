@@ -88,8 +88,9 @@ class ChapterTimeline(chapters: List<AbsChapter>) {
             if (ch.end > ch.start + 0.5 && ch.end <= nextStart + 0.5) return ch.end
             return nextStart
         }
+        // Letztes Kapitel reicht bis zum Buchende — auch wenn der Server eine unvollständige
+        // Kapitelliste liefert, die vor dem Buchende aufhört (sonst „Kapitel voll, 0:00“).
         val bookEnd = if (totalDuration > 0) totalDuration else ch.end
-        if (ch.end > ch.start + 0.5 && ch.end <= bookEnd + 0.5) return ch.end
         return max(bookEnd, ch.start + 1)
     }
 

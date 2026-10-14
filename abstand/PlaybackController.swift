@@ -2119,10 +2119,9 @@ final class PlaybackController: NSObject, ObservableObject {
       }
       return nextStart
     }
+    // Letztes Kapitel reicht bis zum Buchende — auch wenn der Server eine unvollständige
+    // Kapitelliste liefert, die vor dem Buchende aufhört (sonst „Kapitel voll, 0:00“).
     let bookEnd = totalDuration > 0 ? totalDuration : ch.end
-    if ch.end > ch.start + 0.5, ch.end <= bookEnd + 0.5 {
-      return ch.end
-    }
     return max(bookEnd, ch.start + 1)
   }
 

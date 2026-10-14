@@ -85,6 +85,10 @@ class PlaybackTimelineTest {
         // `end` größer als nächster Start → nächster Start.
         val overlapping = ChapterTimeline(listOf(AbsChapter(0, 0.0, 900.0, "a"), AbsChapter(1, 600.0, 900.0, "b")))
         assertEquals(600.0, overlapping.chapterEndTime(0, 900.0), 1e-9)
+        // Unvollständige Kapitelliste (endet vor dem Buch): letztes Kapitel reicht bis zum Buchende.
+        val truncated = ChapterTimeline(listOf(AbsChapter(0, 0.0, 180.0, "a"), AbsChapter(1, 180.0, 360.0, "b")))
+        assertEquals(42_000.0, truncated.chapterEndTime(1, 42_000.0), 1e-9)
+        assertEquals(41_820.0, truncated.chapterProgress(42_000.0, 42_000.0)!!.duration, 1e-9)
     }
 
     @Test
