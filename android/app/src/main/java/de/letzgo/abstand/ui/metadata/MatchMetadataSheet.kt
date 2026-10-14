@@ -13,10 +13,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,11 +35,12 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.components.AbstandAlert
 import de.letzgo.abstand.ui.components.AbstandCard
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
 import de.letzgo.abstand.ui.components.AbstandInlineNotice
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
-import de.letzgo.abstand.ui.components.AbstandSheetScaffold
+import de.letzgo.abstand.ui.components.AbstandSheet
 import de.letzgo.abstand.ui.components.CoverImage
 import de.letzgo.abstand.ui.components.MetadataSheetCard
 import de.letzgo.abstand.ui.components.MetadataSheetCardDivider
@@ -157,7 +156,7 @@ fun MatchMetadataSheet(itemId: String, onDismiss: () -> Unit) {
 
     selectedMatch?.let { match ->
         val fields = MatchLogic.availableFields(match)
-        AbstandSheetScaffold(
+        AbstandSheet(
             title = "Apply Match",
             onDismiss = { selectedMatch = null },
             onConfirm = {
@@ -179,6 +178,7 @@ fun MatchMetadataSheet(itemId: String, onDismiss: () -> Unit) {
             confirmLabel = "Apply",
             confirmEnabled = selectedFields.isNotEmpty() && !isApplying,
             isBusy = isApplying,
+            cancelLabel = "Cancel",
         ) {
             Column(
                 Modifier.fillMaxWidth().height(FieldSheetMaxHeight).verticalScroll(rememberScrollState()),
@@ -211,11 +211,7 @@ fun MatchMetadataSheet(itemId: String, onDismiss: () -> Unit) {
     }
 
     applyError?.let { msg ->
-        AlertDialog(
-            onDismissRequest = { applyError = null },
-            title = { Text("Apply failed") }, text = { Text(msg) },
-            confirmButton = { TextButton(onClick = { applyError = null }) { Text("OK") } },
-        )
+        AbstandAlert("Apply failed", onDismiss = { applyError = null }, message = msg)
     }
 }
 

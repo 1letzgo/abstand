@@ -17,12 +17,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,21 +45,25 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.model.PlayerWiring
 import de.letzgo.abstand.player.AudioEQPreset
 import de.letzgo.abstand.player.PlaybackController
 import de.letzgo.abstand.player.PlaybackSkipDefaults
 import de.letzgo.abstand.player.SleepTimerMetrics
 import de.letzgo.abstand.player.SleepTimerMode
-import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.components.AbstandInlineSpinner
+import de.letzgo.abstand.ui.components.AbstandMenu
+import de.letzgo.abstand.ui.components.AbstandPickerMenu
+import de.letzgo.abstand.ui.components.AbstandProgressBar
 import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.medium
-import kotlinx.coroutines.delay
 import kotlin.math.max
+import kotlinx.coroutines.delay
 
 // MARK: - Scrubber (iOS: `FullPlayerScrubberSection` + `FullPlayerProgressTrack`)
 
@@ -251,7 +250,7 @@ fun FullPlayerTransportRow(wiring: PlayerWiring, modifier: Modifier = Modifier) 
                 contentAlignment = Alignment.Center,
             ) {
                 if (busy) {
-                    CircularProgressIndicator(color = Theme.onAccent, strokeWidth = AppTheme.Layout.boldStrokeWidth, modifier = Modifier.size(AppTheme.Layout.compactIconColumnWidth))
+                    AbstandInlineSpinner(color = Theme.onAccent, size = AppTheme.Layout.compactIconColumnWidth, strokeWidth = AppTheme.Layout.boldStrokeWidth)
                 } else {
                     Icon(if (isPlaying) SF.pauseFill else SF.playFill, contentDescription = null, tint = Theme.onAccent, modifier = Modifier.size(MiniPlayerMetrics.playSymbolSize))
                 }
@@ -331,15 +330,6 @@ private fun androidx.compose.foundation.layout.RowScope.UtilityColumn(
     }
 }
 
-@Composable
-private fun MenuRow(title: String, selected: Boolean, onClick: () -> Unit) {
-    DropdownMenuItem(
-        text = { Text(title) },
-        trailingIcon = { if (selected) Icon(SF.checkmark, contentDescription = null, tint = Theme.accent) },
-        onClick = onClick,
-    )
-}
-
 /**
  * iOS: `FullPlayerUtilityBar` — EQ · Tempo · Sleep · AirPlay (Android: Ausgabe-Umschalter) · Download.
  */
@@ -362,17 +352,13 @@ fun FullPlayerUtilityBar(wiring: PlayerWiring, modifier: Modifier = Modifier) {
 
     Row(modifier.fillMaxWidth().padding(vertical = AppTheme.Layout.stackSpacing)) {
         UtilityColumn("EQ", "Equalizer, ${eq.label}", onClick = { eqMenu = true }, menu = {
-            DropdownMenu(expanded = eqMenu, onDismissRequest = { eqMenu = false }) {
-                AudioEQPreset.entries.forEach { p -> MenuRow(p.label, eq == p) { eqMenu = false; player.setEQPreset(p) } }
-            }
+            AbstandPickerMenu(eqMenu, { eqMenu = false }, AudioEQPreset.entries, eq, { it.label }, { player.setEQPreset(it) }, icon = { it.icon })
         }) {
             Icon(eq.icon, contentDescription = null, tint = if (eq == AudioEQPreset.flat) palette.textPrimary else accent)
         }
 
         UtilityColumn("Tempo", "Playback speed, ${formatPlaybackRate(rate)}", onClick = { rateMenu = true }, menu = {
-            DropdownMenu(expanded = rateMenu, onDismissRequest = { rateMenu = false }) {
-                PlaybackController.playbackRatePresets.forEach { r -> MenuRow(formatPlaybackRate(r), rate == r) { rateMenu = false; player.setPlaybackRate(r) } }
-            }
+            AbstandPickerMenu(rateMenu, { rateMenu = false }, PlaybackController.playbackRatePresets, rate, { formatPlaybackRate(it) }, { player.setPlaybackRate(it) })
         }) {
             Text(formatPlaybackRate(rate), style = IosType.subheadline.medium, color = palette.textPrimary, maxLines = 1)
         }
@@ -389,12 +375,7 @@ fun FullPlayerUtilityBar(wiring: PlayerWiring, modifier: Modifier = Modifier) {
                     Icon(SF.arrowDownCircleFill, contentDescription = null, tint = accent)
                 }
                 dlState?.isDownloading == true && activeDownload == sid -> UtilityColumn("Download", "Download in progress", onClick = null) {
-                    LinearProgressIndicator(
-                        progress = { dlState.progress.toFloat() },
-                        color = accent,
-                        trackColor = palette.progressTrack,
-                        modifier = Modifier.padding(horizontal = AppTheme.Layout.screenPadding),
-                    )
+                    AbstandProgressBar(dlState.progress, Modifier.padding(horizontal = AppTheme.Layout.screenPadding))
                 }
                 dlState?.isDownloading == true -> UtilityColumn("Download", "Queued", onClick = null) {
                     Icon(SF.arrowDownCircle, contentDescription = null, tint = accent.copy(alpha = DISABLED_ALPHA))
@@ -432,18 +413,14 @@ private fun androidx.compose.foundation.layout.RowScope.SleepTimerColumn(wiring:
         is SleepTimerMode.Chapters -> SleepTimerMetrics.chaptersMenuLabel(m.chapters)
     }
     UtilityColumn("Sleep", "Sleep timer, $label", onClick = { menu = true }, menu = {
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            MenuRow(SleepTimerMetrics.offLabel(), mode == SleepTimerMode.Off) { menu = false; player.applySleepTimer(0) }
-            HorizontalDivider()
-            SleepTimerMetrics.minutePresets.forEach { minutes ->
-                MenuRow(SleepTimerMetrics.minutesLabel(minutes), mode == SleepTimerMode.Minutes(minutes)) { menu = false; player.applySleepTimer(minutes) }
-            }
+        AbstandMenu(menu, { menu = false }) {
+            item(SleepTimerMetrics.offLabel(), { player.applySleepTimer(0) }, selected = mode == SleepTimerMode.Off)
+            divider()
+            picker(SleepTimerMetrics.minutePresets, (mode as? SleepTimerMode.Minutes)?.minutes, { SleepTimerMetrics.minutesLabel(it) }, { player.applySleepTimer(it) })
             val options = remember(menu, chapterCount) { player.sleepTimerChapterOptions() }
             if (options.isNotEmpty()) {
-                HorizontalDivider()
-                options.forEach { n ->
-                    MenuRow(SleepTimerMetrics.chaptersMenuLabel(n), mode == SleepTimerMode.Chapters(n)) { menu = false; player.applySleepTimerChapters(n) }
-                }
+                divider()
+                picker(options, (mode as? SleepTimerMode.Chapters)?.chapters, { SleepTimerMetrics.chaptersMenuLabel(it) }, { player.applySleepTimerChapters(it) })
             }
         }
     }) {

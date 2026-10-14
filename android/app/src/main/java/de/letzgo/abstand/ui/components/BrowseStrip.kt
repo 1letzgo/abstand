@@ -1,19 +1,11 @@
 package de.letzgo.abstand.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,14 +17,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,23 +29,15 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
 
 /** iOS: `AbstandBrowseStripItem` — Eintrag im Browse-Streifen (Symbol oder Cover). */
@@ -140,55 +117,10 @@ fun AbstandExpandingDockBrowseStrip(
     }
 }
 
-/** iOS: `AbstandExpandingDockChip` — Kreis (inaktiv) bzw. Kapsel mit Label (aktiv). */
+/** Dock-Chip eines Browse-Eintrags ([AbstandDockChip]). */
 @Composable
 private fun ExpandingDockChip(item: AbstandBrowseStripItem, isSelected: Boolean, onClick: () -> Unit) {
-    val dock = AppTheme.ExpandingDock
-    val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
-    val shape = if (isSelected) RoundedCornerShape(percent = 50) else CircleShape
-    Surface(
-        onClick = onClick,
-        shape = shape,
-        color = if (isSelected) colors.activeBackground else colors.inactiveBackground,
-        contentColor = if (isSelected) colors.activeForeground else colors.inactiveForeground,
-        shadowElevation = if (isSelected) AppTheme.CardElevation.Subtle.shadowElevation else 0.dp,
-        modifier = Modifier
-            .height(dock.activeHeight)
-            .animateContentSize(spring(dampingRatio = 0.72f, stiffness = dock.selectionAnimation.stiffness))
-            .semantics {
-                selected = isSelected
-                contentDescription = item.label
-                stateDescription = if (isSelected) "Selected" else ""
-            },
-    ) {
-        Row(
-            Modifier.padding(
-                start = if (isSelected) dock.activeLeadingPadding else dock.inactiveIconSideInset,
-                end = if (isSelected) dock.activeTrailingPadding else dock.inactiveIconSideInset,
-            ).fillMaxHeight(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(dock.iconLabelSpacing),
-        ) {
-            if (item.coverItemId != null) {
-                Box(Modifier.size(if (isSelected) dock.activeCoverSize else dock.iconSize).clip(CircleShape)) {
-                    CoverImage(itemId = item.coverItemId, modifier = Modifier.fillMaxSize())
-                }
-            } else {
-                Icon(
-                    item.icon, contentDescription = null,
-                    modifier = Modifier.size(dock.iconSize),
-                    tint = if (isSelected) colors.activeForeground else colors.inactiveForeground.copy(alpha = dock.inactiveIconOpacity),
-                )
-            }
-            AnimatedVisibility(
-                visible = isSelected,
-                enter = fadeIn() + expandHorizontally(),
-                exit = fadeOut() + shrinkHorizontally(),
-            ) {
-                Text(item.label, style = IosType.subheadline.semibold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
+    AbstandDockChip(item.label, item.icon, isSelected, onClick, coverItemId = item.coverItemId)
 }
 
 /**
@@ -212,8 +144,8 @@ fun AbstandPinnedBrowseStrip(
             modifier.fillMaxWidth().padding(horizontal = AppTheme.Layout.tabPaddingH, vertical = AppTheme.ExpandingDock.verticalPadding),
             horizontalArrangement = Arrangement.spacedBy(AppTheme.ExpandingDock.itemSpacing),
         ) {
-            BrowseStripDropdownPill(libraryPickerItems, libraryPickerSelectionId, SF.booksVerticalFill, "Library", onSelectLibrary)
-            BrowseStripDropdownPill(secondaryItems, secondarySelectionId, SF.squareGrid2x2, secondaryAccessibilityLabel, onSelectSecondary)
+            AbstandDropdownPill(libraryPickerItems, libraryPickerSelectionId, onSelectLibrary, Modifier.weight(1f), SF.booksVerticalFill, "Library")
+            AbstandDropdownPill(secondaryItems, secondarySelectionId, onSelectSecondary, Modifier.weight(1f), SF.squareGrid2x2, secondaryAccessibilityLabel)
         }
     } else {
         AbstandExpandingDockBrowseStrip(
@@ -223,58 +155,6 @@ fun AbstandPinnedBrowseStrip(
             modifier = modifier,
             pinnedLeadingItem = pinnedLeadingItem,
         )
-    }
-}
-
-/** iOS: `AbstandBrowseStripDropdownPill` — Akzent-Kapsel mit aktuellem Eintrag, Tippen öffnet das Menü. */
-@Composable
-private fun RowScope.BrowseStripDropdownPill(
-    items: List<AbstandBrowseStripItem>,
-    selectionId: String,
-    fallbackIcon: ImageVector,
-    accessibilityLabel: String,
-    onSelect: (String) -> Unit,
-) {
-    val dock = AppTheme.ExpandingDock
-    val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
-    val current = items.firstOrNull { it.id == selectionId } ?: items.firstOrNull()
-    var expanded by remember { mutableStateOf(false) }
-    Box(Modifier.weight(1f)) {
-        Surface(
-            onClick = { expanded = true },
-            shape = RoundedCornerShape(percent = 50),
-            color = colors.activeBackground,
-            contentColor = colors.activeForeground,
-            modifier = Modifier.fillMaxWidth().height(dock.activeHeight).semantics {
-                contentDescription = "$accessibilityLabel: ${current?.label.orEmpty()}"
-            },
-        ) {
-            Row(
-                Modifier.padding(start = dock.activeLeadingPadding, end = dock.activeTrailingPadding),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(dock.iconLabelSpacing),
-            ) {
-                Icon(current?.icon ?: fallbackIcon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
-                Text(
-                    current?.label.orEmpty(), style = IosType.subheadline.semibold, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-                )
-                Icon(SF.chevronUpChevronDown, contentDescription = null, modifier = Modifier.size(dock.iconSize))
-            }
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            items.forEach { item ->
-                DropdownMenuItem(
-                    text = { Text(item.label) },
-                    leadingIcon = { Icon(item.icon, contentDescription = null) },
-                    trailingIcon = if (item.id == selectionId) ({ Icon(SF.checkmark, contentDescription = "Selected") }) else null,
-                    onClick = {
-                        expanded = false
-                        if (item.id != selectionId) onSelect(item.id)
-                    },
-                )
-            }
-        }
     }
 }
 

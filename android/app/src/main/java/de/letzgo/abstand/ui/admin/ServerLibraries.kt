@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -47,6 +45,7 @@ import de.letzgo.abstand.ui.components.AbstandGroupedCard
 import de.letzgo.abstand.ui.components.AbstandInlineNotice
 import de.letzgo.abstand.ui.components.AbstandInlineSpinner
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
+import de.letzgo.abstand.ui.components.AbstandMenu
 import de.letzgo.abstand.ui.components.ServerAdminMetricTile
 import de.letzgo.abstand.ui.components.ServerAdminSection
 import de.letzgo.abstand.ui.components.SettingsCardDivider
@@ -121,12 +120,8 @@ fun ServerLibrariesListScreen(navigator: TabNavigator, model: AppModel = AppMode
                                             ServerLibraryListRow(lib, isScanning = scanningId == lib.id, admin = admin)
                                         }
                                     }
-                                    DropdownMenu(expanded = menuFor == lib.id, onDismissRequest = { menuFor = null }, containerColor = Theme.palette.card) {
-                                        DropdownMenuItem(
-                                            text = { Text("Scan", style = IosType.body, color = Theme.palette.textPrimary) },
-                                            leadingIcon = { Icon(SF.arrowClockwise, contentDescription = null, tint = Theme.palette.textPrimary) },
-                                            onClick = { menuFor = null; scan(lib) },
-                                        )
+                                    AbstandMenu(expanded = menuFor == lib.id, onDismiss = { menuFor = null }) {
+                                        item("Scan", { scan(lib) }, icon = SF.arrowClockwise)
                                     }
                                 }
                             }

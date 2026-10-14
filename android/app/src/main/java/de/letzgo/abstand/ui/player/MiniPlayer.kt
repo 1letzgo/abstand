@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.isImeVisible
@@ -23,11 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.contentDescription
@@ -54,6 +50,10 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.components.AbstandIconButton
+import de.letzgo.abstand.ui.components.AbstandInlineSpinner
+import de.letzgo.abstand.ui.components.AbstandMenu
+import de.letzgo.abstand.ui.components.AbstandProgressBar
 import de.letzgo.abstand.ui.components.CoverImage
 import de.letzgo.abstand.ui.formatPlaybackDurationShortHuman
 import de.letzgo.abstand.ui.medium
@@ -208,15 +208,8 @@ private fun MiniPlayerBar(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring, mo
                             if (id != null) CoverImage(itemId = id, modifier = Modifier.size(MiniPlayerMetrics.tabAccessoryCover))
                         }
                         // iOS: Kontextmenü am Cover → „Stop playback“.
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Stop playback", color = AppTheme.danger) },
-                                leadingIcon = { Icon(SF.xmarkCircle, contentDescription = null, tint = AppTheme.danger) },
-                                onClick = {
-                                    menuOpen = false
-                                    scope.launch { wiring.dismissPlayer() }
-                                },
-                            )
+                        AbstandMenu(menuOpen, { menuOpen = false }) {
+                            item("Stop playback", { scope.launch { wiring.dismissPlayer() } }, icon = SF.xmarkCircle, destructive = true)
                         }
                     }
                     Column(
@@ -247,17 +240,14 @@ private fun MiniTransport(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring) {
     val palette = Theme.palette
     val busy = snapshot.isBuffering
     Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(
+        AbstandIconButton(
+            SF.gobackward(snapshot.skipBackwardSeconds),
+            PlaybackSkipDefaults.accessibilityLabel(true, snapshot.skipBackwardSeconds),
             onClick = { wiring.player.skipBackward() },
             enabled = !busy,
-            modifier = Modifier.size(MiniPlayerMetrics.accessoryTransportSide),
-        ) {
-            Icon(
-                SF.gobackward(snapshot.skipBackwardSeconds),
-                contentDescription = PlaybackSkipDefaults.accessibilityLabel(true, snapshot.skipBackwardSeconds),
-                tint = palette.textPrimary,
-            )
-        }
+            size = MiniPlayerMetrics.accessoryTransportSide,
+            tint = palette.textPrimary,
+        )
         Box(
             Modifier
                 .size(MiniPlayerMetrics.accessoryTransportSide)
@@ -272,10 +262,10 @@ private fun MiniTransport(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring) {
                 contentAlignment = Alignment.Center,
             ) {
                 if (busy) {
-                    CircularProgressIndicator(
+                    AbstandInlineSpinner(
                         color = Theme.onAccent,
+                        size = MiniPlayerMetrics.tabAccessoryCover / 2,
                         strokeWidth = AppTheme.Layout.boldStrokeWidth,
-                        modifier = Modifier.size(MiniPlayerMetrics.tabAccessoryCover / 2),
                     )
                 } else {
                     Icon(
@@ -296,14 +286,10 @@ private fun MiniProgressLine(wiring: PlayerWiring, modifier: Modifier = Modifier
     val total by player.totalDuration.collectAsState()
     val position by rememberThrottledPosition(player.globalPosition, PROGRESS_REFRESH_MS)
     val fraction = if (total > 0) (position / total).coerceIn(0.0, 1.0).toFloat() else 0f
-    Box(
-        modifier
-            .fillMaxWidth()
-            .heightIn(min = MiniPlayerMetrics.accessoryProgressHeight, max = MiniPlayerMetrics.accessoryProgressHeight)
-            .background(Theme.palette.progressTrack),
-    ) {
-        Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(Theme.accent))
-    }
+    AbstandProgressBar(
+        fraction.toDouble(), modifier, height = MiniPlayerMetrics.accessoryProgressHeight, shape = RectangleShape,
+        contentDescription = "Playback progress",
+    )
 }
 
 private const val PROGRESS_REFRESH_MS = 1_000L

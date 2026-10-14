@@ -47,7 +47,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.letzgo.abstand.data.Prefs
-import de.letzgo.abstand.logic.PlayerTeleprompterLayout
 import de.letzgo.abstand.logic.PlayerTeleprompterMetrics
 import de.letzgo.abstand.logic.PlayerTranscriptLine
 import de.letzgo.abstand.logic.PlayerTranscriptWord

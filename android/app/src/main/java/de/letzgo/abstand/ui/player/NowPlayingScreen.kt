@@ -26,9 +26,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,6 +50,7 @@ import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.bold
+import de.letzgo.abstand.ui.components.AbstandAlert
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
 import de.letzgo.abstand.ui.components.CoverImage
@@ -190,12 +189,7 @@ fun NowPlayingScreen(
 /** iOS: Alert „Download required“ (Read along / Recap ohne vollständigen Download). */
 @Composable
 private fun ReadAlongDownloadWarning(onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Download required") },
-        text = { Text("Read along and recap only work when the audiobook or podcast is fully downloaded.") },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
-    )
+    AbstandAlert("Download required", onDismiss = onDismiss, message = "Read along and recap only work when the audiobook or podcast is fully downloaded.")
 }
 
 /** iOS: Sheet-Drag-Griff (36 × 5) — Tippen schließt. */

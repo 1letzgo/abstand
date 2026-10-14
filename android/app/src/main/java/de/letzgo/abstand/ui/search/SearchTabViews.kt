@@ -27,8 +27,8 @@ import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabNavigator
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.browse.BrowseEntityRowCard
-import de.letzgo.abstand.ui.browse.browseEntityBooksCountLine
+import de.letzgo.abstand.ui.library.BrowseEntityRowCard
+import de.letzgo.abstand.logic.CatalogLogic
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
 import de.letzgo.abstand.ui.components.AbstandSearchField
@@ -164,7 +164,7 @@ private fun LazyListScope.searchResultSections(results: SearchResults, showPodca
                 BrowseEntityRowCard(
                     title = t.name,
                     detailLabel = "Books",
-                    detailValue = browseEntityBooksCountLine(t.numItems) ?: t.numItems?.toString(),
+                    detailValue = CatalogLogic.booksCountLine(t.numItems) ?: t.numItems?.toString(),
                     placeholderIcon = SF.tagFill,
                     onClick = { navigator?.push(TagDestination(t.name)) },
                 )
@@ -173,7 +173,7 @@ private fun LazyListScope.searchResultSections(results: SearchResults, showPodca
                 BrowseEntityRowCard(
                     title = g.name,
                     detailLabel = "Books",
-                    detailValue = browseEntityBooksCountLine(g.numItems) ?: g.numItems?.toString(),
+                    detailValue = CatalogLogic.booksCountLine(g.numItems) ?: g.numItems?.toString(),
                     placeholderIcon = SF.sparkles,
                     onClick = { navigator?.push(GenreDestination(g.name)) },
                 )

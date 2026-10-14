@@ -10,12 +10,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -41,6 +39,7 @@ import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCardEmptyState
+import de.letzgo.abstand.ui.components.AbstandDialog
 import de.letzgo.abstand.ui.components.AbstandGroupedCard
 import de.letzgo.abstand.ui.components.CoverImage
 import de.letzgo.abstand.ui.components.ServerAdminSection
@@ -51,11 +50,11 @@ import de.letzgo.abstand.ui.components.SettingsCardNavRow
 import de.letzgo.abstand.ui.components.SettingsCardToggleRow
 import de.letzgo.abstand.ui.components.SettingsSubpageScaffold
 import de.letzgo.abstand.ui.medium
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** iOS: Hub-Bereich „Downloads“ — Sektionen „Downloads“ und „Cache“. */
 fun LazyListScope.settingsDownloadsSections(session: SessionStore) {
@@ -335,12 +334,14 @@ private fun DownloadManageSavedRow(row: DownloadManageRow, onDelete: () -> Unit)
         }
     }
     if (confirm) {
-        AlertDialog(
-            onDismissRequest = { confirm = false },
-            title = { Text("Delete \"${row.title}\"?") },
-            text = { Text("This removes the offline copy from this device. The item stays on your server.") },
-            confirmButton = { TextButton(onClick = { confirm = false; onDelete() }) { Text("Delete", color = AppTheme.danger) } },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+        AbstandDialog(
+            title = "Delete \"${row.title}\"?",
+            onDismiss = { confirm = false },
+            message = "This removes the offline copy from this device. The item stays on your server.",
+            confirmLabel = "Delete",
+            destructive = true,
+            dismissOnConfirm = false,
+            onConfirm = { confirm = false; onDelete() },
         )
     }
 }

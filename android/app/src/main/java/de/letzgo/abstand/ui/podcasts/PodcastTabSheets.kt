@@ -1,9 +1,7 @@
 package de.letzgo.abstand.ui.podcasts
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,27 +9,16 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -46,10 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,14 +52,18 @@ import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandBackButton
+import de.letzgo.abstand.ui.components.AbstandChip
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
 import de.letzgo.abstand.ui.components.AbstandInlineSpinner
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
+import de.letzgo.abstand.ui.components.AbstandMenuBox
+import de.letzgo.abstand.ui.components.AbstandMenuButton
 import de.letzgo.abstand.ui.components.AbstandProminentButton
 import de.letzgo.abstand.ui.components.AbstandSearchField
+import de.letzgo.abstand.ui.components.AbstandSegmentedControl
+import de.letzgo.abstand.ui.components.AbstandTextButton
 import de.letzgo.abstand.ui.components.CoverImage
 import de.letzgo.abstand.ui.components.abstandScrollBottomPadding
-import de.letzgo.abstand.ui.medium
 import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
 
@@ -95,45 +83,14 @@ internal fun <F> PodcastSortMenuButton(
     onSelectField: (F) -> Unit,
     onSelectDescending: (Boolean) -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val palette = Theme.palette
-    Box {
-        IconButton(onClick = { expanded = true }) {
-            Icon(SF.arrowUpArrowDown, contentDescription = "Sort", tint = Theme.accent)
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor = palette.card) {
-            Text(
-                "Sort by", style = IosType.footnote, color = palette.textSecondary,
-                modifier = Modifier.padding(horizontal = AppTheme.Layout.screenPadding, vertical = AppTheme.Layout.compactSpacing),
+    AbstandMenuButton(SF.arrowUpArrowDown, "Sort", tint = Theme.accent) {
+        picker(fields, selected, title, onSelectField, title = "Sort by")
+        if (showsOrder) {
+            divider()
+            picker(
+                listOf(false, true), descending, { if (it) "Descending" else "Ascending" }, onSelectDescending,
+                icon = { if (it) SF.arrowDown else SF.arrowUp },
             )
-            fields.forEach { field ->
-                DropdownMenuItem(
-                    text = { Text(title(field), style = IosType.body, color = palette.textPrimary) },
-                    trailingIcon = if (field == selected) {
-                        { Icon(SF.checkmark, contentDescription = "Selected", tint = Theme.accent) }
-                    } else null,
-                    onClick = {
-                        onSelectField(field)
-                        expanded = false
-                    },
-                )
-            }
-            if (showsOrder) {
-                HorizontalDivider(color = palette.textSecondary.copy(alpha = 0.2f))
-                listOf(false to "Ascending", true to "Descending").forEach { (desc, label) ->
-                    DropdownMenuItem(
-                        text = { Text(label, style = IosType.body, color = palette.textPrimary) },
-                        leadingIcon = { Icon(if (desc) SF.arrowDown else SF.arrowUp, contentDescription = null, tint = palette.textSecondary) },
-                        trailingIcon = if (desc == descending) {
-                            { Icon(SF.checkmark, contentDescription = "Selected", tint = Theme.accent) }
-                        } else null,
-                        onClick = {
-                            onSelectDescending(desc)
-                            expanded = false
-                        },
-                    )
-                }
-            }
         }
     }
 }
@@ -171,29 +128,10 @@ internal fun PodcastInlineTitleScaffold(
     ) { inner -> content(inner) }
 }
 
-/** iOS: `Picker(.segmented)` — Material-Segmented-Buttons in Akzentfarbe. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** iOS: `Picker(.segmented)` — [AbstandSegmentedControl]. */
 @Composable
 internal fun <T> PodcastSegmentedPicker(options: List<T>, selection: T, label: (T) -> String, onSelect: (T) -> Unit, modifier: Modifier = Modifier) {
-    val palette = Theme.palette
-    SingleChoiceSegmentedButtonRow(modifier.fillMaxWidth()) {
-        options.forEachIndexed { index, option ->
-            SegmentedButton(
-                selected = option == selection,
-                onClick = { onSelect(option) },
-                shape = SegmentedButtonDefaults.itemShape(index, options.size),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = Theme.accent,
-                    activeContentColor = Theme.onAccent,
-                    activeBorderColor = Theme.accent,
-                    inactiveContainerColor = palette.card,
-                    inactiveContentColor = palette.textPrimary,
-                    inactiveBorderColor = palette.textSecondary.copy(alpha = 0.35f),
-                ),
-                icon = {},
-            ) { Text(label(option), style = IosType.subheadline.medium) }
-        }
-    }
+    AbstandSegmentedControl(options, selection, label, onSelect, modifier)
 }
 
 // MARK: - Add podcast (Verzeichnissuche + iTunes-Charts)
@@ -320,31 +258,16 @@ internal fun PodcastAddScreen(navigator: TabNavigator, self: TabDestination, sto
 /** iOS: `PodcastDirectoryCountryMenuItems` — Storefront wählen (Code rechts oben). */
 @Composable
 private fun PodcastDirectoryCountryMenu(store: PodcastStore, effective: String) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        TextButton(onClick = { expanded = true }, modifier = Modifier.semantics { contentDescription = "Podcast store region" }) {
-            Text(effective.uppercase(), style = IosType.subheadline.semibold, color = Theme.accent)
-        }
-        val codes = remember { AbsPodcastCharts.directoryStorefrontMenuCodes(store.defaultPodcastDirectoryCountryCode()) }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor = Theme.palette.card) {
-            codes.forEach { code ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            "${AbsPodcastCharts.directoryStorefrontDisplayName(code)} (${code.uppercase()})",
-                            style = IosType.body, color = Theme.palette.textPrimary,
-                        )
-                    },
-                    trailingIcon = if (code == effective) {
-                        { Icon(SF.checkmark, contentDescription = "Selected", tint = Theme.accent) }
-                    } else null,
-                    onClick = {
-                        store.setPodcastDirectoryCountryOverride(code)
-                        expanded = false
-                    },
-                )
-            }
-        }
+    val codes = remember { AbsPodcastCharts.directoryStorefrontMenuCodes(store.defaultPodcastDirectoryCountryCode()) }
+    AbstandMenuBox(
+        Modifier.semantics { contentDescription = "Podcast store region" },
+        anchor = { open -> AbstandTextButton(effective.uppercase(), open, emphasized = true) },
+    ) {
+        picker(
+            codes, effective,
+            { code -> "${AbsPodcastCharts.directoryStorefrontDisplayName(code)} (${code.uppercase()})" },
+            { code -> store.setPodcastDirectoryCountryOverride(code) },
+        )
     }
 }
 
@@ -391,33 +314,13 @@ internal fun PodcastChartsCategoryPillStrip(
     selectedGenreId: Int?,
     onSelect: (Int?) -> Unit,
 ) {
-    val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
     LazyRow(
         contentPadding = PaddingValues(horizontal = AppTheme.Layout.tabPaddingH, vertical = AppTheme.Layout.pillVerticalPadding),
         horizontalArrangement = Arrangement.spacedBy(AppTheme.ExpandingDock.itemSpacing),
     ) {
         items(categories, key = { it.id }) { category ->
             val selected = selectedGenreId == category.genreId
-            Box(
-                Modifier
-                    .heightIn(min = AppTheme.Layout.minTapTarget)
-                    .clip(CircleShape)
-                    .background(if (selected) colors.activeBackground else colors.inactiveBackground)
-                    .clickable { if (!selected) onSelect(category.genreId) }
-                    .semantics {
-                        this.selected = selected
-                        role = Role.Tab
-                    }
-                    .padding(horizontal = AppTheme.ExpandingDock.horizontalPadding),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    category.title,
-                    style = IosType.subheadline.semibold,
-                    color = if (selected) colors.activeForeground else colors.inactiveForeground,
-                    maxLines = 1,
-                )
-            }
+            AbstandChip(category.title, selected, onClick = { if (!selected) onSelect(category.genreId) })
         }
     }
 }

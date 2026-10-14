@@ -13,12 +13,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +41,7 @@ import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.components.AbstandDialog
 import de.letzgo.abstand.ui.components.AbstandGroupedCard
 import de.letzgo.abstand.ui.components.AbstandInlineNotice
 import de.letzgo.abstand.ui.components.AbstandInlineSpinner
@@ -177,17 +176,17 @@ fun PodcastShowSettingsScreen(showId: String, showTitle: String, navigator: TabN
     }
 
     if (confirmRemove) {
-        AlertDialog(
-            onDismissRequest = { confirmRemove = false },
-            title = { Text("Remove from library?") },
-            text = { Text("\"$showTitle\" will be deleted on the server. Local downloads for this show will be removed.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmRemove = false
-                    scope.launch { if (store.removePodcastShowFromLibrary(showId)) navigator.pop() }
-                }) { Text("Remove from library", color = AppTheme.danger) }
+        AbstandDialog(
+            title = "Remove from library?",
+            onDismiss = { confirmRemove = false },
+            message = "\"$showTitle\" will be deleted on the server. Local downloads for this show will be removed.",
+            confirmLabel = "Remove from library",
+            destructive = true,
+            dismissOnConfirm = false,
+            onConfirm = {
+                confirmRemove = false
+                scope.launch { if (store.removePodcastShowFromLibrary(showId)) navigator.pop() }
             },
-            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel", color = Theme.palette.textPrimary) } },
         )
     }
 }
@@ -335,17 +334,17 @@ private fun PodcastRssFeedSection(
     }
 
     deleteConfirmation?.let { episode ->
-        AlertDialog(
-            onDismissRequest = { deleteConfirmation = null },
-            title = { Text("Delete episode?") },
-            text = { Text("\"${episode.episodeTitle}\" will be removed from the server library.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    deleteConfirmation = null
-                    scope.launch { store.deletePodcastEpisodeFromLibrary(showId, episode) }
-                }) { Text("Delete", color = AppTheme.danger) }
+        AbstandDialog(
+            title = "Delete episode?",
+            onDismiss = { deleteConfirmation = null },
+            message = "\"${episode.episodeTitle}\" will be removed from the server library.",
+            confirmLabel = "Delete",
+            destructive = true,
+            dismissOnConfirm = false,
+            onConfirm = {
+                deleteConfirmation = null
+                scope.launch { store.deletePodcastEpisodeFromLibrary(showId, episode) }
             },
-            dismissButton = { TextButton(onClick = { deleteConfirmation = null }) { Text("Cancel", color = Theme.palette.textPrimary) } },
         )
     }
 }

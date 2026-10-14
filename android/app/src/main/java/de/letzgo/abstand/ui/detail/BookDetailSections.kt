@@ -15,12 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,15 +45,16 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.components.AbstandDialog
 import de.letzgo.abstand.ui.components.AbstandLabeledTextField
 import de.letzgo.abstand.ui.components.AbstandSectionEmptyState
 import de.letzgo.abstand.ui.components.MetadataSheetScaffold
 import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.semibold
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val ThinDivider @Composable get() = Theme.palette.textSecondary.copy(alpha = 0.15f)
 
@@ -143,17 +142,17 @@ fun AudiobookBookmarkList(libraryItemId: String, onJump: (AbsAudioBookmark) -> U
     }
 
     confirmDelete?.let { b ->
-        AlertDialog(
-            onDismissRequest = { confirmDelete = null },
-            title = { Text("Delete bookmark?") },
-            text = { Text("“${b.title}” at ${formatPlaybackTime(b.time.toDouble())}") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = null
-                    scope.launch { model.catalog.deleteBookmark(b) }
-                }) { Text("Delete", color = AppTheme.danger) }
+        AbstandDialog(
+            title = "Delete bookmark?",
+            onDismiss = { confirmDelete = null },
+            message = "“${b.title}” at ${formatPlaybackTime(b.time.toDouble())}",
+            confirmLabel = "Delete",
+            destructive = true,
+            dismissOnConfirm = false,
+            onConfirm = {
+                confirmDelete = null
+                scope.launch { model.catalog.deleteBookmark(b) }
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Cancel") } },
         )
     }
 }

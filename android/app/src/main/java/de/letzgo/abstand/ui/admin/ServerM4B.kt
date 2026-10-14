@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,6 +27,7 @@ import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCardEmptyState
+import de.letzgo.abstand.ui.components.AbstandDialog
 import de.letzgo.abstand.ui.components.AbstandGroupedCard
 import de.letzgo.abstand.ui.components.AbstandInlineNotice
 import de.letzgo.abstand.ui.components.ServerAdminSection
@@ -101,21 +101,21 @@ fun ServerM4BProgressScreen(onBack: () -> Unit, model: AppModel = AppModel.share
     }
 
     if (confirmPurge) {
-        AlertDialog(
-            onDismissRequest = { confirmPurge = false },
-            title = { Text("Delete media cache?") },
-            text = { Text("This removes cached item files on the server (including backed-up originals after M4B conversion).") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmPurge = false
-                    scope.launch {
-                        purgeBusy = true
-                        val ok = try { admin.purgeServerItemsMediaCache() } finally { purgeBusy = false }
-                        if (ok) purgeMessage = "Media cache purged."
-                    }
-                }) { Text("Delete", color = AppTheme.danger) }
+        AbstandDialog(
+            title = "Delete media cache?",
+            onDismiss = { confirmPurge = false },
+            message = "This removes cached item files on the server (including backed-up originals after M4B conversion).",
+            confirmLabel = "Delete",
+            destructive = true,
+            dismissOnConfirm = false,
+            onConfirm = {
+                confirmPurge = false
+                scope.launch {
+                    purgeBusy = true
+                    val ok = try { admin.purgeServerItemsMediaCache() } finally { purgeBusy = false }
+                    if (ok) purgeMessage = "Media cache purged."
+                }
             },
-            dismissButton = { TextButton(onClick = { confirmPurge = false }) { Text("Cancel") } },
         )
     }
 }

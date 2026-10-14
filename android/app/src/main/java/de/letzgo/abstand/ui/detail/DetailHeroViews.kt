@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.ui.AppTheme
+import de.letzgo.abstand.ui.DetailMetaLabelIcon
 import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
@@ -86,32 +87,6 @@ object DetailMetaLayoutMetrics {
     val labelIconSize = 11.dp
 }
 
-/** iOS: `DetailMetaLabelIcon.systemImage(for:)`. */
-fun detailMetaLabelIcon(title: String): ImageVector? = when (title.trim().lowercase()) {
-    "author" -> SF.personFill
-    "narrator", "narrators" -> SF.micFill
-    "series" -> SF.booksVerticalFill
-    "publisher" -> SF.building2Fill
-    "duration", "total runtime" -> SF.clockFill
-    "year", "first release" -> SF.calendar
-    "genres" -> SF.squareGrid2x2Fill
-    "tags" -> SF.tagFill
-    "description", "about" -> SF.textAlignleft
-    "show", "feed type" -> SF.dotRadiowavesLeftAndRight
-    "host", "hosts" -> SF.personWave2Fill
-    "subtitle" -> SF.textQuote
-    "published" -> SF.calendarBadgeClock
-    "categories" -> SF.folderFill
-    "episode" -> SF.waveform
-    "show notes" -> SF.docText
-    "chapters", "episodes" -> SF.listBullet
-    "bookmarks" -> SF.bookmarkFill
-    "listening history" -> SF.clockArrowCirclepath
-    "language" -> SF.globe
-    "rss feed", "feed" -> SF.dotRadiowavesUpForward
-    "links" -> SF.link
-    else -> null
-}
 
 /** iOS: `\.detailSectionCardBackground` — Kartenfläche aus dem Cover-Tint (`null` = Palette-`card`). */
 val LocalDetailSectionCardBackground = compositionLocalOf<Color?> { null }
@@ -315,7 +290,7 @@ fun DetailHeroActionsBar(actions: List<DetailHeroMediaAction>, modifier: Modifie
 fun DetailMetaLabel(title: String) {
     val color = Theme.palette.textSecondary
     Row(horizontalArrangement = Arrangement.spacedBy(DetailMetaLayoutMetrics.labelIconSpacing), verticalAlignment = Alignment.CenterVertically) {
-        detailMetaLabelIcon(title)?.let { Icon(it, null, tint = color, modifier = Modifier.size(DetailMetaLayoutMetrics.labelIconSize)) }
+        DetailMetaLabelIcon.icon(title)?.let { Icon(it, null, tint = color, modifier = Modifier.size(DetailMetaLayoutMetrics.labelIconSize)) }
         Text(title.uppercase(), style = IosType.footnote.semibold, color = color)
     }
 }

@@ -12,13 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,13 +27,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.AbsBook
 import de.letzgo.abstand.data.AbsItemMediaMetadataPatch
@@ -45,8 +39,11 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.components.AbstandAlert
+import de.letzgo.abstand.ui.components.AbstandDialog
 import de.letzgo.abstand.ui.components.AbstandInlineNotice
 import de.letzgo.abstand.ui.components.AbstandInlineSpinner
+import de.letzgo.abstand.ui.components.AbstandInsetTextField
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
 import de.letzgo.abstand.ui.components.AbstandSpinnerSize
 import de.letzgo.abstand.ui.components.CoverImage
@@ -59,7 +56,6 @@ import de.letzgo.abstand.ui.components.MetadataSheetScaffold
 import de.letzgo.abstand.ui.components.MetadataSheetSearchButton
 import de.letzgo.abstand.ui.components.MetadataSheetSection
 import de.letzgo.abstand.ui.components.MetadataSheetTextField
-import de.letzgo.abstand.ui.components.metadataSheetFieldChrome
 import de.letzgo.abstand.ui.medium
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -230,13 +226,13 @@ private fun EditMetadataForm(itemId: String, book: AbsBook, onDismiss: () -> Uni
                     seriesRows.forEachIndexed { idx, row ->
                         Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing), verticalAlignment = Alignment.CenterVertically) {
-                                InsetField(
+                                AbstandInsetTextField(
                                     value = row.name, placeholder = "Series name", label = "Series name",
                                     onValueChange = { seriesRows[idx] = row.copy(name = it); scheduleSeriesSearch(row.id) },
                                     capitalization = KeyboardCapitalization.Words,
                                     modifier = Modifier.weight(1f),
                                 )
-                                InsetField(
+                                AbstandInsetTextField(
                                     value = row.sequence, placeholder = "#", label = "Series number",
                                     onValueChange = { seriesRows[idx] = row.copy(sequence = it) },
                                     keyboardType = KeyboardType.Decimal,
@@ -330,69 +326,30 @@ private fun EditMetadataForm(itemId: String, book: AbsBook, onDismiss: () -> Uni
     }
 
     saveError?.let { msg ->
-        AlertDialog(
-            onDismissRequest = { saveError = null },
-            title = { Text("Save failed") }, text = { Text(msg) },
-            confirmButton = { TextButton(onClick = { saveError = null }) { Text("OK") } },
-        )
+        AbstandAlert("Save failed", onDismiss = { saveError = null }, message = msg)
     }
     coverApplyError?.let { msg ->
-        AlertDialog(
-            onDismissRequest = { coverApplyError = null },
-            title = { Text("Apply cover failed") }, text = { Text(msg) },
-            confirmButton = { TextButton(onClick = { coverApplyError = null }) { Text("OK") } },
-        )
+        AbstandAlert("Apply cover failed", onDismiss = { coverApplyError = null }, message = msg)
     }
     pendingCoverURL?.let { url ->
-        AlertDialog(
-            onDismissRequest = { pendingCoverURL = null },
-            title = { Text("Apply this cover?") },
-            text = { Text(url) },
-            confirmButton = {
-                TextButton(onClick = {
-                    scope.launch {
-                        isApplyingCover = true
-                        val failure = try { MetadataActions.applyCoverURL(itemId, url) } finally { isApplyingCover = false }
-                        if (failure != null) {
-                            coverApplyError = failure.ifEmpty { "Could not apply the cover. Check your connection and permissions." }
-                        } else {
-                            pendingCoverURL = null
-                            onDismiss()
-                        }
+        AbstandDialog(
+            title = "Apply this cover?",
+            onDismiss = { pendingCoverURL = null },
+            message = url,
+            confirmLabel = "Apply",
+            dismissOnConfirm = false,
+            onConfirm = {
+                scope.launch {
+                    isApplyingCover = true
+                    val failure = try { MetadataActions.applyCoverURL(itemId, url) } finally { isApplyingCover = false }
+                    if (failure != null) {
+                        coverApplyError = failure.ifEmpty { "Could not apply the cover. Check your connection and permissions." }
+                    } else {
+                        pendingCoverURL = null
+                        onDismiss()
                     }
-                }) { Text("Apply") }
+                }
             },
-            dismissButton = { TextButton(onClick = { pendingCoverURL = null }) { Text("Cancel") } },
-        )
-    }
-}
-
-/** Eingelassenes Feld ohne Label (Serienname / -nummer). */
-@Composable
-private fun InsetField(
-    value: String,
-    placeholder: String,
-    label: String,
-    onValueChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    capitalization: KeyboardCapitalization = KeyboardCapitalization.None,
-    centered: Boolean = false,
-) {
-    val palette = Theme.palette
-    Box(
-        modifier.metadataSheetFieldChrome(horizontalPadding = if (centered) AppTheme.Layout.inlineSpacing else MetadataSheetMetrics.fieldInsetH),
-        contentAlignment = if (centered) Alignment.Center else Alignment.CenterStart,
-    ) {
-        if (value.isEmpty()) Text(placeholder, style = IosType.body, color = palette.textSecondary.copy(alpha = 0.55f))
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            singleLine = true,
-            textStyle = IosType.body.copy(color = palette.textPrimary, textAlign = if (centered) TextAlign.Center else TextAlign.Start),
-            cursorBrush = SolidColor(Theme.accent),
-            keyboardOptions = KeyboardOptions(capitalization = capitalization, autoCorrectEnabled = false, keyboardType = keyboardType),
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
         )
     }
 }

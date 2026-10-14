@@ -18,23 +18,13 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -179,7 +169,7 @@ fun abstandSwitchColors() = SwitchDefaults.colors(
 
 /**
  * iOS: `SettingsCardPickerRow` (`.pickerStyle(.menu)`) — Titel links, aktueller Wert rechts
- * als Material-`DropdownMenu`. Tint bewusst neutral (`textPrimary`): Zustand, kein Aufruf.
+ * als [AbstandPickerValueMenu]. Tint bewusst neutral (`textPrimary`): Zustand, kein Aufruf.
  */
 @Composable
 fun <T> SettingsCardPickerRow(
@@ -195,51 +185,15 @@ fun <T> SettingsCardPickerRow(
     SettingsRow(Modifier.clickable(enabled = enabled) { expanded = true }, enabled = enabled) {
         SettingsCardIcon(icon)
         Text(title, style = IosType.body, color = Theme.palette.textPrimary, modifier = Modifier.weight(1f))
-        Box {
-            MenuValueLabel(label(selection))
-            AbstandDropdownMenu(expanded, { expanded = false }, options, selection, label) { onSelect(it); expanded = false }
-        }
-    }
-}
-
-/** Wert + Auf/Ab-Chevron (iOS: Menü-Picker-Label). */
-@Composable
-fun MenuValueLabel(text: String, color: Color = Theme.palette.textPrimary) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.badgeSpacing)) {
-        Text(text, style = IosType.body, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Icon(SF.chevronUpChevronDown, contentDescription = null, tint = color, modifier = Modifier.size(TrailingIconSize))
-    }
-}
-
-/** Auswahlmenü mit Häkchen an der aktuellen Option (iOS: Inhalt eines `.menu`-Pickers). */
-@Composable
-fun <T> AbstandDropdownMenu(
-    expanded: Boolean,
-    onDismiss: () -> Unit,
-    options: List<T>,
-    selected: T?,
-    label: (T) -> String,
-    onSelect: (T) -> Unit,
-) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, containerColor = Theme.palette.card) {
-        options.forEach { option ->
-            DropdownMenuItem(
-                text = { Text(label(option), style = IosType.body, color = Theme.palette.textPrimary) },
-                trailingIcon = if (option == selected) {
-                    { Icon(SF.checkmark, contentDescription = "Selected", tint = Theme.accent) }
-                } else null,
-                onClick = { onSelect(option) },
-            )
-        }
+        AbstandPickerValueMenu(selection, options, label, onSelect, expanded) { expanded = it }
     }
 }
 
 /**
  * iOS: `SettingsCardAppearanceModeRow` (`.pickerStyle(.segmented)`) — Symbol + Titel, darunter
- * ein Material-`SingleChoiceSegmentedButtonRow` über die volle Breite. Generisch für jede
+ * ein [AbstandSegmentedControl] über die volle Breite. Generisch für jede
  * kleine Optionsmenge.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun <T> SettingsCardSegmentedRow(
     icon: ImageVector,
@@ -258,24 +212,7 @@ fun <T> SettingsCardSegmentedRow(
             SettingsCardIcon(icon)
             Text(title, style = IosType.body, color = palette.textPrimary)
         }
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            options.forEachIndexed { index, option ->
-                SegmentedButton(
-                    selected = option == selection,
-                    onClick = { onSelect(option) },
-                    shape = SegmentedButtonDefaults.itemShape(index, options.size),
-                    colors = SegmentedButtonDefaults.colors(
-                        activeContainerColor = Theme.accent,
-                        activeContentColor = Theme.onAccent,
-                        activeBorderColor = Theme.accent,
-                        inactiveContainerColor = palette.card,
-                        inactiveContentColor = palette.textPrimary,
-                        inactiveBorderColor = palette.textSecondary.copy(alpha = 0.35f),
-                    ),
-                    icon = {},
-                ) { Text(label(option), style = IosType.subheadline.medium) }
-            }
-        }
+        AbstandSegmentedControl(options, selection, label, onSelect)
     }
 }
 
@@ -310,28 +247,24 @@ private fun AbstandColorDialog(title: String, initial: Color, onDismiss: () -> U
     var g by remember { mutableStateOf(initial.green) }
     var b by remember { mutableStateOf(initial.blue) }
     val palette = Theme.palette
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = palette.card,
-        title = { Text(title, style = IosType.headline, color = palette.textPrimary) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Box(Modifier.size(ColorPreviewSize).background(Color(r, g, b), CircleShape))
-                }
-                ChannelSlider("Red", r) { r = it }
-                ChannelSlider("Green", g) { g = it }
-                ChannelSlider("Blue", b) { b = it }
+    AbstandDialog(
+        title = title,
+        onDismiss = onDismiss,
+        confirmLabel = "Done",
+        onConfirm = { onConfirm(Color(r, g, b)) },
+        dismissOnConfirm = false,
+        neutralLabel = if (onReset != null) "Default" else null,
+        onNeutral = onReset,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(ColorPreviewSize).background(Color(r, g, b), CircleShape))
             }
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(Color(r, g, b)) }) { Text("Done", color = Theme.accent) } },
-        dismissButton = {
-            Row {
-                if (onReset != null) TextButton(onClick = onReset) { Text("Default", color = palette.textSecondary) }
-                TextButton(onClick = onDismiss) { Text("Cancel", color = palette.textSecondary) }
-            }
-        },
-    )
+            ChannelSlider("Red", r) { r = it }
+            ChannelSlider("Green", g) { g = it }
+            ChannelSlider("Blue", b) { b = it }
+        }
+    }
 }
 
 @Composable
@@ -378,7 +311,7 @@ fun SettingsCardSecureFieldRow(
 
 /**
  * iOS: `SettingsCardStepperRow` — Titel, Wertlabel (`metaValueColumnMinWidth`, rechtsbündig)
- * und −/+ als Material-Tonal-Icon-Buttons (iOS-`Stepper`).
+ * und −/+ als Tonal-[AbstandIconButton]s (iOS-`Stepper`).
  */
 @Composable
 fun SettingsCardStepperRow(
@@ -391,10 +324,6 @@ fun SettingsCardStepperRow(
     step: Int = 1,
 ) {
     val palette = Theme.palette
-    val buttonColors = IconButtonDefaults.filledTonalIconButtonColors(
-        containerColor = palette.background, contentColor = Theme.accent,
-        disabledContainerColor = palette.background, disabledContentColor = palette.textSecondary.copy(alpha = 0.4f),
-    )
     SettingsRow {
         SettingsCardIcon(icon)
         Text(title, style = IosType.body, color = palette.textPrimary, modifier = Modifier.weight(1f))
@@ -403,14 +332,14 @@ fun SettingsCardStepperRow(
             textAlign = TextAlign.End, modifier = Modifier.widthIn(min = AppTheme.Layout.metaValueColumnMinWidth),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-            FilledTonalIconButton(
-                onClick = { onValueChange((value - step).coerceIn(range)) }, enabled = value > range.first,
-                colors = buttonColors, modifier = Modifier.size(AppTheme.Layout.compactIconButtonSize),
-            ) { Icon(SF.minus, contentDescription = "Decrease") }
-            FilledTonalIconButton(
-                onClick = { onValueChange((value + step).coerceIn(range)) }, enabled = value < range.last,
-                colors = buttonColors, modifier = Modifier.size(AppTheme.Layout.compactIconButtonSize),
-            ) { Icon(SF.plus, contentDescription = "Increase") }
+            AbstandIconButton(
+                SF.minus, "Decrease", onClick = { onValueChange((value - step).coerceIn(range)) }, enabled = value > range.first,
+                style = AbstandIconButtonStyle.Tonal, size = AppTheme.Layout.compactIconButtonSize, containerColor = palette.background,
+            )
+            AbstandIconButton(
+                SF.plus, "Increase", onClick = { onValueChange((value + step).coerceIn(range)) }, enabled = value < range.last,
+                style = AbstandIconButtonStyle.Tonal, size = AppTheme.Layout.compactIconButtonSize, containerColor = palette.background,
+            )
         }
     }
 }

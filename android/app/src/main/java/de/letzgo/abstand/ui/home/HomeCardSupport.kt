@@ -3,17 +3,11 @@ package de.letzgo.abstand.ui.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -22,10 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.AbsUserMediaProgress
 import de.letzgo.abstand.model.AppModel
@@ -33,12 +24,12 @@ import de.letzgo.abstand.model.DownloadBadgeState
 import de.letzgo.abstand.model.DownloadStatusSource
 import de.letzgo.abstand.model.NowPlayingState
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.CoverImage
 import de.letzgo.abstand.ui.components.CoverImageContentMode
+import de.letzgo.abstand.ui.library.LibraryRowLayout
 import de.letzgo.abstand.ui.components.LocalCoverEnvironment
-import de.letzgo.abstand.ui.semibold
+import de.letzgo.abstand.ui.components.abstandCardChrome
 
 /**
  * Cover-abgeleitete Kartenfarbe (iOS: `CoverDerivedTintLoader` / `ContinueHeroTintCache`).
@@ -47,23 +38,6 @@ import de.letzgo.abstand.ui.semibold
  */
 @Composable
 fun coverTint(@Suppress("UNUSED_PARAMETER") itemId: String): Color = Theme.palette.card
-
-/** iOS: `LibraryRowLayout` — gemeinsame Maße der Listen-/Kompaktkarten. */
-object LibraryRowLayout {
-    val coverSide: Dp = AppTheme.Layout.libraryRowCoverSide
-    /** Gleicher Radius wie die Home-Cover-Cards. */
-    val cornerRadius: Dp = AppTheme.Layout.continueHeroCardCornerRadius
-    val cardInset: Dp = AppTheme.Layout.libraryRowCardInset
-    val textInset: Dp = AppTheme.Layout.libraryRowTextInset
-    /** Beendete Titel: Cover/Text zurückgenommen. */
-    const val finishedContentOpacity = 0.35f
-    val cardShape: Shape = RoundedCornerShape(cornerRadius)
-    /** iOS: `coverClipShape` — links gerundet, rechts gerade. */
-    val coverClipShape: Shape = RoundedCornerShape(topStart = cornerRadius, bottomStart = cornerRadius)
-
-    fun bodyBottomInset(showsProgressBar: Boolean): Dp =
-        if (showsProgressBar) textInset + AppTheme.Layout.libraryRowBottomProgressHeight else textInset
-}
 
 /**
  * iOS: `libraryRowCardChrome` — Kartenfläche mit dezenter Kante statt Schatten, Tap öffnet.
@@ -74,64 +48,6 @@ fun Modifier.libraryRowCardChrome(fill: Color, outline: Color, onClick: (() -> U
     .background(fill)
     .border(AppTheme.Layout.hairlineWidth, outline, LibraryRowLayout.cardShape)
     .let { if (onClick != null) it.clickable(onClick = onClick) else it }
-
-/** iOS: `LibraryRowCollapsedMetaLine` — „AUTHOR  Name“ (Label in Versalien, Wert ein-/zweizeilig). */
-@Composable
-fun LibraryRowCollapsedMetaLine(
-    label: String,
-    value: String?,
-    modifier: Modifier = Modifier,
-    valueMaxLines: Int = 2,
-    labelColor: Color? = null,
-    valueColor: Color? = null,
-) {
-    val palette = Theme.palette
-    val line = value?.trim().orEmpty()
-    val empty = line.isEmpty() || line == "—"
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
-        Text(
-            label.uppercase(),
-            style = IosType.footnote.semibold,
-            color = labelColor ?: palette.textSecondary,
-            maxLines = 1,
-            modifier = Modifier.alignByBaseline(),
-        )
-        Text(
-            if (empty) "—" else line,
-            style = IosType.footnote,
-            color = if (empty) labelColor ?: palette.textSecondary else valueColor ?: palette.textPrimary,
-            maxLines = valueMaxLines,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).alignByBaseline(),
-        )
-    }
-}
-
-/** iOS: `ContinueListeningHeroCoverPill` — dunkle Kapsel auf Covern (Typ, Download, Anzahl). */
-@Composable
-fun CoverPill(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Box(
-        modifier
-            .padding(CoverPillMetrics.inset)
-            .clip(RoundedCornerShape(percent = 50))
-            .background(Theme.palette.coverPlayBadgeBackground)
-            .padding(horizontal = AppTheme.Layout.compactSpacing, vertical = AppTheme.Layout.pillVerticalPadding),
-        contentAlignment = Alignment.Center,
-    ) { content() }
-}
-
-/** iOS: `ContinueListeningHeroCoverPillMetrics`. */
-object CoverPillMetrics {
-    val inset = 8.dp
-    val iconSize = 12.dp
-    val downloadSpinnerSize = 13.dp
-}
-
-/** Icon in einer [CoverPill] (bewusst Weiß: liegt auf der dunklen Kapsel, nicht auf der Palette). */
-@Composable
-fun CoverPillIcon(icon: ImageVector, contentDescription: String?) {
-    Icon(icon, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(CoverPillMetrics.iconSize))
-}
 
 /** Platzhalter für Serien/Autoren ohne Bild (iOS: `HomeEntityCoverPlaceholder`). */
 @Composable

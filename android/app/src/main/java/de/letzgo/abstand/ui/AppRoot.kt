@@ -2,48 +2,47 @@ package de.letzgo.abstand.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.unit.dp
-import de.letzgo.abstand.model.PlayerWiring
-import de.letzgo.abstand.ui.permissions.NotificationPermissionHost
-import de.letzgo.abstand.ui.player.MiniPlayerDock
-import de.letzgo.abstand.ui.player.NowPlayingOverlay
-import de.letzgo.abstand.ui.player.rememberTranscriptReadAlong
-import de.letzgo.abstand.ui.detail.BookDetailDestination
-import de.letzgo.abstand.ui.player.miniPlayerDockHeight
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.AbsApiClient
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.MainTab
+import de.letzgo.abstand.model.PlayerWiring
 import de.letzgo.abstand.model.SessionStore
+import de.letzgo.abstand.ui.components.AbstandAlert
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
 import de.letzgo.abstand.ui.components.CoverEnvironment
 import de.letzgo.abstand.ui.components.LocalCoverEnvironment
 import de.letzgo.abstand.ui.components.TabRootScaffold
+import de.letzgo.abstand.ui.detail.BookDetailDestination
 import de.letzgo.abstand.ui.home.HomeTabRoot
-import de.letzgo.abstand.ui.login.LoginScreen
 import de.letzgo.abstand.ui.library.BooksLibraryTabRoot
+import de.letzgo.abstand.ui.login.LoginScreen
+import de.letzgo.abstand.ui.permissions.NotificationPermissionHost
+import de.letzgo.abstand.ui.player.MiniPlayerDock
+import de.letzgo.abstand.ui.player.NowPlayingOverlay
+import de.letzgo.abstand.ui.player.miniPlayerDockHeight
+import de.letzgo.abstand.ui.player.rememberTranscriptReadAlong
 import de.letzgo.abstand.ui.podcasts.PodcastsTabRoot
 import de.letzgo.abstand.ui.reader.EbookReaderOverlay
 import de.letzgo.abstand.ui.search.SearchTabRoot
@@ -198,10 +197,5 @@ private fun PlaceholderTabRoot(tab: MainTab, description: String) {
 private fun ErrorAlert(session: SessionStore) {
     val message by session.errorMessage.collectAsState()
     val text = message ?: return
-    AlertDialog(
-        onDismissRequest = { session.setErrorMessage(null) },
-        title = { Text("Error") },
-        text = { Text(text) },
-        confirmButton = { TextButton(onClick = { session.setErrorMessage(null) }) { Text("OK") } },
-    )
+    AbstandAlert("Error", onDismiss = { session.setErrorMessage(null) }, message = text)
 }

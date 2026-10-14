@@ -13,10 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +36,7 @@ import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.bold
+import de.letzgo.abstand.ui.components.AbstandAlert
 import de.letzgo.abstand.ui.components.AbstandCard
 import de.letzgo.abstand.ui.components.AbstandCardBottomProgress
 
@@ -110,12 +109,7 @@ fun ListeningAchievementCard(achievement: ListeningAchievementState, modifier: M
         }
     }
     if (showExplanation) {
-        AlertDialog(
-            onDismissRequest = { showExplanation = false },
-            title = { Text(achievement.kind.title) },
-            text = { Text(achievement.kind.alertMessage(achievement)) },
-            confirmButton = { TextButton(onClick = { showExplanation = false }) { Text("OK") } },
-        )
+        AbstandAlert(achievement.kind.title, onDismiss = { showExplanation = false }, message = achievement.kind.alertMessage(achievement))
     }
 }
 

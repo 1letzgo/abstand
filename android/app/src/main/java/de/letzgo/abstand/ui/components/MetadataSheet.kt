@@ -10,14 +10,11 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,14 +30,13 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppTheme.CardElevation
 import de.letzgo.abstand.ui.DetailMetaLabelIcon
@@ -68,24 +64,13 @@ object MetadataSheetMetrics {
     val labelToContentSpacing = AppTheme.Layout.compactSpacing
 }
 
-/** Symbolgröße in Sektionslabels (iOS: `.caption2.weight(.semibold)`). */
-private val SectionLabelIconSize = 12.dp
-
 /**
  * iOS: `MetadataSheetSectionLabel` — Versalien-Überschrift (`footnote.semibold`, Laufweite 0,6,
  * `textSecondary`) mit optionalem Symbol aus [DetailMetaLabelIcon].
  */
 @Composable
 fun MetadataSheetSectionLabel(title: String, modifier: Modifier = Modifier) {
-    val color = Theme.palette.textSecondary
-    Row(
-        modifier.fillMaxWidth().semantics { heading() },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(MetadataSheetMetrics.labelIconSpacing),
-    ) {
-        DetailMetaLabelIcon.icon(title)?.let { Icon(it, contentDescription = null, tint = color, modifier = Modifier.size(SectionLabelIconSize)) }
-        Text(title.uppercase(), style = IosType.footnote.semibold.copy(letterSpacing = 0.6.sp), color = color)
-    }
+    AbstandCapsLabel(title, modifier.fillMaxWidth(), icon = DetailMetaLabelIcon.icon(title))
 }
 
 /** iOS: `MetadataSheetSection` — Label + Inhalt im Detail-Abstand (`withinSectionSpacing`). */
@@ -121,7 +106,7 @@ fun MetadataSheetCard(
 /** iOS: `MetadataSheetCardDivider`. */
 @Composable
 fun MetadataSheetCardDivider() {
-    HorizontalDivider(thickness = AppTheme.Layout.hairlineStrokeWidth, color = Theme.palette.textSecondary.copy(alpha = 0.25f))
+    AbstandDivider(opacity = 0.25f)
 }
 
 /** iOS: `metadataSheetFieldChrome()` — eingelassenes Feld (App-Hintergrund + Hairline). */
@@ -194,7 +179,40 @@ fun MetadataSheetTextField(
 }
 
 /**
- * iOS: `MetadataSheetMenuPicker` — Titel links, Material-Dropdown rechts; neutraler Tint
+ * Eingelassenes Feld ohne Label (Serienname/-nummer, Dialog-Eingaben): [metadataSheetFieldChrome]
+ * + Platzhalter; [label] dient als Accessibility-Name. [centered] für kurze Zahlenfelder.
+ */
+@Composable
+fun AbstandInsetTextField(
+    value: String,
+    placeholder: String,
+    label: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    capitalization: KeyboardCapitalization = KeyboardCapitalization.None,
+    centered: Boolean = false,
+) {
+    val palette = Theme.palette
+    Box(
+        modifier.metadataSheetFieldChrome(horizontalPadding = if (centered) AppTheme.Layout.inlineSpacing else MetadataSheetMetrics.fieldInsetH),
+        contentAlignment = if (centered) Alignment.Center else Alignment.CenterStart,
+    ) {
+        if (value.isEmpty()) Text(placeholder, style = IosType.body, color = palette.textSecondary.copy(alpha = 0.55f))
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = IosType.body.copy(color = palette.textPrimary, textAlign = if (centered) TextAlign.Center else TextAlign.Start),
+            cursorBrush = SolidColor(Theme.accent),
+            keyboardOptions = KeyboardOptions(capitalization = capitalization, autoCorrectEnabled = false, keyboardType = keyboardType),
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
+        )
+    }
+}
+
+/**
+ * iOS: `MetadataSheetMenuPicker` — Titel links, [AbstandPickerValueMenu] rechts; neutraler Tint
  * (ein Dropdown ist kein Aufruf zur Tat).
  */
 @Composable
@@ -213,10 +231,7 @@ fun <T> MetadataSheetMenuPicker(
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
     ) {
         Text(title, style = IosType.body, color = Theme.palette.textPrimary, modifier = Modifier.weight(1f))
-        Box {
-            MenuValueLabel(label(selection))
-            AbstandDropdownMenu(expanded, { expanded = false }, options, selection, label) { onSelect(it); expanded = false }
-        }
+        AbstandPickerValueMenu(selection, options, label, onSelect, expanded) { expanded = it }
     }
 }
 

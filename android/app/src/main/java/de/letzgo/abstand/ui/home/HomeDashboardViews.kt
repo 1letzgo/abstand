@@ -13,11 +13,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +40,7 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.LocalAbstandCardShadowEnabled
 import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.SF
+import de.letzgo.abstand.ui.components.AbstandDialog
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
 import de.letzgo.abstand.ui.components.AbstandFixedBrowseStripSectionsLayout
 import de.letzgo.abstand.ui.components.AbstandProminentButton
@@ -125,19 +123,16 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
     }
 
     if (showOfflineConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showOfflineConfirmation = false },
-            title = { Text("Enable offline mode?") },
-            text = {
-                Text("The server connection will be paused. You can only play downloaded content. Progress syncs when you go back online.")
+        AbstandDialog(
+            title = "Enable offline mode?",
+            onDismiss = { showOfflineConfirmation = false },
+            message = "The server connection will be paused. You can only play downloaded content. Progress syncs when you go back online.",
+            confirmLabel = "Go offline",
+            dismissOnConfirm = false,
+            onConfirm = {
+                showOfflineConfirmation = false
+                session.setOfflineHomeMode(true)
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    showOfflineConfirmation = false
-                    session.setOfflineHomeMode(true)
-                }) { Text("Go offline") }
-            },
-            dismissButton = { TextButton(onClick = { showOfflineConfirmation = false }) { Text("Cancel") } },
         )
     }
 }

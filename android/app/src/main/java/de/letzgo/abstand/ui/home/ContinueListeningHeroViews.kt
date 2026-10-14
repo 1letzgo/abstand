@@ -2,12 +2,12 @@ package de.letzgo.abstand.ui.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,17 +18,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -37,8 +32,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
@@ -59,12 +52,15 @@ import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCardBottomProgress
 import de.letzgo.abstand.ui.components.CoverImage
 import de.letzgo.abstand.ui.components.CoverImageContentMode
+import de.letzgo.abstand.ui.components.LibraryRowCollapsedMetaLine
 import de.letzgo.abstand.ui.components.abstandHeroCardOutline
 import de.letzgo.abstand.ui.destinations.BookDetailDestination
 import de.letzgo.abstand.ui.destinations.EpisodeDestination
 import de.letzgo.abstand.ui.formatPlaybackDurationShortHuman
 import de.letzgo.abstand.ui.semibold
-import kotlinx.coroutines.delay
+import de.letzgo.abstand.ui.components.AbstandCoverDownloadBadge
+import de.letzgo.abstand.ui.components.AbstandCoverPillIcon
+import de.letzgo.abstand.ui.components.AbstandPlayPill
 
 /** Reine Rechenlogik der Continue-Hero-Karten (Restzeit in der Play-Pille, Fortschrittsbalken). */
 object ContinueHeroMath {
@@ -132,28 +128,10 @@ enum class HeroMediaType { Audiobook, Podcast }
 
 @Composable
 fun ContinueListeningHeroTypePill(type: HeroMediaType) {
-    CoverPill {
-        CoverPillIcon(
-            if (type == HeroMediaType.Audiobook) SF.bookFill else SF.micFill,
-            contentDescription = if (type == HeroMediaType.Audiobook) "Audiobook" else "Podcast",
-        )
-    }
-}
-
-/** iOS: `ContinueListeningHeroOfflineBadge` — fertiger oder laufender Download oben rechts. */
-@Composable
-fun ContinueListeningHeroOfflineBadge(isDownloaded: Boolean, isDownloading: Boolean, downloadProgress: Double) {
-    when {
-        isDownloaded -> CoverPill { CoverPillIcon(SF.arrowDownCircleFill, "Downloaded") }
-        isDownloading -> CoverPill {
-            CircularProgressIndicator(
-                progress = { downloadProgress.toFloat().coerceIn(0f, 1f) },
-                color = Color.White,
-                strokeWidth = AppTheme.Layout.hairlineStrokeWidth * 3,
-                modifier = Modifier.size(CoverPillMetrics.downloadSpinnerSize).semantics { contentDescription = "Downloading" },
-            )
-        }
-    }
+    AbstandCoverPillIcon(
+        if (type == HeroMediaType.Audiobook) SF.bookFill else SF.micFill,
+        contentDescription = if (type == HeroMediaType.Audiobook) "Audiobook" else "Podcast",
+    )
 }
 
 /**
@@ -213,39 +191,14 @@ fun ContinueListeningHeroMetadataBlock(
 @Composable
 fun ContinueHeroPlayPill(itemId: String, episodeId: String?, caption: String, isFinished: Boolean) {
     val nowPlaying = rememberNowPlaying()
-    val actualPlaying = nowPlaying.isPlaying(itemId, episodeId)
-    var optimistic by remember { mutableStateOf<Boolean?>(null) }
-    val showsPause = optimistic ?: actualPlaying
-    LaunchedEffect(optimistic) {
-        if (optimistic == null) return@LaunchedEffect
-        delay(2_500)
-        optimistic = null
-    }
-    LaunchedEffect(actualPlaying) { optimistic = null }
-    val accent = Theme.accent
-    val onAccent = Theme.onAccent
-    Row(
-        Modifier
-            .clip(RoundedCornerShape(percent = 50))
-            .background(accent)
-            .clickable {
-                optimistic = !showsPause
-                continueHeroPlayPillToggle(nowPlaying, itemId, episodeId, isFinished)
-            }
-            .padding(horizontal = AppTheme.Layout.rowSpacing, vertical = AppTheme.Layout.stackSpacing)
-            .semantics {
-                contentDescription = if (showsPause) "Pause" else "Play"
-                stateDescription = if (showsPause) "Playing" else "$caption left"
-            },
-        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(if (showsPause) SF.pauseFill else SF.playFill, contentDescription = null, tint = onAccent, modifier = Modifier.size(PlayPillIconSize))
-        Text(caption, style = IosType.caption.semibold, color = onAccent, maxLines = 1)
-    }
+    AbstandPlayPill(
+        isPlaying = nowPlaying.isPlaying(itemId, episodeId),
+        onClick = { continueHeroPlayPillToggle(nowPlaying, itemId, episodeId, isFinished) },
+        caption = caption,
+        captionStyle = IosType.caption.semibold,
+        horizontalPadding = AppTheme.Layout.rowSpacing,
+    )
 }
-
-private val PlayPillIconSize = AppTheme.Layout.coverBadgeSize * 0.8f
 
 /** iOS: `continueHeroPlayPillToggle` — aktives Medium pausieren/fortsetzen, sonst starten. */
 private fun continueHeroPlayPillToggle(nowPlaying: NowPlayingState, itemId: String, episodeId: String?, isFinished: Boolean) {
@@ -308,7 +261,7 @@ private fun ContinueHeroCardScaffold(
             }
             Box(Modifier.align(Alignment.TopStart)) { ContinueListeningHeroTypePill(type) }
             Box(Modifier.align(Alignment.TopEnd)) {
-                ContinueListeningHeroOfflineBadge(download.isDownloaded, download.isDownloading, download.progress)
+                AbstandCoverDownloadBadge(download.isDownloaded, download.isDownloading, download.progress)
             }
         }
         ContinueListeningHeroMetadataBlock(

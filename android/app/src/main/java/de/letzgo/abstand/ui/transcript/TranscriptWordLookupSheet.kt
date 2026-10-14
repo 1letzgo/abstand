@@ -42,7 +42,7 @@ import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.components.AbstandPrimaryButton
 import de.letzgo.abstand.ui.components.AbstandProminentButton
-import de.letzgo.abstand.ui.components.AbstandSheetScaffold
+import de.letzgo.abstand.ui.components.AbstandSheet
 import de.letzgo.abstand.ui.components.MetadataSheetMenuPicker
 
 /**
@@ -59,7 +59,7 @@ fun TranscriptWordLookupSheet(selection: PlayerTranscriptWordLookupSelection, on
     val options = remember { TranslationTargetLanguage.pickerOptions() }
     val samePair = TranslationTargetLanguage.sameLanguage(selection.sourceLocale, target)
 
-    AbstandSheetScaffold(title = "Look up & translate", onDismiss = onDismiss, onConfirm = onDismiss, confirmLabel = "Done") {
+    AbstandSheet(title = "Look up & translate", onDismiss = onDismiss, onConfirm = onDismiss, confirmLabel = "Done") {
         Text(selection.term, style = IosType.title2.bold, color = palette.textPrimary, modifier = Modifier.fillMaxWidth())
 
         selection.sourceLocale?.let { source ->

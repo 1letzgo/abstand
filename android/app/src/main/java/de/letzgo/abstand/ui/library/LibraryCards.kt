@@ -2,10 +2,8 @@ package de.letzgo.abstand.ui.library
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,28 +13,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -67,16 +56,23 @@ import de.letzgo.abstand.ui.components.AbstandCard
 import de.letzgo.abstand.ui.components.AbstandCardBottomProgress
 import de.letzgo.abstand.ui.components.CoverImage
 import de.letzgo.abstand.ui.components.CoverImageContentMode
+import de.letzgo.abstand.ui.components.LibraryRowCollapsedMetaLine
 import de.letzgo.abstand.ui.components.LocalCoverEnvironment
 import de.letzgo.abstand.ui.components.SquareCoverImage
 import de.letzgo.abstand.ui.components.abstandCardChrome
 import de.letzgo.abstand.ui.detail.BookDetailDestination
 import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.semibold
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import de.letzgo.abstand.ui.components.AbstandCoverCornerBadge
+import de.letzgo.abstand.ui.components.AbstandCoverDownloadBadge
+import de.letzgo.abstand.ui.components.AbstandCoverPillIcon
+import de.letzgo.abstand.ui.components.AbstandCoverPillMetrics
+import de.letzgo.abstand.ui.components.AbstandCoverPillText
+import de.letzgo.abstand.ui.components.AbstandPlayPill
+import de.letzgo.abstand.ui.components.AbstandStatusBadges
 
 /** iOS: `LibraryRowLayout` — Konstanten der Library-Zeilen. */
 object LibraryRowLayout {
@@ -91,13 +87,6 @@ object LibraryRowLayout {
 
     fun bodyBottomInset(showsProgressBar: Boolean): Dp =
         if (showsProgressBar) textInset + AppTheme.Layout.libraryRowBottomProgressHeight else textInset
-}
-
-/** iOS: `ContinueListeningHeroCoverPillMetrics`. */
-private object CoverPillMetrics {
-    val inset = 8.dp
-    val iconSize = 12.dp
-    val spinnerSize = 13.dp
 }
 
 /** iOS: `FacetBrowseTileMetrics`. */
@@ -171,92 +160,6 @@ fun rememberIsPlayingMedia(libraryItemId: String, episodeId: String? = null): Bo
 
 // MARK: - Kleine Bausteine
 
-/** iOS: `LibraryRowCollapsedMetaLine` — „AUTHOR  Name" (Label in Versalien). */
-@Composable
-fun LibraryRowCollapsedMetaLine(
-    label: String,
-    value: String?,
-    modifier: Modifier = Modifier,
-    valueLineLimit: Int = 2,
-    labelColor: Color? = null,
-    valueColor: Color? = null,
-) {
-    val palette = Theme.palette
-    val line = value?.trim().orEmpty()
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
-        Text(label.uppercase(), style = IosType.footnote.semibold, color = labelColor ?: palette.textSecondary, maxLines = 1)
-        if (line.isEmpty() || line == "—") {
-            Text("—", style = IosType.footnote, color = labelColor ?: palette.textSecondary, modifier = Modifier.weight(1f))
-        } else {
-            Text(
-                line, style = IosType.footnote, color = valueColor ?: palette.textPrimary, maxLines = valueLineLimit,
-                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
-
-/** iOS: `ContinueListeningHeroCoverPill` — dunkle Kapsel auf Covern (Typ, Download, Anzahl). */
-@Composable
-fun CoverPill(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Box(
-        modifier
-            .padding(CoverPillMetrics.inset)
-            .background(Theme.palette.coverPlayBadgeBackground, CircleShape)
-            .padding(horizontal = AppTheme.Layout.compactSpacing, vertical = AppTheme.Layout.pillVerticalPadding),
-        contentAlignment = Alignment.Center,
-    ) { content() }
-}
-
-/** Weißes Symbol in einer [CoverPill] (bewusst Weiß: liegt auf der dunklen Kapsel). */
-@Composable
-fun CoverPillIcon(icon: ImageVector, description: String?, modifier: Modifier = Modifier) {
-    CoverPill(modifier) { Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(CoverPillMetrics.iconSize)) }
-}
-
-/** iOS: `ContinueListeningHeroOfflineBadge` — fertig/aktiver Download oben rechts auf dem Cover. */
-@Composable
-fun CoverOfflineBadge(isDownloaded: Boolean, isDownloading: Boolean, downloadProgress: Double) {
-    when {
-        isDownloaded -> CoverPillIcon(SF.arrowDownCircleFill, "Downloaded")
-        isDownloading -> CoverPill {
-            CircularProgressIndicator(
-                progress = { downloadProgress.toFloat().coerceIn(0f, 1f) },
-                color = Color.White, strokeWidth = 2.dp, trackColor = Color.White.copy(alpha = 0.3f),
-                modifier = Modifier.size(CoverPillMetrics.spinnerSize).semantics { contentDescription = "Downloading" },
-            )
-        }
-    }
-}
-
-/** iOS: `LibraryCoverCornerBadge` — kleiner runder Badge unten auf Listen-Covern (eBook). */
-@Composable
-private fun CoverCornerBadge(icon: ImageVector, description: String?, modifier: Modifier = Modifier) {
-    Box(
-        modifier.padding(AppTheme.Layout.tightSpacing).size(AppTheme.Layout.coverBadgeSize)
-            .background(Theme.palette.coverPlayBadgeBackground, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) { Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(11.dp)) }
-}
-
-/** iOS: `LibraryRowStatusBadges` — „fertig" + Download-Status oben rechts in kompakten Zeilen. */
-@Composable
-private fun LibraryRowStatusBadges(isFinished: Boolean, isDownloaded: Boolean, isDownloading: Boolean, downloadProgress: Double) {
-    val color = Theme.palette.textSecondary
-    Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing), verticalAlignment = Alignment.CenterVertically) {
-        if (isFinished) {
-            Icon(SF.checkmarkCircleFill, "Finished", tint = color, modifier = Modifier.size(14.dp).alpha(LibraryRowLayout.finishedContentOpacity))
-        }
-        if (isDownloaded) {
-            Icon(SF.arrowDownCircleFill, "Saved offline", tint = color, modifier = Modifier.size(14.dp))
-        } else if (isDownloading) {
-            LinearProgressIndicator(
-                progress = { downloadProgress.toFloat() }, color = color, trackColor = color.copy(alpha = 0.2f),
-                modifier = Modifier.width(AppTheme.Layout.compactIconButtonSize).semantics { contentDescription = "Downloading" },
-            )
-        }
-    }
-}
 
 /**
  * iOS: `LibraryRowPlayPill` — Akzent-Kapsel Play/Pause rechts unten in kompakten Zeilen; schaltet
@@ -264,66 +167,16 @@ private fun LibraryRowStatusBadges(isFinished: Boolean, isDownloaded: Boolean, i
  */
 @Composable
 fun LibraryRowPlayPill(libraryItemId: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val isPlaying = rememberIsPlayingMedia(libraryItemId)
-    var optimistic by remember(libraryItemId) { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(isPlaying) { optimistic = null }
-    LaunchedEffect(optimistic) {
-        if (optimistic != null) {
-            delay(2_500)
-            optimistic = null
-        }
-    }
-    val showsPause = optimistic ?: isPlaying
-    Surface(
-        onClick = {
-            optimistic = !showsPause
-            onClick()
-        },
-        shape = CircleShape,
-        color = Theme.accent,
-        contentColor = Theme.onAccent,
-        modifier = modifier,
-    ) {
-        Icon(
-            if (showsPause) SF.pauseFill else SF.playFill,
-            contentDescription = if (showsPause) "Pause" else "Play",
-            modifier = Modifier.padding(horizontal = AppTheme.Layout.cardPadding, vertical = AppTheme.Layout.stackSpacing).size(14.dp),
-        )
-    }
+    AbstandPlayPill(rememberIsPlayingMedia(libraryItemId), onClick, modifier)
 }
 
 /** iOS: `ContinueHeroPlayPillButton` — Play-Pille mit Restzeit unter Cover-Karten. */
 @Composable
 private fun HeroPlayPill(libraryItemId: String, caption: String, onClick: () -> Unit) {
-    val isPlaying = rememberIsPlayingMedia(libraryItemId)
-    var optimistic by remember(libraryItemId) { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(isPlaying) { optimistic = null }
-    LaunchedEffect(optimistic) {
-        if (optimistic != null) {
-            delay(2_500)
-            optimistic = null
-        }
-    }
-    val showsPause = optimistic ?: isPlaying
-    Surface(
-        onClick = {
-            optimistic = !showsPause
-            onClick()
-        },
-        shape = CircleShape,
-        color = Theme.accent,
-        contentColor = Theme.onAccent,
-        modifier = Modifier.height(AppTheme.Layout.continueHeroMetadataPlayPillIntrinsicHeight),
-    ) {
-        Row(
-            Modifier.padding(horizontal = AppTheme.Layout.cardPadding),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing),
-        ) {
-            Icon(if (showsPause) SF.pauseFill else SF.playFill, contentDescription = if (showsPause) "Pause" else "Play", modifier = Modifier.size(14.dp))
-            Text(caption, style = IosType.subheadline.semibold, maxLines = 1)
-        }
-    }
+    AbstandPlayPill(
+        rememberIsPlayingMedia(libraryItemId), onClick, caption = caption,
+        height = AppTheme.Layout.continueHeroMetadataPlayPillIntrinsicHeight,
+    )
 }
 
 // MARK: - Kompakte Buch-Zeile
@@ -372,8 +225,8 @@ fun BookRowCard(
                         } else {
                             SquareCoverImage(itemId = book.id, cacheRevision = revision, modifier = Modifier.fillMaxSize())
                         }
-                        if (isPureEbook) CoverCornerBadge(SF.bookClosedFill, null, Modifier.align(Alignment.BottomStart))
-                        if (supplementaryBadge) CoverCornerBadge(SF.bookClosedFill, "eBook available", Modifier.align(Alignment.BottomEnd))
+                        if (isPureEbook) AbstandCoverCornerBadge(SF.bookClosedFill, null, Modifier.align(Alignment.BottomStart))
+                        if (supplementaryBadge) AbstandCoverCornerBadge(SF.bookClosedFill, "eBook available", Modifier.align(Alignment.BottomEnd))
                     }
                     Column(
                         Modifier.weight(1f).fillMaxSize().padding(
@@ -388,7 +241,7 @@ fun BookRowCard(
                                 book.displayTitle, style = IosType.headline.semibold, color = palette.textPrimary, maxLines = 1,
                                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).alpha(fade),
                             )
-                            LibraryRowStatusBadges(
+                            AbstandStatusBadges(
                                 isFinished = isFinished,
                                 isDownloaded = showsDownloadStatus && live.isDownloaded,
                                 isDownloading = showsDownloadStatus && live.isDownloading,
@@ -467,11 +320,11 @@ fun LibraryHeroBookCard(
                 if (heroProgress != null) {
                     AbstandCardBottomProgress(heroProgress, Modifier.align(Alignment.BottomCenter))
                 }
-                if (book.isPureEbookLibraryItem) CoverPillIcon(SF.bookClosedFill, "eBook", Modifier.align(Alignment.TopStart))
+                if (book.isPureEbookLibraryItem) AbstandCoverPillIcon(SF.bookClosedFill, "eBook", Modifier.align(Alignment.TopStart))
                 Row(Modifier.align(Alignment.TopEnd)) {
-                    if (isFinished) CoverPillIcon(SF.checkmarkCircleFill, "Finished", Modifier.alpha(LibraryRowLayout.finishedContentOpacity))
-                    if (supplementaryBadge) CoverPillIcon(SF.bookClosedFill, "eBook available")
-                    if (showsDownloadStatus) CoverOfflineBadge(live.isDownloaded, live.isDownloading, live.downloadProgress)
+                    if (isFinished) AbstandCoverPillIcon(SF.checkmarkCircleFill, "Finished", Modifier.alpha(LibraryRowLayout.finishedContentOpacity))
+                    if (supplementaryBadge) AbstandCoverPillIcon(SF.bookClosedFill, "eBook available")
+                    if (showsDownloadStatus) AbstandCoverDownloadBadge(live.isDownloaded, live.isDownloading, live.downloadProgress)
                 }
             }
             Column(
@@ -486,7 +339,7 @@ fun LibraryHeroBookCard(
                     book.displayTitle, style = IosType.headline.semibold, color = palette.textPrimary, maxLines = 2,
                     minLines = 2, overflow = TextOverflow.Ellipsis,
                 )
-                LibraryRowCollapsedMetaLine("Author", authorLine, valueLineLimit = 1)
+                LibraryRowCollapsedMetaLine("Author", authorLine, valueMaxLines = 1)
                 if (book.isPlayableAudiobook) {
                     Box(Modifier.padding(top = AppTheme.Layout.continueHeroMetadataPlayPillTopPadding)) {
                         HeroPlayPill(book.id, BookDetailLogic.remainingCaption(totalDuration, prog)) {
@@ -597,6 +450,7 @@ fun BrowseEntityRowCard(
     coverUrl: String? = null,
     coverCacheScopeId: String? = null,
     coverBookIds: List<String>? = null,
+    authorImageId: String? = null,
     authorLine: String? = null,
     usesSquareCenterCropCover: Boolean = false,
     placeholderIcon: ImageVector = SF.personCropCircle,
@@ -609,6 +463,7 @@ fun BrowseEntityRowCard(
     ) {
         Box(Modifier.size(LibraryRowLayout.coverSide).clip(LibraryRowLayout.coverClipShape).background(palette.card)) {
             when {
+                authorImageId != null -> de.letzgo.abstand.ui.home.AuthorImage(authorImageId, Modifier.fillMaxSize())
                 coverBookIds != null && coverBookIds.size > 1 -> SeriesMultiCover(coverBookIds, Modifier.fillMaxSize())
                 coverUrl != null && coverCacheScopeId != null -> CoverImage(
                     url = coverUrl, cacheScopeId = coverCacheScopeId, cacheRevision = LocalCoverEnvironment.current.revision,
@@ -628,7 +483,7 @@ fun BrowseEntityRowCard(
             verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing),
         ) {
             Text(title, style = IosType.headline.semibold, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (authorLine != null) LibraryRowCollapsedMetaLine("Author", authorLine, valueLineLimit = 1)
+            if (authorLine != null) LibraryRowCollapsedMetaLine("Author", authorLine, valueMaxLines = 1)
             Spacer(Modifier.weight(1f))
             LibraryRowCollapsedMetaLine(detailLabel, detailValue)
         }
@@ -652,15 +507,13 @@ fun FacetBrowseTileCard(kind: BooksBrowseSection, title: String, count: Int?, on
         onClick = onClick,
     ) {
         Box(Modifier.fillMaxSize()) {
-            Icon(kind.icon, null, tint = Theme.accent, modifier = Modifier.padding(CoverPillMetrics.inset).size(FacetTileMetrics.iconSize))
+            Icon(kind.icon, null, tint = Theme.accent, modifier = Modifier.padding(AbstandCoverPillMetrics.inset).size(FacetTileMetrics.iconSize))
             Text(
                 title, style = IosType.headline.semibold, color = palette.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.BottomStart).padding(AppTheme.Layout.cardPadding),
             )
             if (count != null && count > 0) {
-                CoverPill(Modifier.align(Alignment.TopEnd)) {
-                    Text("$count Books", style = IosType.caption2.semibold, color = Color.White, maxLines = 1)
-                }
+                AbstandCoverPillText("$count Books", Modifier.align(Alignment.TopEnd))
             }
         }
     }

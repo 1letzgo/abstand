@@ -5,9 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -17,21 +14,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import de.letzgo.abstand.data.AbsStoredAccount
 import de.letzgo.abstand.data.AbsLibrary
+import de.letzgo.abstand.data.AbsStoredAccount
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.SessionStore
 import de.letzgo.abstand.ui.AppTheme
+import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCardEmptyState
+import de.letzgo.abstand.ui.components.AbstandDialog
 import de.letzgo.abstand.ui.components.AbstandGroupedCard
 import de.letzgo.abstand.ui.components.ServerAdminSection
 import de.letzgo.abstand.ui.components.SettingsCardActionRow
 import de.letzgo.abstand.ui.components.SettingsCardDivider
 import de.letzgo.abstand.ui.components.SettingsCardInfoRow
 import de.letzgo.abstand.ui.components.SettingsCardNavRow
-import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.components.SettingsCardPickerRow
 import de.letzgo.abstand.ui.components.SettingsCardToggleRow
 import de.letzgo.abstand.ui.components.SettingsMetricCard
@@ -90,17 +88,17 @@ fun SettingsAccountsSection(session: SessionStore) {
     if (showAddAccount) AddAccountSheet(onDismiss = { showAddAccount = false }, session = session)
 
     accountPendingLogout?.let { account ->
-        AlertDialog(
-            onDismissRequest = { accountPendingLogout = null },
-            title = { Text("Log out?") },
-            text = { Text("Remove ${account.displayUsername} from @${account.displayServerHost}?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    session.removeStoredAccount(account.accountKey)
-                    accountPendingLogout = null
-                }) { Text("Log out", color = AppTheme.danger) }
+        AbstandDialog(
+            title = "Log out?",
+            onDismiss = { accountPendingLogout = null },
+            message = "Remove ${account.displayUsername} from @${account.displayServerHost}?",
+            confirmLabel = "Log out",
+            destructive = true,
+            dismissOnConfirm = false,
+            onConfirm = {
+                session.removeStoredAccount(account.accountKey)
+                accountPendingLogout = null
             },
-            dismissButton = { TextButton(onClick = { accountPendingLogout = null }) { Text("Cancel") } },
         )
     }
 }
@@ -206,16 +204,16 @@ fun SettingsAccountSection(session: SessionStore) {
     }
 
     if (confirmLogout) {
-        AlertDialog(
-            onDismissRequest = { confirmLogout = false },
-            title = { Text("Log out?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmLogout = false
-                    session.logout()
-                }) { Text("Log out", color = AppTheme.danger) }
+        AbstandDialog(
+            title = "Log out?",
+            onDismiss = { confirmLogout = false },
+            confirmLabel = "Log out",
+            destructive = true,
+            dismissOnConfirm = false,
+            onConfirm = {
+                confirmLogout = false
+                session.logout()
             },
-            dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text("Cancel") } },
         )
     }
 }

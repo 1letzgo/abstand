@@ -6,7 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -22,9 +21,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppColorPalette
@@ -141,18 +137,5 @@ fun AbstandCardBottomProgress(
     trackColor: Color = Theme.palette.progressTrack,
     fillColor: Color? = null,
 ) {
-    val t = value.coerceIn(0.0, 1.0).toFloat()
-    val percent = (value * 100).coerceIn(0.0, 100.0).toInt()
-    Box(
-        modifier
-            .fillMaxWidth()
-            .height(height)
-            .background(trackColor, RectangleShape)
-            .semantics {
-                contentDescription = "Progress"
-                stateDescription = "$percent percent"
-            },
-    ) {
-        Box(Modifier.fillMaxHeight().fillMaxWidth(t).background(fillColor ?: Theme.accent))
-    }
+    AbstandProgressBar(value, modifier, height, trackColor, fillColor ?: Theme.accent, RectangleShape)
 }

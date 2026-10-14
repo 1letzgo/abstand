@@ -43,6 +43,13 @@ object AppTheme {
     val success = Color(0.35f, 0.82f, 0.55f)
     /** Warnfarbe — iOS nutzt dafür System-Orange (`.orange`, dunkle Variante #FF9F0A). */
     val warning = Color(0xFFFF9F0A)
+    /**
+     * Schrift/Symbole auf Cover-Overlays (dunkle Pillen, Scrims) — bewusst Weiß und
+     * paletten-unabhängig (iOS: `.foregroundStyle(.white)` auf `coverPlayBadgeBackground`).
+     */
+    val coverOverlayForeground = Color.White
+    /** iOS: Vorlese-Markierung im eBook (System-Gelb #FFCC00), unabhängig von Palette/Akzent. */
+    val narrationHighlight = Color(0xFFFFCC00)
 
     /**
      * iOS: `coverScrimGradient` — Lesbarkeits-Scrim am Cover-Fuß, bewusst hart schwarz und

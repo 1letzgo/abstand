@@ -11,12 +11,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -45,20 +43,21 @@ import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.components.AbstandConfirmDialog
 import de.letzgo.abstand.ui.components.AbstandSectionEmptyState
 import de.letzgo.abstand.ui.components.DetailScaffold
 import de.letzgo.abstand.ui.components.SquareCoverImage
 import de.letzgo.abstand.ui.formatPlaybackDurationShortHuman
 import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.semibold
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 /** Navigationsziel: Folgen-Detail (iOS: `navigationDestination(item: $podcastDetailEpisode)`). */
 class PodcastEpisodeDetailDestination(val episode: AbsPodcastEpisodeListItem) : TabDestination {
@@ -325,18 +324,7 @@ private fun ConfirmDialog(
     destructive: Boolean = false,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { Text(message) },
-        confirmButton = {
-            TextButton(onClick = {
-                onDismiss()
-                onConfirm()
-            }) { Text(confirmLabel, color = if (destructive) AppTheme.danger else Theme.accent) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = Theme.palette.textPrimary) } },
-    )
+    AbstandConfirmDialog(title, confirmLabel, onConfirm, onDismiss, message = message, destructive = destructive)
 }
 
 private fun trimmedMetaValue(value: String?): String? {

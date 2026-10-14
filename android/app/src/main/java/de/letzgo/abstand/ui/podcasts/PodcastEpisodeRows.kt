@@ -1,9 +1,6 @@
 package de.letzgo.abstand.ui.podcasts
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -12,30 +9,27 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.AbsPodcastEpisodeListItem
 import de.letzgo.abstand.data.AbsUserMediaProgress
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.IosType
-import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCard
 import de.letzgo.abstand.ui.components.AbstandCardBottomProgress
 import de.letzgo.abstand.ui.components.CoverImage
+import de.letzgo.abstand.ui.components.LibraryRowCollapsedMetaLine
 import de.letzgo.abstand.ui.formatPlaybackTime
+import de.letzgo.abstand.ui.components.AbstandPlayPill
+import de.letzgo.abstand.ui.components.AbstandStatusBadges
+import de.letzgo.abstand.ui.library.LibraryRowLayout
 
 /** iOS: `LibraryRowLayout` (Ausschnitt) — Maße der Library-Zeilen. */
 internal object PodcastRowLayout {
@@ -108,7 +102,7 @@ internal fun PodcastEpisodeRowCard(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f).alpha(contentAlpha),
                     )
-                    PodcastRowStatusBadges(isFinished, live.isDownloaded, live.downloadProgress)
+                    AbstandStatusBadges(isFinished, live.isDownloaded, live.downloadProgress != null && !live.isDownloaded, live.downloadProgress ?: 0.0)
                 }
                 Text(
                     episode.showTitle.ifBlank { "—" },
@@ -150,46 +144,10 @@ internal fun PodcastRowCardChrome(
     }
 }
 
-/** iOS: `LibraryRowStatusBadges` — beendet / heruntergeladen / lädt (Kreis mit Fortschritt). */
-@Composable
-internal fun PodcastRowStatusBadges(isFinished: Boolean, isDownloaded: Boolean, downloadProgress: Double?) {
-    val color = Theme.palette.textSecondary
-    Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.badgeSpacing), verticalAlignment = Alignment.CenterVertically) {
-        if (isFinished) {
-            Icon(SF.checkmarkCircleFill, contentDescription = "Finished", tint = color, modifier = Modifier.size(PodcastRowLayout.statusIconSize))
-        }
-        when {
-            downloadProgress != null && !isDownloaded -> CircularProgressIndicator(
-                progress = { downloadProgress.toFloat().coerceIn(0f, 1f) },
-                color = color,
-                strokeWidth = 2.dp,
-                trackColor = color.copy(alpha = 0.25f),
-                modifier = Modifier.size(PodcastRowLayout.statusIconSize).semantics { contentDescription = "Downloading" },
-            )
-            isDownloaded -> Icon(SF.arrowDownCircleFill, contentDescription = "Downloaded", tint = color, modifier = Modifier.size(PodcastRowLayout.statusIconSize))
-        }
-    }
-}
-
 /** iOS: `LibraryRowPlayPill` — Akzent-Kapsel mit Play/Pause. */
 @Composable
 internal fun PodcastPlayPill(isPlaying: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .clip(CircleShape)
-            .background(Theme.accent)
-            .clickable(onClick = onClick)
-            .padding(horizontal = AppTheme.Layout.cardPadding, vertical = AppTheme.Layout.stackSpacing)
-            .semantics { contentDescription = if (isPlaying) "Pause" else "Play" },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            if (isPlaying) SF.pauseFill else SF.playFill,
-            contentDescription = null,
-            tint = Theme.onAccent,
-            modifier = Modifier.size(PodcastRowLayout.playPillIconSize),
-        )
-    }
+    AbstandPlayPill(isPlaying, onClick, modifier)
 }
 
 /** Kompakte Text-Zeile „Label: Wert“ (iOS: `LibraryRowCollapsedMetaLine`). */

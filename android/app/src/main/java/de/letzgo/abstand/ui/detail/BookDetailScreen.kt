@@ -3,21 +3,12 @@ package de.letzgo.abstand.ui.detail
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -27,39 +18,33 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import de.letzgo.abstand.data.AbsApiClient
 import de.letzgo.abstand.data.AbsBook
 import de.letzgo.abstand.data.AbsBookMedia
 import de.letzgo.abstand.data.AbsBookMediaMetadata
 import de.letzgo.abstand.data.AbsEbookFormat
 import de.letzgo.abstand.data.AbsListeningSession
 import de.letzgo.abstand.data.CoverImageTier
-import de.letzgo.abstand.data.AbsApiClient
 import de.letzgo.abstand.logic.BookDetailLogic
 import de.letzgo.abstand.logic.BooksEntityDetailNav
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.player.PlaybackController
 import de.letzgo.abstand.store.CoverImageCache
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.components.AbstandInlineSpinner
-import de.letzgo.abstand.ui.components.AbstandSpinnerSize
-import de.letzgo.abstand.ui.components.CoverImageContentMode
+import de.letzgo.abstand.ui.components.AbstandBlockingProgressDialog
+import de.letzgo.abstand.ui.components.AbstandDialog
+import de.letzgo.abstand.ui.components.AbstandIconButton
+import de.letzgo.abstand.ui.components.AbstandMenuButton
 import de.letzgo.abstand.ui.components.DetailScaffold
 import de.letzgo.abstand.ui.components.LocalCoverEnvironment
 import de.letzgo.abstand.ui.components.SquareCoverImage
-import de.letzgo.abstand.ui.components.abstandCardChrome
 import de.letzgo.abstand.ui.library.LibraryPlayback
 import de.letzgo.abstand.ui.library.coverRevisionFor
-import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
 
 /** Platzhalter, bis Stub/Detail da sind (iOS: `ABSBook(… offlineTitle: "…")`). */
@@ -258,38 +243,38 @@ fun BookDetailScreen(
     // MARK: Bestätigungen (iOS: `.alert`s)
     confirm?.let { c ->
         val d = detail ?: book
-        AlertDialog(
-            onDismissRequest = { confirm = null },
-            title = { Text(c.title) },
-            text = { Text(c.message(d.displayTitle)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirm = null
-                    scope.launch {
-                        when (c) {
-                            BookDetailConfirm.DiscardProgress -> {
-                                catalog.discardBookProgress(itemId)
-                                // Sitzungen wurden serverseitig mitgelöscht — Liste nachziehen.
-                                sessions = catalog.loadBookListeningSessions(itemId, d.mediaId)
-                            }
-                            BookDetailConfirm.MarkFinished -> catalog.markFinished(itemId)
-                            BookDetailConfirm.MarkUnfinished -> catalog.markUnfinished(itemId)
-                            BookDetailConfirm.MarkEbookRead -> ebookFormat?.let { catalog.markEbookAsFinished(itemId, it) }
-                            BookDetailConfirm.ResetEbook -> ebookFormat?.let { catalog.resetEbookReadingProgress(itemId, it) }
-                            BookDetailConfirm.Delete -> {
-                                isDeleting = true
-                                val ok = catalog.deleteFromServer(itemId, hardDelete = true)
-                                isDeleting = false
-                                if (ok) back()
-                            }
+        AbstandDialog(
+            title = c.title,
+            onDismiss = { confirm = null },
+            message = c.message(d.displayTitle),
+            confirmLabel = c.confirmLabel,
+            destructive = c.destructive,
+            dismissOnConfirm = false,
+            onConfirm = {
+                confirm = null
+                scope.launch {
+                    when (c) {
+                        BookDetailConfirm.DiscardProgress -> {
+                            catalog.discardBookProgress(itemId)
+                            // Sitzungen wurden serverseitig mitgelöscht — Liste nachziehen.
+                            sessions = catalog.loadBookListeningSessions(itemId, d.mediaId)
+                        }
+                        BookDetailConfirm.MarkFinished -> catalog.markFinished(itemId)
+                        BookDetailConfirm.MarkUnfinished -> catalog.markUnfinished(itemId)
+                        BookDetailConfirm.MarkEbookRead -> ebookFormat?.let { catalog.markEbookAsFinished(itemId, it) }
+                        BookDetailConfirm.ResetEbook -> ebookFormat?.let { catalog.resetEbookReadingProgress(itemId, it) }
+                        BookDetailConfirm.Delete -> {
+                            isDeleting = true
+                            val ok = catalog.deleteFromServer(itemId, hardDelete = true)
+                            isDeleting = false
+                            if (ok) back()
                         }
                     }
-                }) { Text(c.confirmLabel, color = if (c.destructive) AppTheme.danger else Theme.accent) }
+                }
             },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
         )
     }
-    if (isDeleting) DeletingBookPopup()
+    if (isDeleting) AbstandBlockingProgressDialog("Deleting book") // iOS: `deletingBookPopup`
 }
 
 /** iOS: die Bestätigungs-Alerts von `BookDetailView`. */
@@ -330,7 +315,7 @@ private fun androidx.compose.foundation.layout.RowScope.BookDetailToolbar(
     model: AppModel = AppModel.shared,
 ) {
     val catalog = model.catalog
-    IconButton(onClick = onShare, enabled = enabled) { Icon(SF.squareAndArrowUp, "Share", tint = Theme.palette.textPrimary) }
+    AbstandIconButton(SF.squareAndArrowUp, "Share", onClick = onShare, enabled = enabled, tint = Theme.palette.textPrimary)
     val storageId = catalog.downloadStorageIdForLibraryItem(book.id) ?: book.id
     if (!isPureEbook) {
         DetailToolbarDownloadItem(
@@ -340,59 +325,22 @@ private fun androidx.compose.foundation.layout.RowScope.BookDetailToolbar(
             enabled = enabled,
         )
     }
-    IconButton(onClick = onReset, enabled = enabled && canDiscard) {
-        Icon(SF.clockArrowCirclepath, "Reset listening progress", tint = if (canDiscard) AppTheme.danger else Theme.palette.textSecondary)
-    }
+    AbstandIconButton(
+        SF.clockArrowCirclepath, "Reset listening progress", onClick = onReset, enabled = enabled && canDiscard,
+        tint = if (canDiscard) AppTheme.danger else Theme.palette.textSecondary,
+    )
     val adminItems = listOfNotNull(
         onEditMetadata?.let { Triple("Edit Metadata", SF.pencil, it) },
         onMatchMetadata?.let { Triple("Match Metadata", SF.magnifyingglass, it) },
         onEditChapters?.let { Triple("Edit Chapters", SF.listBulletBelowRectangle, it) },
     )
     if (showsAdminMenu && (adminItems.isNotEmpty() || isRoot)) {
-        var open by remember { mutableStateOf(false) }
-        Box {
-            IconButton(onClick = { open = true }, enabled = enabled && reachable) {
-                Icon(SF.ellipsisCircle, "More actions", tint = Theme.palette.textPrimary)
+        AbstandMenuButton(SF.ellipsisCircle, "More actions", enabled = enabled && reachable, tint = Theme.palette.textPrimary) {
+            adminItems.forEach { (title, icon, action) -> item(title, action, icon = icon) }
+            if (isRoot) {
+                if (adminItems.isNotEmpty()) divider()
+                item("Delete book", onDelete, icon = SF.trash, destructive = true)
             }
-            DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = Theme.palette.card) {
-                adminItems.forEach { (title, icon, action) ->
-                    DropdownMenuItem(
-                        text = { Text(title, style = IosType.body, color = Theme.palette.textPrimary) },
-                        leadingIcon = { Icon(icon, null, tint = Theme.palette.textPrimary) },
-                        onClick = {
-                            open = false
-                            action()
-                        },
-                    )
-                }
-                if (isRoot) {
-                    if (adminItems.isNotEmpty()) HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Delete book", style = IosType.body, color = AppTheme.danger) },
-                        leadingIcon = { Icon(SF.trash, null, tint = AppTheme.danger) },
-                        onClick = {
-                            open = false
-                            onDelete()
-                        },
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** iOS: `deletingBookPopup` — blockierend bis zur Server-Antwort. */
-@Composable
-private fun DeletingBookPopup() {
-    val palette = Theme.palette
-    Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
-        Column(
-            Modifier.abstandCardChrome(palette.card).padding(horizontal = AppTheme.Layout.modalHorizontalPadding, vertical = AppTheme.Layout.blockSpacing),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.cardPadding),
-        ) {
-            androidx.compose.material3.CircularProgressIndicator(color = Theme.accent)
-            Text("Deleting book", style = IosType.headline.semibold, color = palette.textPrimary)
         }
     }
 }

@@ -15,10 +15,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -31,16 +31,11 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -64,7 +59,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -96,8 +90,13 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.components.AbstandAlert
+import de.letzgo.abstand.ui.components.AbstandDialog
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
+import de.letzgo.abstand.ui.components.AbstandIconButton
+import de.letzgo.abstand.ui.components.AbstandInlineSpinner
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
+import de.letzgo.abstand.ui.components.AbstandMenuBox
 import de.letzgo.abstand.ui.components.AbstandProminentButton
 import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.CancellationException
@@ -128,7 +127,7 @@ internal object ReaderMetrics {
     /** Deckkraft der Chrome-Flächen (iOS: `.ultraThinMaterial`). */
     const val chromeSurfaceAlpha = 0.92f
     /** Markierung der zuletzt gehörten Wörter (iOS: `.systemYellow`). */
-    val narrationHighlight = Color(0xFFFFCC00)
+    val narrationHighlight = AppTheme.narrationHighlight
     const val passiveProgressAlpha = 0.75f
     const val secondaryTextAlpha = 0.72f
     /** Nach Layout-Umbruch (Schriftgröße, Theme) neu messen (iOS: 450 ms). */
@@ -471,52 +470,51 @@ fun ReaderScreen(session: EbookReaderSession, onClose: () -> Unit) {
     }
 
     if (confirmReset) {
-        AlertDialog(
-            onDismissRequest = { confirmReset = false },
-            title = { Text("Reset reading position?") },
-            text = { Text("This removes your saved position for this book. You cannot undo this.") },
-            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Cancel") } },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmReset = false
-                    scope.launch {
-                        actionInProgress = true
-                        try {
-                            EbookProgressSync.reset(id, format)
-                            when (val reader = loaded) {
-                                is LoadedReader.Epub -> ReadiumReaderService.startLocator(reader.publication)?.let { reader.fragment.go(it) }
-                                is LoadedReader.Pdf -> reader.controller.goTo(0)
-                                null -> Unit
-                            }
-                            readProgress = 0.0
-                            readProgressLabel = "0 %"
-                            bookPageProgress = null
-                        } finally {
-                            actionInProgress = false
+        AbstandDialog(
+            title = "Reset reading position?",
+            onDismiss = { confirmReset = false },
+            message = "This removes your saved position for this book. You cannot undo this.",
+            confirmLabel = "Reset",
+            destructive = true,
+            dismissOnConfirm = false,
+            onConfirm = {
+                confirmReset = false
+                scope.launch {
+                    actionInProgress = true
+                    try {
+                        EbookProgressSync.reset(id, format)
+                        when (val reader = loaded) {
+                            is LoadedReader.Epub -> ReadiumReaderService.startLocator(reader.publication)?.let { reader.fragment.go(it) }
+                            is LoadedReader.Pdf -> reader.controller.goTo(0)
+                            null -> Unit
                         }
+                        readProgress = 0.0
+                        readProgressLabel = "0 %"
+                        bookPageProgress = null
+                    } finally {
+                        actionInProgress = false
                     }
-                }) { Text("Reset", color = AppTheme.danger) }
+                }
             },
         )
     }
     if (confirmFinish) {
-        AlertDialog(
-            onDismissRequest = { confirmFinish = false },
-            title = { Text("Mark as finished?") },
-            text = { Text("Your reading progress will be saved as complete.") },
-            dismissButton = { TextButton(onClick = { confirmFinish = false }) { Text("Cancel") } },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmFinish = false
-                    scope.launch {
-                        actionInProgress = true
-                        try {
-                            EbookProgressSync.markFinished(id, format)
-                        } finally {
-                            actionInProgress = false
-                        }
+        AbstandDialog(
+            title = "Mark as finished?",
+            onDismiss = { confirmFinish = false },
+            message = "Your reading progress will be saved as complete.",
+            confirmLabel = "Mark as finished",
+            dismissOnConfirm = false,
+            onConfirm = {
+                confirmFinish = false
+                scope.launch {
+                    actionInProgress = true
+                    try {
+                        EbookProgressSync.markFinished(id, format)
+                    } finally {
+                        actionInProgress = false
                     }
-                }) { Text("Mark as finished") }
+                }
             },
         )
     }
@@ -645,9 +643,7 @@ private fun ReaderTopChrome(session: EbookReaderSession, foreground: Color, seco
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
     ) {
-        IconButton(onClick = onClose, modifier = Modifier.size(AppTheme.Layout.iconButtonSize)) {
-            Icon(SF.xmarkCircleFill, contentDescription = "Close", tint = foreground)
-        }
+        ChromeIconButton(SF.xmarkCircleFill, "Close", foreground, onClick = onClose)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing)) {
             Text(session.title, style = IosType.subheadline.semibold, color = foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (session.author.isNotEmpty()) {
@@ -719,45 +715,16 @@ private fun ReaderBottomChrome(
                 if (continuousScroll) "Continuous scroll, on" else "Continuous scroll, off",
                 foreground,
             ) { onToggleScroll() }
-            Box {
-                var open by remember { mutableStateOf(false) }
-                ChromeIconButton(readerTheme.icon, "Reader theme, ${readerTheme.displayName}", foreground) { open = true }
-                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                    EpubReaderTheme.entries.forEach { theme ->
-                        DropdownMenuItem(
-                            text = { Text(theme.displayName) },
-                            leadingIcon = { Icon(if (readerTheme == theme) SF.checkmark else theme.icon, contentDescription = null) },
-                            onClick = {
-                                open = false
-                                onTheme(theme)
-                            },
-                        )
-                    }
-                }
+            AbstandMenuBox(anchor = { open -> ChromeIconButton(readerTheme.icon, "Reader theme, ${readerTheme.displayName}", foreground, onClick = open) }) {
+                picker(EpubReaderTheme.entries, readerTheme, { it.displayName }, onTheme, icon = { it.icon })
             }
-            Box {
-                var open by remember { mutableStateOf(false) }
-                ChromeIconButton(SF.ellipsisCircle, "Reader options", foreground) { open = true }
-                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                    DropdownMenuItem(
-                        text = { Text(if (isFinished) "Finished reading" else "Mark as finished") },
-                        leadingIcon = { Icon(if (isFinished) SF.checkmarkCircleFill else SF.checkmarkCircle, contentDescription = null) },
-                        enabled = !actionInProgress && !isFinished,
-                        onClick = {
-                            open = false
-                            onMarkFinished()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Reset position", color = AppTheme.danger) },
-                        leadingIcon = { Icon(SF.arrowCounterclockwise, contentDescription = null, tint = AppTheme.danger) },
-                        enabled = !actionInProgress,
-                        onClick = {
-                            open = false
-                            onReset()
-                        },
-                    )
-                }
+            AbstandMenuBox(anchor = { open -> ChromeIconButton(SF.ellipsisCircle, "Reader options", foreground, onClick = open) }) {
+                item(
+                    if (isFinished) "Finished reading" else "Mark as finished", onMarkFinished,
+                    icon = if (isFinished) SF.checkmarkCircleFill else SF.checkmarkCircle,
+                    enabled = !actionInProgress && !isFinished,
+                )
+                item("Reset position", onReset, icon = SF.arrowCounterclockwise, destructive = true, enabled = !actionInProgress)
             }
         }
     }
@@ -772,9 +739,7 @@ private fun ChromeIconButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(size)) {
-        Icon(icon, contentDescription = description, tint = if (enabled) tint else tint.copy(alpha = 0.35f))
-    }
+    AbstandIconButton(icon, description, onClick = onClick, enabled = enabled, size = size, tint = tint)
 }
 
 /**
@@ -791,18 +756,13 @@ private fun NarrationJumpButton(controller: EbookNarrationJumpController, foregr
     val notice by controller.notice.collectAsState()
     if (busy) {
         Box(Modifier.size(AppTheme.Layout.iconButtonSize), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(Modifier.size(AppTheme.Layout.blockSpacing), color = foreground, strokeWidth = AppTheme.Layout.boldStrokeWidth)
+            AbstandInlineSpinner(color = foreground, size = AppTheme.Layout.blockSpacing, strokeWidth = AppTheme.Layout.boldStrokeWidth)
         }
     } else {
         ChromeIconButton(SF.headphones, "Go to audiobook position", foreground) { controller.jumpToNarration() }
     }
     notice?.let { text ->
-        AlertDialog(
-            onDismissRequest = controller::dismissNotice,
-            title = { Text("Can't jump to the audiobook position") },
-            text = { Text(text) },
-            confirmButton = { TextButton(onClick = controller::dismissNotice) { Text("OK") } },
-        )
+        AbstandAlert("Can't jump to the audiobook position", onDismiss = controller::dismissNotice, message = text)
     }
 }
 

@@ -17,12 +17,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -49,6 +45,9 @@ import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCardEmptyState
+import de.letzgo.abstand.ui.components.AbstandDialog
+import de.letzgo.abstand.ui.components.AbstandIconButton
+import de.letzgo.abstand.ui.components.AbstandInsetTextField
 import de.letzgo.abstand.ui.components.AbstandProminentButton
 import de.letzgo.abstand.ui.detail.ListeningHistorySessionList
 import de.letzgo.abstand.ui.formatPlaybackTime
@@ -223,9 +222,7 @@ fun BookmarksPanel(wiring: PlayerWiring, audiobookId: String) {
                             Text(b.title.ifBlank { "Bookmark" }, style = IosType.body, color = palette.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text(formatPlaybackTime(b.time.toDouble()), style = IosType.footnote, color = palette.textSecondary)
                         }
-                        IconButton(onClick = { deleting = b }) {
-                            Icon(SF.trash, contentDescription = "Delete bookmark", tint = AppTheme.danger)
-                        }
+                        AbstandIconButton(SF.trash, "Delete bookmark", onClick = { deleting = b }, tint = AppTheme.danger)
                     }
                 }
             }
@@ -237,42 +234,33 @@ fun BookmarksPanel(wiring: PlayerWiring, audiobookId: String) {
 
     if (adding) {
         var title by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { adding = false },
-            title = { Text("Add Bookmark") },
-            text = {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    singleLine = true,
-                    placeholder = { Text("Title (optional)") },
-                )
+        AbstandDialog(
+            title = "Add Bookmark",
+            onDismiss = { adding = false },
+            confirmLabel = "Add",
+            onConfirm = {
+                busy = true
+                scope.launch {
+                    wiring.addBookmarkAtCurrentPosition(title)
+                    busy = false
+                }
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    adding = false
-                    busy = true
-                    scope.launch {
-                        wiring.addBookmarkAtCurrentPosition(title)
-                        busy = false
-                    }
-                }) { Text("Add") }
-            },
-            dismissButton = { TextButton(onClick = { adding = false }) { Text("Cancel") } },
-        )
+        ) {
+            AbstandInsetTextField(value = title, placeholder = "Title (optional)", label = "Bookmark title", onValueChange = { title = it })
+        }
     }
     deleting?.let { b ->
-        AlertDialog(
-            onDismissRequest = { deleting = null },
-            title = { Text("Delete Bookmark?") },
-            text = { Text(b.title.ifBlank { formatPlaybackTime(b.time.toDouble()) }) },
-            confirmButton = {
-                TextButton(onClick = {
-                    deleting = null
-                    scope.launch { wiring.deleteBookmark(b) }
-                }) { Text("Delete", color = AppTheme.danger) }
+        AbstandDialog(
+            title = "Delete Bookmark?",
+            onDismiss = { deleting = null },
+            message = b.title.ifBlank { formatPlaybackTime(b.time.toDouble()) },
+            confirmLabel = "Delete",
+            destructive = true,
+            dismissOnConfirm = false,
+            onConfirm = {
+                deleting = null
+                scope.launch { wiring.deleteBookmark(b) }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
     }
 }

@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -32,12 +30,14 @@ import de.letzgo.abstand.data.AbsPodcastEpisodeListItem
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.IosType
-import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCardBottomProgress
+import de.letzgo.abstand.ui.components.LibraryRowCollapsedMetaLine
 import de.letzgo.abstand.ui.components.SquareCoverImage
 import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.semibold
+import de.letzgo.abstand.ui.components.AbstandStatusBadges
+import de.letzgo.abstand.ui.library.LibraryRowLayout
 
 // Home-Regale (alle außer „Continue listening“): Kompaktkarte — Cover 1:1 links, rechts Titel
 // (eine Zeile), Metazeile, unten Laufzeit/Status. Ohne Play-Pille, ≈ 3/4 der Regalbreite, ein Ziel:
@@ -112,32 +112,7 @@ fun HomeCompactFooterText(text: String) {
     Text(text, style = IosType.subheadline, color = Theme.palette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
-/** iOS: `HomeCompactCardStatusBadges` — „fertig“ + Download-Status rechts unten. */
-@Composable
-fun HomeCompactCardStatusBadges(isFinished: Boolean, isDownloaded: Boolean, isDownloading: Boolean, downloadProgress: Double) {
-    val color = Theme.palette.textSecondary
-    Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing), verticalAlignment = Alignment.CenterVertically) {
-        if (isFinished) {
-            Icon(
-                SF.checkmarkCircleFill, contentDescription = "Finished", tint = color,
-                modifier = Modifier.size(BadgeIconSize).alpha(LibraryRowLayout.finishedContentOpacity),
-            )
-        }
-        if (isDownloaded) {
-            Icon(SF.arrowDownCircleFill, contentDescription = "Saved offline", tint = color, modifier = Modifier.size(BadgeIconSize))
-        } else if (isDownloading) {
-            LinearProgressIndicator(
-                progress = { downloadProgress.toFloat().coerceIn(0f, 1f) },
-                color = color,
-                trackColor = Theme.palette.progressTrack,
-                modifier = Modifier.width(AppTheme.Layout.compactIconButtonSize).semantics { contentDescription = "Downloading" },
-            )
-        }
-    }
-}
 
-/** iOS: `.font(.caption)` der Status-Symbole. */
-private val BadgeIconSize: Dp = AppTheme.Layout.coverBadgeSize * 0.8f
 
 /** iOS: `HomeBookCompactCard` — Hörbuch oder (Continue reading) eBook mit Lesefortschritt. */
 @Composable
@@ -175,7 +150,7 @@ fun HomeBookCompactCard(book: AbsBook, onOpen: () -> Unit, usesEbookProgressDisp
                 HomeCompactFooterText(formatPlaybackTime(book.media.duration ?: 0.0))
             }
         },
-        badges = { HomeCompactCardStatusBadges(isFinished, download.isDownloaded, download.isDownloading, download.progress) },
+        badges = { AbstandStatusBadges(isFinished, download.isDownloaded, download.isDownloading, download.progress) },
     )
 }
 
@@ -205,7 +180,7 @@ fun HomeEpisodeCompactCard(episode: AbsPodcastEpisodeListItem, onOpen: () -> Uni
         progressValue = if (showsProgressBar) progress!!.progress.coerceIn(0.0, 1.0) else 0.0,
         cover = { SquareCoverImage(itemId = episode.libraryItemId, tint = coverTint(episode.libraryItemId)) },
         footer = { HomeCompactFooterText(formatPlaybackTime(total)) },
-        badges = { HomeCompactCardStatusBadges(isFinished, download.isDownloaded, download.isDownloading, download.progress) },
+        badges = { AbstandStatusBadges(isFinished, download.isDownloaded, download.isDownloading, download.progress) },
     )
 }
 

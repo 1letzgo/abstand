@@ -30,7 +30,7 @@ import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
 import de.letzgo.abstand.ui.components.AbstandLabeledLoadingState
-import de.letzgo.abstand.ui.components.AbstandSheetScaffold
+import de.letzgo.abstand.ui.components.AbstandSheet
 
 /**
  * iOS: `PlayerTranscriptRecapCard` — „Last 5 minutes". Startet beim Öffnen [PlayerLiveTranscriptionController.generateRecap]
@@ -42,7 +42,7 @@ fun TranscriptRecapSheet(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val controller = remember { PlayerLiveTranscriptionController.shared(context) }
     LaunchedEffect(Unit) { controller.generateRecap() }
-    AbstandSheetScaffold(title = "Recap", onDismiss = onDismiss, onConfirm = onDismiss, confirmLabel = "Done") {
+    AbstandSheet(title = "Recap", onDismiss = onDismiss, onConfirm = onDismiss, confirmLabel = "Done") {
         Box(Modifier.fillMaxWidth().heightIn(min = RecapMinHeight, max = RecapMaxHeight)) {
             TranscriptRecapContent(controller)
         }

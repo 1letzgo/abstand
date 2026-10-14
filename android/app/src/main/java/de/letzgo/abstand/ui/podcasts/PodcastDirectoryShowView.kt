@@ -13,13 +13,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,6 +45,7 @@ import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.components.AbstandAlert
 import de.letzgo.abstand.ui.components.AbstandInlineNotice
 import de.letzgo.abstand.ui.components.AbstandInlineSpinner
 import de.letzgo.abstand.ui.components.AbstandPrimaryButton
@@ -57,11 +56,11 @@ import de.letzgo.abstand.ui.components.CoverImageContentMode
 import de.letzgo.abstand.ui.components.DetailScaffold
 import de.letzgo.abstand.ui.formatPlaybackDurationShortHuman
 import de.letzgo.abstand.ui.semibold
-import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Date
+import kotlinx.coroutines.launch
 
 /** Navigationsziel: Sendungsvorschau aus dem „Add podcast“-Flow (iOS: `navigationDestination(item: $previewHit)`). */
 class PodcastDirectoryShowDestination(val hit: AbsPodcastDirectorySearchHit) : TabDestination {
@@ -306,12 +305,7 @@ fun PodcastDirectoryShowView(hit: AbsPodcastDirectorySearchHit, onBack: () -> Un
     }
 
     subscribeError?.let { msg ->
-        AlertDialog(
-            onDismissRequest = { subscribeError = null },
-            title = { Text("Could not subscribe") },
-            text = { Text(msg) },
-            confirmButton = { TextButton(onClick = { subscribeError = null }) { Text("OK") } },
-        )
+        AbstandAlert("Could not subscribe", onDismiss = { subscribeError = null }, message = msg)
     }
 }
 

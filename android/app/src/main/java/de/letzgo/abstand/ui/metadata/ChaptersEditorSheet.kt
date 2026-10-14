@@ -6,9 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,6 +25,7 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.components.AbstandAlert
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
 import de.letzgo.abstand.ui.components.AbstandInlineNotice
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
@@ -181,10 +180,6 @@ fun ChaptersEditorSheet(itemId: String, onDismiss: () -> Unit) {
     }
 
     applyError?.let { msg ->
-        AlertDialog(
-            onDismissRequest = { applyError = null },
-            title = { Text("Apply failed") }, text = { Text(msg) },
-            confirmButton = { TextButton(onClick = { applyError = null }) { Text("OK") } },
-        )
+        AbstandAlert("Apply failed", onDismiss = { applyError = null }, message = msg)
     }
 }

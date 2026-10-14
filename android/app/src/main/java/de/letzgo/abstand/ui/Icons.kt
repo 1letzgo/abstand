@@ -258,7 +258,7 @@ object SF {
 object DetailMetaLabelIcon {
     fun icon(title: String): ImageVector? = when (title.trim().lowercase()) {
         "author" -> SF.personFill
-        "narrator" -> SF.micFill
+        "narrator", "narrators" -> SF.micFill
         "series" -> SF.booksVerticalFill
         "publisher" -> SF.building2Fill
         "duration", "total runtime" -> SF.clockFill

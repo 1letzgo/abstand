@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,15 +22,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,15 +40,14 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.IosType
-import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.LocalScrollBottomInset
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.semibold
+import de.letzgo.abstand.ui.bold
 
 // Screen-Gerüste je Kategorie (CLAUDE.md „Design-Grundlagen“):
 // Tab-Root → TabRootScaffold · Detailseite → DetailScaffold · Settings-Unterseite →
-// SettingsSubpageScaffold · Sheet → MetadataSheetScaffold / AbstandSheetScaffold ·
+// SettingsSubpageScaffold · Sheet → MetadataSheetScaffold / AbstandSheet (Overlays.kt) ·
 // Vollbild-Overlay → eigenes Layout mit Theme.palette.background.
 
 /** iOS: `abstandScrollScreenBackground()` — App-Hintergrund (`palette.background`). */
@@ -86,7 +79,7 @@ fun abstandScrollBottomPadding(): Dp = AppTheme.Layout.scrollBottomInsetBase + L
 /** Zurück-Pfeil für Top-App-Bars (Android-Ersatz für den iOS-Back-Button). */
 @Composable
 fun AbstandBackButton(onBack: () -> Unit, tint: Color = Theme.palette.textPrimary) {
-    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = tint) }
+    AbstandIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack, tint = tint)
 }
 
 /**
@@ -254,12 +247,7 @@ fun SheetConfirmAction(label: String, onClick: () -> Unit, enabled: Boolean = tr
     if (isBusy) {
         Box(Modifier.padding(horizontal = AppTheme.Layout.screenPadding)) { AbstandInlineSpinner() }
     } else {
-        TextButton(onClick = onClick, enabled = enabled) {
-            Text(
-                label, style = IosType.body.semibold,
-                color = if (enabled) Theme.accent else Theme.palette.textSecondary.copy(alpha = 0.5f),
-            )
-        }
+        AbstandTextButton(label, onClick, enabled = enabled, emphasized = true)
     }
 }
 
@@ -293,7 +281,7 @@ fun MetadataSheetScaffold(
                 TopAppBar(
                     title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = {
-                        IconButton(onClick = onCancel) { Icon(SF.xmark, contentDescription = "Cancel", tint = palette.textPrimary) }
+                        AbstandIconButton(SF.xmark, "Cancel", onClick = onCancel, tint = palette.textPrimary)
                     },
                     actions = { if (onConfirm != null) SheetConfirmAction(confirmLabel, onConfirm, confirmEnabled, isBusy) },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -322,47 +310,6 @@ fun MetadataSheetScaffold(
                     content = content,
                 )
             }
-        }
-    }
-}
-
-/**
- * Kurzes Sheet als Material-`ModalBottomSheet` (iOS: `.sheet` mit `.presentationDetents`):
- * Kopfzeile mit Titel und optionalem Bestätigen, Inhalt mit `screenPadding`.
- * Für Formulare mit Tastatur [MetadataSheetScaffold] nehmen.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AbstandSheetScaffold(
-    title: String,
-    onDismiss: () -> Unit,
-    onConfirm: (() -> Unit)? = null,
-    confirmLabel: String = "Done",
-    confirmEnabled: Boolean = true,
-    isBusy: Boolean = false,
-    spacing: Dp = AppTheme.Layout.withinSectionSpacing,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    val palette = Theme.palette
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = palette.background,
-        contentColor = palette.textPrimary,
-    ) {
-        Column(
-            Modifier.fillMaxWidth().padding(
-                start = AppTheme.Layout.screenPadding,
-                end = AppTheme.Layout.screenPadding,
-                bottom = AppTheme.Layout.blockSpacing,
-            ),
-            verticalArrangement = Arrangement.spacedBy(spacing),
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(title, style = IosType.headline, color = palette.textPrimary, modifier = Modifier.weight(1f))
-                if (onConfirm != null) SheetConfirmAction(confirmLabel, onConfirm, confirmEnabled, isBusy)
-            }
-            content()
         }
     }
 }

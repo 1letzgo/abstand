@@ -156,14 +156,19 @@ fun AbstandLoadingSpinner(
 
 /**
  * Kleiner Inline-Spinner in Buttons/Zeilen (iOS: `ProgressView().controlSize(.small)`).
- * [color] `null` = Akzent.
+ * [color] `null` = Akzent; [size]/[strokeWidth] für Transport-Knöpfe (Spinner auf Akzentfläche).
  */
 @Composable
-fun AbstandInlineSpinner(modifier: Modifier = Modifier, color: Color? = null) {
+fun AbstandInlineSpinner(
+    modifier: Modifier = Modifier,
+    color: Color? = null,
+    size: Dp = AbstandSpinnerSize.Small.diameter,
+    strokeWidth: Dp = AbstandSpinnerSize.Small.strokeWidth,
+) {
     CircularProgressIndicator(
         color = color ?: Theme.accent,
-        strokeWidth = AbstandSpinnerSize.Small.strokeWidth,
-        modifier = modifier.size(AbstandSpinnerSize.Small.diameter),
+        strokeWidth = strokeWidth,
+        modifier = modifier.size(size),
     )
 }
 
