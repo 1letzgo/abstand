@@ -78,6 +78,7 @@ abstand.debug.password=…
 | `player/PlaybackController.kt`, `player/PlaybackTimeline.kt`, `player/SleepTimer.kt` | `PlaybackController` (+ `SleepTimerMode`, `ABSPlaybackSkipDefaults`, sleep menu presets) |
 | `player/BookTimelinePlayer.kt`, `player/AbstandPlaybackService.kt`, `player/CoverBitmapLoader.kt` | `MPNowPlayingInfoCenter` / `MPRemoteCommandCenter`, `AudioSessionController`, `CarPlaySceneDelegate` |
 | `player/AutoBrowseTree.kt` | `CarPlayCoordinator` (Android Auto browse tree) |
+| `player/LocalDownloadSwitch.kt` | decision part of `AppModel.applyLocalPlaybackIfDownloadMatchesCurrent` (switch to local files when the streamed item's download finishes) |
 | `player/AudioEq.kt` | `AudioEQProcessor` (`AudioEQPreset`, biquads → Media3 `AudioProcessor`) |
 | `player/PlaybackHost.kt`, `player/PlaybackHostBridge.kt`, `player/PendingOfflineListening.kt` | `AppModel` player wiring (progress, completion, smart download, offline listening seconds) |
 | `downloads/DownloadManager.kt`, `downloads/DownloadQueue.kt`, `downloads/DownloadWorker.kt` | `DownloadManager` (WorkManager `dataSync` worker) |

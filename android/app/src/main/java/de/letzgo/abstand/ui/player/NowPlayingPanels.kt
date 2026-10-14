@@ -24,6 +24,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +41,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import de.letzgo.abstand.data.AbsAudioBookmark
 import de.letzgo.abstand.data.AbsBook
+import de.letzgo.abstand.data.AbsListeningSession
 import de.letzgo.abstand.data.absPlainText
 import de.letzgo.abstand.model.PlayerWiring
 import de.letzgo.abstand.ui.AppTheme
@@ -48,12 +50,13 @@ import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCardEmptyState
 import de.letzgo.abstand.ui.components.AbstandProminentButton
+import de.letzgo.abstand.ui.detail.ListeningHistorySessionList
 import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
 
 /** iOS: `FullPlayerCoverPanel` — was den Cover-Bereich ersetzt (+ Read-along, iOS: Teleprompter-Zustand). */
-enum class FullPlayerCoverPanel { artwork, description, bookmarks, chapters, readAlong }
+enum class FullPlayerCoverPanel { artwork, description, bookmarks, chapters, sessions, readAlong }
 
 /**
  * iOS: `FullPlayerCoverOverlayButton` — runder Panel-Knopf (aktiv: Akzent-Füllung).
@@ -165,6 +168,28 @@ fun ChaptersPanel(wiring: PlayerWiring) {
                 Text(formatPlaybackTime(c.start), style = IosType.footnote, color = palette.textSecondary)
             }
         }
+    }
+}
+
+/**
+ * iOS: Sessions-Panel („Listening history“) — `ListeningHistorySessionList` der aktuellen Folge bzw. des
+ * Buchs; geladen beim Öffnen des Panels (iOS: `.task(id: coverPanel)`), Tippen startet ab Session-Start.
+ */
+@Composable
+fun SessionsPanel(wiring: PlayerWiring, isEpisode: Boolean) {
+    val reachable by wiring.networkReachable.collectAsState()
+    val book by wiring.player.activeBook.collectAsState()
+    val episodeId by wiring.player.activePlaybackEpisodeId.collectAsState()
+    var sessions by remember(book?.id, episodeId) { mutableStateOf<List<AbsListeningSession>>(emptyList()) }
+    LaunchedEffect(book?.id, episodeId) { sessions = wiring.loadListeningSessionsForActivePlayback() }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(AppTheme.Layout.cardPadding)) {
+        ListeningHistorySessionList(
+            sessions = sessions,
+            isNetworkReachable = reachable,
+            emptyOnlineText = if (isEpisode) "No listening sessions recorded for this episode yet." else "No listening sessions recorded for this book yet.",
+            emptyOfflineText = "No listening history cached yet.",
+            onJump = wiring::playFromListeningSessionStart,
+        )
     }
 }
 

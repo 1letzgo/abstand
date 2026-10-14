@@ -63,7 +63,7 @@ private val AbsBook.hasEbook: Boolean
 
 /**
  * iOS: `NowPlayingDetailView` — Vollbild-Player: großes Cover (bzw. aufgeklapptes Panel), Titel/Autor,
- * Buch- und Kapitel-Scrubber, Panel-Knöpfe (Beschreibung, Bookmarks, Kapitel, Read along), Transport,
+ * Buch- und Kapitel-Scrubber, Panel-Knöpfe (Beschreibung, Bookmarks, Kapitel, Hörverlauf, Read along), Transport,
  * Utility-Leiste (EQ, Tempo, Sleep, Ausgabe, Download).
  *
  * @param readAlong Teleprompter + Recap (iOS: `ReadAlongPanelButton`, `readAlongKaraokeCard`);
@@ -119,6 +119,7 @@ fun NowPlayingScreen(
                 add(FullPlayerCoverPanel.description)
                 if (isAudiobook) add(FullPlayerCoverPanel.bookmarks)
                 if (isAudiobook) add(FullPlayerCoverPanel.chapters)
+                add(FullPlayerCoverPanel.sessions)
                 if (readAlong != null) add(FullPlayerCoverPanel.readAlong)
             }
             // iOS: Read along/Recap nur mit vollständigem Download — sonst Hinweis statt Panel.
@@ -254,6 +255,7 @@ private fun PlayerHeaderArea(
             FullPlayerCoverPanel.description -> FullPlayerPanelCard { DescriptionPanel(book) }
             FullPlayerCoverPanel.chapters -> FullPlayerPanelCard { ChaptersPanel(wiring) }
             FullPlayerCoverPanel.bookmarks -> FullPlayerPanelCard { BookmarksPanel(wiring, book.id) }
+            FullPlayerCoverPanel.sessions -> FullPlayerPanelCard { SessionsPanel(wiring, isEpisode = wiring.podcastEpisodeForActivePlayback() != null) }
             FullPlayerCoverPanel.readAlong -> FullPlayerPanelCard {
                 if (readAlong != null) {
                     Column(Modifier.fillMaxSize()) {
@@ -317,6 +319,7 @@ private fun PanelControlRow(
                 FullPlayerCoverPanel.description -> FullPlayerPanelButton(SF.docText, on, if (on) "Hide description" else "Show description") { onToggle(k) }
                 FullPlayerCoverPanel.bookmarks -> FullPlayerPanelButton(SF.textBookClosed, on, if (on) "Hide bookmarks" else "Show bookmarks") { onToggle(k) }
                 FullPlayerCoverPanel.chapters -> FullPlayerPanelButton(SF.listBullet, on, if (on) "Hide chapters" else "Show chapters") { onToggle(k) }
+                FullPlayerCoverPanel.sessions -> FullPlayerPanelButton(SF.clockArrowCirclepath, on, if (on) "Hide listening history" else "Show listening history") { onToggle(k) }
                 FullPlayerCoverPanel.readAlong -> {
                     // iOS: Recap steht vor Read along (beide brauchen den Download, gedimmt ohne).
                     onRecap?.let { recap -> FullPlayerPanelButton(SF.sparkles, false, "Recap of the last 5 minutes", dimmed = readAlongDimmed, onClick = recap) }

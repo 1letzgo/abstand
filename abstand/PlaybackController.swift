@@ -461,6 +461,36 @@ final class PlaybackController: NSObject, ObservableObject {
     lastExpiredSleepDate = nil
   }
 
+  /// Laufender Timer zum Retten über einen Player-Neuaufbau (`playBook` → `tearDownPlayer` löscht ihn).
+  struct SleepTimerSnapshot {
+    let mode: SleepTimerMode
+    let remaining: TimeInterval?
+    let chapterTarget: Int?
+  }
+
+  /// `nil`, wenn kein Timer aktiv ist.
+  func sleepTimerSnapshot() -> SleepTimerSnapshot? {
+    guard isSleepTimerActive else { return nil }
+    return SleepTimerSnapshot(
+      mode: sleepTimerMode,
+      remaining: sleepTimerChapterTarget == nil ? sleepTimerDisplaySeconds : nil,
+      chapterTarget: sleepTimerChapterTarget
+    )
+  }
+
+  /// Nach `playBook` wieder anwenden — Modus plus Restlaufzeit bzw. Kapitel-Ziel.
+  func restoreSleepTimer(_ snapshot: SleepTimerSnapshot) {
+    sleepTimerMode = snapshot.mode
+    if let target = snapshot.chapterTarget {
+      applySleepTimerChapterTarget(target)
+    } else if let remaining = snapshot.remaining, remaining > 0 {
+      applySleepTimerRemaining(remaining)
+    } else {
+      clearSleepTimer()
+    }
+    applySleepTimerFadeVolume()
+  }
+
   private func scheduleSleepTimerWakeIfNeeded() {
     guard let remaining = sleepTimerRemaining, remaining > 0, !sleepTimerPaused, isPlaying else {
       sleepWakeTask?.cancel()

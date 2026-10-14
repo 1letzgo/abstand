@@ -137,4 +137,49 @@ class SleepTimerTest {
         assertEquals("End of Chapter", SleepTimerMetrics.chaptersMenuLabel(1))
         assertEquals("End of 3 Chapters", SleepTimerMetrics.chaptersMenuLabel(3))
     }
+
+    // MARK: - Snapshot über Player-Neuaufbau (Download fertig → lokal weiter)
+
+    @Test
+    fun snapshotSurvivesClearAndRestoresRemainingWhilePlaying() {
+        startMinutes(30, isPlaying = true)
+        now += 10 * 60_000L
+        val snap = timer.snapshot()!!
+        timer.clear() // tearDownPlayer
+        assertEquals(SleepTimerMode.Off, timer.sleepTimerMode.value)
+        timer.restore(snap, isPlaying = true)
+        assertEquals(SleepTimerMode.Minutes(30), timer.sleepTimerMode.value)
+        assertEquals(now + 20 * 60_000L, timer.sleepEndDate.value)
+        assertTrue(timer.isActive)
+    }
+
+    @Test
+    fun restoreWhileNotYetPlayingWaitsForPlay() {
+        startMinutes(15, isPlaying = false)
+        val snap = timer.snapshot()!!
+        timer.clear()
+        timer.restore(snap, isPlaying = false)
+        assertEquals(SleepTimerMode.Minutes(15), timer.sleepTimerMode.value)
+        assertNull(timer.sleepEndDate.value)
+        assertEquals(900.0, timer.displaySeconds()!!, 1e-6)
+        timer.resumeIfNeeded(isPlaying = true)
+        assertEquals(now + 900_000L, timer.sleepEndDate.value)
+    }
+
+    @Test
+    fun chapterTimerSnapshotKeepsTarget() {
+        timer.setMode(SleepTimerMode.Chapters(2))
+        timer.applyChapterTarget(3)
+        val snap = timer.snapshot()!!
+        timer.clear()
+        timer.restore(snap, isPlaying = true)
+        assertEquals(SleepTimerMode.Chapters(2), timer.sleepTimerMode.value)
+        assertEquals(3, timer.chapterTarget)
+        assertTrue(timer.isActive)
+    }
+
+    @Test
+    fun inactiveTimerHasNoSnapshot() {
+        assertNull(timer.snapshot())
+    }
 }

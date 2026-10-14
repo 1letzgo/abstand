@@ -12,6 +12,7 @@ import de.letzgo.abstand.data.trimmedOrEmpty
 import de.letzgo.abstand.downloads.DownloadHost
 import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.store.ActiveLibraryIdsStore
+import de.letzgo.abstand.transcript.PlayerTranscriptPrefetcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -188,6 +189,10 @@ class DownloadWiring(private val model: AppModel) : DownloadHost, DownloadStatus
             if (ok) {
                 _downloadedIds.value = _downloadedIds.value + storageItemId
                 persistDownloads()
+                // Neuer Download → in die Transkript-Warteschlange (läuft sofort, falls die App offen ist).
+                PlayerTranscriptPrefetcher.scheduleIfNeeded()
+                // Läuft derselbe Titel noch aus dem Stream → auf die lokalen Dateien umschalten.
+                model.player.applyLocalPlaybackIfDownloadMatchesCurrent(storageItemId)
             } else {
                 Log.w(TAG, "Download failed: $storageItemId")
                 session.setErrorMessage("Download failed.")

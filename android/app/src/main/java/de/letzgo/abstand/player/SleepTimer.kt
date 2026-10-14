@@ -184,6 +184,28 @@ class SleepTimer(private val clockMillis: () -> Long = System::currentTimeMillis
         return true
     }
 
+    /** Laufender Timer zum Retten über einen Player-Neuaufbau (`playBook` → `tearDownPlayer` löscht ihn). */
+    data class Snapshot(val mode: SleepTimerMode, val remainingSeconds: Double?, val chapterTarget: Int?)
+
+    /** iOS: `sleepTimerSnapshot()` — `null`, wenn kein Timer aktiv ist. */
+    fun snapshot(): Snapshot? {
+        if (!isActive) return null
+        val target = chapterTarget
+        return Snapshot(_sleepTimerMode.value, if (target == null) displaySeconds() else null, target)
+    }
+
+    /** iOS: `restoreSleepTimer(_:)` — Modus und Restlaufzeit bzw. Kapitel-Ziel wieder setzen. */
+    fun restore(snapshot: Snapshot, isPlaying: Boolean) {
+        setMode(snapshot.mode)
+        val target = snapshot.chapterTarget
+        val seconds = snapshot.remainingSeconds
+        when {
+            target != null -> applyChapterTarget(target)
+            seconds != null && seconds > 0 -> applyRemaining(seconds, isPlaying)
+            else -> clear()
+        }
+    }
+
     /** Countdown für die UI (Sekunden) — bei Pause konstant; Kapitel-Timer → `null`. */
     fun displaySeconds(): Double? {
         if (_sleepTimerMode.value == SleepTimerMode.Off) return null

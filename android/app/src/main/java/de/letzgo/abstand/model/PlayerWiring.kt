@@ -6,6 +6,7 @@ import de.letzgo.abstand.data.AbsApiClient
 import de.letzgo.abstand.data.AbsAudioBookmark
 import de.letzgo.abstand.data.AbsBook
 import de.letzgo.abstand.data.AbsDownloadManifest
+import de.letzgo.abstand.data.AbsListeningSession
 import de.letzgo.abstand.data.AbsPodcastEpisodeListItem
 import de.letzgo.abstand.data.AbsProgressPatch
 import de.letzgo.abstand.data.AbsStartShelfMergedRow
@@ -18,6 +19,7 @@ import de.letzgo.abstand.downloads.DownloadMaintenance
 import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.player.AbstandPlaybackService
 import de.letzgo.abstand.player.BrowseSource
+import de.letzgo.abstand.player.LocalDownloadSwitch
 import de.letzgo.abstand.player.PlaybackController
 import de.letzgo.abstand.player.PlaybackHost
 import de.letzgo.abstand.player.PlaybackHostBridge
@@ -553,6 +555,81 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
     fun removeLocalDownloadForActivePlayback() {
         val sid = currentPlaybackOfflineStorageId() ?: return
         downloads.removeLocalDownload(sid)
+    }
+
+    // MARK: - Download fertig → lokal weiter (iOS: `applyLocalPlaybackIfDownloadMatchesCurrent`)
+
+    /**
+     * Nach abgeschlossenem Download auf lokale Dateien umschalten, wenn noch derselbe Titel aus dem Stream
+     * läuft — gleiche Position, gleicher Play/Pause-Zustand, Sleep-Timer bleibt erhalten.
+     */
+    suspend fun applyLocalPlaybackIfDownloadMatchesCurrent(storageId: String) {
+        val c = session.client ?: return
+        val folder = DownloadManager.existingDownloadFolder(storageId) ?: return
+        val manifest = withContext(Dispatchers.IO) { AbsDownloadManifest.load(folder) } ?: return
+        val stub = AbsBook.fromDownloadManifest(manifest)
+        val isOffline = player.isPlaybackFromOfflineDownload
+        // Track-Prüfung liest das Dateisystem — erst nach den billigen Prüfungen, auf IO.
+        val plan = withContext(Dispatchers.IO) {
+            LocalDownloadSwitch.plan(
+                activeItemId = player.activeBook.value?.id,
+                activeEpisodeId = player.activePlaybackEpisodeId.value,
+                isPlaybackFromOfflineDownload = isOffline,
+                manifestItemId = manifest.libraryItemId,
+                manifestEpisodeId = manifest.episodeId,
+                globalPosition = player.globalPosition.value,
+                isPlaying = player.isPlaying.value,
+            ) { PlaybackController.allLocalTracksPresentForOfflinePlayback(folder, stub) }
+        } ?: return
+        val sleep = player.sleepTimerSnapshot()
+        if (plan.episodeId != null) {
+            PlaybackTranscription.setTranscriptionLanguageOverride(manifest.libraryItemId, podcastShowTranscriptionLanguage(manifest.libraryItemId))
+        }
+        try {
+            player.playBook(
+                client = c,
+                book = stub,
+                resumeAt = plan.resumeAt,
+                localDownloadRoot = folder,
+                episodeId = plan.episodeId,
+                autoPlay = plan.autoPlay,
+                attemptServerPlaySession = session.mayUseServerNetwork && session.isNetworkReachable.value,
+            )
+            sleep?.let { player.restoreSleepTimer(it) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "playBook failed: ${e.message}")
+        }
+    }
+
+    // MARK: - Hörverlauf im Vollplayer (iOS: `loadCoverPanelDataIfNeeded` → `.sessions`)
+
+    /** iOS: `model.isNetworkReachable` für den Leertext der Sessions-Liste. */
+    val networkReachable: StateFlow<Boolean> get() = session.isNetworkReachable
+
+    /**
+     * iOS: Sessions-Panel — Folge über `loadPodcastEpisodeListeningSessions`, sonst Buchdetail (für die
+     * `mediaId`) und `loadBookListeningSessions`. Beide cachen in Room und liefern offline den Cache.
+     */
+    suspend fun loadListeningSessionsForActivePlayback(): List<AbsListeningSession> {
+        val book = player.activeBook.value ?: return emptyList()
+        podcastEpisodeForActivePlayback()?.let { return model.podcasts.loadPodcastEpisodeListeningSessions(it) }
+        val detail = model.catalog.loadBookDetail(book.id)
+        return model.catalog.loadBookListeningSessions(book.id, detail?.mediaId ?: book.mediaId)
+    }
+
+    /** iOS: `onJumpToSessionStart` — Titel ab Session-Start neu starten (Folge bzw. Buch), Autoplay. */
+    fun playFromListeningSessionStart(listeningSession: AbsListeningSession) {
+        val book = player.activeBook.value ?: return
+        val episode = podcastEpisodeForActivePlayback()
+        model.scope.launch {
+            if (episode != null) {
+                playPodcastEpisode(episode, autoPlay = true, resumeAtOverride = listeningSession.startTime)
+            } else {
+                playBook(book, resumeAtOverride = listeningSession.startTime, autoPlay = true)
+            }
+        }
     }
 
     // MARK: - BrowseSource (Android Auto)

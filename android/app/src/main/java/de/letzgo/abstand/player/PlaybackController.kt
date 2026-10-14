@@ -297,6 +297,15 @@ class PlaybackController private constructor(private val appContext: Context) {
         return isSleepTimerActive
     }
 
+    /** iOS: `sleepTimerSnapshot()` — vor einem Player-Neuaufbau (Umschalten auf den Download) sichern. */
+    fun sleepTimerSnapshot(): SleepTimer.Snapshot? = sleepTimer.snapshot()
+
+    /** iOS: `restoreSleepTimer(_:)` — nach `playBook` wieder anwenden (`tearDownPlayer` hat ihn gelöscht). */
+    fun restoreSleepTimer(snapshot: SleepTimer.Snapshot) {
+        sleepTimer.restore(snapshot, _isPlaying.value)
+        applySleepTimerFadeVolume()
+    }
+
     /** Auswahl „Ende von n Kapiteln“ fürs Sleep-Menü. */
     fun sleepTimerChapterOptions(): List<Int> =
         SleepTimerMetrics.chapterOptions(_chapterCount.value, maxSleepChapterCount())

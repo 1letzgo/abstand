@@ -9988,6 +9988,8 @@ final class AppModel: ObservableObject {
     guard PlaybackController.allLocalTracksPresentForOfflinePlayback(root: folder, book: stub) else { return }
     let resume = player.globalPosition
     let auto = player.isPlaying
+    // `playBook` → `tearDownPlayer` löscht den Sleep-Timer — über das Umschalten retten.
+    let sleepTimer = player.sleepTimerSnapshot()
     let ep: String? = manEp.isEmpty ? nil : manEp
     do {
       try await player.playBook(
@@ -10002,6 +10004,7 @@ final class AppModel: ObservableObject {
         autoPlay: auto,
         attemptServerPlaySession: mayUseServerNetwork && isNetworkReachable
       )
+      if let sleepTimer { player.restoreSleepTimer(sleepTimer) }
     } catch {
       AppLog.playback.error(
         "playBook failed: \(error.localizedDescription, privacy: .public)")
