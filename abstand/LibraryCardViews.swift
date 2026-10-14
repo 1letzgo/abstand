@@ -898,7 +898,7 @@ struct ContinueListeningHeroBookCard: View {
         .contentShape(coverClip)
         .onTapGesture { showDetail = true }
         .accessibilityLabel(book.displayTitle)
-        .accessibilityHint("Informationen öffnen")
+        .accessibilityHint("Opens details")
 
         AppTheme.coverScrimGradient
         .frame(height: min(AppTheme.Layout.coverScrimHeight, h * 0.28))
@@ -1096,7 +1096,7 @@ struct ContinueListeningHeroPodcastCard: View {
         .contentShape(coverClip)
         .onTapGesture { showDetail = true }
         .accessibilityLabel(episode.episodeTitle)
-        .accessibilityHint("Informationen öffnen")
+        .accessibilityHint("Opens details")
 
         AppTheme.coverScrimGradient
         .frame(height: min(AppTheme.Layout.coverScrimHeight, h * 0.28))

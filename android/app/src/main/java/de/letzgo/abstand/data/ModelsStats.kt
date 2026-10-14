@@ -1,6 +1,7 @@
 package de.letzgo.abstand.data
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -1121,12 +1122,23 @@ data class AbsListeningStatsResponse(
         }
 
         /**
-         * Dekodierung: zuerst Standard-JSON (camelCase wie in der API-Doku), sonst mit
-         * `convertFromSnakeCase` (Proxys / ältere Server) — Reihenfolge wie iOS.
+         * Dekodierung: Standard-JSON (camelCase wie in der API-Doku) oder `snake_case` (Proxys / ältere
+         * Server). Der camelCase-Decoder scheitert an snake_case nie — daher wie iOS anhand der
+         * Top-Level-Keys bewusst wählen.
          */
         fun decodeAPIPayload(data: String): AbsListeningStatsResponse =
-            runCatching { AbsJson.decoder.decodeFromString(AbsListeningStatsResponseSerializer, data) }.getOrNull()
-                ?: AbsJson.decoderListeningStats.decodeFromString(AbsListeningStatsResponseSerializer, data)
+            if (usesSnakeCaseKeys(data)) {
+                AbsJson.decoderListeningStats.decodeFromString(AbsListeningStatsResponseSerializer, data)
+            } else {
+                AbsJson.decoder.decodeFromString(AbsListeningStatsResponseSerializer, data)
+            }
+
+        /** iOS: `usesSnakeCaseKeys` — `total_time`/`day_of_week`/`recent_sessions` statt camelCase. */
+        fun usesSnakeCaseKeys(data: String): Boolean {
+            val root = runCatching { AbsJson.decoder.parseToJsonElement(data) }.getOrNull() as? JsonObject ?: return false
+            if (root.keys.any { it in setOf("totalTime", "dayOfWeek", "recentSessions") }) return false
+            return root.keys.any { it in setOf("total_time", "day_of_week", "recent_sessions") }
+        }
     }
 }
 
@@ -1165,7 +1177,10 @@ object AbsListeningStatsResponseSerializer : SwiftObjectSerializer<AbsListeningS
         days = stringIntDictionary(c, "days"),
         dayOfWeek = stringIntDictionary(c, "dayOfWeek"),
         items = itemsSkippingBroken(c),
-        recentSessions = if (c.contains("recentSessions")) c.tryList("recentSessions", AbsListeningStatsRecentSessionSerializer) ?: emptyList() else emptyList(),
+        // Zeilenweise tolerant (iOS `decodeRecentSessionsLenient`): eine kaputte Zeile leert nicht die Liste.
+        recentSessions = (c["recentSessions"] as? JsonArray)
+            ?.mapNotNull { row -> runCatching { AbsListeningStatsRecentSessionSerializer.decode(row) }.getOrNull() }
+            ?: emptyList(),
     )
 }
 
@@ -1287,7 +1302,7 @@ object AbsListeningStatsRecentSessionSerializer : SwiftObjectSerializer<AbsListe
         mediaType = c.stringOrNull("mediaType"),
         timeListening = flexibleInt(c, "timeListening"),
         startTime = flexibleDouble(c, "startTime"),
-        startedAt = c.longOrNull("startedAt") ?: c.doubleOrNull("startedAt")?.roundedSwift()?.toLong() ?: 0,
+        startedAt = c.tryLong("startedAt") ?: c.tryDouble("startedAt")?.roundedSwift()?.toLong() ?: 0,
     )
 }
 

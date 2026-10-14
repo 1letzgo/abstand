@@ -457,12 +457,9 @@ data class AbsAudioTrack(
 )
 
 object AbsAudioTrackSerializer : SwiftObjectSerializer<AbsAudioTrack>("ABSAudioTrack") {
-    /**
-     * Swift: `if let s = try decodeIfPresent(String.self)` — ein **numerisches** `ino` wirft dort
-     * bereits einen Typfehler (der Int64-Zweig greift nie); hier identisch nachgebildet.
-     */
+    /** Swift: `try? decodeIfPresent(String.self)`, danach Int64-Fallback für numerisches `ino`. */
     private fun inoOf(c: JObj): String? {
-        val s = c.stringOrNull("ino")
+        val s = c.tryString("ino")
         if (s != null && s.isNotEmpty()) return s
         return c.longOrNull("ino")?.toString()
     }
@@ -547,7 +544,7 @@ data class AbsLibraryFile(
 
 /** Gemeinsam für `ABSLibraryFile` / `ABSEbookFile`: `ino` als String oder Int64, sonst `keyNotFound`. */
 private fun requiredIno(c: JObj): String {
-    val s = c.stringOrNull("ino")
+    val s = c.tryString("ino")
     if (s != null && s.isNotEmpty()) return s
     return c.longOrNull("ino")?.toString() ?: SwiftJson.mismatch("ino", "ino")
 }
@@ -1081,13 +1078,12 @@ data class AbsBook(
     /** Kapitel aus anderer Quelle übernehmen (z. B. Katalog, wenn altes Manifest ohne `chapters`). */
     fun withChapters(chapters: List<AbsChapter>): AbsBook {
         if (chapters.isEmpty()) return this
-        // Swift: `tags` und `libraryFiles` fallen hier (unbeabsichtigt?) weg — identisch übernommen.
         val m = AbsBookMedia(
             metadata = media.metadata, duration = media.duration, size = media.size, numTracks = media.numTracks,
             chapters = chapters, tracks = media.tracks, podcastEpisodes = media.podcastEpisodes,
-            ebookFile = media.ebookFile, ebookFormat = media.ebookFormat,
+            ebookFile = media.ebookFile, ebookFormat = media.ebookFormat, tags = media.tags,
         )
-        return AbsBook(id, libraryId, m, addedAt, updatedAt, mediaId)
+        return AbsBook(id, libraryId, m, addedAt, updatedAt, mediaId, libraryFiles)
     }
 
     companion object {

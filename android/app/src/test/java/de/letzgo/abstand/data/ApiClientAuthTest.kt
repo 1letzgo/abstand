@@ -268,7 +268,8 @@ class ApiClientAuthTest {
 
     @Test
     fun queryEncodingMatchesUrlComponents() {
-        assertEquals("tags.Zm9v+YmFy==", AbsApiClient.swiftQueryEncode("tags.Zm9v+YmFy==", isName = false))
+        assertEquals("tags.Zm9v%2BYmFy==", AbsApiClient.swiftQueryEncode("tags.Zm9v+YmFy==", isName = false))
+        assertEquals("C%2B%2B", AbsApiClient.swiftQueryEncode("C++", isName = false))
         assertEquals("a%20b%26c", AbsApiClient.swiftQueryEncode("a b&c", isName = false))
         assertEquals("k%3D", AbsApiClient.swiftQueryEncode("k=", isName = true))
         assertEquals("%C3%A4", AbsApiClient.swiftQueryEncode("ä", isName = false))

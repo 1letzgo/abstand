@@ -70,7 +70,12 @@ import kotlinx.coroutines.launch
 private val SeriesNumberFieldWidth = 64.dp
 
 /** Editierbare Serie-Zeile (iOS: `EditSeriesRow`). */
-private data class EditSeriesRow(val name: String = "", val sequence: String = "")
+private data class EditSeriesRow(
+    val name: String = "",
+    val sequence: String = "",
+    /** Stabile Zeilen-ID für Vorschläge/Such-Jobs (nicht Teil des Patches). */
+    val id: String = java.util.UUID.randomUUID().toString(),
+)
 
 /**
  * iOS: `EditMetadataSheet` — Metadaten bearbeiten (`PATCH /api/items/:id/media`) und Cover online
@@ -117,9 +122,10 @@ private fun EditMetadataForm(itemId: String, book: AbsBook, onDismiss: () -> Uni
             if (!s.isNullOrEmpty()) addAll(s.map { EditSeriesRow(it.name, it.sequence.orEmpty()) }) else add(EditSeriesRow())
         }
     }
-    val suggestions = remember { mutableStateMapOf<Int, List<String>>() }
-    var searchBusyRow by remember { mutableStateOf<Int?>(null) }
-    val searchJobs = remember { HashMap<Int, Job>() }
+    // Nach stabiler Zeilen-ID, nicht nach Index — sonst hängen Vorschläge nach dem Entfernen an der falschen Zeile.
+    val suggestions = remember { mutableStateMapOf<String, List<String>>() }
+    var searchBusyRow by remember { mutableStateOf<String?>(null) }
+    val searchJobs = remember { HashMap<String, Job>() }
 
     var isSaving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
@@ -136,20 +142,21 @@ private fun EditMetadataForm(itemId: String, book: AbsBook, onDismiss: () -> Uni
     var coverApplyError by remember { mutableStateOf<String?>(null) }
 
     /** iOS: `scheduleSeriesSearch` — nur bei Nutzereingabe, entprellt (300 ms), ab 3 Zeichen. */
-    fun scheduleSeriesSearch(row: Int) {
+    fun scheduleSeriesSearch(row: String) {
         searchJobs[row]?.cancel()
         searchJobs[row] = scope.launch {
-            val q = seriesRows.getOrNull(row)?.name?.trim().orEmpty()
+            val q = seriesRows.firstOrNull { it.id == row }?.name?.trim().orEmpty()
             if (q.length < 3) {
                 suggestions[row] = emptyList()
                 if (searchBusyRow == row) searchBusyRow = null
                 return@launch
             }
             delay(SERIES_SEARCH_DEBOUNCE_MS)
-            if (seriesRows.getOrNull(row)?.name?.trim() != q) return@launch
+            if (seriesRows.firstOrNull { it.id == row }?.name?.trim() != q) return@launch
             searchBusyRow = row
             try {
-                suggestions[row] = MetadataActions.searchLibrarySeries(q, book.libraryId)
+                val names = MetadataActions.searchLibrarySeries(q, book.libraryId)
+                if (seriesRows.any { it.id == row }) suggestions[row] = names
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -225,7 +232,7 @@ private fun EditMetadataForm(itemId: String, book: AbsBook, onDismiss: () -> Uni
                             Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing), verticalAlignment = Alignment.CenterVertically) {
                                 InsetField(
                                     value = row.name, placeholder = "Series name", label = "Series name",
-                                    onValueChange = { seriesRows[idx] = row.copy(name = it); scheduleSeriesSearch(idx) },
+                                    onValueChange = { seriesRows[idx] = row.copy(name = it); scheduleSeriesSearch(row.id) },
                                     capitalization = KeyboardCapitalization.Words,
                                     modifier = Modifier.weight(1f),
                                 )
@@ -237,20 +244,24 @@ private fun EditMetadataForm(itemId: String, book: AbsBook, onDismiss: () -> Uni
                                     modifier = Modifier.width(SeriesNumberFieldWidth),
                                 )
                                 IconButton(onClick = {
-                                    searchJobs.remove(idx)?.cancel()
-                                    if (seriesRows.size == 1) seriesRows[0] = EditSeriesRow() else seriesRows.removeAt(idx)
-                                    suggestions.clear()
-                                    if (searchBusyRow == idx) searchBusyRow = null
+                                    searchJobs.remove(row.id)?.cancel()
+                                    suggestions.remove(row.id)
+                                    if (searchBusyRow == row.id) searchBusyRow = null
+                                    val i = seriesRows.indexOfFirst { it.id == row.id }
+                                    if (i >= 0) {
+                                        if (seriesRows.size == 1) seriesRows[0] = EditSeriesRow() else seriesRows.removeAt(i)
+                                    }
                                 }) { Icon(SF.minusCircle, contentDescription = "Remove series", tint = palette.textSecondary) }
                             }
-                            val rowSuggestions = suggestions[idx].orEmpty()
-                            if (searchBusyRow == idx) {
+                            val rowSuggestions = suggestions[row.id].orEmpty()
+                            if (searchBusyRow == row.id) {
                                 AbstandInlineSpinner(Modifier.padding(start = AppTheme.Layout.hairlineSpacing))
                             } else if (rowSuggestions.isNotEmpty()) {
                                 SeriesSuggestionsList(rowSuggestions) { name ->
-                                    searchJobs.remove(idx)?.cancel()
-                                    seriesRows[idx] = seriesRows[idx].copy(name = name)
-                                    suggestions[idx] = emptyList()
+                                    searchJobs.remove(row.id)?.cancel()
+                                    val i = seriesRows.indexOfFirst { it.id == row.id }
+                                    if (i >= 0) seriesRows[i] = seriesRows[i].copy(name = name)
+                                    suggestions[row.id] = emptyList()
                                 }
                             }
                         }

@@ -404,9 +404,11 @@ struct MatchMetadataSheet: View {
     if selectedFields.contains(.subtitle) { patch.subtitle = match.subtitle }
     if selectedFields.contains(.author), let a = match.displayAuthors {
       patch.authorNames = a.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
     }
     if selectedFields.contains(.narrator), let n = match.displayNarrator {
       patch.narratorNames = n.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
     }
     if selectedFields.contains(.description) { patch.descriptionText = match.displayDescription }
     if selectedFields.contains(.publisher) { patch.publisher = match.publisher }

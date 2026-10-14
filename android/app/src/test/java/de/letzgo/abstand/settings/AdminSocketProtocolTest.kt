@@ -26,7 +26,7 @@ class AdminSocketProtocolTest {
     fun openPingAndNamespaceConnect() {
         val open = AdminSocketProtocol.handlePacket("0{\"sid\":\"x\",\"pingInterval\":25000,\"pingTimeout\":20000}", "tok")
         assertEquals(listOf("40"), open.replies)
-        assertEquals(25000.0, open.pingIntervalMs!!, 0.0)
+        assertEquals(45_000L, open.livenessTimeoutMs)
         assertEquals(listOf("3"), AdminSocketProtocol.handlePacket("2", "tok").replies)
         val connected = AdminSocketProtocol.handlePacket("40{\"sid\":\"y\"}", "tok\"en")
         assertEquals(listOf("42[\"auth\",\"tok\\\"en\"]"), connected.replies)

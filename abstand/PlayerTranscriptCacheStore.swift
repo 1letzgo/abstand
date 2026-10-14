@@ -107,10 +107,14 @@ enum PlayerTranscriptCacheStore {
 
   private static func bookDir(account: URL, bookId: String) -> URL {
     let digest = SHA256.hash(data: Data(bookId.utf8)).map { String(format: "%02x", $0) }.joined()
-    let url = account.appendingPathComponent(subdir, isDirectory: true)
+    // Nur Pfad bauen — Ordner legen erst die Schreibpfade an (`ensureParentDirectory`),
+    // sonst erzeugt jeder Lesezugriff leere Buch-Ordner.
+    return account.appendingPathComponent(subdir, isDirectory: true)
       .appendingPathComponent(digest, isDirectory: true)
-    try? fm.createDirectory(at: url, withIntermediateDirectories: true)
-    return url
+  }
+
+  private static func ensureParentDirectory(of url: URL) {
+    try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
   }
 
   private static func fileURL(
@@ -167,6 +171,7 @@ enum PlayerTranscriptCacheStore {
       AppLog.playback.warning("transcript cache encode failed")
       return
     }
+    ensureParentDirectory(of: url)
     do {
       try data.write(to: url, options: .atomic)
       var fileURL = url
@@ -216,6 +221,7 @@ enum PlayerTranscriptCacheStore {
     guard let account, !bookId.isEmpty else { return }
     var url = alignmentFileURL(
       account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeIdentifier)
+    ensureParentDirectory(of: url)
     do {
       try data.write(to: url, options: .atomic)
       var values = URLResourceValues()

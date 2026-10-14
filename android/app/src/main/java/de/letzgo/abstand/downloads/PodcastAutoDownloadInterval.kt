@@ -22,14 +22,16 @@ enum class PodcastAutoDownloadInterval(val rawValue: String, val label: String, 
             entries.firstOrNull { it.cronExpression == normalized }?.let { return it }
             val parts = normalized.split(Regex("\\s+")).filter { it.isNotEmpty() }
             if (parts.size < 5) return default
+            val hour = parts[1]
             val dom = parts[2]
             val month = parts[3]
             val dow = parts[4]
-            if (dom == "*" && month == "*" && dow == "*") return daily
             if (dom == "*" && month == "*" && dow != "*") return weekly
-            if (parts[1] == "*") return everyHour
-            if (parts[1].startsWith("*/6")) return every6Hours
-            if (parts[1].startsWith("*/12")) return every12Hours
+            // Stunden-Feld vor „täglich“ prüfen (wie iOS / `model/PodcastLogic.kt`).
+            if (hour.startsWith("*/12")) return every12Hours
+            if (hour.startsWith("*/6")) return every6Hours
+            if (hour == "*") return everyHour
+            if (dom == "*" && month == "*") return daily
             return default
         }
 
