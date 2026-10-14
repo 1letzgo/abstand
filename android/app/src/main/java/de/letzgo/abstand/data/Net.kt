@@ -41,7 +41,10 @@ object Net {
         CustomHeadersStore.headers(request.url).forEach { (name, value) ->
             if (request.header(name) == null) builder.header(name, value)
         }
-        if (request.header("Authorization") == null) {
+        // Login/Logout/Refresh tragen wie auf iOS keinen Bearer (eigene Token-Header).
+        val path = request.url.encodedPath
+        val isAuthEndpoint = path.endsWith("/login") || path.endsWith("/logout") || path.endsWith("/auth/refresh")
+        if (!isAuthEndpoint && request.header("Authorization") == null) {
             activeBearer?.invoke()?.let { (origin, token) ->
                 if (CustomHeadersStore.originKey(request.url) == origin && token.isNotBlank()) {
                     builder.header("Authorization", "Bearer $token")
