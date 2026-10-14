@@ -11,6 +11,7 @@ import de.letzgo.abstand.data.Net
 import de.letzgo.abstand.data.Prefs
 import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.model.AppModel
+import de.letzgo.abstand.ui.AppIntegration
 import de.letzgo.abstand.store.CoverRequestFetcher
 import de.letzgo.abstand.store.CoverRequestKeyer
 import okio.Path.Companion.toOkioPath
@@ -26,6 +27,7 @@ class AbstandApplication : Application(), SingletonImageLoader.Factory {
         // Player, Downloads, Android Auto — vor `start()`, damit Launch-Restore und Worker-Neustart sie vorfinden.
         DownloadManager.init(this)
         model.player.attach()
+        AppIntegration.install(model)
         model.start()
     }
 

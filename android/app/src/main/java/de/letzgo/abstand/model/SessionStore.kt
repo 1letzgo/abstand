@@ -304,6 +304,18 @@ class SessionStore internal constructor(
         return AccountCacheDirectory.accountDir(u, resolvedLocalStoreUserId())
     }
 
+    /** iOS: `coverImageCacheByteCount()`. */
+    fun coverImageCacheByteCount(): Long = cacheAccountDir()?.let { CoverImageCache.totalByteCount(it) } ?: 0L
+
+    /** iOS: `clearCoverImageCache()` — Cover- und Tint-Caches des Kontos leeren, Revision erhöhen. */
+    fun clearCoverImageCache() {
+        val account = cacheAccountDir() ?: return
+        CoverImageCache.clearAll(appContext, account)
+        de.letzgo.abstand.logic.CoverAverageRgbCache.continueHero.clearAll(account)
+        de.letzgo.abstand.logic.CoverAverageRgbCache.detailCover.clearAll(account)
+        _coverImageCacheRevision.value += 1
+    }
+
     /** iOS: `currentLocalLibraryStore()` — Room-DB des aktiven Accounts, `null` vor Login. */
     fun currentLocalLibraryStore(): LocalLibraryStore? {
         if (!computeIsLoggedIn()) return null

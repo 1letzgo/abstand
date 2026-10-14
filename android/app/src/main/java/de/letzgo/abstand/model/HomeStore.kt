@@ -239,6 +239,16 @@ class HomeStore internal constructor(private val model: AppModel) : SessionParti
         if (persistToDisk) persistProgress(listOf(progress))
     }
 
+    /** iOS: `applyUpdatedBookToLoadedLists` (Home-Teil) — frischen Serverstand in Regale übernehmen. */
+    fun applyUpdatedBook(fresh: AbsBook) {
+        fun List<AbsBook>.patched() = if (any { it.id == fresh.id }) map { if (it.id == fresh.id) fresh else it } else this
+        _startBooks.value = _startBooks.value.patched()
+        val shelves = _startShelves.value
+        if (shelves.any { s -> s.books.any { it.id == fresh.id } }) {
+            _startShelves.value = shelves.map { s -> if (s.books.any { it.id == fresh.id }) s.copy(books = s.books.patched()) else s }
+        }
+    }
+
     /** iOS: `suppressedContinueListeningKeys` — Titel aus Continue nehmen (z. B. „Remove from Continue“). */
     fun suppressContinueListening(progressKey: String, suppressed: Boolean = true) {
         val k = progressKey.swiftTrim()

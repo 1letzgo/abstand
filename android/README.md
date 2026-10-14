@@ -119,6 +119,35 @@ abstand.debug.password=…
 | `ui/browse/BrowseFacetSections.kt` | `MainRootBrowseSections.swift`, `BrowseEntityRowCard`/`FacetBrowseTileCard`, `BooksBrowseSection` |
 | `ui/search/SearchTabViews.kt` | `SearchTabViews.swift` |
 | `ui/destinations/Destinations.kt` | detail `navigationDestination` targets (placeholders until the detail screens are ported) |
+| `model/AppSettings.kt` (`AppSettings`, `LibraryCardStyle`, `TranslationTargetLanguage`) | simple `@Published` settings of `AppModel`, `LibraryBookCardStyle`/`LibraryPodcastCardStyle`/`TranslationTargetLanguage` (`AppAppearance.swift`) |
+| `model/AdminStore.kt` (`AdminStore`, `AdminLogic`) | server-admin part of `AppModel` (users, library stats/scan, M4B encode + polling, media-cache purge, `changeAccountPassword`) |
+| `model/StatsStore.kt` (`StatsStore`, `StatsLogicExt`) | listening-stats part of `AppModel` (`loadListeningStats`, achievements snapshot, stats navigation stubs) |
+| `data/AdminSocketClient.kt` (`AdminSocketClient`, `AdminSocketProtocol`) | `ABSAdminSocketClient.swift` (OkHttp WebSocket) |
+| `ui/settings/SettingsHub.kt`, `SettingsIconStrip.kt` | `SettingsHubRootView`, `SettingsHubSection`, `SettingsIconStrip` (`ServerAdminViews.swift`) |
+| `ui/settings/SettingsAccountSections.kt`, `SettingsAccountPages.kt` | `SettingsAccountView`, `SettingsChangePasswordView` (+ Android-only connection/custom-headers page) |
+| `ui/settings/SettingsAppearance.kt` | `SettingsAppearanceView`, `SettingsAppearanceHomeView`, `SettingsHomeShelfCard` |
+| `ui/settings/SettingsPlayback.kt` | `SettingsPlaybackView` (Playback + Teleprompter) |
+| `ui/settings/SettingsDownloads.kt` | Downloads/Cache hub sections, `SettingsDownloadsManageView`, `DownloadManageRow` |
+| `ui/settings/DebugLog.kt` | `DebugLogCollector.swift`, `DebugLogExportView` (share via `ACTION_SEND`) |
+| `ui/settings/SettingsIntegration.kt` | hooks into other stores (home shelves, transcript prefetch status, download removal) |
+| `ui/admin/ServerAdminMenu.kt`, `ServerUsers.kt`, `ServerLibraries.kt`, `ServerM4B.kt` | `serverSettingsMenuSections`, `ServerUsersListView`, `ServerUserDetailView`, `ServerUserListeningSessionsView`, `ServerLibrariesListView`, `ServerLibraryDetailView`, `ServerM4BProgressView` |
+| `ui/stats/StatsScreen.kt` | `StatsTabView.swift`, `SettingsStatsSectionView` |
+| `ui/stats/StatsHeatmap.kt` | `StatsHeatmapViews.swift` (`ListeningMonthHeatmapCard`, `StatsTimelineMetricCard`) |
+| `ui/stats/ListeningAchievementCard.kt` | `ListeningAchievementCard` (`ListeningAchievements.swift`) |
+| `ui/metadata/MetadataActions.kt` | metadata/cover/chapter actions of `AppModel` (`applyMetadataMatch`, `applyCoverURL`, `applyItemChapters`, …) |
+| `ui/metadata/EditMetadataSheet.kt`, `MatchMetadataSheet.kt`, `ChaptersEditorSheet.kt` | `EditMetadataSheet.swift`, `MatchMetadataSheet.swift`, `ChaptersEditorSheet.swift` |
+| `ui/permissions/NotificationPermission.kt` | — (Android 13+ `POST_NOTIFICATIONS`, asked once) |
+| `model/ProgressStore.kt` | `progressByItemId`/`bookmarks`, `applyUserProgress`/`mergedUserMediaProgress`, guard keys (local finished/discarded/pending sync), progress persistence of `AppModel.swift` |
+| `model/CatalogStore.kt` (`CatalogStore`, `LibraryBookCardStyle`, `CatalogSortState`, `CatalogFilterState`, `BrowseListsState`) | catalog/browse parts of `AppModel.swift` + `AppModelCatalogPodcasts.reloadLibrary`, `LibraryBookCardStyle` (`AppAppearance.swift`), book actions (detail load, mark finished, reset, bookmarks, delete) |
+| `model/EntityDetailLoader.kt` | `reloadEntityDetail`/`loadMoreEntityDetailIfNeeded`/`applyEntityDetailFromLocalCache` (per screen instead of shared `entityDetail*`) |
+| `logic/CatalogLogic.kt`, `logic/BookDetailLogic.kt` | pure catalog/entity/detail helpers of `AppModel.swift`, `BookDetailView.swift`, `BookListeningDetailSections.swift` |
+| `ui/library/BooksLibraryTabRoot.kt`, `ui/library/BooksBrowseSections.kt` | `MainRootView` books root, `BooksLibraryTabShell`/`BooksLibraryToolbarContent` (`LibraryToolbarState.swift`), `MainRootBrowseSections.swift` |
+| `ui/library/LibraryCards.kt` | `LibraryCardViews.swift` (book row + cover card, browse entity row, facet tile, badges, play pills) |
+| `ui/library/LibraryToolbarMenus.kt` | `LibrarySortToolbars.swift`, `LibraryFilterViews.swift` |
+| `ui/library/LibraryPlayback.kt` | `AppModel.play(book:)`, `jumpToBookmark`, `continueHeroPlayPillToggle` |
+| `ui/detail/BookDetailScreen.kt`, `ui/detail/BookDetailSections.kt` | `BookDetailView.swift`, `BookListeningDetailSections.swift`, `BookmarksUI.swift` |
+| `ui/detail/DetailHeroViews.kt`, `ui/detail/CoverTint.kt` | `DetailHeroViews.swift` (hero, action bar, meta cards, toolbar download item, cover tint) |
+| `ui/detail/EntityDetailScreen.kt`, `ui/detail/DetailDestinations.kt` | `BooksEntityDetailViews.swift`, `booksEntityDetailNavigation` / `navigationDestination`s |
 
 (Extended as screens are ported.)
 

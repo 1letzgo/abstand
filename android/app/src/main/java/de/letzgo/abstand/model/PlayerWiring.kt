@@ -9,7 +9,6 @@ import de.letzgo.abstand.data.AbsDownloadManifest
 import de.letzgo.abstand.data.AbsPodcastEpisodeListItem
 import de.letzgo.abstand.data.AbsProgressPatch
 import de.letzgo.abstand.data.AbsStartShelfMergedRow
-import de.letzgo.abstand.data.AbsUser
 import de.letzgo.abstand.data.AbsUserMediaProgress
 import de.letzgo.abstand.data.CoverImageTier
 import de.letzgo.abstand.data.Keys
@@ -22,7 +21,8 @@ import de.letzgo.abstand.player.BrowseSource
 import de.letzgo.abstand.player.PlaybackController
 import de.letzgo.abstand.player.PlaybackHost
 import de.letzgo.abstand.player.PlaybackHostBridge
-import de.letzgo.abstand.store.LocalLibraryStore
+import de.letzgo.abstand.ui.formatPlaybackTime
+import de.letzgo.abstand.ui.library.LibraryPlayback
 import de.letzgo.abstand.ui.permissions.NotificationPermission
 import de.letzgo.abstand.ui.podcasts.PodcastActions
 import kotlinx.coroutines.CancellationException
@@ -34,31 +34,29 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * iOS: Player-Teil von `AppModel` — `play(book:)`, `playPodcastEpisode`, `restoreLastPlayedOnLaunch`,
- * `markFinished`/`markPodcastEpisodeFinished` aus der Wiedergabe, `dismissPlayer`, Bookmarks,
- * `requestPresentNowPlayingSheet`, Download-Knopf im Vollplayer — plus die Verdrahtung der Player-
- * Schnittstellen ([PlaybackHost], [BrowseSource] für Android Auto, [PlaybackLauncher] für Karten,
- * [PodcastActions] für den Podcast-Tab, Download-Host über [downloads]).
+ * iOS: Player-Teil von `AppModel` — `playPodcastEpisode`, `restoreLastPlayedOnLaunch`,
+ * `markFinished`/`markPodcastEpisodeFinished` aus der Wiedergabe, `dismissPlayer`, Bookmark anlegen/
+ * löschen, `requestPresentNowPlayingSheet`, Download-Knopf im Vollplayer — plus die Verdrahtung der
+ * Player-Schnittstellen ([PlaybackHost], [BrowseSource] für Android Auto, [PlaybackLauncher] für
+ * Karten, [PodcastActions] für den Podcast-Tab, Download-Host über [downloads]).
  *
- * Fortschritt hat eine Quelle: der Home-Store ([HomeStore.progressByItemId], persistiert per
- * `upsertProgress`); der Podcast-Spiegel bekommt jede Player-Zeile mit ([PodcastStore.applyProgressUpdate]).
+ * Hörbücher starten über [LibraryPlayback.play] (iOS `play(book:)`, gemeinsam mit Bücher-Tab und
+ * Detail). Fortschritt: eine Quelle, der [ProgressStore] (`model.progress`); Home- und Podcast-
+ * Spiegel bekommen jede Player-Zeile mit ([fanOut]).
  *
  * Erzeugt im [AppModel]-Konstruktor (vor `start()`), verdrahtet in `AbstandApplication.onCreate` per [attach].
  */
 class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHost, BrowseSource, PlaybackLauncher {
     private val session: SessionStore get() = model.session
+    private val progressStore: ProgressStore get() = model.progress
 
     /** iOS: `AppModel.player`. */
     val player: PlaybackController by lazy { PlaybackController.shared(model.appContext) }
 
     /** Download-Liste je Account, Badges, [de.letzgo.abstand.downloads.DownloadHost]. */
     val downloads = DownloadWiring(model)
-
-    /** iOS: `pendingLocalProgressSyncKeys` / `localFinishedProgressKeys`. */
-    val guards = ProgressGuards(model.session)
 
     private lateinit var bridge: PlaybackHostBridge
 
@@ -75,14 +73,16 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
     /** iOS: `isPreparingPlayback` — Start läuft (Metadaten, Session). */
     val isPreparingPlayback: StateFlow<Boolean> = _isPreparingPlayback.asStateFlow()
 
-    private val _bookmarks = MutableStateFlow<List<AbsAudioBookmark>>(emptyList())
-    /** iOS: `bookmarks` (aus `/authorize`, LocalStore-Spiegel). */
-    val bookmarks: StateFlow<List<AbsAudioBookmark>> = _bookmarks.asStateFlow()
+    /** iOS: `bookmarks` (Quelle: [ProgressStore]). */
+    val bookmarks: StateFlow<List<AbsAudioBookmark>> get() = progressStore.bookmarks
 
     private val _revision = MutableStateFlow(0L)
 
     /** Podcast-Tab-Brücke (iOS: `playPodcastEpisode`, `startDownloadPodcastEpisode`, …). */
     val podcastActions: PodcastActions = PlayerPodcastActions()
+
+    /** Medium, dessen erster Play-Start noch „Now Playing öffnen“ auslösen darf. */
+    private var presentOnFirstPlayKey: String? = null
 
     // MARK: - Verdrahtung
 
@@ -95,16 +95,14 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
         model.scope.launch {
             combine(player.activeBook, player.activePlaybackEpisodeId, player.isPlaying) { book, ep, playing ->
                 NowPlayingState(book?.let { NowPlayingState.progressKeyOf(it.id, ep) }, playing && book != null)
-            }.distinctUntilChanged().collect {
-                _nowPlaying.value = it
+            }.distinctUntilChanged().collect { state ->
+                val previousKey = _nowPlaying.value.progressKey
+                _nowPlaying.value = state
                 _revision.value += 1
+                onNowPlayingChanged(previousKey, state)
             }
         }
         model.scope.launch { downloads.revision.collect { _revision.value += 1 } }
-        // Ohne Titel kein Vollplayer (z. B. nach „Fertig“ oder Logout).
-        model.scope.launch {
-            player.activeBook.collect { if (it == null && !_isPreparingPlayback.value) _nowPlayingPresented.value = false }
-        }
         // Wieder online: Offline-Hörzeit und lokale Fortschritte nachsenden (iOS: `flushPendingOfflineListeningTime`).
         model.scope.launch {
             var wasReachable = session.isNetworkReachable.value
@@ -114,6 +112,26 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
             }
         }
         model.scope.launch(Dispatchers.IO) { runCatching { DownloadMaintenance.removeStaleDownloadTempFiles() } }
+    }
+
+    /**
+     * Erster Play-Start eines neu geladenen Mediums (Karte, Detail, Podcast, Android Auto) — iOS ruft
+     * hier `presentNowPlayingSheetOnAutoPlayIfNeeded` und lädt das Dashboard nach. Launch-Restore lädt
+     * pausiert und öffnet daher nichts.
+     */
+    private fun onNowPlayingChanged(previousKey: String?, state: NowPlayingState) {
+        val key = state.progressKey
+        if (key == null) {
+            presentOnFirstPlayKey = null
+            _nowPlayingPresented.value = false
+            return
+        }
+        if (key != previousKey) presentOnFirstPlayKey = key
+        if (!state.isPlaying || presentOnFirstPlayKey != key) return
+        presentOnFirstPlayKey = null
+        NotificationPermission.requestIfNeeded(model.appContext)
+        if (!session.offlineHomeUIActive && Prefs.bool(Keys.openPlayerWhenStartPlaying, true)) _nowPlayingPresented.value = true
+        if (session.mayUseServerNetwork) model.scope.launch { runCatching { model.home.loadStartDashboard() } }
     }
 
     // MARK: - PlaybackHost
@@ -128,16 +146,21 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
     override val isNetworkUnmetered: Boolean
         get() = model.appContext.getSystemService(ConnectivityManager::class.java)?.let { !it.isActiveNetworkMetered } ?: false
 
-    override fun progress(progressKey: String): AbsUserMediaProgress? =
-        model.home.progressByItemId.value[progressKey] ?: model.podcasts.progressByItemId.value[progressKey]
+    override fun progress(progressKey: String): AbsUserMediaProgress? = progressStore.progress(progressKey)
 
+    /** Eine Quelle ([ProgressStore], Room per `upsertProgress`), Spiegel in Home/Podcasts angleichen. */
     override fun upsertProgress(progress: AbsUserMediaProgress, markPendingServerSync: Boolean) {
-        model.home.applyProgressUpdate(progress, persistToDisk = true)
-        model.podcasts.applyProgressUpdate(progress)
-        if (markPendingServerSync) guards.addPending(progress.progressLookupKey)
+        progressStore.upsertProgressLocally(progress, markPendingServerSync)
+        fanOut(progress)
     }
 
-    override fun clearPendingLocalProgressSync(progressKey: String) = guards.removePending(progressKey)
+    /** Home-Regale und Podcast-Zeilen halten (noch) eigene Spiegel — ohne zweiten Room-Write angleichen. */
+    private fun fanOut(progress: AbsUserMediaProgress) {
+        model.home.applyProgressUpdate(progress, persistToDisk = false)
+        model.podcasts.applyProgressUpdate(progress)
+    }
+
+    override fun clearPendingLocalProgressSync(progressKey: String) = progressStore.clearPendingLocalProgressSync(progressKey)
 
     override fun podcastEpisode(libraryItemId: String, episodeId: String): AbsPodcastEpisodeListItem? {
         val key = NowPlayingState.progressKeyOf(libraryItemId, episodeId)
@@ -158,49 +181,30 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
             bridge.recordActivePlaybackProgressLocally(markPendingServerSync = true)
             player.flushPendingPlaySessionSync()
         }
-        applyLocalMarkFinished(libraryItemId, ep, key)
-        guards.addPending(key)
+        val bookDur = player.activeBook.value?.takeIf { it.id == libraryItemId }?.media?.duration
+        progressStore.applyLocalMarkFinished(libraryItemId, ep, bookDur)
+        progressStore.markPendingLocalProgressSync(key)
+        progress(key)?.let { fanOut(it) }
         val client = session.client
         if (!session.mayUseServerNetwork || !session.isNetworkReachable.value || client == null) {
             finishMarkFinishedLocally(storageId, wasCurrent, libraryItemId)
             return
         }
         try {
-            // Play-Session VOR dem PATCH schließen — sonst setzt deren letzter Sync `isFinished` zurück (iOS-Kommentar).
+            // Play-Session VOR dem PATCH schließen — sonst setzt ihr letzter Sync `isFinished` zurück (iOS-Kommentar).
             if (wasCurrent) dismissPlayer(idlePlaceholder = false)
             client.markFinished(libraryItemId, ep)
-            guards.clearLocallyFinished(key)
-            guards.removePending(key)
+            progressStore.clearLocallyFinishedProgressKey(key)
+            progressStore.clearPendingLocalProgressSync(key)
             session.refreshProgressFromServer()
+            progressStore.reconcileProgressAfterMarkFinished(libraryItemId, ep, bookDur)
+            progress(key)?.let { fanOut(it) }
             finishMarkFinishedLocally(storageId, wasPlaying = false, clearLastPlayedIfBookId = libraryItemId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             session.publishErrorUnlessBenignCancellation(e)
         }
-    }
-
-    /** iOS: `applyLocalMarkFinished` — Zeile auf fertig setzen und lokal merken. */
-    private fun applyLocalMarkFinished(libraryItemId: String, episodeId: String?, key: String) {
-        guards.markLocallyFinished(key)
-        val existing = progress(key)
-        val bookDur = model.home.startBooks.value.firstOrNull { it.id == libraryItemId }?.media?.duration
-            ?: player.activeBook.value?.takeIf { it.id == libraryItemId }?.media?.duration
-        val dur = maxOf(existing?.duration ?: 0.0, bookDur ?: 0.0, existing?.currentTime ?: 0.0, 1.0)
-        val now = System.currentTimeMillis()
-        val row = AbsUserMediaProgress(
-            mediaProgressServerId = existing?.mediaProgressServerId,
-            libraryItemId = libraryItemId,
-            episodeId = episodeId,
-            duration = dur,
-            progress = 1.0,
-            currentTime = dur,
-            isFinished = true,
-            lastUpdate = maxOf(now, (existing?.lastUpdate ?: 0L) + 1),
-            ebookProgress = existing?.ebookProgress,
-            ebookLocation = existing?.ebookLocation,
-        )
-        upsertProgress(row, markPendingServerSync = false)
     }
 
     /** iOS: `finishMarkFinishedLocally`. */
@@ -244,7 +248,7 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
 
     override fun resume() = player.play()
 
-    /** Item per ID auflösen (Regale, Downloads, LocalStore, Server) und starten. */
+    /** Item per ID auflösen (Regale, Katalog, Downloads, LocalStore, Server) und starten. */
     suspend fun playItem(itemId: String, episodeId: String?, autoPlay: Boolean = true) {
         if (episodeId != null) {
             playPodcastEpisode(resolveEpisode(itemId, episodeId), autoPlay = autoPlay)
@@ -260,14 +264,11 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
     private suspend fun resolveBook(itemId: String): AbsBook? {
         model.home.startBooks.value.firstOrNull { it.id == itemId }?.let { return it }
         model.home.startShelves.value.forEach { s -> s.books.firstOrNull { it.id == itemId }?.let { return it } }
+        model.catalog.lookupBookStub(itemId)?.let { return it }
         downloads.downloadedBooks().firstOrNull { it.id == itemId }?.let { return it }
-        val store = session.currentLocalLibraryStore()
-        if (store != null) {
-            val local = runCatching { store.fetchBookDetail(itemId) ?: store.fetchBook(itemId) }.getOrNull()
-            if (local != null) return local
-        }
+        model.catalog.cachedBookDetail(itemId)?.let { return it }
         val c = session.client ?: return null
-        if (!session.mayUseServerNetwork || !session.isNetworkReachable.value) return null
+        if (!canUseServer) return null
         return try {
             c.item(itemId, expanded = true)
         } catch (e: CancellationException) {
@@ -294,103 +295,13 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
         )
     }
 
-    /** iOS: `resolvedPlaybackStart(progressKey:resumeAtOverride:)`. */
-    private fun resolvedPlaybackStart(progressKey: String, resumeAtOverride: Double?): Pair<Double, Boolean> {
-        if (resumeAtOverride != null) return maxOf(0.0, resumeAtOverride) to (resumeAtOverride <= 0.001)
-        if (guards.isLocallyFinished(progressKey) || progress(progressKey)?.isFinished == true) return 0.0 to true
-        return (progress(progressKey)?.currentTime ?: 0.0) to false
-    }
-
-    /** iOS: `preparePlaybackRestartFromBeginning`. */
-    private fun preparePlaybackRestartFromBeginning(libraryItemId: String, episodeId: String?, progressKey: String) {
-        guards.clearLocallyFinished(progressKey)
-        progress(progressKey)?.let { old ->
-            upsertProgress(
-                old.copy(isFinished = false, currentTime = 0.0, progress = 0.0, lastUpdate = maxOf(System.currentTimeMillis(), (old.lastUpdate ?: 0L) + 1)),
-                markPendingServerSync = true,
-            )
-        }
-        val c = session.client
-        if (session.mayUseServerNetwork && session.isNetworkReachable.value && c != null) {
-            // Nicht abwarten: lokal ist der Fortschritt schon zurückgesetzt.
-            model.scope.launch {
-                runCatching { c.patchProgress(libraryItemId, episodeId, AbsProgressPatch(currentTime = 0.0, progress = 0.0, isFinished = false)) }
-            }
-        }
-    }
-
-    private fun onPlaybackStarting() {
-        NotificationPermission.requestIfNeeded(model.appContext)
-    }
-
-    /** iOS: `presentNowPlayingSheetOnAutoPlayIfNeeded` — Standard „an“, wenn nie gesetzt. */
-    private fun presentNowPlayingOnAutoPlayIfNeeded() {
-        if (session.offlineHomeUIActive) return
-        if (!Prefs.bool(Keys.openPlayerWhenStartPlaying, true)) return
-        _nowPlayingPresented.value = true
-    }
-
     private val canUseServer: Boolean get() = session.mayUseServerNetwork && session.isNetworkReachable.value
 
-    /** iOS: `AppModel.play(book:resumeAtOverride:autoPlay:)`. */
+    /** iOS: `AppModel.play(book:resumeAtOverride:autoPlay:)` — gemeinsamer Einstieg [LibraryPlayback.play]. */
     suspend fun playBook(book: AbsBook, resumeAtOverride: Double? = null, autoPlay: Boolean = true) {
-        val localInfo = DownloadManager.resolvedLocalDownloadForPlayback(book, downloads.downloadedIds.value)
-        val local = localInfo?.root
-        if (session.offlineHomeUIActive && local == null) {
-            session.setErrorMessage("Download this title to play it offline.")
-            return
-        }
-        val c = session.clientForOfflineLocalPlayback() ?: return
-        if (autoPlay) onPlaybackStarting()
         _isPreparingPlayback.value = true
         try {
-            session.setErrorMessage(null)
-            val playbackItemId = localInfo?.libraryItemId ?: book.id
-            val manifestEpisodeId = localInfo?.episodeId
-            val progressKey = NowPlayingState.progressKeyOf(playbackItemId, manifestEpisodeId)
-            val (resume, restart) = resolvedPlaybackStart(progressKey, resumeAtOverride)
-            if (restart) preparePlaybackRestartFromBeginning(playbackItemId, manifestEpisodeId, progressKey)
-            var resolved = book
-            val manifest = local?.let { withContext(Dispatchers.IO) { AbsDownloadManifest.load(it) } }
-            if (manifest != null) {
-                val fromManifest = AbsBook.fromDownloadManifest(manifest)
-                // Download liegt vor: Metadaten nur kurz nachladen — schlechter Empfang darf den Start nicht blockieren.
-                val expanded = if (canUseServer && !book.media.metadata.hasRichMetadata) {
-                    withTimeoutOrNull(2_000) { runCatching { c.item(playbackItemId, expanded = true) }.getOrNull() }
-                } else null
-                resolved = (expanded ?: book).mergingLocalDownloadPlayback(fromManifest)
-            } else if (canUseServer) {
-                val needsExpanded = local != null || book.media.tracks.isNullOrEmpty() || book.media.chapters.isNullOrEmpty()
-                if (needsExpanded) {
-                    try {
-                        resolved = c.item(playbackItemId, expanded = true)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Server item resolve failed, keeping local fallback: ${e.message}")
-                    }
-                }
-            }
-            player.playBook(
-                client = c,
-                book = resolved,
-                resumeAt = resume,
-                localDownloadRoot = local,
-                episodeId = manifestEpisodeId,
-                autoPlay = autoPlay,
-                attemptServerPlaySession = canUseServer,
-                preferClientResumePosition = restart || resumeAtOverride != null,
-            )
-            Prefs.setString(Keys.lastPlayedItemId, resolved.id)
-            if (autoPlay) {
-                bumpOptimisticProgress(playbackItemId, manifestEpisodeId, resume, resolved.media.duration ?: 0.0)
-                presentNowPlayingOnAutoPlayIfNeeded()
-                refreshDashboardAfterPlaybackStart()
-            }
-        } catch (e: CancellationException) {
-            // Überholt von einem neueren Start — kein Fehler.
-        } catch (e: Exception) {
-            session.publishErrorUnlessBenignCancellation(e)
+            LibraryPlayback.play(model.appContext, book, resumeAtOverride = resumeAtOverride, autoPlay = autoPlay, model = model)
         } finally {
             _isPreparingPlayback.value = false
         }
@@ -405,13 +316,18 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
             return
         }
         val c = session.clientForOfflineLocalPlayback() ?: return
-        if (autoPlay) onPlaybackStarting()
         _isPreparingPlayback.value = true
         try {
             session.setErrorMessage(null)
-            val progressKey = episode.progressLookupKey
-            val (resume, restart) = resolvedPlaybackStart(progressKey, resumeAtOverride)
-            if (restart) preparePlaybackRestartFromBeginning(episode.libraryItemId, episode.episodeId, progressKey)
+            progressStore.ensureLocalProgressLoaded()
+            val key = episode.progressLookupKey
+            // iOS: `resolvedPlaybackStart` — Override, nach „fertig“ von vorn, sonst gespeicherte Position.
+            val (resume, restart) = when {
+                resumeAtOverride != null -> maxOf(0.0, resumeAtOverride) to (resumeAtOverride <= 0.001)
+                progressStore.isLocallyMarkedFinished(key) -> 0.0 to true
+                else -> (progress(key)?.currentTime ?: 0.0) to false
+            }
+            if (restart) preparePlaybackRestartFromBeginning(episode.libraryItemId, episode.episodeId, key)
             val stub = episode.playbackStubBook(session.selectedPodcastLibrary.value?.id ?: episode.libraryId)
             player.playBook(
                 client = c,
@@ -425,12 +341,12 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
             )
             Prefs.setString(Keys.lastPlayedItemId, stub.id)
             if (autoPlay) {
-                bumpOptimisticProgress(episode.libraryItemId, episode.episodeId, resume, episode.duration)
-                presentNowPlayingOnAutoPlayIfNeeded()
-                refreshDashboardAfterPlaybackStart()
+                // iOS: `bumpOptimisticContinueListeningForPodcastEpisode` — Continue sofort mit lokalem Stand.
+                val p = PlaybackHostBridge.optimisticProgress(progress(key), episode.libraryItemId, episode.episodeId, resume, episode.duration, System.currentTimeMillis())
+                upsertProgress(p, markPendingServerSync = false)
             }
         } catch (e: CancellationException) {
-            // Überholt.
+            // Überholt von einem neueren Start — kein Fehler.
         } catch (e: Exception) {
             session.publishErrorUnlessBenignCancellation(e)
         } finally {
@@ -438,16 +354,21 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
         }
     }
 
-    /** iOS: `bumpOptimisticContinueListeningFor…` — Continue-Regal sofort mit lokalem Stand. */
-    private fun bumpOptimisticProgress(itemId: String, episodeId: String?, resumeAt: Double, duration: Double) {
-        val key = NowPlayingState.progressKeyOf(itemId, episodeId)
-        val p = PlaybackHostBridge.optimisticProgress(progress(key), itemId, episodeId?.swiftTrim()?.ifEmpty { null }, resumeAt, duration, System.currentTimeMillis())
-        upsertProgress(p, markPendingServerSync = false)
-    }
-
-    private fun refreshDashboardAfterPlaybackStart() {
-        if (!session.mayUseServerNetwork) return
-        model.scope.launch { runCatching { model.home.loadStartDashboard() } }
+    /** iOS: `preparePlaybackRestartFromBeginning`. */
+    private fun preparePlaybackRestartFromBeginning(libraryItemId: String, episodeId: String?, key: String) {
+        progressStore.clearLocallyFinishedProgressKey(key)
+        if (progress(key) != null) {
+            progressStore.applyLocalMarkUnfinished(libraryItemId, episodeId)
+            progressStore.markPendingLocalProgressSync(key)
+            progress(key)?.let { fanOut(it) }
+        }
+        val c = session.client
+        if (canUseServer && c != null) {
+            // Nicht abwarten: lokal ist der Fortschritt schon zurückgesetzt.
+            model.scope.launch {
+                runCatching { c.patchProgress(libraryItemId, episodeId, AbsProgressPatch(currentTime = 0.0, progress = 0.0, isFinished = false)) }
+            }
+        }
     }
 
     // MARK: - Launch-Restore (iOS: `restoreLastPlayedOnLaunch`)
@@ -455,6 +376,7 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
     override suspend fun restoreLastPlayedOnLaunch() {
         if (player.activeBook.value != null) return
         val c = session.client ?: (if (session.offlineHomeUIActive) session.clientForOfflineLocalPlayback() else null) ?: return
+        progressStore.ensureLocalProgressLoaded()
         val progress = launchResumeProgress()
         if (progress == null || progress.isFinished) {
             Prefs.remove(Keys.lastPlayedItemId)
@@ -508,8 +430,10 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
 
     /** iOS: `launchResumeProgress` — zuletzt gespielter offener Titel, sonst der jüngste offene Fortschritt. */
     private fun launchResumeProgress(): AbsUserMediaProgress? {
-        val all = model.home.progressByItemId.value.values
-        val open = all.filter { !it.isFinished && it.currentTime > HomeShelfLogic.continueListeningMinPositionSeconds && !guards.isLocallyFinished(it.progressLookupKey) }
+        val open = progressStore.progressByItemId.value.values.filter {
+            !it.isFinished && it.currentTime > HomeShelfLogic.continueListeningMinPositionSeconds &&
+                !progressStore.isLocallyMarkedFinished(it.progressLookupKey) && !progressStore.isProgressKeyDiscarded(it.progressLookupKey)
+        }
         if (open.isEmpty()) return null
         val lastId = Prefs.string(Keys.lastPlayedItemId)?.swiftTrim().orEmpty()
         if (lastId.isNotEmpty()) {
@@ -529,18 +453,22 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
         if (!canUseServer) return
         runCatching { bridge.flushPendingOfflineListeningTime() }
         val activeKey = player.activeBook.value?.let { NowPlayingState.progressKeyOf(it.id, player.activePlaybackEpisodeId.value) }
-        for (key in guards.pendingKeys) {
+        for (key in progressStore.pendingLocalProgressSyncKeys) {
             // Laufende Remote-Session synct selbst.
             if (key == activeKey && player.isRemotePlaySessionActive) continue
-            val p = progress(key) ?: run { guards.removePending(key); null } ?: continue
+            val p = progress(key)
+            if (p == null) {
+                progressStore.clearPendingLocalProgressSync(key)
+                continue
+            }
             try {
                 if (p.isFinished) {
                     c.markFinished(p.libraryItemId, p.episodeId)
-                    guards.clearLocallyFinished(key)
+                    progressStore.clearLocallyFinishedProgressKey(key)
                 } else {
                     c.patchProgress(p.libraryItemId, p.episodeId, AbsProgressPatch(currentTime = p.currentTime, duration = p.duration, progress = p.progress, isFinished = false))
                 }
-                guards.removePending(key)
+                progressStore.clearPendingLocalProgressSync(key)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -549,11 +477,7 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
         }
     }
 
-    // MARK: - Bookmarks (iOS: `bookmarks`, `createBookmark`, `deleteBookmark`)
-
-    /** Bookmarks eines Hörbuchs, nach Zeit sortiert. */
-    fun bookmarksFor(libraryItemId: String): List<AbsAudioBookmark> =
-        _bookmarks.value.filter { it.libraryItemId == libraryItemId }.sortedBy { it.time }
+    // MARK: - Bookmarks (iOS: `createBookmark`, `deleteBookmark`)
 
     /** iOS: `activeAudiobookBookmarkId` — nur Hörbücher haben Bookmarks. */
     val activeAudiobookBookmarkId: String?
@@ -568,11 +492,9 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
             return false
         }
         val time = player.snapshotPlaybackTimeSeconds()
-        val t = title.swiftTrim().ifEmpty { "Bookmark at ${de.letzgo.abstand.ui.formatPlaybackTime(time.toDouble())}" }
+        val t = title.swiftTrim().ifEmpty { "Bookmark at ${formatPlaybackTime(time.toDouble())}" }
         return try {
-            val created = c.createBookmark(itemId, time, t)
-            _bookmarks.value = _bookmarks.value.filterNot { it.id == created.id } + created
-            persistBookmarks()
+            progressStore.upsertBookmark(c.createBookmark(itemId, time, t))
             true
         } catch (e: CancellationException) {
             throw e
@@ -590,8 +512,7 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
         }
         return try {
             c.deleteBookmark(bookmark.libraryItemId, bookmark.time)
-            _bookmarks.value = _bookmarks.value.filterNot { it.id == bookmark.id }
-            persistBookmarks()
+            progressStore.removeBookmark(bookmark)
             true
         } catch (e: CancellationException) {
             throw e
@@ -599,12 +520,6 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
             session.publishErrorUnlessBenignCancellation(e, forceDisplay = true)
             false
         }
-    }
-
-    private fun persistBookmarks() {
-        val store = session.currentLocalLibraryStore() ?: return
-        val list = _bookmarks.value
-        model.scope.launch { runCatching { store.replaceAllBookmarks(list) } }
     }
 
     // MARK: - Download-Knopf im Vollplayer (iOS: `startDownloadForActivePlayback` / `removeLocalDownloadForActivePlayback`)
@@ -649,8 +564,12 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
 
     override suspend fun downloadedRows(): List<AbsStartShelfMergedRow> = downloads.downloadedRows()
 
+    override suspend fun libraryBookRows(): List<AbsStartShelfMergedRow>? =
+        model.catalog.mergedInMemoryCatalogBooks().filter { it.isPlayableAudiobook }.takeIf { it.isNotEmpty() }
+            ?.take(AUTO_ROW_LIMIT)?.map { AbsStartShelfMergedRow.Book(it) }
+
     override suspend fun podcastEpisodeRows(): List<AbsStartShelfMergedRow>? =
-        model.podcasts.podcastEpisodes.value.takeIf { it.isNotEmpty() }?.take(AUTO_EPISODE_LIMIT)?.map { AbsStartShelfMergedRow.PodcastEpisode(it) }
+        model.podcasts.podcastEpisodes.value.takeIf { it.isNotEmpty() }?.take(AUTO_ROW_LIMIT)?.map { AbsStartShelfMergedRow.PodcastEpisode(it) }
 
     override fun coverUrl(libraryItemId: String): String? =
         AbsApiClient.normalizeServerURL(session.serverURL.value)?.let { AbsApiClient.itemCoverURL(it, libraryItemId, CoverImageTier.thumbnail) }
@@ -669,19 +588,8 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
 
     // MARK: - SessionParticipant
 
-    override suspend fun restoreFromLocalStore(store: LocalLibraryStore, booksLibraryId: String?) {
-        if (_bookmarks.value.isEmpty()) _bookmarks.value = runCatching { store.fetchAllBookmarks() }.getOrDefault(emptyList())
-    }
-
     override fun onSessionActivated() {
-        guards.load()
         downloads.loadForActiveAccount()
-    }
-
-    override fun onAuthorizeUser(user: AbsUser, persistToDisk: Boolean) {
-        val list = user.bookmarks ?: return
-        _bookmarks.value = list
-        if (persistToDisk) persistBookmarks()
     }
 
     override fun onTokensRefreshed(accessToken: String, refreshToken: String) {
@@ -694,8 +602,6 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
             player.setMiniPlayerPlaceholder(false)
         }
         _nowPlayingPresented.value = false
-        _bookmarks.value = emptyList()
-        guards.clearInMemory()
         downloads.clearInMemory()
     }
 
@@ -763,12 +669,12 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
             downloads.storageIdsForLibraryItem(showId).forEach { downloads.removeLocalDownload(it) }
         }
 
-        override fun isLocallyMarkedFinished(progressKey: String): Boolean = guards.isLocallyFinished(progressKey)
+        override fun isLocallyMarkedFinished(progressKey: String): Boolean = progressStore.isLocallyMarkedFinished(progressKey)
     }
 
     companion object {
         private const val TAG = "AbstandPlayer"
-        /** Android Auto: neueste Folgen (nicht in iOS-CarPlay). */
-        private const val AUTO_EPISODE_LIMIT = 50
+        /** Android Auto: Zeilen je zusätzlichem Tab (Bücher, Folgen — nicht in iOS-CarPlay). */
+        private const val AUTO_ROW_LIMIT = 50
     }
 }

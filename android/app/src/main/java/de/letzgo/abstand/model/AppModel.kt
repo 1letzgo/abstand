@@ -28,6 +28,9 @@ class AppModel(context: Context) {
     /** Session, Accounts, Bibliothekswahl, Offline-Modus, Tabs (iOS: `AppModelSessionAuth` + Teile von `AppModel`). */
     val session = SessionStore(appContext, scope, participants)
 
+    /** Fortschritt + Lesezeichen (iOS: `progressByItemId`, `bookmarks`) und Bücher-Katalog/Browse. */
+    val progress = ProgressStore(this).also { participants.add(it) }
+
     /** Podcasts-Tab, Verzeichnis, RSS/Admin (iOS: `AppModelCatalogPodcasts`/`AppModelPodcastDirectory`). */
     val podcasts = PodcastStore(this).also { register(it) }
 
@@ -45,6 +48,9 @@ class AppModel(context: Context) {
 
     /** Einheitliche Suche über Bücher und Podcasts (iOS: Such-Teile von `AppModel`). */
     val search = SearchStore(this).also { register(it) }
+
+    /** Bücher-Katalog/Browse (iOS: Katalog-Teile von `AppModel`). */
+    val catalog = CatalogStore(this).also { participants.add(it) }
 
     /**
      * Player-/Download-Verdrahtung (iOS: `AppModel.player` + Wiedergabe-/Download-Teile von `AppModel`).

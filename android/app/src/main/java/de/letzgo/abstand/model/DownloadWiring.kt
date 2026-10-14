@@ -60,6 +60,13 @@ class DownloadWiring(private val model: AppModel) : DownloadHost, DownloadStatus
                 _revision.value += 1
             }
         }
+        // Katalog/Detail löschen Downloads auch selbst (iOS: eine `downloadedItemIds`) — Liste angleichen.
+        model.scope.launch {
+            var first = true
+            model.catalog.downloadedItemIds.collect {
+                if (first) first = false else refreshManifests()
+            }
+        }
     }
 
     // MARK: - Laden / Persistieren (iOS: `downloadsUserDefaultsKey`)
@@ -161,6 +168,7 @@ class DownloadWiring(private val model: AppModel) : DownloadHost, DownloadStatus
         model.scope.launch {
             withContext(Dispatchers.IO) { DownloadManager.deleteDownload(storageId) }
             refreshManifests()
+            model.catalog.refreshDownloadedItemIds()
         }
     }
 
