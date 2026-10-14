@@ -290,8 +290,8 @@ object MatchLogic {
         val p = AbsItemMediaMetadataPatch()
         if (AbsMatchField.title in fields) p.title = match.title
         if (AbsMatchField.subtitle in fields) p.subtitle = match.subtitle
-        if (AbsMatchField.author in fields) match.displayAuthors?.let { a -> p.authorNames = a.split(",").map { it.trim() } }
-        if (AbsMatchField.narrator in fields) match.displayNarrator?.let { n -> p.narratorNames = n.split(",").map { it.trim() } }
+        if (AbsMatchField.author in fields) match.displayAuthors?.let { a -> p.authorNames = a.split(",").map { it.trim() }.filter { it.isNotEmpty() } }
+        if (AbsMatchField.narrator in fields) match.displayNarrator?.let { n -> p.narratorNames = n.split(",").map { it.trim() }.filter { it.isNotEmpty() } }
         if (AbsMatchField.description in fields) p.descriptionText = match.displayDescription
         if (AbsMatchField.publisher in fields) p.publisher = match.publisher
         if (AbsMatchField.publishedYear in fields) p.publishedYear = match.displayYear

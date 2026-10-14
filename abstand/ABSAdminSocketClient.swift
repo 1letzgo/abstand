@@ -14,7 +14,11 @@ final class ABSAdminSocketClient {
   private let urlSession: URLSession
   private var webSocket: URLSessionWebSocketTask?
   private var receiveTask: Task<Void, Never>?
-  private var pingIntervalNs: UInt64 = 25_000_000_000
+  /// Engine.IO v4: der Server pingt alle `pingInterval`, der Client antwortet nur mit Pong und
+  /// sendet keine eigenen Pings. Kommt länger als `pingInterval + pingTimeout` kein Paket, gilt die
+  /// Verbindung als tot (z. B. halb offene TCP-Verbindung) → Socket abbrechen, `receiveLoop` reconnectet.
+  private var livenessTimeoutNs: UInt64 = 45_000_000_000
+  private var livenessTask: Task<Void, Never>?
   private var token: String = ""
   private var baseURL: URL?
   private var wantsConnection = false
@@ -64,6 +68,8 @@ final class ABSAdminSocketClient {
   }
 
   private func disconnectSocketOnly() {
+    livenessTask?.cancel()
+    livenessTask = nil
     receiveTask?.cancel()
     receiveTask = nil
     webSocket?.cancel(with: .goingAway, reason: nil)
@@ -76,6 +82,7 @@ final class ABSAdminSocketClient {
     guard let ownSocket = webSocket else { return }
     while !Task.isCancelled {
       guard let webSocket, webSocket === ownSocket else { return }
+      armLivenessWatchdog(for: ownSocket)
       do {
         let message = try await webSocket.receive()
         switch message {
@@ -109,6 +116,18 @@ final class ABSAdminSocketClient {
     }
   }
 
+  /// Bei jedem Paket neu gestartet; läuft er ab, wird der eigene Socket abgebrochen — `receive()`
+  /// wirft dann und der Reconnect-Pfad in `receiveLoop` übernimmt.
+  private func armLivenessWatchdog(for socket: URLSessionWebSocketTask) {
+    livenessTask?.cancel()
+    let timeout = livenessTimeoutNs
+    livenessTask = Task { [weak self] in
+      do { try await Task.sleep(nanoseconds: timeout) } catch { return }
+      guard let self, self.webSocket === socket else { return }
+      socket.cancel(with: .goingAway, reason: nil)
+    }
+  }
+
   private func handlePacket(_ raw: String) async {
     guard !raw.isEmpty else { return }
     // Engine.IO: optional binary prefix; Payload beginnt mit Ziffer.
@@ -118,12 +137,14 @@ final class ABSAdminSocketClient {
 
     switch type {
     case 0:
-      // open — pingInterval aus JSON
+      // open — pingInterval/pingTimeout aus JSON bestimmen die Liveness-Frist.
       if let data = body.data(using: .utf8),
         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
         let intervalMs = json["pingInterval"] as? Double
       {
-        pingIntervalNs = UInt64(max(5_000, intervalMs) * 1_000_000)
+        let timeoutMs = json["pingTimeout"] as? Double ?? 20_000
+        livenessTimeoutNs = UInt64((max(5_000, intervalMs) + max(1_000, timeoutMs)) * 1_000_000)
+        if let webSocket { armLivenessWatchdog(for: webSocket) }
       }
       // Socket.IO Namespace connect
       sendRaw("40")

@@ -192,6 +192,11 @@ class SettingsLogicTest {
         assertEquals("The Expanse", patch.series!!.single().name)
         assertNull(MatchLogic.coverURL(match, setOf(AbsMatchField.title)))
         assertEquals("https://x/c.jpg", MatchLogic.coverURL(match, setOf(AbsMatchField.cover)))
+        // Leere Einträge fallen weg (wie `splitCommaList`).
+        val sparse = AbsMetadataMatch(title = null, author = "A, ,B", narrator = " , N ,")
+        val sparsePatch = MatchLogic.patch(sparse, setOf(AbsMatchField.author, AbsMatchField.narrator))
+        assertEquals(listOf("A", "B"), sparsePatch.authorNames)
+        assertEquals(listOf("N"), sparsePatch.narratorNames)
     }
 
     @Test
