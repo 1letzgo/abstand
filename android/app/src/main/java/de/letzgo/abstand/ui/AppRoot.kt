@@ -30,6 +30,7 @@ import de.letzgo.abstand.ui.components.CoverEnvironment
 import de.letzgo.abstand.ui.components.LocalCoverEnvironment
 import de.letzgo.abstand.ui.components.TabRootScaffold
 import de.letzgo.abstand.ui.login.LoginScreen
+import de.letzgo.abstand.ui.library.BooksLibraryTabRoot
 import de.letzgo.abstand.ui.settings.SettingsTabRoot
 
 /** Tab-Symbole (iOS: `MainRootView` `.tabItem { Label(…, systemImage:) }`). */
@@ -143,7 +144,7 @@ private fun TabRootContent(tab: MainTab) {
     when (tab) {
         MainTab.settings -> SettingsTabRoot()
         MainTab.start -> PlaceholderTabRoot(tab, "Continue listening, recent additions and shelves appear here.")
-        MainTab.library -> PlaceholderTabRoot(tab, "Your audiobook library appears here.")
+        MainTab.library -> BooksLibraryTabRoot()
         MainTab.podcasts -> PlaceholderTabRoot(tab, "Your podcasts appear here.")
         MainTab.search -> PlaceholderTabRoot(tab, "Search your libraries.")
     }

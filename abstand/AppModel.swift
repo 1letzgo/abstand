@@ -7623,6 +7623,9 @@ final class AppModel: ObservableObject {
           bookMatchesAuthor($0, authorId: nav.entityId, displayName: nav.title)
         })
       entityDetailBooks = entityDetailSortBooksBySeriesOrder(rows)
+      // Autor-Detail rendert gruppiert (Serien + Einzeltitel) — ohne diese Zuweisung zeigte die
+      // lokale Kopie (offline / vor der Server-Antwort) trotz Treffern „No books found.“.
+      entityDetailAuthorStandaloneBooks = entityDetailBooks
       entityDetailTotal = rows.count
     case .series:
       let rows = entityDetailSortBooksBySeriesOrder(
@@ -12156,10 +12159,20 @@ final class AppModel: ObservableObject {
       return !books.contains { $0.id == bookId } && lookupBookStub(id: bookId) == nil
     }
     let f = activeLibraryFilter?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    if f.contains("not-started") {
+    if Self.decodedProgressFilterValue(f) == "not-started" {
       return !books.contains { $0.id == bookId } && lookupBookStub(id: bookId) == nil
     }
     return false
+  }
+
+  /// Wert eines `progress.<base64>`-Filters (`in-progress`, `finished`, `not-started`) — der Key
+  /// selbst ist Base64-kodiert, ein `contains("in-progress")` auf dem Key trifft nie.
+  private static func decodedProgressFilterValue(_ filter: String) -> String {
+    let prefix = "progress."
+    guard filter.hasPrefix(prefix),
+      let data = Data(base64Encoded: String(filter.dropFirst(prefix.count)))
+    else { return "" }
+    return String(decoding: data, as: UTF8.self)
   }
 
   private func lookupBookStub(id: String) -> ABSBook? {
@@ -12236,12 +12249,13 @@ final class AppModel: ObservableObject {
     case .downloaded, .ebooks, .ebooksSupplementary, nil:
       let f = activeLibraryFilter?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       guard f.hasPrefix("progress.") else { return }
-      if f.contains("in-progress") || f.contains("not-started") {
+      let value = Self.decodedProgressFilterValue(f)
+      if value == "in-progress" || value == "not-started" {
         if finished { removeBookFromCatalogList(bookId) }
         else if !books.contains(where: { $0.id == bookId }), let stub = lookupBookStub(id: bookId) {
           books.insert(stub, at: 0)
         }
-      } else if f.contains("finished") {
+      } else if value == "finished" {
         if finished, !books.contains(where: { $0.id == bookId }), let stub = lookupBookStub(id: bookId) {
           books.insert(stub, at: 0)
         } else if !finished {
@@ -12297,9 +12311,10 @@ final class AppModel: ObservableObject {
     case .downloaded, .ebooks, .ebooksSupplementary, nil:
       let f = activeLibraryFilter?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       guard f.hasPrefix("progress.") else { return }
-      if f.contains("in-progress") || f.contains("finished") {
+      let value = Self.decodedProgressFilterValue(f)
+      if value == "in-progress" || value == "finished" {
         removeBookFromCatalogList(bookId)
-      } else if f.contains("not-started"),
+      } else if value == "not-started",
         !books.contains(where: { $0.id == bookId }),
         let stub = lookupBookStub(id: bookId)
       {

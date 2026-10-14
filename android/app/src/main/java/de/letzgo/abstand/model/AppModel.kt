@@ -28,6 +28,10 @@ class AppModel(context: Context) {
     /** Session, Accounts, Bibliothekswahl, Offline-Modus, Tabs (iOS: `AppModelSessionAuth` + Teile von `AppModel`). */
     val session = SessionStore(appContext, scope, participants)
 
+    /** Fortschritt + Lesezeichen (iOS: `progressByItemId`, `bookmarks`) und Bücher-Katalog/Browse. */
+    val progress = ProgressStore(this).also { participants.add(it) }
+    val catalog = CatalogStore(this).also { participants.add(it) }
+
     /** Teilnehmer für Bootstrap-/Session-Lebenszyklus anmelden (Reihenfolge = Aufrufreihenfolge). */
     fun register(participant: SessionParticipant) {
         if (participant !in participants) participants.add(participant)

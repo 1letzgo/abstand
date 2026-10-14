@@ -98,6 +98,17 @@ abstand.debug.password=…
 | `logic/ContinueHeroTintCache.kt` | `ContinueHeroTintCache.swift`, colour math of `DetailHeroViews.swift` |
 | `logic/CatalogBrowseTypes.kt` | `CatalogBrowseTypes.swift`, `BooksLibraryToolbarSnapshot` (`LibraryToolbarState.swift`) |
 | `logic/LibraryRowLiveState.kt` | `LibraryRowLiveState.swift` (pure parts) |
+| `model/ProgressStore.kt` | `progressByItemId`/`bookmarks`, `applyUserProgress`/`mergedUserMediaProgress`, guard keys (local finished/discarded/pending sync), progress persistence of `AppModel.swift` |
+| `model/CatalogStore.kt` (`CatalogStore`, `LibraryBookCardStyle`, `CatalogSortState`, `CatalogFilterState`, `BrowseListsState`) | catalog/browse parts of `AppModel.swift` + `AppModelCatalogPodcasts.reloadLibrary`, `LibraryBookCardStyle` (`AppAppearance.swift`), book actions (detail load, mark finished, reset, bookmarks, delete) |
+| `model/EntityDetailLoader.kt` | `reloadEntityDetail`/`loadMoreEntityDetailIfNeeded`/`applyEntityDetailFromLocalCache` (per screen instead of shared `entityDetail*`) |
+| `logic/CatalogLogic.kt`, `logic/BookDetailLogic.kt` | pure catalog/entity/detail helpers of `AppModel.swift`, `BookDetailView.swift`, `BookListeningDetailSections.swift` |
+| `ui/library/BooksLibraryTabRoot.kt`, `ui/library/BooksBrowseSections.kt` | `MainRootView` books root, `BooksLibraryTabShell`/`BooksLibraryToolbarContent` (`LibraryToolbarState.swift`), `MainRootBrowseSections.swift` |
+| `ui/library/LibraryCards.kt` | `LibraryCardViews.swift` (book row + cover card, browse entity row, facet tile, badges, play pills) |
+| `ui/library/LibraryToolbarMenus.kt` | `LibrarySortToolbars.swift`, `LibraryFilterViews.swift` |
+| `ui/library/LibraryPlayback.kt` | `AppModel.play(book:)`, `jumpToBookmark`, `continueHeroPlayPillToggle` |
+| `ui/detail/BookDetailScreen.kt`, `ui/detail/BookDetailSections.kt` | `BookDetailView.swift`, `BookListeningDetailSections.swift`, `BookmarksUI.swift` |
+| `ui/detail/DetailHeroViews.kt`, `ui/detail/CoverTint.kt` | `DetailHeroViews.swift` (hero, action bar, meta cards, toolbar download item, cover tint) |
+| `ui/detail/EntityDetailScreen.kt`, `ui/detail/DetailDestinations.kt` | `BooksEntityDetailViews.swift`, `booksEntityDetailNavigation` / `navigationDestination`s |
 
 (Extended as screens are ported.)
 
