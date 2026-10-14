@@ -29,8 +29,10 @@ import de.letzgo.abstand.ui.components.AbstandEmptyScreen
 import de.letzgo.abstand.ui.components.CoverEnvironment
 import de.letzgo.abstand.ui.components.LocalCoverEnvironment
 import de.letzgo.abstand.ui.components.TabRootScaffold
+import de.letzgo.abstand.ui.home.HomeTabRoot
 import de.letzgo.abstand.ui.login.LoginScreen
 import de.letzgo.abstand.ui.podcasts.PodcastsTabRoot
+import de.letzgo.abstand.ui.search.SearchTabRoot
 import de.letzgo.abstand.ui.settings.SettingsTabRoot
 
 /** Tab-Symbole (iOS: `MainRootView` `.tabItem { Label(…, systemImage:) }`). */
@@ -138,15 +140,15 @@ private fun MainTabShell(session: SessionStore) {
     ErrorAlert(session)
 }
 
-/** Wurzel je Tab — Platzhalter, bis die Screens portiert sind (Settings: Account-Sektionen). */
+/** Wurzel je Tab — Home und Suche portiert, Books/Podcasts noch Platzhalter (Settings: Account-Sektionen). */
 @Composable
 private fun TabRootContent(tab: MainTab) {
     when (tab) {
         MainTab.settings -> SettingsTabRoot()
-        MainTab.start -> PlaceholderTabRoot(tab, "Continue listening, recent additions and shelves appear here.")
+        MainTab.start -> HomeTabRoot()
         MainTab.library -> PlaceholderTabRoot(tab, "Your audiobook library appears here.")
         MainTab.podcasts -> PodcastsTabRoot()
-        MainTab.search -> PlaceholderTabRoot(tab, "Search your libraries.")
+        MainTab.search -> SearchTabRoot()
     }
 }
 
