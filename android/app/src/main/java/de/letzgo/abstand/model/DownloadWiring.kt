@@ -161,15 +161,12 @@ class DownloadWiring(private val model: AppModel) : DownloadHost, DownloadStatus
 
     /** iOS: `removeLocalDownload(bookId:)` — Lauf abbrechen, Ordner löschen, Liste persistieren. */
     fun removeLocalDownload(storageId: String) {
-        DownloadManager.cancel(storageId)
         _downloadedIds.value = _downloadedIds.value - storageId
         manifests = manifests?.filterNot { it.storageItemId == storageId }
         persistDownloads(skipRefresh = true)
-        model.scope.launch {
-            withContext(Dispatchers.IO) { DownloadManager.deleteDownload(storageId) }
-            refreshManifests()
-            model.catalog.refreshDownloadedItemIds()
-        }
+        // Abbruch, Dateien, Transkripte, Katalog-Liste: ein Pfad mit dem Bücher-Tab.
+        model.catalog.removeLocalDownload(storageId)
+        model.scope.launch { refreshManifests() }
     }
 
     /** Nach „Fertig“: iOS `removeLocalDownloadIfFinishedSetting`. */

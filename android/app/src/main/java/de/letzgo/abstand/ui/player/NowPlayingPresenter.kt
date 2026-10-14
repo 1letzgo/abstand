@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun NowPlayingOverlay(
     wiring: PlayerWiring,
-    transcriptContent: (@Composable () -> Unit)? = null,
+    readAlong: NowPlayingReadAlong? = null,
     onOpenEbook: ((AbsBook) -> Unit)? = null,
 ) {
     val presented by wiring.nowPlayingPresented.collectAsState()
@@ -143,7 +143,7 @@ fun NowPlayingOverlay(
             NowPlayingScreen(
                 wiring = wiring,
                 onDismiss = { wiring.dismissNowPlaying() },
-                transcriptContent = transcriptContent,
+                readAlong = readAlong,
                 onOpenEbook = onOpenEbook?.let { open -> { book: AbsBook -> wiring.dismissNowPlaying(); open(book) } },
             )
         }

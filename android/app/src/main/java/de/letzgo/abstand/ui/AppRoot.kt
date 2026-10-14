@@ -10,6 +10,8 @@ import de.letzgo.abstand.model.PlayerWiring
 import de.letzgo.abstand.ui.permissions.NotificationPermissionHost
 import de.letzgo.abstand.ui.player.MiniPlayerDock
 import de.letzgo.abstand.ui.player.NowPlayingOverlay
+import de.letzgo.abstand.ui.player.rememberTranscriptReadAlong
+import de.letzgo.abstand.ui.detail.BookDetailDestination
 import de.letzgo.abstand.ui.player.miniPlayerDockHeight
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -155,7 +157,7 @@ private fun MainTabShell(session: SessionStore, player: PlayerWiring) {
         }
     }
     // iOS: Vollbild-Player über Tabs und Tab-Leiste (FullScreenOverlayPresenter / Zoom aus dem Mini-Player).
-    NowPlayingOverlay(player)
+    NowPlayingOverlay(player, readAlong = rememberTranscriptReadAlong(), onOpenEbook = BookDetailDestination.defaultOpenEbook)
     }
 
     NotificationPermissionHost()

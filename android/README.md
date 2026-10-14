@@ -118,7 +118,7 @@ abstand.debug.password=…
 | `ui/components/BrowseStrip.kt` | `AbstandExpandingDockBrowseStrip.swift` (`AbstandPinnedBrowseStrip`, dropdown pills), `AbstandFixedBrowseStripSectionsLayout` (AppTheme.swift) |
 | `ui/browse/BrowseFacetSections.kt` | `MainRootBrowseSections.swift`, `BrowseEntityRowCard`/`FacetBrowseTileCard`, `BooksBrowseSection` |
 | `ui/search/SearchTabViews.kt` | `SearchTabViews.swift` |
-| `ui/destinations/Destinations.kt` | detail `navigationDestination` targets (placeholders until the detail screens are ported) |
+| `ui/destinations/Destinations.kt` | Home/Search `navigationDestination` targets → `ui/detail/` screens, `PodcastEpisodeDetailView`, Podcasts tab show filter |
 | `model/AppSettings.kt` (`AppSettings`, `LibraryCardStyle`, `TranslationTargetLanguage`) | simple `@Published` settings of `AppModel`, `LibraryBookCardStyle`/`LibraryPodcastCardStyle`/`TranslationTargetLanguage` (`AppAppearance.swift`) |
 | `model/AdminStore.kt` (`AdminStore`, `AdminLogic`) | server-admin part of `AppModel` (users, library stats/scan, M4B encode + polling, media-cache purge, `changeAccountPassword`) |
 | `model/StatsStore.kt` (`StatsStore`, `StatsLogicExt`) | listening-stats part of `AppModel` (`loadListeningStats`, achievements snapshot, stats navigation stubs) |
@@ -136,7 +136,7 @@ abstand.debug.password=…
 | `ui/stats/ListeningAchievementCard.kt` | `ListeningAchievementCard` (`ListeningAchievements.swift`) |
 | `ui/metadata/MetadataActions.kt` | metadata/cover/chapter actions of `AppModel` (`applyMetadataMatch`, `applyCoverURL`, `applyItemChapters`, …) |
 | `ui/metadata/EditMetadataSheet.kt`, `MatchMetadataSheet.kt`, `ChaptersEditorSheet.kt` | `EditMetadataSheet.swift`, `MatchMetadataSheet.swift`, `ChaptersEditorSheet.swift` |
-| `ui/permissions/NotificationPermission.kt` | — (Android 13+ `POST_NOTIFICATIONS`, asked once) |
+| `ui/permissions/NotificationPermission.kt` | — (Android 13+ `POST_NOTIFICATIONS`, asked once — Settings root or first playback/download start) |
 | `model/ProgressStore.kt` | `progressByItemId`/`bookmarks`, `applyUserProgress`/`mergedUserMediaProgress`, guard keys (local finished/discarded/pending sync), progress persistence of `AppModel.swift` |
 | `model/CatalogStore.kt` (`CatalogStore`, `LibraryBookCardStyle`, `CatalogSortState`, `CatalogFilterState`, `BrowseListsState`) | catalog/browse parts of `AppModel.swift` + `AppModelCatalogPodcasts.reloadLibrary`, `LibraryBookCardStyle` (`AppAppearance.swift`), book actions (detail load, mark finished, reset, bookmarks, delete) |
 | `model/EntityDetailLoader.kt` | `reloadEntityDetail`/`loadMoreEntityDetailIfNeeded`/`applyEntityDetailFromLocalCache` (per screen instead of shared `entityDetail*`) |
@@ -160,6 +160,14 @@ abstand.debug.password=…
 | `ui/transcript/TranscriptTeleprompter.kt` (`TranscriptTeleprompter`, `TeleprompterFontSize`) | `PlayerTranscriptTeleprompter.swift` (`PlayerLiveTranscriptPanelView`) |
 | `ui/transcript/TranscriptWordLookupSheet.kt` | `PlayerTranscriptWordLookup.swift` (sheet; Translate/Search the web instead of system dictionary/Translation) |
 | `ui/transcript/TranscriptRecapSheet.kt` (`TranscriptRecapSheet`, `TranscriptRecapContent`) | `PlayerTranscriptRecapSheet.swift` (`PlayerTranscriptRecapCard`) |
+| `model/PlayerWiring.kt` | player parts of `AppModel` (`playPodcastEpisode`, `restoreLastPlayedOnLaunch`, `markFinished` from playback, `dismissPlayer`, bookmark create/delete, `requestPresentNowPlayingSheet`, `syncOfflineProgressToServer` subset); implements `PlaybackHost`, `BrowseSource`, `PlaybackLauncher`, `PodcastActions` |
+| `model/DownloadWiring.kt` | download parts of `AppModel` (`downloadedItemIds` per account, `persistDownloads`, `removeLocalDownload`, `downloadManifestBelongsToActiveAccount`); implements `DownloadHost`, `DownloadStatusSource` |
+| `ui/player/MiniPlayer.kt`, `ui/player/PlayerChrome.kt` | `FloatingPlayerChrome.swift` (`TabAccessoryMiniPlayer`, `FloatingAccessoryGate`, snapshot), `MiniPlayerMetrics` |
+| `ui/player/NowPlayingScreen.kt`, `ui/player/NowPlayingControls.kt`, `ui/player/NowPlayingPanels.kt` | `NowPlayingDetailView` in `MiniPlayerView.swift` (cover/panels, scrubbers, transport, utility bar, sleep/speed/EQ menus, chapters/bookmarks/description panels) |
+| `ui/player/NowPlayingReadAlong.kt` | `ReadAlongPanelButton`, recap button, teleprompter ± (`MiniPlayerView.swift`) |
+| `ui/player/NowPlayingPresenter.kt` | `NowPlayingZoomPresenter.swift` + `FullScreenOverlayPresenter` (zoom from the mini player, drag-to-dismiss) |
+| `ui/player/AudioOutputSwitcher.kt` | `FullPlayerAirPlayButton` (`AVRoutePickerView` → system output switcher) |
+| `ui/AppIntegration.kt` | cross-feature wiring (detail admin sheets, Stats navigation, `bookUpdated`, Settings hooks, transcript prefetch) |
 
 (Extended as screens are ported.)
 

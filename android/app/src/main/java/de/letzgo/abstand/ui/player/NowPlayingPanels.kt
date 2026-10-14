@@ -32,6 +32,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
@@ -58,11 +59,17 @@ enum class FullPlayerCoverPanel { artwork, description, bookmarks, chapters, rea
  * iOS: `FullPlayerCoverOverlayButton` — runder Panel-Knopf (aktiv: Akzent-Füllung).
  */
 @Composable
-fun FullPlayerPanelButton(icon: ImageVector, active: Boolean, accessibilityLabel: String, onClick: () -> Unit) {
+fun FullPlayerPanelButton(icon: ImageVector, active: Boolean, accessibilityLabel: String, onClick: () -> Unit) =
+    FullPlayerPanelButton(icon, active, accessibilityLabel, dimmed = false, onClick = onClick)
+
+/** [dimmed]: antippbar (für den Hinweis), aber optisch zurückgenommen (iOS: `opacity(0.45)`). */
+@Composable
+fun FullPlayerPanelButton(icon: ImageVector, active: Boolean, accessibilityLabel: String, dimmed: Boolean, onClick: () -> Unit) {
     val palette = Theme.palette
     Box(
         Modifier
             .size(MiniPlayerMetrics.panelControlButtonSize)
+            .alpha(if (dimmed) DIMMED_ALPHA else 1f)
             .clip(CircleShape)
             .background(if (active) Theme.accent else palette.card)
             .clickable(onClick = onClick)
@@ -70,6 +77,25 @@ fun FullPlayerPanelButton(icon: ImageVector, active: Boolean, accessibilityLabel
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = null, tint = if (active) Theme.onAccent else palette.textPrimary)
+    }
+}
+
+private const val DIMMED_ALPHA = 0.45f
+
+/** iOS: kompakte Kreise auf der Teleprompter-Karte (±). */
+@Composable
+fun CompactPanelButton(icon: ImageVector, accessibilityLabel: String, onClick: () -> Unit) {
+    val palette = Theme.palette
+    Box(
+        Modifier
+            .size(AppTheme.Layout.compactIconButtonSize)
+            .clip(CircleShape)
+            .background(palette.background)
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = accessibilityLabel },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = palette.textPrimary)
     }
 }
 

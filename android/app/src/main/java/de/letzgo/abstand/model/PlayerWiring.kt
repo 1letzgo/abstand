@@ -21,6 +21,7 @@ import de.letzgo.abstand.player.BrowseSource
 import de.letzgo.abstand.player.PlaybackController
 import de.letzgo.abstand.player.PlaybackHost
 import de.letzgo.abstand.player.PlaybackHostBridge
+import de.letzgo.abstand.transcript.PlaybackTranscription
 import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.library.LibraryPlayback
 import de.letzgo.abstand.ui.permissions.NotificationPermission
@@ -329,6 +330,8 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
             }
             if (restart) preparePlaybackRestartFromBeginning(episode.libraryItemId, episode.episodeId, key)
             val stub = episode.playbackStubBook(session.selectedPodcastLibrary.value?.id ?: episode.libraryId)
+            // iOS: `transcriptionLanguageOverride: podcastShowTranscriptionLanguage(for:)` — Sprache der Sendung.
+            PlaybackTranscription.setTranscriptionLanguageOverride(episode.libraryItemId, podcastShowTranscriptionLanguage(episode.libraryItemId))
             player.playBook(
                 client = c,
                 book = stub,
@@ -353,6 +356,10 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
             _isPreparingPlayback.value = false
         }
     }
+
+    /** iOS: `podcastShowTranscriptionLanguage(for:)` — Sprache aus den Metadaten der Sendung. */
+    private fun podcastShowTranscriptionLanguage(showId: String): String? =
+        model.podcasts.podcastShows.value.firstOrNull { it.id == showId }?.media?.metadata?.language?.swiftTrim()?.ifEmpty { null }
 
     /** iOS: `preparePlaybackRestartFromBeginning`. */
     private fun preparePlaybackRestartFromBeginning(libraryItemId: String, episodeId: String?, key: String) {
@@ -388,6 +395,7 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
         try {
             if (ep != null) {
                 val episode = resolveEpisode(libraryItemId, ep)
+                PlaybackTranscription.setTranscriptionLanguageOverride(episode.libraryItemId, podcastShowTranscriptionLanguage(episode.libraryItemId))
                 val local = DownloadManager.localDownloadRoot(DownloadManager.podcastEpisodeOfflineStorageId(episode), downloads.downloadedIds.value)
                 // Offline nur resumen, was auch lokal liegt — sonst hängt der Player im Ladezustand.
                 if (local == null && !canUseServer) return

@@ -26,12 +26,15 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -63,8 +66,8 @@ private val AbsBook.hasEbook: Boolean
  * Buch- und Kapitel-Scrubber, Panel-Knöpfe (Beschreibung, Bookmarks, Kapitel, Read along), Transport,
  * Utility-Leiste (EQ, Tempo, Sleep, Ausgabe, Download).
  *
- * @param transcriptContent Teleprompter (iOS: `PlayerTranscriptTeleprompter` im Read-along-Panel);
- *   `null` blendet den Read-along-Knopf aus.
+ * @param readAlong Teleprompter + Recap (iOS: `ReadAlongPanelButton`, `readAlongKaraokeCard`);
+ *   `null` blendet Read along und Recap aus.
  * @param onOpenEbook „Open ebook“ für Bücher mit eBook; `null` blendet den Knopf aus.
  */
 @Composable
@@ -72,7 +75,7 @@ fun NowPlayingScreen(
     wiring: PlayerWiring,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
-    transcriptContent: (@Composable () -> Unit)? = null,
+    readAlong: NowPlayingReadAlong? = null,
     onOpenEbook: ((AbsBook) -> Unit)? = null,
 ) {
     val player = wiring.player
@@ -80,10 +83,15 @@ fun NowPlayingScreen(
     val book by player.activeBook.collectAsState()
     val episodeId by player.activePlaybackEpisodeId.collectAsState()
     val preparing by wiring.isPreparingPlayback.collectAsState()
-    var panel by rememberSaveable { mutableStateOf(FullPlayerCoverPanel.artwork) }
+    // iOS: Startzustand aus dem Player — laufender Teleprompter öffnet direkt die Read-along-Karte.
+    var panel by rememberSaveable {
+        mutableStateOf(if (readAlong?.isModeActive?.value == true) FullPlayerCoverPanel.readAlong else FullPlayerCoverPanel.artwork)
+    }
+    var downloadWarning by remember { mutableStateOf(false) }
+    var recapOpen by remember { mutableStateOf(false) }
     // Titelwechsel: zurück zum Cover (Panels gehören zum vorherigen Titel).
     LaunchedEffect(book?.id, episodeId) { if (panel != FullPlayerCoverPanel.readAlong) panel = FullPlayerCoverPanel.artwork }
-    if (transcriptContent == null && panel == FullPlayerCoverPanel.readAlong) panel = FullPlayerCoverPanel.artwork
+    if (readAlong == null && panel == FullPlayerCoverPanel.readAlong) panel = FullPlayerCoverPanel.artwork
 
     BoxWithConstraints(
         modifier
@@ -111,13 +119,41 @@ fun NowPlayingScreen(
                 add(FullPlayerCoverPanel.description)
                 if (isAudiobook) add(FullPlayerCoverPanel.bookmarks)
                 if (isAudiobook) add(FullPlayerCoverPanel.chapters)
-                if (transcriptContent != null) add(FullPlayerCoverPanel.readAlong)
+                if (readAlong != null) add(FullPlayerCoverPanel.readAlong)
+            }
+            // iOS: Read along/Recap nur mit vollständigem Download — sonst Hinweis statt Panel.
+            val onPanelButton: (FullPlayerCoverPanel) -> Unit = { k ->
+                if (k == FullPlayerCoverPanel.readAlong && readAlong != null) {
+                    if (!readAlong.isDownloadReady()) {
+                        downloadWarning = true
+                    } else {
+                        readAlong.toggle()
+                        panel = if (panel == k) FullPlayerCoverPanel.artwork else k
+                    }
+                } else {
+                    panel = if (panel == k) FullPlayerCoverPanel.artwork else k
+                }
+            }
+            val onRecap: (() -> Unit)? = readAlong?.recapSheet?.let {
+                {
+                    if (!readAlong.isDownloadReady()) {
+                        downloadWarning = true
+                    } else {
+                        // Teleprompter-Karte hat Vorrang — erst schließen (beendet die Session).
+                        if (panel == FullPlayerCoverPanel.readAlong) panel = FullPlayerCoverPanel.artwork
+                        recapOpen = true
+                    }
+                }
             }
             val ebookAction = onOpenEbook?.takeIf { isAudiobook && b.hasEbook }
             val expanded = panel != FullPlayerCoverPanel.artwork
-            val header: @Composable (Modifier) -> Unit = { m -> PlayerHeaderArea(wiring, b, panel, transcriptContent, m) }
+            val header: @Composable (Modifier) -> Unit = { m -> PlayerHeaderArea(wiring, b, panel, readAlong, m) }
             val controls: @Composable ColumnScope.() -> Unit = {
-                PanelControlRow(panelKinds, panel, onToggle = { panel = if (panel == it) FullPlayerCoverPanel.artwork else it }, onOpenEbook = ebookAction?.let { { it(b) } })
+                PanelControlRow(
+                    panelKinds, panel, onToggle = onPanelButton, onRecap = onRecap,
+                    readAlongDimmed = readAlong != null && !readAlong.isDownloadReady(),
+                    onOpenEbook = ebookAction?.let { { it(b) } },
+                )
                 FullPlayerTransportRow(wiring, Modifier.padding(top = if (panelKinds.isEmpty()) MiniPlayerMetrics.spacingAbovePlayRow else AppTheme.Layout.tightSpacing))
                 FullPlayerUtilityBar(wiring)
             }
@@ -146,6 +182,19 @@ fun NowPlayingScreen(
             }
         }
     }
+    if (downloadWarning) ReadAlongDownloadWarning { downloadWarning = false }
+    if (recapOpen) readAlong?.recapSheet?.invoke { recapOpen = false }
+}
+
+/** iOS: Alert „Download required“ (Read along / Recap ohne vollständigen Download). */
+@Composable
+private fun ReadAlongDownloadWarning(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Download required") },
+        text = { Text("Read along and recap only work when the audiobook or podcast is fully downloaded.") },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
+    )
 }
 
 /** iOS: Sheet-Drag-Griff (36 × 5) — Tippen schließt. */
@@ -175,7 +224,7 @@ private fun PlayerHeaderArea(
     wiring: PlayerWiring,
     book: AbsBook,
     panel: FullPlayerCoverPanel,
-    transcriptContent: (@Composable () -> Unit)?,
+    readAlong: NowPlayingReadAlong?,
     modifier: Modifier,
 ) {
     AnimatedContent(
@@ -205,7 +254,21 @@ private fun PlayerHeaderArea(
             FullPlayerCoverPanel.description -> FullPlayerPanelCard { DescriptionPanel(book) }
             FullPlayerCoverPanel.chapters -> FullPlayerPanelCard { ChaptersPanel(wiring) }
             FullPlayerCoverPanel.bookmarks -> FullPlayerPanelCard { BookmarksPanel(wiring, book.id) }
-            FullPlayerCoverPanel.readAlong -> FullPlayerPanelCard { transcriptContent?.invoke() }
+            FullPlayerCoverPanel.readAlong -> FullPlayerPanelCard {
+                if (readAlong != null) {
+                    Column(Modifier.fillMaxSize()) {
+                        Box(Modifier.weight(1f).fillMaxWidth()) { readAlong.content() }
+                        // iOS: ±-Schriftgröße unten rechts auf der Teleprompter-Karte.
+                        Row(
+                            Modifier.fillMaxWidth().padding(AppTheme.Layout.stackSpacing),
+                            horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing, Alignment.End),
+                        ) {
+                            CompactPanelButton(SF.textformatSizeSmaller, "Smaller text", readAlong.decreaseFont)
+                            CompactPanelButton(SF.textformatSizeLarger, "Larger text", readAlong.increaseFont)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -236,6 +299,8 @@ private fun PanelControlRow(
     kinds: List<FullPlayerCoverPanel>,
     active: FullPlayerCoverPanel,
     onToggle: (FullPlayerCoverPanel) -> Unit,
+    onRecap: (() -> Unit)?,
+    readAlongDimmed: Boolean,
     onOpenEbook: (() -> Unit)?,
 ) {
     if (kinds.isEmpty() && onOpenEbook == null) return
@@ -252,7 +317,11 @@ private fun PanelControlRow(
                 FullPlayerCoverPanel.description -> FullPlayerPanelButton(SF.docText, on, if (on) "Hide description" else "Show description") { onToggle(k) }
                 FullPlayerCoverPanel.bookmarks -> FullPlayerPanelButton(SF.textBookClosed, on, if (on) "Hide bookmarks" else "Show bookmarks") { onToggle(k) }
                 FullPlayerCoverPanel.chapters -> FullPlayerPanelButton(SF.listBullet, on, if (on) "Hide chapters" else "Show chapters") { onToggle(k) }
-                FullPlayerCoverPanel.readAlong -> FullPlayerPanelButton(SF.captionsBubble, on, if (on) "Stop read-along transcript" else "Start read-along transcript") { onToggle(k) }
+                FullPlayerCoverPanel.readAlong -> {
+                    // iOS: Recap steht vor Read along (beide brauchen den Download, gedimmt ohne).
+                    onRecap?.let { recap -> FullPlayerPanelButton(SF.sparkles, false, "Recap of the last 5 minutes", dimmed = readAlongDimmed, onClick = recap) }
+                    FullPlayerPanelButton(SF.textWordSpacing, on, if (on) "Stop read-along transcript" else "Start read-along transcript", dimmed = readAlongDimmed) { onToggle(k) }
+                }
                 FullPlayerCoverPanel.artwork -> Unit
             }
         }
