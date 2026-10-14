@@ -215,13 +215,13 @@ fun ListeningHistoryRow(session: AbsListeningSession, onJump: (AbsListeningSessi
                 SF.arrowCounterclockwiseCircleFill,
                 "Jump to this session",
                 onClick = { onJump(session) },
-                iconSize = 28.dp,
+                iconSize = HistoryJumpIconSize,
                 tint = Theme.accent,
             )
         }
-        BoxWithConstraints(Modifier.fillMaxWidth().height(7.dp).background(palette.card, CircleShape)) {
+        BoxWithConstraints(Modifier.fillMaxWidth().height(HistoryRangeBarHeight).background(palette.card, CircleShape)) {
             val x0 = (maxWidth * rel0.toFloat()).coerceIn(0.dp, maxWidth)
-            val x1 = (maxWidth * rel1.toFloat()).coerceIn(x0 + 2.dp, maxWidth)
+            val x1 = (maxWidth * rel1.toFloat()).coerceIn(x0 + AppTheme.Layout.hairlineSpacing, maxWidth)
             Box(Modifier.offset(x = x0).width(x1 - x0).fillMaxHeight().background(Theme.accent.copy(alpha = 0.88f), CircleShape))
         }
     }
@@ -248,3 +248,7 @@ fun ListeningHistorySessionList(
         }
     }
 }
+
+/** iOS: `ListeningHistoryRow` — Sprung-Symbol und Höhe des Bereichsbalkens. */
+private val HistoryJumpIconSize = 28.dp
+private val HistoryRangeBarHeight = 7.dp

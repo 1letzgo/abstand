@@ -221,7 +221,7 @@ fun DetailHeroPrimaryButton(
     @Composable
     fun Label(color: Color) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            Icon(kind.icon, null, tint = color, modifier = Modifier.size(18.dp))
+            Icon(kind.icon, null, tint = color, modifier = Modifier.size(HeroLabelIconSize))
             Spacer(Modifier.width(AppTheme.Layout.compactSpacing))
             Text(kind.title, style = textStyle, color = color, maxLines = 1)
         }
@@ -361,7 +361,7 @@ fun DetailMetaDisclosure(title: String, expanded: Boolean, onToggle: () -> Unit,
             Box(Modifier.weight(1f)) { DetailMetaLabel(title) }
             Icon(
                 SF.chevronRight, contentDescription = if (expanded) "Collapse" else "Expand", tint = Theme.accent,
-                modifier = Modifier.size(18.dp).rotate(if (expanded) 90f else 0f),
+                modifier = Modifier.size(HeroLabelIconSize).rotate(if (expanded) 90f else 0f),
             )
         }
         if (expanded) {
@@ -410,3 +410,6 @@ fun RowScope.DetailToolbarDownloadItem(storageId: String, onStartDownload: () ->
         else -> AbstandIconButton(SF.arrowDownCircle, "Download", onClick = onStartDownload, enabled = enabled, tint = accent)
     }
 }
+
+/** Symbol in Hero-Knopf-Labels und Disclosure-Chevrons. */
+private val HeroLabelIconSize = 18.dp

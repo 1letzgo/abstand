@@ -178,7 +178,7 @@ private fun EntityCover(nav: BooksEntityDetailNav, state: EntityDetailState, mod
     when (nav.kind) {
         BooksEntityDetailNav.Kind.AUTHOR -> BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Box(Modifier.width(maxWidth * 0.8f).aspectRatio(1f).clip(CircleShape).background(palette.card), contentAlignment = Alignment.Center) {
-                Icon(nav.kind.placeholderIcon, null, tint = palette.textSecondary, modifier = Modifier.size(48.dp))
+                Icon(nav.kind.placeholderIcon, null, tint = palette.textSecondary, modifier = Modifier.size(EntityCoverPlaceholderIconSize))
                 CoverImage(
                     url = model.catalog.authorImageURL(nav.entityId),
                     cacheScopeId = "entity:author:${nav.entityId}#cover-hero",
@@ -195,7 +195,7 @@ private fun EntityCover(nav: BooksEntityDetailNav, state: EntityDetailState, mod
                     SquareCoverImage(itemId = book.id, tier = CoverImageTier.hero, cacheRevision = coverRevisionFor(book.updatedAt), modifier = Modifier.fillMaxSize())
                 } else {
                     Box(Modifier.fillMaxSize().background(palette.card), contentAlignment = Alignment.Center) {
-                        Icon(nav.kind.placeholderIcon, null, tint = palette.textSecondary, modifier = Modifier.size(48.dp))
+                        Icon(nav.kind.placeholderIcon, null, tint = palette.textSecondary, modifier = Modifier.size(EntityCoverPlaceholderIconSize))
                     }
                 }
             }
@@ -293,3 +293,6 @@ fun NarratorDetailScreen(name: String, numBooks: Int? = null, libraryId: String?
 @Composable
 fun FacetFilteredBooksScreen(kind: BooksEntityDetailNav.Kind, value: String, numBooks: Int? = null, libraryId: String? = null) =
     BooksEntityDetailScreen(BooksEntityDetailNav(kind, value.trim(), value.trim(), numBooks, libraryId))
+
+/** Platzhalter-Symbol im Entity-Cover (iOS: `ContentUnavailableView`-Größe). */
+private val EntityCoverPlaceholderIconSize = 48.dp

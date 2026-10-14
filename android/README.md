@@ -58,7 +58,8 @@ abstand.debug.password=…
 | `data/AbsJson.kt` | `ABSJSON` |
 | `data/Models*.kt` | `ABSModels.swift` |
 | `data/ApiClient.kt` | `ABSAPIClient` |
-| `ui/Theme.kt`, `ui/components/` | `AppTheme`, `AppAppearance`, shared view building blocks |
+| `ui/Theme.kt`, `ui/components/` | `AppTheme`, `AppAppearance`, shared view building blocks (UI templates, see Conventions + `UI_TEMPLATES.txt`) |
+| `ui/components/Menus.kt`, `Overlays.kt`, `Pills.kt`, `Progress.kt`, `Rows.kt` | SwiftUI `Menu`/`Picker(.menu)`, `.alert`/`.sheet`, cover pills/badges/chips, `ProgressView`, list rows/segmented `Picker` |
 | `ui/Icons.kt` | SF Symbols mapping |
 | `ui/AppRoot.kt`, `ui/TabNavigation.kt` | `abstandApp` / `AppRootContainer` / `MainTabShellView` / `MainRootView` (tabs, per-tab `NavigationStack`) |
 | `store/LocalLibraryModels.kt`, `store/LocalLibraryDao.kt` (Room, schema in `app/schemas/`) | `LocalLibraryModels.swift` (SwiftData `@Model`s, schema V4) |
@@ -103,7 +104,7 @@ abstand.debug.password=…
 | `model/PodcastLogic.kt` (`PodcastLogic`, `PodcastCatalogSortField`, `PodcastEpisodeSortField`, `PodcastAutoDownloadInterval`) | static podcast helpers in `AppModel.swift`, `CatalogBrowseTypes.swift`, `PodcastAutoDownloadSchedule.swift` |
 | `ui/podcasts/PodcastActions.kt` | player/download bridge (`playPodcastEpisode`, `startDownloadPodcastEpisode`, `downloadedItemIds`) |
 | `ui/podcasts/PodcastsTabRoot.kt` | podcasts root in `MainRootView.swift` + `PodcastCatalogTabShell`/`PodcastCatalogToolbarContent` (`LibraryToolbarState.swift`) |
-| `ui/podcasts/PodcastEpisodeRows.kt` | `PodcastEpisodeRowCard`, `LibraryRowStatusBadges`, `LibraryRowPlayPill` (`LibraryCardViews.swift`) |
+| `ui/podcasts/PodcastEpisodeRows.kt` | `PodcastEpisodeRowCard` (`LibraryCardViews.swift`; badges/play pill via `AbstandStatusBadges`/`AbstandPlayPill`) |
 | `ui/podcasts/PodcastTabSheets.kt` | `PodcastTabSheets.swift` (Add podcast: search, charts, storefront) + `AbstandCatalogSortToolbarMenu` |
 | `ui/podcasts/PodcastDirectoryShowView.kt` | `PodcastDirectoryShowView.swift` |
 | `ui/podcasts/PodcastEpisodeDetailView.kt`, `ui/podcasts/PodcastDetailComponents.kt` | `PodcastEpisodeDetailView.swift`, detail building blocks from `DetailHeroViews.swift` |
@@ -114,10 +115,9 @@ abstand.debug.password=…
 | `ui/home/HomeDashboardViews.kt` | `HomeDashboardViews.swift` (`HomeTabRootView`, `StartDashboardView`, Home carousels) |
 | `ui/home/HomeCompactCards.kt` | `HomeCompactCards.swift` |
 | `ui/home/ContinueListeningHeroViews.kt` | `ContinueListeningHeroViews.swift` + `ContinueListeningHeroBookCard`/`…PodcastCard` (LibraryCardViews.swift) |
-| `ui/home/HomeCardSupport.kt` | `LibraryRowLayout`, `LibraryRowCollapsedMetaLine`, `ContinueListeningHeroCoverPill`, cover-tint placeholder |
+| `ui/home/HomeCardSupport.kt` | cover-tint placeholder, author image, live-state helpers (`LibraryRowLayout` lives in `ui/library/LibraryCards.kt`, `LibraryRowCollapsedMetaLine` and cover pills in `ui/components/`) |
 | `ui/home/HomeShelfSettings.kt` | `SettingsAppearanceHomeView` (ServerAdminViews.swift) |
 | `ui/components/BrowseStrip.kt` | `AbstandExpandingDockBrowseStrip.swift` (`AbstandPinnedBrowseStrip`, dropdown pills), `AbstandFixedBrowseStripSectionsLayout` (AppTheme.swift) |
-| `ui/browse/BrowseFacetSections.kt` | `MainRootBrowseSections.swift`, `BrowseEntityRowCard`/`FacetBrowseTileCard`, `BooksBrowseSection` |
 | `ui/search/SearchTabViews.kt` | `SearchTabViews.swift` |
 | `ui/destinations/Destinations.kt` | Home/Search `navigationDestination` targets → `ui/detail/` screens, `PodcastEpisodeDetailView`, Podcasts tab show filter |
 | `model/AppSettings.kt` (`AppSettings`, `LibraryCardStyle`, `TranslationTargetLanguage`) | simple `@Published` settings of `AppModel`, `LibraryBookCardStyle`/`LibraryPodcastCardStyle`/`TranslationTargetLanguage` (`AppAppearance.swift`) |
@@ -186,7 +186,29 @@ abstand.debug.password=…
 - JSON only through `AbsJson.decoder` / `.encoder` / `.decoderListeningStats` — never `Json { }`.
 - Network only through `Net.client` / `Net.imageClient` (LAN self-signed TLS, custom headers per
   server origin, bearer for the active server) and `ApiClient` for API calls.
-- Colours only from the palette (`Theme.palette`, accent); spacing only from the tokens.
+- Colours only from the palette (`Theme.palette`, accent); spacing only from the tokens. `Color(0x…)`
+  literals live only in `ui/Theme.kt` / `ui/Palette.kt` (`UiTemplateLintTest` fails otherwise).
+- **UI templates — never hand-build menus, sheets or dialogs.** Every recurring element comes from
+  `ui/components/` (inventory with former call sites: `android/UI_TEMPLATES.txt`). Material 3 widgets are
+  used only inside those templates; `UiTemplateLintTest` fails on raw `DropdownMenu`, `AlertDialog`,
+  `Dialog`, `ModalBottomSheet`, `IconButton`, `TextButton`, chips, `SegmentedButton`, progress
+  indicators or text fields anywhere else.
+  - Menus: `AbstandMenu(expanded, onDismiss) { section("Sort by") { … }; picker(options, selected, label, onSelect, title, icon); item(label, onClick, icon, selected, destructive, enabled); divider() }`,
+    anchors `AbstandMenuButton(icon, description) { … }` (toolbar ⋮/sort/filter) and `AbstandMenuBox(anchor = { open -> … }) { … }`
+    (pill/text/long-press anchors), one-liner pickers `AbstandPickerMenu` / `AbstandPickerValueMenu`,
+    browse/library pills `AbstandDropdownPill`. Card surface, card corners, hero shadow, hairline edge,
+    44 dp rows, accent checkmark for the selection, `AppTheme.danger` for destructive items.
+  - Dialogs: `AbstandAlert(title, onDismiss, message)` (OK only), `AbstandConfirmDialog(title, confirmLabel, onConfirm, onDismiss, message, destructive = true)`,
+    `AbstandDialog(…) { content }` for inputs (e.g. `AbstandInsetTextField`), `AbstandBlockingProgressDialog(text)`.
+  - Sheets: `AbstandSheet(title, onDismiss, onConfirm, cancelLabel)` (bottom sheet with grabber), `MetadataSheetScaffold` (full-screen forms).
+  - Buttons: `AbstandPrimaryButton`, `AbstandProminentButton` (`destructive`), `AbstandIconButton` (Plain/Tonal/Filled,
+    sizes `minTapTarget`/`iconButtonSize`/`compactIconButtonSize`), `AbstandTextButton`, `AbstandPlayPill`.
+  - Pills/badges/chips: `AbstandCoverPill(Icon|Text)`, `AbstandCoverCornerBadge`, `AbstandCoverDownloadBadge`, `AbstandStatusBadges`,
+    `AbstandBadge` (Neutral/Accent), `AbstandChip` (filter/category), `AbstandDockChip` (expanding dock).
+  - Progress/state: `AbstandProgressBar`, `AbstandCardBottomProgress`, `AbstandProgressRing`, `AbstandInlineSpinner`, `AbstandLoadingSpinner`,
+    `AbstandLabeledLoadingState`, `AbstandEmptyScreen` / `AbstandSectionEmptyState` / `AbstandCardEmptyState`.
+  - Rows/text: `AbstandListRow` (leading/below/trailing slots), `SettingsCard*Row`, `AbstandDivider`, `AbstandCapsLabel`,
+    `TabContentSectionTitle`, `LibraryRowCollapsedMetaLine`, `AbstandSegmentedControl`.
 - Local persistence: one Room DB per account (`filesDir/ABStandLocalStore/accounts/<sha>/users/<sha>/`),
   file caches under `filesDir/ABStandLibraryCache/…` (same scheme as iOS). Playback tick → `upsertProgress`;
   `replaceAllProgress` only for a full server sync.

@@ -351,9 +351,9 @@ fun LibraryHeroBookCard(
                         val label = if (ebookMetrics) LibraryRowLiveState.ebookProgressLabel(live.ebookFraction) ?: formatPlaybackTime(0.0)
                         else formatPlaybackTime(totalDuration)
                         Text(label, style = IosType.subheadline, color = palette.textSecondary, modifier = Modifier.weight(1f))
-                        if (isFinished) Icon(SF.checkmarkCircleFill, "Finished", tint = Theme.accent, modifier = Modifier.size(14.dp))
+                        if (isFinished) Icon(SF.checkmarkCircleFill, "Finished", tint = Theme.accent, modifier = Modifier.size(HeroStatusIconSize))
                         if (showsDownloadStatus && live.isDownloaded) {
-                            Icon(SF.arrowDownCircleFill, "Saved offline", tint = Theme.accent, modifier = Modifier.size(14.dp))
+                            Icon(SF.arrowDownCircleFill, "Saved offline", tint = Theme.accent, modifier = Modifier.size(HeroStatusIconSize))
                         }
                     }
                 }
@@ -475,7 +475,7 @@ fun BrowseEntityRowCard(
                 } else {
                     SquareCoverImage(itemId = coverItemId, modifier = Modifier.fillMaxSize())
                 }
-                else -> Icon(placeholderIcon, null, tint = palette.textSecondary, modifier = Modifier.align(Alignment.Center).size(36.dp))
+                else -> Icon(placeholderIcon, null, tint = palette.textSecondary, modifier = Modifier.align(Alignment.Center).size(EntityPlaceholderIconSize))
             }
         }
         Column(
@@ -521,3 +521,8 @@ fun FacetBrowseTileCard(kind: BooksBrowseSection, title: String, count: Int?, on
 
 /** Cache-Scope eines Autorenfotos (iOS: `author:<id>`). */
 fun authorCoverScopeId(authorId: String): String = CoverImageCache.scopeId("author:$authorId", CoverImageTier.thumbnail)
+
+/** Status-Symbole auf Hero-Karten (iOS: `.caption`). */
+private val HeroStatusIconSize = 14.dp
+/** Platzhalter-Symbol in Entity-Zeilen ohne Cover. */
+private val EntityPlaceholderIconSize = 36.dp

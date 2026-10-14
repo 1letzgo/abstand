@@ -1,0 +1,320 @@
+abstand Android — UI-Vorlagen-Inventar
+========================================
+
+Bestandsaufnahme der wiederkehrenden UI-Muster vor der Vereinheitlichung (Stand c85a3bb,
+Dateipfade relativ zu app/src/main/java/de/letzgo/abstand/) und die Vorlage, die sie jetzt
+ersetzt. Alle Vorlagen liegen in ui/components/; UiTemplateLintTest verhindert neue rohe
+Material-Menüs/-Dialoge/-Sheets/-Buttons/-Chips/-Fortschrittsanzeigen außerhalb davon und
+Color(0x…)-Literale außerhalb von Theme.kt/Palette.kt.
+
+## Menüs (DropdownMenu/DropdownMenuItem, Sort-/Filter-/Overflow-/Kontext-/Picker-/Speed-/Sleep-/EQ-Menüs)
+   → Vorlage: AbstandMenu { item/section/picker/divider } · AbstandMenuButton · AbstandMenuBox · AbstandPickerMenu · AbstandPickerValueMenu · AbstandDropdownPill
+   Fundstellen vorher: 14
+   - ui/admin/ServerLibraries.kt:124  DropdownMenu(expanded = menuFor == lib.id, onDismissRequest = { menuFor = null }, containe
+   - ui/detail/BookDetailScreen.kt:357  DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = Theme.
+   - ui/library/BooksLibraryTabRoot.kt:216  DropdownMenu(expanded = pickerOpen, onDismissRequest = { pickerOpen = false }, containerCo
+   - ui/library/LibraryToolbarMenus.kt:62  DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor 
+   - ui/library/LibraryToolbarMenus.kt:110  DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor 
+   - ui/player/MiniPlayer.kt:211  DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+   - ui/player/NowPlayingControls.kt:365  DropdownMenu(expanded = eqMenu, onDismissRequest = { eqMenu = false }) {
+   - ui/player/NowPlayingControls.kt:373  DropdownMenu(expanded = rateMenu, onDismissRequest = { rateMenu = false }) {
+   - ui/player/NowPlayingControls.kt:435  DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+   - ui/podcasts/PodcastTabSheets.kt:104  DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor 
+   - ui/podcasts/PodcastTabSheets.kt:329  DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor 
+   - ui/podcasts/PodcastsTabRoot.kt:401  DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor 
+   - ui/reader/ReaderScreen.kt:725  DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+   - ui/reader/ReaderScreen.kt:741  DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+
+## Alert-/Bestätigungs-Dialoge (AlertDialog, Dialog)
+   → Vorlage: AbstandAlert · AbstandConfirmDialog · AbstandDialog (content-Slot) · AbstandBlockingProgressDialog
+   Fundstellen vorher: 25
+   - ui/AppRoot.kt:201  AlertDialog(
+   - ui/admin/ServerM4B.kt:104  AlertDialog(
+   - ui/detail/BookDetailScreen.kt:261  AlertDialog(
+   - ui/detail/BookDetailScreen.kt:388  Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, di
+   - ui/detail/BookDetailSections.kt:146  AlertDialog(
+   - ui/home/HomeDashboardViews.kt:128  AlertDialog(
+   - ui/metadata/ChaptersEditorSheet.kt:184  AlertDialog(
+   - ui/metadata/EditMetadataSheet.kt:333  AlertDialog(
+   - ui/metadata/EditMetadataSheet.kt:340  AlertDialog(
+   - ui/metadata/EditMetadataSheet.kt:347  AlertDialog(
+   - ui/metadata/MatchMetadataSheet.kt:214  AlertDialog(
+   - ui/player/NowPlayingPanels.kt:240  AlertDialog(
+   - ui/player/NowPlayingPanels.kt:265  AlertDialog(
+   - ui/player/NowPlayingScreen.kt:193  AlertDialog(
+   - ui/podcasts/PodcastDirectoryShowView.kt:309  AlertDialog(
+   - ui/podcasts/PodcastEpisodeDetailView.kt:328  AlertDialog(
+   - ui/podcasts/PodcastShowSettingsScreen.kt:180  AlertDialog(
+   - ui/podcasts/PodcastShowSettingsScreen.kt:338  AlertDialog(
+   - ui/reader/ReaderScreen.kt:474  AlertDialog(
+   - ui/reader/ReaderScreen.kt:503  AlertDialog(
+   - ui/reader/ReaderScreen.kt:800  AlertDialog(
+   - ui/settings/SettingsAccountSections.kt:93  AlertDialog(
+   - ui/settings/SettingsAccountSections.kt:209  AlertDialog(
+   - ui/settings/SettingsDownloads.kt:338  AlertDialog(
+   - ui/stats/ListeningAchievementCard.kt:113  AlertDialog(
+
+## Bottom-Sheets (ModalBottomSheet / AbstandSheetScaffold)
+   → Vorlage: AbstandSheet (Griff, Cancel/Titel/Confirm) · MetadataSheetScaffold (Formulare)
+   Fundstellen vorher: 5
+   - ui/components/Scaffolds.kt:336  fun AbstandSheetScaffold(
+   - ui/components/Scaffolds.kt:347  ModalBottomSheet(
+   - ui/metadata/MatchMetadataSheet.kt:160  AbstandSheetScaffold(
+   - ui/transcript/TranscriptRecapSheet.kt:45  AbstandSheetScaffold(title = "Recap", onDismiss = onDismiss, onConfirm = onDismiss, confir
+   - ui/transcript/TranscriptWordLookupSheet.kt:62  AbstandSheetScaffold(title = "Look up & translate", onDismiss = onDismiss, onConfirm = onD
+
+## Icon-Buttons (IconButton, FilledTonalIconButton, runde Kreis-Knöpfe)
+   → Vorlage: AbstandIconButton (Plain/Tonal/Filled, size = minTapTarget/iconButtonSize/compactIconButtonSize)
+   Fundstellen vorher: 42
+   - ui/admin/ServerLibraries.kt:245  IconButton(onClick = {
+   - ui/components/Fields.kt:99  IconButton(onClick = { revealed = !revealed }) {
+   - ui/components/Fields.kt:144  IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(AppTheme.Layout.compa
+   - ui/components/Scaffolds.kt:89  IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescriptio
+   - ui/components/Scaffolds.kt:296  IconButton(onClick = onCancel) { Icon(SF.xmark, contentDescription = "Cancel", tint = pale
+   - ui/components/SettingsRows.kt:406  FilledTonalIconButton(
+   - ui/components/SettingsRows.kt:410  FilledTonalIconButton(
+   - ui/detail/BookDetailScreen.kt:333  IconButton(onClick = onShare, enabled = enabled) { Icon(SF.squareAndArrowUp, "Share", tint
+   - ui/detail/BookDetailScreen.kt:343  IconButton(onClick = onReset, enabled = enabled && canDiscard) {
+   - ui/detail/BookDetailScreen.kt:354  IconButton(onClick = { open = true }, enabled = enabled && reachable) {
+   - ui/detail/BookDetailSections.kt:137  IconButton(onClick = { confirmDelete = mark }) { Icon(SF.trash, "Delete bookmark", tint = 
+   - ui/detail/BookDetailSections.kt:223  IconButton(onClick = { onJump(session) }) {
+   - ui/detail/DetailHeroViews.kt:436  storageId in downloaded -> IconButton(onClick = onRemoveDownload, enabled = enabled) {
+   - ui/detail/DetailHeroViews.kt:439  else -> IconButton(onClick = onStartDownload, enabled = enabled) {
+   - ui/home/HomeDashboardViews.kt:148  IconButton(onClick = onClick) {
+   - ui/home/HomeShelfSettings.kt:98  IconButton(onClick = { onMove(-1) }, enabled = canMoveUp, modifier = Modifier.size(AppThem
+   - ui/home/HomeShelfSettings.kt:101  IconButton(onClick = { onMove(1) }, enabled = canMoveDown, modifier = Modifier.size(AppThe
+   - ui/library/LibraryToolbarMenus.kt:59  IconButton(onClick = { expanded = true }) {
+   - ui/library/LibraryToolbarMenus.kt:103  IconButton(onClick = { expanded = true }) {
+   - ui/metadata/EditMetadataSheet.kt:246  IconButton(onClick = {
+   - ui/player/MiniPlayer.kt:250  IconButton(
+   - ui/player/NowPlayingPanels.kt:226  IconButton(onClick = { deleting = b }) {
+   - ui/podcasts/PodcastDetailComponents.kt:137  IconButton(
+   - ui/podcasts/PodcastDirectoryShowView.kt:362  else -> IconButton(onClick = { scope.launch { store.downloadPodcastDirectoryEpisode(episod
+   - ui/podcasts/PodcastEpisodeDetailView.kt:141  IconButton(onClick = {
+   - ui/podcasts/PodcastEpisodeDetailView.kt:152  downloadProgress != null && !isDownloaded -> IconButton(onClick = { actions.removeDownload
+   - ui/podcasts/PodcastEpisodeDetailView.kt:158  isDownloaded -> IconButton(onClick = { actions.removeDownload(lid, eid) }) {
+   - ui/podcasts/PodcastEpisodeDetailView.kt:161  else -> IconButton(onClick = { actions.enqueueDownload(episode) }) {
+   - ui/podcasts/PodcastEpisodeDetailView.kt:165  IconButton(onClick = { confirm = EpisodeConfirm.discard }, enabled = canDiscard && reachab
+   - ui/podcasts/PodcastShowSettingsScreen.kt:107  IconButton(
+   - ui/podcasts/PodcastShowSettingsScreen.kt:112  IconButton(onClick = { confirmRemove = true }, enabled = reachable) {
+   - ui/podcasts/PodcastShowSettingsScreen.kt:309  match != null -> IconButton(onClick = { deleteConfirmation = match }, enabled = reachable)
+   - ui/podcasts/PodcastShowSettingsScreen.kt:314  else -> IconButton(
+   - ui/podcasts/PodcastShowSettingsScreen.kt:327  IconButton(onClick = { deleteConfirmation = episode }, enabled = reachable) {
+   - ui/podcasts/PodcastTabSheets.kt:101  IconButton(onClick = { expanded = true }) {
+   - ui/podcasts/PodcastsTabRoot.kt:141  IconButton(
+   - ui/podcasts/PodcastsTabRoot.kt:149  IconButton(onClick = { navigator?.push(PodcastShowSettingsDestination(sid, title)) }) {
+   - ui/reader/ReaderScreen.kt:648  IconButton(onClick = onClose, modifier = Modifier.size(AppTheme.Layout.iconButtonSize)) {
+   - ui/reader/ReaderScreen.kt:775  IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(size)) {
+   - ui/settings/SettingsDownloads.kt:308  IconButton(onClick = onCancel) {
+   - ui/settings/SettingsDownloads.kt:333  IconButton(onClick = { confirm = true }) {
+   - ui/stats/StatsHeatmap.kt:177  IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(AppTheme.Layout.
+
+## Text-Buttons (TextButton { Text(…) })
+   → Vorlage: AbstandTextButton (accent/destructive/emphasized/compact) · SheetConfirmAction
+   Fundstellen vorher: 45
+   - ui/AppRoot.kt:205  confirmButton = { TextButton(onClick = { session.setErrorMessage(null) }) { Text("OK") } }
+   - ui/admin/ServerM4B.kt:92  TextButton(
+   - ui/admin/ServerM4B.kt:109  TextButton(onClick = {
+   - ui/admin/ServerM4B.kt:118  dismissButton = { TextButton(onClick = { confirmPurge = false }) { Text("Cancel") } },
+   - ui/admin/ServerM4B.kt:143  TextButton(onClick = onCancel) { Text("Cancel", style = IosType.subheadline.medium, color 
+   - ui/detail/BookDetailScreen.kt:266  TextButton(onClick = {
+   - ui/detail/BookDetailScreen.kt:289  dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+   - ui/detail/BookDetailSections.kt:151  TextButton(onClick = {
+   - ui/detail/BookDetailSections.kt:156  dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Cancel") } },
+   - ui/detail/DetailHeroViews.kt:364  TextButton(onClick = onToggle) { Text(if (expanded) "Less" else "More", style = IosType.su
+   - ui/home/HomeDashboardViews.kt:135  TextButton(onClick = {
+   - ui/home/HomeDashboardViews.kt:140  dismissButton = { TextButton(onClick = { showOfflineConfirmation = false }) { Text("Cancel
+   - ui/library/BooksBrowseSections.kt:283  TextButton(onClick = onShowAll) { Text("Show all", style = IosType.subheadline.semibold, c
+   - ui/metadata/ChaptersEditorSheet.kt:187  confirmButton = { TextButton(onClick = { applyError = null }) { Text("OK") } },
+   - ui/metadata/EditMetadataSheet.kt:336  confirmButton = { TextButton(onClick = { saveError = null }) { Text("OK") } },
+   - ui/metadata/EditMetadataSheet.kt:343  confirmButton = { TextButton(onClick = { coverApplyError = null }) { Text("OK") } },
+   - ui/metadata/EditMetadataSheet.kt:352  TextButton(onClick = {
+   - ui/metadata/EditMetadataSheet.kt:365  dismissButton = { TextButton(onClick = { pendingCoverURL = null }) { Text("Cancel") } },
+   - ui/metadata/MatchMetadataSheet.kt:217  confirmButton = { TextButton(onClick = { applyError = null }) { Text("OK") } },
+   - ui/player/NowPlayingPanels.kt:252  TextButton(onClick = {
+   - ui/player/NowPlayingPanels.kt:261  dismissButton = { TextButton(onClick = { adding = false }) { Text("Cancel") } },
+   - ui/player/NowPlayingPanels.kt:270  TextButton(onClick = {
+   - ui/player/NowPlayingPanels.kt:275  dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+   - ui/player/NowPlayingScreen.kt:197  confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
+   - ui/podcasts/PodcastDirectoryShowView.kt:313  confirmButton = { TextButton(onClick = { subscribeError = null }) { Text("OK") } },
+   - ui/podcasts/PodcastEpisodeDetailView.kt:333  TextButton(onClick = {
+   - ui/podcasts/PodcastEpisodeDetailView.kt:338  dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = Theme.palette.t
+   - ui/podcasts/PodcastShowSettingsScreen.kt:185  TextButton(onClick = {
+   - ui/podcasts/PodcastShowSettingsScreen.kt:190  dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel", color =
+   - ui/podcasts/PodcastShowSettingsScreen.kt:343  TextButton(onClick = {
+   - ui/podcasts/PodcastShowSettingsScreen.kt:348  dismissButton = { TextButton(onClick = { deleteConfirmation = null }) { Text("Cancel", col
+   - ui/podcasts/PodcastTabSheets.kt:325  TextButton(onClick = { expanded = true }, modifier = Modifier.semantics { contentDescripti
+   - ui/reader/ReaderScreen.kt:478  dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Cancel") } },
+   - ui/reader/ReaderScreen.kt:480  TextButton(onClick = {
+   - ui/reader/ReaderScreen.kt:507  dismissButton = { TextButton(onClick = { confirmFinish = false }) { Text("Cancel") } },
+   - ui/reader/ReaderScreen.kt:509  TextButton(onClick = {
+   - ui/reader/ReaderScreen.kt:804  confirmButton = { TextButton(onClick = controller::dismissNotice) { Text("OK") } },
+   - ui/reader/ReaderScreen.kt:871  TextButton(onClick = onStay, modifier = Modifier.heightIn(min = AppTheme.Layout.minTapTarg
+   - ui/settings/SettingsAccountSections.kt:98  TextButton(onClick = {
+   - ui/settings/SettingsAccountSections.kt:103  dismissButton = { TextButton(onClick = { accountPendingLogout = null }) { Text("Cancel") }
+   - ui/settings/SettingsAccountSections.kt:213  TextButton(onClick = {
+   - ui/settings/SettingsAccountSections.kt:218  dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text("Cancel") } },
+   - ui/settings/SettingsDownloads.kt:342  confirmButton = { TextButton(onClick = { confirm = false; onDelete() }) { Text("Delete", c
+   - ui/settings/SettingsDownloads.kt:343  dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+   - ui/stats/ListeningAchievementCard.kt:117  confirmButton = { TextButton(onClick = { showExplanation = false }) { Text("OK") } },
+
+## Lineare Fortschrittsbalken (LinearProgressIndicator, Box-in-Box-Balken)
+   → Vorlage: AbstandProgressBar · AbstandCardBottomProgress (Kartenrand)
+   Fundstellen vorher: 6
+   - ui/home/HomeCompactCards.kt:129  LinearProgressIndicator(
+   - ui/library/LibraryCards.kt:253  LinearProgressIndicator(
+   - ui/player/NowPlayingControls.kt:392  LinearProgressIndicator(
+   - ui/podcasts/PodcastDetailComponents.kt:158  LinearProgressIndicator(
+   - ui/settings/SettingsDownloads.kt:299  entry?.isPodcastEpisode != true -> LinearProgressIndicator(
+   - ui/transcript/TranscriptTeleprompter.kt:359  LinearProgressIndicator(
+
+## Kreis-Fortschritt / Spinner (CircularProgressIndicator)
+   → Vorlage: AbstandProgressRing (bestimmt) · AbstandInlineSpinner (size/stroke) · AbstandLoadingSpinner · AbstandLabeledLoadingState
+   Fundstellen vorher: 9
+   - ui/detail/BookDetailScreen.kt:394  androidx.compose.material3.CircularProgressIndicator(color = Theme.accent)
+   - ui/detail/DetailHeroViews.kt:428  CircularProgressIndicator(
+   - ui/home/ContinueListeningHeroViews.kt:149  CircularProgressIndicator(
+   - ui/library/LibraryCards.kt:223  CircularProgressIndicator(
+   - ui/player/MiniPlayer.kt:275  CircularProgressIndicator(
+   - ui/player/NowPlayingControls.kt:254  CircularProgressIndicator(color = Theme.onAccent, strokeWidth = AppTheme.Layout.boldStroke
+   - ui/podcasts/PodcastEpisodeDetailView.kt:153  CircularProgressIndicator(
+   - ui/podcasts/PodcastEpisodeRows.kt:162  downloadProgress != null && !isDownloaded -> CircularProgressIndicator(
+   - ui/reader/ReaderScreen.kt:794  CircularProgressIndicator(Modifier.size(AppTheme.Layout.blockSpacing), color = foreground,
+
+## Filter-/Kategorie-Chips (FilterChip, Kapsel-Box im Dock-Farbschema)
+   → Vorlage: AbstandChip · AbstandDockChip · AbstandPinnedBrowseStrip
+   Fundstellen vorher: 4
+   - ui/library/BooksLibraryTabRoot.kt:207  FilterChip(
+   - ui/library/BooksLibraryTabRoot.kt:232  FilterChip(
+   - ui/podcasts/PodcastTabSheets.kt:405  .background(if (selected) colors.activeBackground else colors.inactiveBackground)
+   - ui/settings/SettingsIconStrip.kt:61  .background(if (active) colors.activeBackground else colors.inactiveBackground)
+
+## Segment-Umschalter (SegmentedButton)
+   → Vorlage: AbstandSegmentedControl (SettingsCardSegmentedRow, PodcastSegmentedPicker)
+   Fundstellen vorher: 2
+   - ui/components/SettingsRows.kt:263  SegmentedButton(
+   - ui/podcasts/PodcastTabSheets.kt:181  SegmentedButton(
+
+## Cover-Pillen / Badges / Offline-Badge (CoverPill, CoverPillIcon, CoverOfflineBadge, CoverCornerBadge, Kapsel-Labels)
+   → Vorlage: AbstandCoverPill · AbstandCoverPillIcon · AbstandCoverPillText · AbstandCoverCornerBadge · AbstandCoverDownloadBadge · AbstandBadge (Neutral/Accent)
+   Fundstellen vorher: 10
+   - ui/admin/ServerUsers.kt:131  "root",
+   - ui/home/ContinueListeningHeroViews.kt:145  fun ContinueListeningHeroOfflineBadge(isDownloaded: Boolean, isDownloading: Boolean, downl
+   - ui/home/HomeCardSupport.kt:112  fun CoverPill(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+   - ui/home/HomeCardSupport.kt:132  fun CoverPillIcon(icon: ImageVector, contentDescription: String?) {
+   - ui/library/LibraryCards.kt:201  fun CoverPill(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+   - ui/library/LibraryCards.kt:213  fun CoverPillIcon(icon: ImageVector, description: String?, modifier: Modifier = Modifier) 
+   - ui/library/LibraryCards.kt:219  fun CoverOfflineBadge(isDownloaded: Boolean, isDownloading: Boolean, downloadProgress: Dou
+   - ui/library/LibraryCards.kt:234  private fun CoverCornerBadge(icon: ImageVector, description: String?, modifier: Modifier =
+   - ui/metadata/MatchMetadataSheet.kt:256  private fun Chip(text: String) {
+   - ui/transcript/TranscriptTeleprompter.kt:301  private fun SourceBadge(showingEbook: Boolean, modifier: Modifier) {
+
+## Status-Badges in Zeilen (fertig + Download)
+   → Vorlage: AbstandStatusBadges
+   Fundstellen vorher: 3
+   - ui/home/HomeCompactCards.kt:117  fun HomeCompactCardStatusBadges(isFinished: Boolean, isDownloaded: Boolean, isDownloading:
+   - ui/library/LibraryCards.kt:244  private fun LibraryRowStatusBadges(isFinished: Boolean, isDownloaded: Boolean, isDownloadi
+   - ui/podcasts/PodcastEpisodeRows.kt:155  internal fun PodcastRowStatusBadges(isFinished: Boolean, isDownloaded: Boolean, downloadPr
+
+## Play-Pillen (Akzent-Kapsel Play/Pause, optimistisch)
+   → Vorlage: AbstandPlayPill
+   Fundstellen vorher: 4
+   - ui/home/ContinueListeningHeroViews.kt:214  fun ContinueHeroPlayPill(itemId: String, episodeId: String?, caption: String, isFinished: 
+   - ui/library/LibraryCards.kt:266  fun LibraryRowPlayPill(libraryItemId: String, onClick: () -> Unit, modifier: Modifier = Mo
+   - ui/library/LibraryCards.kt:297  private fun HeroPlayPill(libraryItemId: String, caption: String, onClick: () -> Unit) {
+   - ui/podcasts/PodcastEpisodeRows.kt:176  internal fun PodcastPlayPill(isPlaying: Boolean, onClick: () -> Unit, modifier: Modifier =
+
+## Versalien-Überschriften (title.uppercase())
+   → Vorlage: AbstandCapsLabel (auch MetadataSheetSectionLabel, DetailMetaLabel)
+   Fundstellen vorher: 3
+   - ui/detail/DetailHeroViews.kt:319  Text(title.uppercase(), style = IosType.footnote.semibold, color = color)
+   - ui/detail/EntityDetailScreen.kt:223  Text(title.uppercase(), style = IosType.caption.bold, color = Theme.palette.textSecondary,
+   - ui/stats/StatsHeatmap.kt:271  Text(title.uppercase(), style = IosType.caption.semibold, color = palette.textSecondary, m
+
+## Listenzeilen (Titel + Untertitel + Trailing)
+   → Vorlage: AbstandListRow (leading/below/trailing-Slots) · ListeningHistoryRow
+   Fundstellen vorher: 6
+   - ui/detail/BookDetailSections.kt:66  fun BookChapterRow(chapter: AbsChapter, playState: BookChapterPlayState, onPlay: () -> Uni
+   - ui/detail/BookDetailSections.kt:123  marks.forEachIndexed { idx, mark ->
+   - ui/player/NowPlayingPanels.kt:214  itemsIndexed(list, key = { _, b -> b.id }) { _, b ->
+   - ui/podcasts/PodcastEpisodeDetailView.kt:298  private fun ListeningSessionRow(session: AbsListeningSession, onJump: () -> Unit) {
+   - ui/settings/SettingsDownloads.kt:275  private fun DownloadManageActiveRow(storageId: String, progress: Double, isQueued: Boolean
+   - ui/settings/SettingsDownloads.kt:316  private fun DownloadManageSavedRow(row: DownloadManageRow, onDelete: () -> Unit) {
+
+## Doppelte Ports (gleiche Funktion in zwei Paketen)
+   → Vorlage: eine Implementierung: library.LibraryRowLayout, components.LibraryRowCollapsedMetaLine, library.BrowseEntityRowCard/FacetBrowseTileCard, DetailMetaLabelIcon.icon, AbstandPinnedBrowseStrip
+   Fundstellen vorher: 12
+   - ui/browse/BrowseFacetSections.kt:92  fun BrowseEntityRowCard(
+   - ui/browse/BrowseFacetSections.kt:144  fun FacetBrowseTileCard(kind: BooksBrowseSection, title: String, count: Int?, onClick: () 
+   - ui/detail/DetailHeroViews.kt:90  fun detailMetaLabelIcon(title: String): ImageVector? = when (title.trim().lowercase()) {
+   - ui/home/HomeCardSupport.kt:52  object LibraryRowLayout {
+   - ui/home/HomeCardSupport.kt:80  fun LibraryRowCollapsedMetaLine(
+   - ui/library/LibraryCards.kt:82  object LibraryRowLayout {
+   - ui/library/LibraryCards.kt:176  fun LibraryRowCollapsedMetaLine(
+   - ui/library/LibraryCards.kt:590  fun BrowseEntityRowCard(
+   - ui/library/LibraryCards.kt:646  fun FacetBrowseTileCard(kind: BooksBrowseSection, title: String, count: Int?, onClick: () 
+   - ui/podcasts/PodcastsTabRoot.kt:261  internal data class PodcastStripItem(val id: String, val label: String, val icon: ImageVec
+   - ui/podcasts/PodcastsTabRoot.kt:327  private fun PodcastDockChip(item: PodcastStripItem, selected: Boolean, onClick: () -> Unit
+   - ui/podcasts/PodcastsTabRoot.kt:370  private fun PodcastDropdownPill(
+
+## Freie Farb-Literale (Color(0x…), Color.White auf Covern)
+   → Vorlage: AppTheme.narrationHighlight · AppTheme.coverOverlayForeground · Palette
+   Fundstellen vorher: 10
+   - ui/Theme.kt:45  val warning = Color(0xFFFF9F0A)
+   - ui/browse/BrowseFacetSections.kt:166  CoverPill { Text("$count Books", style = IosType.caption2.semibold, color = Color.White, m
+   - ui/home/ContinueListeningHeroViews.kt:151  color = Color.White,
+   - ui/home/HomeCardSupport.kt:133  Icon(icon, contentDescription = contentDescription, tint = Color.White, modifier = Modifie
+   - ui/library/LibraryCards.kt:214  CoverPill(modifier) { Icon(icon, contentDescription = description, tint = Color.White, mod
+   - ui/library/LibraryCards.kt:225  color = Color.White, strokeWidth = 2.dp, trackColor = Color.White.copy(alpha = 0.3f),
+   - ui/library/LibraryCards.kt:239  ) { Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.s
+   - ui/library/LibraryCards.kt:662  Text("$count Books", style = IosType.caption2.semibold, color = Color.White, maxLines = 1)
+   - ui/reader/ReaderScreen.kt:131  val narrationHighlight = Color(0xFFFFCC00)
+   - ui/stats/StatsScreen.kt:346  color = Color.White,
+
+## Freitext-Eingaben (OutlinedTextField / InsetField)
+   → Vorlage: AbstandInsetTextField · AbstandLabeledTextField · MetadataSheetTextField · AbstandSearchField
+   Fundstellen vorher: 2
+   - ui/metadata/EditMetadataSheet.kt:372  private fun InsetField(
+   - ui/player/NowPlayingPanels.kt:244  OutlinedTextField(
+
+## Aufrufstellen der Vorlagen jetzt (inkl. Nutzung innerhalb ui/components)
+   AbstandMenu: 6
+   AbstandMenuButton: 4
+   AbstandMenuBox: 4
+   AbstandPickerMenu: 3
+   AbstandPickerValueMenu: 2
+   AbstandDropdownPill: 2
+   AbstandDialog: 17
+   AbstandAlert: 9
+   AbstandConfirmDialog: 1
+   AbstandBlockingProgressDialog: 1
+   AbstandSheet: 3
+   AbstandIconButton: 41
+   AbstandTextButton: 11
+   AbstandPlayPill: 4
+   AbstandProgressBar: 7
+   AbstandProgressRing: 3
+   AbstandInlineSpinner: 12
+   AbstandCoverPill: 3
+   AbstandCoverPillIcon: 5
+   AbstandCoverPillText: 2
+   AbstandCoverCornerBadge: 2
+   AbstandCoverDownloadBadge: 2
+   AbstandStatusBadges: 4
+   AbstandBadge: 5
+   AbstandChip: 1
+   AbstandDockChip: 2
+   AbstandSegmentedControl: 2
+   AbstandListRow: 5
+   AbstandDivider: 3
+   AbstandCapsLabel: 4
+   AbstandInsetTextField: 3
+
+## Bewusst nicht vereinheitlicht
+   - DetailHeroPrimaryButton / DetailHeroCircularButton (Fortschritts-Kapsel mit Füllung) — Einzelstück der Detail-Hero.
+   - Transport-Knöpfe im Player (TransportIcon, Play-Kapsel, MiniTransport-Play) — eigene Maße aus MiniPlayerMetrics.
+   - Mini-Player-Hülle (Surface in MiniPlayer.kt) und Now-Playing-Overlay (eigenes Vollbild-Chrome).
+   - Domänen-Karten (BookRowCard, BrowseEntityRowCard, PodcastEpisodeListRow, Hero-/Kompaktkarten) — eigene
+     Layouts mit Cover-Spalte; teilen sich LibraryRowLayout, LibraryRowCollapsedMetaLine, AbstandStatusBadges, AbstandPlayPill.
+   - Reader-Chrome (ReaderScreen) behält Theme-abhängige Vordergrundfarben, nutzt aber AbstandIconButton/AbstandMenu.
+

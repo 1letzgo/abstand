@@ -14,10 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,8 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import de.letzgo.abstand.data.AbsAudioBookmark
 import de.letzgo.abstand.data.AbsBook
@@ -54,6 +50,7 @@ import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
 import de.letzgo.abstand.ui.components.AbstandListRow
+import de.letzgo.abstand.ui.components.AbstandIconButtonStyle
 
 /** iOS: `FullPlayerCoverPanel` — was den Cover-Bereich ersetzt (+ Read-along, iOS: Teleprompter-Zustand). */
 enum class FullPlayerCoverPanel { artwork, description, bookmarks, chapters, sessions, readAlong }
@@ -68,19 +65,13 @@ fun FullPlayerPanelButton(icon: ImageVector, active: Boolean, accessibilityLabel
 /** [dimmed]: antippbar (für den Hinweis), aber optisch zurückgenommen (iOS: `opacity(0.45)`). */
 @Composable
 fun FullPlayerPanelButton(icon: ImageVector, active: Boolean, accessibilityLabel: String, dimmed: Boolean, onClick: () -> Unit) {
-    val palette = Theme.palette
-    Box(
-        Modifier
-            .size(MiniPlayerMetrics.panelControlButtonSize)
-            .alpha(if (dimmed) DIMMED_ALPHA else 1f)
-            .clip(CircleShape)
-            .background(if (active) Theme.accent else palette.card)
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = accessibilityLabel },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = null, tint = if (active) Theme.onAccent else palette.textPrimary)
-    }
+    AbstandIconButton(
+        icon, accessibilityLabel, onClick = onClick,
+        modifier = Modifier.alpha(if (dimmed) DIMMED_ALPHA else 1f),
+        style = if (active) AbstandIconButtonStyle.Filled else AbstandIconButtonStyle.Tonal,
+        size = MiniPlayerMetrics.panelControlButtonSize,
+        tint = if (active) Theme.onAccent else Theme.palette.textPrimary,
+    )
 }
 
 private const val DIMMED_ALPHA = 0.45f
@@ -88,18 +79,13 @@ private const val DIMMED_ALPHA = 0.45f
 /** iOS: kompakte Kreise auf der Teleprompter-Karte (±). */
 @Composable
 fun CompactPanelButton(icon: ImageVector, accessibilityLabel: String, onClick: () -> Unit) {
-    val palette = Theme.palette
-    Box(
-        Modifier
-            .size(AppTheme.Layout.compactIconButtonSize)
-            .clip(CircleShape)
-            .background(palette.background)
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = accessibilityLabel },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = null, tint = palette.textPrimary)
-    }
+    AbstandIconButton(
+        icon, accessibilityLabel, onClick = onClick,
+        style = AbstandIconButtonStyle.Tonal,
+        size = AppTheme.Layout.compactIconButtonSize,
+        tint = Theme.palette.textPrimary,
+        containerColor = Theme.palette.background,
+    )
 }
 
 /** iOS: `fullPlayerExpandedCoverCard` — Kartenfläche des aufgeklappten Panels (volle Höhe). */
