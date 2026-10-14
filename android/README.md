@@ -61,6 +61,14 @@ abstand.debug.password=…
 | `ui/Theme.kt`, `ui/components/` | `AppTheme`, `AppAppearance`, shared view building blocks |
 | `ui/Icons.kt` | SF Symbols mapping |
 | `ui/AppRoot.kt` | `abstandApp` / `AppRootContainer` / `MainTabShellView` |
+| `player/PlaybackController.kt`, `player/PlaybackTimeline.kt`, `player/SleepTimer.kt` | `PlaybackController` (+ `SleepTimerMode`, `ABSPlaybackSkipDefaults`, sleep menu presets) |
+| `player/BookTimelinePlayer.kt`, `player/AbstandPlaybackService.kt`, `player/CoverBitmapLoader.kt` | `MPNowPlayingInfoCenter` / `MPRemoteCommandCenter`, `AudioSessionController`, `CarPlaySceneDelegate` |
+| `player/AutoBrowseTree.kt` | `CarPlayCoordinator` (Android Auto browse tree) |
+| `player/AudioEq.kt` | `AudioEQProcessor` (`AudioEQPreset`, biquads → Media3 `AudioProcessor`) |
+| `player/PlaybackHost.kt`, `player/PlaybackHostBridge.kt`, `player/PendingOfflineListening.kt` | `AppModel` player wiring (progress, completion, smart download, offline listening seconds) |
+| `downloads/DownloadManager.kt`, `downloads/DownloadQueue.kt`, `downloads/DownloadWorker.kt` | `DownloadManager` (WorkManager `dataSync` worker) |
+| `downloads/PodcastAutoDownloadInterval.kt` | `PodcastAutoDownloadSchedule` |
+| `downloads/DownloadMaintenance.kt` | `LocalStoreMaintenance.removeStaleDownloadTempFiles` |
 
 (Extended as screens are ported.)
 
@@ -73,3 +81,10 @@ abstand.debug.password=…
 - `AppModel` is not ported as one object: state lives in focused stores (session, catalog,
   podcasts, home, player, stats) exposing `StateFlow`s, method names follow iOS.
 - Inline comments German, user-facing strings English (like iOS).
+- Playback: one process-wide `PlaybackController.shared(context)` (iOS `AppModel.player`), main thread
+  only. ExoPlayer plays a book's tracks as a playlist; the MediaSession sees the whole book as one item
+  with the global timeline (`BookTimelinePlayer`). Audio focus / becoming-noisy are ExoPlayer's — no
+  extra session activation logic. App state reaches the player only through `PlaybackHost`,
+  `BrowseSource` (Android Auto) and `DownloadHost`.
+- Downloads: `filesDir/Downloads/<storage id>/` with `download.json` byte-identical to iOS
+  (`shared/fixtures/download_manifest.json`); the queue is persisted and run by one WorkManager worker.
