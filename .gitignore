@@ -70,3 +70,4 @@ android/local.properties
 android/.gradle/
 android/.kotlin/
 android/builds/
+.claude/worktrees/
