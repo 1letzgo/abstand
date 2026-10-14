@@ -761,6 +761,16 @@ class PodcastStore(private val model: AppModel) : SessionParticipant {
         _progressByItemId.update { if (progress == null) it - key else it + (key to progress) }
     }
 
+    /**
+     * Player-Tick / „Fertig“ aus der Wiedergabe ([PlayerWiring]): eine Zeile übernehmen. Persistiert
+     * nicht — das übernimmt der Home-Store (eine Room-Zeile je Key, kein Doppel-Write).
+     */
+    fun applyProgressUpdate(progress: AbsUserMediaProgress) {
+        if (progress.episodeId.isNullOrBlank()) return
+        applyLocalProgress(progress.progressLookupKey, progress)
+        if (progress.isFinished) pruneFinishedEpisodesFromNewFeed()
+    }
+
     /** Folge als beendet markieren (`PATCH /api/me/progress/:id/:episodeId`). `true` bei Erfolg. */
     suspend fun markPodcastEpisodeFinished(episode: AbsPodcastEpisodeListItem): Boolean {
         val c = session.client ?: return false

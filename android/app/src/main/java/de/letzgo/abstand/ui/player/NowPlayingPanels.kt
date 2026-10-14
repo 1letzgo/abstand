@@ -1,0 +1,227 @@
+package de.letzgo.abstand.ui.player
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import de.letzgo.abstand.data.AbsAudioBookmark
+import de.letzgo.abstand.data.AbsBook
+import de.letzgo.abstand.data.absPlainText
+import de.letzgo.abstand.model.PlayerWiring
+import de.letzgo.abstand.ui.AppTheme
+import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.SF
+import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.components.AbstandCardEmptyState
+import de.letzgo.abstand.ui.components.AbstandProminentButton
+import de.letzgo.abstand.ui.formatPlaybackTime
+import de.letzgo.abstand.ui.semibold
+import kotlinx.coroutines.launch
+
+/** iOS: `FullPlayerCoverPanel` — was den Cover-Bereich ersetzt (+ Read-along, iOS: Teleprompter-Zustand). */
+enum class FullPlayerCoverPanel { artwork, description, bookmarks, chapters, readAlong }
+
+/**
+ * iOS: `FullPlayerCoverOverlayButton` — runder Panel-Knopf (aktiv: Akzent-Füllung).
+ */
+@Composable
+fun FullPlayerPanelButton(icon: ImageVector, active: Boolean, accessibilityLabel: String, onClick: () -> Unit) {
+    val palette = Theme.palette
+    Box(
+        Modifier
+            .size(MiniPlayerMetrics.panelControlButtonSize)
+            .clip(CircleShape)
+            .background(if (active) Theme.accent else palette.card)
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = accessibilityLabel },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = if (active) Theme.onAccent else palette.textPrimary)
+    }
+}
+
+/** iOS: `fullPlayerExpandedCoverCard` — Kartenfläche des aufgeklappten Panels (volle Höhe). */
+@Composable
+fun FullPlayerPanelCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Box(
+        modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(MiniPlayerMetrics.coverSurfaceCornerRadius))
+            .background(Theme.palette.card),
+    ) { content() }
+}
+
+/** iOS: Description-Panel (`resolvedBookDescriptionText`). */
+@Composable
+fun DescriptionPanel(book: AbsBook) {
+    val palette = Theme.palette
+    val text = remember(book.id, book.media.metadata.description) {
+        book.media.metadata.descriptionPlain?.trim()?.ifEmpty { null } ?: absPlainText(book.media.metadata.description).trim()
+    }
+    if (text.isEmpty()) {
+        AbstandCardEmptyState("No description", Modifier.padding(AppTheme.Layout.cardPadding))
+        return
+    }
+    Text(
+        text,
+        style = IosType.body,
+        color = palette.textPrimary,
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(AppTheme.Layout.cardPadding),
+    )
+}
+
+/** iOS: Kapitel-Panel — aktuelles Kapitel hervorgehoben, Tippen springt an den Anfang. */
+@Composable
+fun ChaptersPanel(wiring: PlayerWiring) {
+    val player = wiring.player
+    val palette = Theme.palette
+    val book by player.activeBook.collectAsState()
+    val ordinal by player.currentChapterOrdinal.collectAsState()
+    val chapters = remember(book?.id, book?.media?.chapters) { player.sortedChapters }
+    if (chapters.isEmpty()) {
+        AbstandCardEmptyState("No chapters", Modifier.padding(AppTheme.Layout.cardPadding))
+        return
+    }
+    val current = (ordinal - 1).coerceAtLeast(0)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = (current - 2).coerceAtLeast(0))
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+        itemsIndexed(chapters, key = { i, c -> "${c.id}-$i" }) { i, c ->
+            val active = i == current
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { player.seek(c.start) }
+                    .padding(horizontal = AppTheme.Layout.cardPadding, vertical = AppTheme.Layout.rowVerticalPadding),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
+            ) {
+                Text(
+                    c.title.trim().ifEmpty { "Chapter ${i + 1}" },
+                    style = if (active) IosType.body.semibold else IosType.body,
+                    color = if (active) Theme.accent else palette.textPrimary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(formatPlaybackTime(c.start), style = IosType.footnote, color = palette.textSecondary)
+            }
+        }
+    }
+}
+
+/** iOS: `bookmarksCoverCard` — Liste oben, „Add“ unten rechts; Tippen springt, Löschen mit Rückfrage. */
+@Composable
+fun BookmarksPanel(wiring: PlayerWiring, audiobookId: String) {
+    val palette = Theme.palette
+    val scope = rememberCoroutineScope()
+    val all by wiring.bookmarks.collectAsState()
+    val list = remember(all, audiobookId) { all.filter { it.libraryItemId == audiobookId }.sortedBy { it.time } }
+    var adding by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf<AbsAudioBookmark?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    Column(Modifier.fillMaxSize()) {
+        if (list.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                AbstandCardEmptyState("No bookmarks", Modifier.padding(AppTheme.Layout.cardPadding), message = "Add a bookmark at the current position.")
+            }
+        } else {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                itemsIndexed(list, key = { _, b -> b.id }) { _, b ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { wiring.player.seek(b.time.toDouble()) }
+                            .padding(start = AppTheme.Layout.cardPadding, top = AppTheme.Layout.tightSpacing, bottom = AppTheme.Layout.tightSpacing),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
+                            Text(b.title.ifBlank { "Bookmark" }, style = IosType.body, color = palette.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(formatPlaybackTime(b.time.toDouble()), style = IosType.footnote, color = palette.textSecondary)
+                        }
+                        IconButton(onClick = { deleting = b }) {
+                            Icon(SF.trash, contentDescription = "Delete bookmark", tint = AppTheme.danger)
+                        }
+                    }
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(AppTheme.Layout.cardPadding), horizontalArrangement = Arrangement.End) {
+            AbstandProminentButton(text = "Add", icon = SF.plus, onClick = { adding = true }, isBusy = busy)
+        }
+    }
+
+    if (adding) {
+        var title by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { adding = false },
+            title = { Text("Add Bookmark") },
+            text = {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    singleLine = true,
+                    placeholder = { Text("Title (optional)") },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    adding = false
+                    busy = true
+                    scope.launch {
+                        wiring.addBookmarkAtCurrentPosition(title)
+                        busy = false
+                    }
+                }) { Text("Add") }
+            },
+            dismissButton = { TextButton(onClick = { adding = false }) { Text("Cancel") } },
+        )
+    }
+    deleting?.let { b ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text("Delete Bookmark?") },
+            text = { Text(b.title.ifBlank { formatPlaybackTime(b.time.toDouble()) }) },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleting = null
+                    scope.launch { wiring.deleteBookmark(b) }
+                }) { Text("Delete", color = AppTheme.danger) }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
+    }
+}

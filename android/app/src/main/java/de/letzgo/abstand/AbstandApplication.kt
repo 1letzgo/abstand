@@ -9,6 +9,7 @@ import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import de.letzgo.abstand.data.Net
 import de.letzgo.abstand.data.Prefs
+import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.store.CoverRequestFetcher
 import de.letzgo.abstand.store.CoverRequestKeyer
@@ -22,6 +23,9 @@ class AbstandApplication : Application(), SingletonImageLoader.Factory {
         Net.watchNetworkChanges(this)
         val model = AppModel(this)
         AppModel.install(model)
+        // Player, Downloads, Android Auto — vor `start()`, damit Launch-Restore und Worker-Neustart sie vorfinden.
+        DownloadManager.init(this)
+        model.player.attach()
         model.start()
     }
 

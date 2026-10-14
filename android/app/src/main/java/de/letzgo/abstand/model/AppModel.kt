@@ -46,6 +46,17 @@ class AppModel(context: Context) {
     /** Einheitliche Suche über Bücher und Podcasts (iOS: Such-Teile von `AppModel`). */
     val search = SearchStore(this).also { register(it) }
 
+    /**
+     * Player-/Download-Verdrahtung (iOS: `AppModel.player` + Wiedergabe-/Download-Teile von `AppModel`).
+     * Setzt [playbackLauncher], [downloadStatus] und `podcasts.actions`; `attach()` in `Application.onCreate`.
+     */
+    val player = PlayerWiring(this).also {
+        register(it)
+        playbackLauncher = it
+        downloadStatus = it.downloads
+        podcasts.actions = it.podcastActions
+    }
+
     /** Teilnehmer für Bootstrap-/Session-Lebenszyklus anmelden (Reihenfolge = Aufrufreihenfolge). */
     fun register(participant: SessionParticipant) {
         if (participant !in participants) participants.add(participant)

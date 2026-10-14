@@ -1,6 +1,16 @@
 package de.letzgo.abstand.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+import de.letzgo.abstand.model.PlayerWiring
+import de.letzgo.abstand.ui.permissions.NotificationPermissionHost
+import de.letzgo.abstand.ui.player.MiniPlayerDock
+import de.letzgo.abstand.ui.player.NowPlayingOverlay
+import de.letzgo.abstand.ui.player.miniPlayerDockHeight
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -66,7 +76,7 @@ fun AppRoot(model: AppModel = AppModel.shared) {
         )
     }
     CompositionLocalProvider(LocalCoverEnvironment provides coverEnvironment) {
-        if (loggedIn) MainTabShell(session) else LoginScreen(session)
+        if (loggedIn) MainTabShell(session, model.player) else LoginScreen(session)
     }
 }
 
@@ -77,7 +87,7 @@ fun AppRoot(model: AppModel = AppModel.shared) {
  * bleibt während des Starts stabil. Tab-Inhalte bleiben beim Wechsel erhalten (Zustand je Tab).
  */
 @Composable
-private fun MainTabShell(session: SessionStore) {
+private fun MainTabShell(session: SessionStore, player: PlayerWiring) {
     val palette = Theme.palette
     val selected by session.mainTab.collectAsState()
     val showBooks by session.showAudiobooksTab.collectAsState()
@@ -100,6 +110,11 @@ private fun MainTabShell(session: SessionStore) {
         session.selectMainTab(MainTab.start)
     }
 
+    // Mini-Player sichtbar → Listen bekommen unten Platz (iOS: `nowPlayingAccessoryScrollBottomInset`).
+    var miniPlayerVisible by remember { mutableStateOf(false) }
+    val scrollBottomInset by animateDpAsState(if (miniPlayerVisible) miniPlayerDockHeight else 0.dp, label = "miniPlayerInset")
+
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = palette.background,
         contentColor = palette.textPrimary,
@@ -130,13 +145,19 @@ private fun MainTabShell(session: SessionStore) {
         Box(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())) {
             val navigator = navigators.getValue(current)
             stateHolder.SaveableStateProvider("$epoch/${current.name}") {
-                CompositionLocalProvider(LocalTabNavigator provides navigator) {
+                CompositionLocalProvider(LocalTabNavigator provides navigator, LocalScrollBottomInset provides scrollBottomInset) {
                     TabStackHost(navigator) { TabRootContent(current) }
                 }
             }
+            // iOS: `tabViewBottomAccessory` — immer komponiert, nur Sichtbarkeit animiert.
+            MiniPlayerDock(player, Modifier.align(Alignment.BottomCenter), onVisibleChange = { miniPlayerVisible = it })
         }
     }
+    // iOS: Vollbild-Player über Tabs und Tab-Leiste (FullScreenOverlayPresenter / Zoom aus dem Mini-Player).
+    NowPlayingOverlay(player)
+    }
 
+    NotificationPermissionHost()
     ErrorAlert(session)
 }
 
