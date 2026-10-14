@@ -2512,6 +2512,9 @@ struct ServerAdminPodcastShowView: View {
 
   @State private var selectedTab: ServerAdminPodcastShowTab = .feed
   @State private var removeConfirmation: ServerAdminPodcastRemoveConfirmation?
+  /// Auswahl im Podcasts-Tab vor dem Öffnen — beim Verlassen wiederherstellen statt zu leeren.
+  @State private var selectionBeforeAppear: String?
+  @State private var didCaptureSelection = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -2608,8 +2611,19 @@ struct ServerAdminPodcastShowView: View {
         }
       }
     }
+    .onAppear {
+      guard !didCaptureSelection else { return }
+      didCaptureSelection = true
+      selectionBeforeAppear = model.podcastSelectedShowId
+    }
     .onDisappear {
-      Task { await model.selectPodcastShowFilter(nil) }
+      // Vorherige Auswahl behalten; gelöschte Sendung → keine Auswahl.
+      let previous = selectionBeforeAppear?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      let restore: String? =
+        !previous.isEmpty && model.podcastShows.contains(where: { $0.id == previous }) ? previous : nil
+      let current = model.podcastSelectedShowId?.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard restore != current else { return }
+      Task { await model.selectPodcastShowFilter(restore) }
     }
     .tint(model.appearanceAccentColor)
   }

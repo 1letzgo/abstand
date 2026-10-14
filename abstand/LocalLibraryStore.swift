@@ -870,7 +870,9 @@ enum LocalLibraryQueries {
   }
 
   private static func decodeLocalBookRows(_ rows: [LocalBook]) -> [ABSBook] {
+    // Reihenfolge der Fetch-Zeilen (SortDescriptor) beibehalten — Dictionary-Werte sind unsortiert.
     var byId: [String: ABSBook] = [:]
+    var order: [String] = []
     for row in rows {
       let book = row.toABSBookDetail() ?? row.toABSBook()
       guard let book else { continue }
@@ -878,9 +880,10 @@ enum LocalLibraryQueries {
         byId[book.id] = book.preferringRicherListMetadata(than: existing)
       } else {
         byId[book.id] = book
+        order.append(book.id)
       }
     }
-    return Array(byId.values)
+    return order.compactMap { byId[$0] }
   }
 
   /// Offline eBook-Katalogfilter — alte Browse-Logik (rein: `isUsableEbookListRow`, supplementär: `isPlayableAudiobook`).

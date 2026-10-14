@@ -1402,6 +1402,8 @@ final class PlaybackController: NSObject, ObservableObject {
       playbackGlobalPosition() >= chapterEndTime(at: target)
     {
       clearSleepTimer()
+      // `clearSleepTimer()` lässt den Modus stehen — sonst zeigt das Menü weiter „Ende des Kapitels“.
+      sleepTimerMode = .off
       pause()
     }
     applySleepTimerFadeVolume()

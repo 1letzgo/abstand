@@ -355,6 +355,8 @@ final class AppModel: ObservableObject {
   /// Eigener Lade-Status der Suche — `isLoadingLibrary` gehört dem Katalog-Reload (sonst setzt eine
   /// abgebrochene Suche den Katalog-Spinner mitten im Laden zurück).
   @Published private(set) var isSearchingBooks = false
+  /// Podcast-Suche im Search-Tab — getrennt von `isLoadingPodcasts` (Katalog-Ladeflag).
+  @Published private(set) var isSearchingPodcasts = false
   @Published var isLoadingPodcasts = false
   @Published var errorMessage: String? {
     didSet {
@@ -2157,6 +2159,8 @@ final class AppModel: ObservableObject {
   /// Nach Server-Fetch: Tab-Sichtbarkeit mit Bibliotheksliste abgleichen und cachen.
   private func syncPodcastsTabVisibilityFromLibraries() {
     if isAppBootstrapInProgress { return }
+    // Ohne geladene Bibliotheksliste (z. B. Offline-Kaltstart ohne Cache) gecachten Zustand behalten.
+    if libraries.isEmpty { return }
     if podcastsLibraryPreferenceIsNone {
       setShowPodcastsTab(false)
     } else {
@@ -2166,6 +2170,8 @@ final class AppModel: ObservableObject {
 
   private func syncAudiobooksTabVisibilityFromLibraries() {
     if isAppBootstrapInProgress { return }
+    // Ohne geladene Bibliotheksliste (z. B. Offline-Kaltstart ohne Cache) gecachten Zustand behalten.
+    if libraries.isEmpty { return }
     if booksLibraryPreferenceIsNone {
       setShowAudiobooksTab(false)
     } else {
@@ -5257,7 +5263,10 @@ final class AppModel: ObservableObject {
 
   /// Anzahl lokaler Folgen-Downloads für eine Sendung (`progressLookupKey` → Storage-ID).
   func podcastOfflineDownloadCount(forShowId showId: String) -> Int {
-    let prefix = "\(showId)_"
+    // Speicher-IDs von Folgen: `<libraryItemId>-<episodeId>` (siehe `podcastEpisodeOfflineStorageId`).
+    let sid = showId.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "/", with: "_")
+    guard !sid.isEmpty else { return 0 }
+    let prefix = "\(sid)-"
     return downloadedItemIds.filter { $0.hasPrefix(prefix) }.count
   }
 
@@ -5454,6 +5463,11 @@ final class AppModel: ObservableObject {
     }
   }
 
+  /// Gewählte Sendung (getrimmt) mit `sid` vergleichen — einheitlich für alle Guards.
+  private func isSelectedPodcastShow(_ sid: String) -> Bool {
+    podcastSelectedShowId?.trimmingCharacters(in: .whitespacesAndNewlines) == sid
+  }
+
   func loadPodcastEpisodesForShowLibraryItem(_ showId: String) async {
     guard let lib = podcastCatalogLibrary else {
       podcastFilteredEpisodes = []
@@ -5465,7 +5479,7 @@ final class AppModel: ObservableObject {
       return
     }
     if !mayUseServerNetwork || !isNetworkReachable {
-      guard podcastSelectedShowId == sid else { return }
+      guard isSelectedPodcastShow(sid) else { return }
       var pool = podcastEpisodes.filter { $0.libraryItemId == sid }
       pool += podcastEpisodesFromLocalDownloadManifests(showId: sid)
       let sorted = Self.sortPodcastEpisodesNewestFirst(ABSPodcastEpisodeListItem.dedupeRows(pool))
@@ -5484,7 +5498,7 @@ final class AppModel: ObservableObject {
       !seeded.isEmpty
     {
       podcastFilteredEpisodesByShowId[sid] = seeded
-      if podcastSelectedShowId == sid {
+      if isSelectedPodcastShow(sid) {
         podcastFilteredEpisodes = seeded
       }
     }
@@ -5497,16 +5511,16 @@ final class AppModel: ObservableObject {
       }
     }
     do {
-      var full = try await c.item(id: showId, expanded: true)
-      guard serial == podcastShowEpisodesLoadSerial, podcastSelectedShowId == showId else { return }
+      var full = try await c.item(id: sid, expanded: true)
+      guard serial == podcastShowEpisodesLoadSerial, isSelectedPodcastShow(sid) else { return }
       if (full.media.podcastEpisodes ?? []).isEmpty {
         try? await Task.sleep(nanoseconds: 450_000_000)
-        guard serial == podcastShowEpisodesLoadSerial, podcastSelectedShowId == showId else { return }
-        full = try await c.item(id: showId, expanded: true)
-        guard serial == podcastShowEpisodesLoadSerial, podcastSelectedShowId == showId else { return }
+        guard serial == podcastShowEpisodesLoadSerial, isSelectedPodcastShow(sid) else { return }
+        full = try await c.item(id: sid, expanded: true)
+        guard serial == podcastShowEpisodesLoadSerial, isSelectedPodcastShow(sid) else { return }
       }
       guard let eps = full.media.podcastEpisodes, !eps.isEmpty else {
-        guard serial == podcastShowEpisodesLoadSerial, podcastSelectedShowId == showId else { return }
+        guard serial == podcastShowEpisodesLoadSerial, isSelectedPodcastShow(sid) else { return }
         podcastFilteredEpisodesByShowId[sid] = []
         podcastFilteredEpisodes = []
         return
@@ -5515,7 +5529,7 @@ final class AppModel: ObservableObject {
         ABSPodcastEpisodeListItem.fromDTO(
           $0, fallbackShow: full, libraryId: lib.id, forceLibraryItemId: full.id)
       }
-      guard serial == podcastShowEpisodesLoadSerial, podcastSelectedShowId == sid else { return }
+      guard serial == podcastShowEpisodesLoadSerial, isSelectedPodcastShow(sid) else { return }
       let sorted = Self.sortPodcastEpisodesNewestFirst(ABSPodcastEpisodeListItem.dedupeRows(rows))
       podcastFilteredEpisodesByShowId[sid] = sorted
       podcastFilteredEpisodes = sorted
@@ -5523,7 +5537,7 @@ final class AppModel: ObservableObject {
       // baut die Folgenliste sofort daraus auf, bevor der Server antwortet.
       persistBookDetail(full)
     } catch {
-      guard serial == podcastShowEpisodesLoadSerial, podcastSelectedShowId == showId else { return }
+      guard serial == podcastShowEpisodesLoadSerial, isSelectedPodcastShow(sid) else { return }
       publishErrorUnlessBenignCancellation(error)
     }
   }
@@ -7075,6 +7089,9 @@ final class AppModel: ObservableObject {
     do {
       try await c.deletePodcastEpisode(podcastLibraryItemId: sid, episodeId: eid)
       podcastFilteredEpisodes.removeAll { $0.episodeId == eid }
+      // Auch aus dem Show-Cache und der „New“-Liste entfernen, sonst taucht die Folge dort weiter auf.
+      podcastFilteredEpisodesByShowId[sid]?.removeAll { $0.episodeId == eid }
+      podcastEpisodes.removeAll { $0.episodeId == eid }
       let storageId = podcastEpisodeOfflineStorageId(episode)
       if downloadedItemIds.contains(storageId) {
         downloads.deleteDownload(itemId: storageId)
@@ -7196,8 +7213,9 @@ final class AppModel: ObservableObject {
         added += 1
       }
       guard added > 0 else { return 0 }
-      podcastFilteredEpisodes = Self.sortPodcastEpisodesNewestFirst(
-        ABSPodcastEpisodeListItem.dedupeRows(merged))
+      let sorted = Self.sortPodcastEpisodesNewestFirst(ABSPodcastEpisodeListItem.dedupeRows(merged))
+      podcastFilteredEpisodes = sorted
+      podcastFilteredEpisodesByShowId[sid] = sorted
       return added
     }
 
@@ -7301,8 +7319,8 @@ final class AppModel: ObservableObject {
       return
     }
     guard let c = client, let lib = podcastCatalogLibrary else { return }
-    isLoadingPodcasts = true
-    defer { isLoadingPodcasts = false }
+    isSearchingPodcasts = true
+    defer { isSearchingPodcasts = false }
     do {
       let res = try await c.search(libraryId: lib.id, query: q)
       guard isCurrentPodcastSearchQuery(q) else { return }
@@ -7569,8 +7587,8 @@ final class AppModel: ObservableObject {
     }
     ensureLocalCatalogCachesInMemory()
     var byId: [String: ABSBook] = [:]
-    // Gleiche Bibliothek wie die Server-Suche (`booksCatalogLibrary`) — sonst springen die Treffer.
-    if let libId = booksCatalogLibrary?.id {
+    // Gleiche Bibliotheken wie die Server-Suche (`searchBookLibraryIds`) — sonst springen die Treffer.
+    for libId in searchBookLibraryIds {
       for book in searchLocalBooks(libraryId: libId, query: q) {
         byId[book.id] = book
       }
@@ -7673,6 +7691,79 @@ final class AppModel: ObservableObject {
     entityDetailTotal = rows.count
   }
 
+  /// Bibliotheken der Bücher-Suche: alle aktiven, sonst die Katalog-Bibliothek.
+  private var searchBookLibraryIds: [String] {
+    let ids = activeBookLibraries.map(\.id)
+    if !ids.isEmpty { return ids }
+    return booksCatalogLibrary.map { [$0.id] } ?? []
+  }
+
+  /// Server-Antworten mehrerer Bibliotheken zusammenführen (Reihenfolge der ersten Fundstelle,
+  /// Zähler addiert, Serien-Bücher dedupliziert) — wie Android `SearchLogic.mergeBookResponses`.
+  private static func mergeBookSearchResponses(_ responses: [ABSSearchResponse]) -> (
+    books: [ABSBook], authors: [ABSSearchAuthorRow], narrators: [ABSSearchNarratorRow],
+    series: [ABSSearchSeriesRow], tags: [ABSSearchNamedCount], genres: [ABSSearchNamedCount]
+  ) {
+    if responses.count == 1, let res = responses.first {
+      return (res.bookSearchLibraryItems(), res.authors, res.narrators, res.series, res.tags, res.genres)
+    }
+    func sumCounts(_ a: Int?, _ b: Int?) -> Int? {
+      if a == nil, b == nil { return nil }
+      return (a ?? 0) + (b ?? 0)
+    }
+    func mergeBooks(_ a: [ABSBook]?, _ b: [ABSBook]?) -> [ABSBook]? {
+      guard let a else { return b }
+      guard let b else { return a }
+      var seen = Set<String>()
+      return (a + b).filter { seen.insert($0.id).inserted }
+    }
+    func upsert<T>(_ list: inout [T], _ index: inout [String: Int], key: String, _ value: T, merge: (T, T) -> T) {
+      if let i = index[key] {
+        list[i] = merge(list[i], value)
+      } else {
+        index[key] = list.count
+        list.append(value)
+      }
+    }
+    var books: [ABSBook] = [], bookIdx: [String: Int] = [:]
+    var authors: [ABSSearchAuthorRow] = [], authorIdx: [String: Int] = [:]
+    var narrators: [ABSSearchNarratorRow] = [], narratorIdx: [String: Int] = [:]
+    var series: [ABSSearchSeriesRow] = [], seriesIdx: [String: Int] = [:]
+    var tags: [ABSSearchNamedCount] = [], tagIdx: [String: Int] = [:]
+    var genres: [ABSSearchNamedCount] = [], genreIdx: [String: Int] = [:]
+    for res in responses {
+      for b in res.bookSearchLibraryItems() {
+        upsert(&books, &bookIdx, key: b.id, b) { old, new in old.preferringRicherListMetadata(than: new) }
+      }
+      for a in res.authors {
+        upsert(&authors, &authorIdx, key: a.id, a) { old, new in
+          ABSSearchAuthorRow(id: old.id, name: old.name, numBooks: sumCounts(old.numBooks, new.numBooks))
+        }
+      }
+      for n in res.narrators {
+        upsert(&narrators, &narratorIdx, key: n.name, n) { old, new in
+          ABSSearchNarratorRow(name: old.name, numBooks: sumCounts(old.numBooks, new.numBooks))
+        }
+      }
+      for sr in res.series {
+        upsert(&series, &seriesIdx, key: sr.id, sr) { old, new in
+          ABSSearchSeriesRow(id: old.id, name: old.name, books: mergeBooks(old.books, new.books))
+        }
+      }
+      for t in res.tags {
+        upsert(&tags, &tagIdx, key: t.name, t) { old, new in
+          ABSSearchNamedCount(name: old.name, numItems: sumCounts(old.numItems, new.numItems))
+        }
+      }
+      for g in res.genres {
+        upsert(&genres, &genreIdx, key: g.name, g) { old, new in
+          ABSSearchNamedCount(name: old.name, numItems: sumCounts(old.numItems, new.numItems))
+        }
+      }
+    }
+    return (books, authors, narrators, series, tags, genres)
+  }
+
   private func performSearch(query: String) async {
     let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
     if q.count < 3 {
@@ -7687,19 +7778,33 @@ final class AppModel: ObservableObject {
     if !mayUseServerNetwork || !isNetworkReachable || client == nil {
       return
     }
-    guard let c = client, let lib = booksCatalogLibrary else { return }
+    guard let c = client else { return }
+    let libraryIds = searchBookLibraryIds
+    guard !libraryIds.isEmpty else { return }
     isSearchingBooks = true
     defer { isSearchingBooks = false }
     do {
-      let res = try await c.search(libraryId: lib.id, query: q)
-      // Inzwischen neue Eingabe oder Tab verlassen → ältere Antwort verwerfen.
-      guard isCurrentBooksSearchQuery(q) else { return }
-      searchBooks = res.bookSearchLibraryItems()
-      searchAuthors = res.authors
-      searchNarrators = res.narrators
-      searchSeries = res.series
-      searchTags = res.tags
-      searchGenres = res.genres
+      // Alle aktiven Hörbuch-Bibliotheken durchsuchen; einzelne Fehler überspringen, solange eine antwortet.
+      var responses: [ABSSearchResponse] = []
+      var firstError: Error?
+      for libId in libraryIds {
+        do {
+          responses.append(try await c.search(libraryId: libId, query: q))
+        } catch {
+          if firstError == nil { firstError = error }
+        }
+        // Inzwischen neue Eingabe oder Tab verlassen → ältere Antwort verwerfen.
+        guard isCurrentBooksSearchQuery(q) else { return }
+      }
+      if responses.isEmpty, let firstError { throw firstError }
+      guard !responses.isEmpty else { return }
+      let merged = Self.mergeBookSearchResponses(responses)
+      searchBooks = merged.books
+      searchAuthors = merged.authors
+      searchNarrators = merged.narrators
+      searchSeries = merged.series
+      searchTags = merged.tags
+      searchGenres = merged.genres
       // Cross-Media-Treffer bleiben die lokalen (Server-Suche ist pro Bibliothek/Medientyp getrennt).
     } catch {
       // Lokale Treffer aus `applyLocalSearchResults` oben bleiben stehen — nur bei komplett leeren
