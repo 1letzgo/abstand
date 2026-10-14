@@ -1,0 +1,25 @@
+{
+ "name": "repeated_refrain",
+ "description": "A refrain repeats three times verbatim, so its trigrams are not unique anchors; the gaps must be resolved by the surrounding unique text and LCS.",
+ "segments": [
+  [
+   "The road went on and on beneath the hills.",
+   "And still the wind said nothing at all.",
+   "Past the mill and over the bridge the travellers walked in silence."
+  ],
+  [
+   "And still the wind said nothing at all.",
+   "Evening came with orange light across the fields of barley.",
+   "And still the wind said nothing at all.",
+   "Only the river answered, low and patient, as it had for a thousand years."
+  ]
+ ],
+ "spoken": "the road went on and on beneath the hills and still the wind said nothing at all |0.7| past the mill and over the bridge the travellers walked in silence |0.9| and still the wind said nothing at all |0.6| evening came with orange light across the fields of barley and still the wind said nothing at all |0.8| only the river answered low and patient as it had for a thousand years",
+ "startTime": 0.0,
+ "globalOffset": 3600.0,
+ "jumpTimes": [
+  3.0,
+  14.0,
+  22.0
+ ]
+}

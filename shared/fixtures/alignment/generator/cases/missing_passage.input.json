@@ -1,0 +1,28 @@
+{
+ "name": "missing_passage",
+ "description": "Audio-only intro (publisher announcement) before the text, and an ebook paragraph that the narrator skipped entirely.",
+ "segments": [
+  [
+   "Chapter One.",
+   "Nobody in the village remembered when the stranger first arrived.",
+   "He simply appeared one morning at the baker's door, asking for bread and directions to the coast."
+  ],
+  [
+   "The baker's wife later swore that his shoes were dry although it had rained all night, that his coat smelled of cedar and smoke, and that he paid with a coin nobody could identify.",
+   "These details grew with every telling until the stranger had become, in the village memory, half a saint and half a thief."
+  ],
+  [
+   "By noon he was gone.",
+   "The road to the coast was long and empty, and the gulls followed him all the way to the cliffs."
+  ]
+ ],
+ "spoken": "this audiobook is brought to you by northern lights recordings read by anna fields |2.0| chapter one |0.8| nobody in the village remembered when the stranger first arrived |0.4| he simply appeared one morning at the baker's door asking for bread and directions to the coast |3.0| by noon he was gone |0.5| the road to the coast was long and empty and the gulls followed him all the way to the cliffs",
+ "startTime": 0.3,
+ "globalOffset": 50.0,
+ "jumpTimes": [
+  2.0,
+  12.0,
+  25.0,
+  33.0
+ ]
+}

@@ -1,0 +1,367 @@
+{
+  "description" : "Only a handful of recognised words match the ebook: the alignment is below the reliability threshold and must stay empty.",
+  "expected" : {
+    "alignment" : {
+      "binBase64" : "MUxCQQEAAAARAAAAEwAAAEjhehSuxyJAAAAAAA==",
+      "ebookWordCount" : 17,
+      "ends" : [
+
+      ],
+      "flags" : [
+
+      ],
+      "spokenEnd" : 9.3900000000000006,
+      "spokenWordCount" : 19,
+      "starts" : [
+
+      ],
+      "words" : [
+
+      ]
+    },
+    "displaySpans" : [
+
+    ],
+    "displayWords" : [
+
+    ],
+    "index" : {
+      "sentences" : [
+        {
+          "after" : null,
+          "before" : null,
+          "highlight" : "It was a quiet morning in the harbour town, and the fishing boats had not yet returned.",
+          "segment" : 0
+        }
+      ],
+      "vocabularySize" : 16,
+      "words" : [
+        {
+          "d" : "It ",
+          "n" : "it",
+          "s" : 0
+        },
+        {
+          "d" : "was ",
+          "n" : "was",
+          "s" : 0
+        },
+        {
+          "d" : "a ",
+          "n" : "a",
+          "s" : 0
+        },
+        {
+          "d" : "quiet ",
+          "n" : "quiet",
+          "s" : 0
+        },
+        {
+          "d" : "morning ",
+          "n" : "morning",
+          "s" : 0
+        },
+        {
+          "d" : "in ",
+          "n" : "in",
+          "s" : 0
+        },
+        {
+          "d" : "the ",
+          "n" : "the",
+          "s" : 0
+        },
+        {
+          "d" : "harbour ",
+          "n" : "harbour",
+          "s" : 0
+        },
+        {
+          "d" : "town, ",
+          "n" : "town",
+          "s" : 0
+        },
+        {
+          "d" : "and ",
+          "n" : "and",
+          "s" : 0
+        },
+        {
+          "d" : "the ",
+          "n" : "the",
+          "s" : 0
+        },
+        {
+          "d" : "fishing ",
+          "n" : "fishing",
+          "s" : 0
+        },
+        {
+          "d" : "boats ",
+          "n" : "boats",
+          "s" : 0
+        },
+        {
+          "d" : "had ",
+          "n" : "had",
+          "s" : 0
+        },
+        {
+          "d" : "not ",
+          "n" : "not",
+          "s" : 0
+        },
+        {
+          "d" : "yet ",
+          "n" : "yet",
+          "s" : 0
+        },
+        {
+          "d" : "returned. ",
+          "n" : "returned",
+          "s" : 0
+        }
+      ]
+    },
+    "narrationJumps" : [
+      {
+        "decorations" : [
+
+        ],
+        "t" : 2,
+        "word" : null
+      }
+    ],
+    "queries" : [
+      {
+        "t" : 0,
+        "word" : null
+      },
+      {
+        "t" : 0.5,
+        "word" : null
+      },
+      {
+        "t" : 1,
+        "word" : null
+      },
+      {
+        "t" : 1.5,
+        "word" : null
+      },
+      {
+        "t" : 2,
+        "word" : null
+      },
+      {
+        "t" : 2.5,
+        "word" : null
+      },
+      {
+        "t" : 3,
+        "word" : null
+      },
+      {
+        "t" : 3.5,
+        "word" : null
+      },
+      {
+        "t" : 4,
+        "word" : null
+      },
+      {
+        "t" : 4.5,
+        "word" : null
+      },
+      {
+        "t" : 5,
+        "word" : null
+      },
+      {
+        "t" : 5.5,
+        "word" : null
+      },
+      {
+        "t" : 6,
+        "word" : null
+      },
+      {
+        "t" : 6.5,
+        "word" : null
+      },
+      {
+        "t" : 7,
+        "word" : null
+      },
+      {
+        "t" : 7.5,
+        "word" : null
+      },
+      {
+        "t" : 8,
+        "word" : null
+      },
+      {
+        "t" : 8.5,
+        "word" : null
+      },
+      {
+        "t" : 9,
+        "word" : null
+      },
+      {
+        "t" : 9.5,
+        "word" : null
+      },
+      {
+        "t" : 10,
+        "word" : null
+      },
+      {
+        "t" : 10.5,
+        "word" : null
+      },
+      {
+        "t" : 11,
+        "word" : null
+      },
+      {
+        "t" : 11.5,
+        "word" : null
+      },
+      {
+        "t" : 12,
+        "word" : null
+      },
+      {
+        "t" : 12.5,
+        "word" : null
+      },
+      {
+        "t" : 13,
+        "word" : null
+      },
+      {
+        "t" : 13.5,
+        "word" : null
+      },
+      {
+        "t" : 14,
+        "word" : null
+      }
+    ]
+  },
+  "generatedBy" : "Swift (abstand iOS EbookAudioAlignment.swift \/ ReadAlongText, unchanged) via android\/..\/shared fixture generator",
+  "input" : {
+    "globalOffset" : 0,
+    "segments" : [
+      {
+        "sentenceRanges" : [
+          [
+            0,
+            87
+          ]
+        ],
+        "text" : "It was a quiet morning in the harbour town, and the fishing boats had not yet returned."
+      }
+    ],
+    "transcript" : [
+      {
+        "e" : 0.54000000000000004,
+        "s" : 0,
+        "t" : "welcome"
+      },
+      {
+        "e" : 1.02,
+        "s" : 0.62,
+        "t" : "back"
+      },
+      {
+        "e" : 1.4099999999999999,
+        "s" : 1.1000000000000001,
+        "t" : "to"
+      },
+      {
+        "e" : 1.8500000000000001,
+        "s" : 1.49,
+        "t" : "the"
+      },
+      {
+        "e" : 2.3300000000000001,
+        "s" : 1.9299999999999999,
+        "t" : "show"
+      },
+      {
+        "e" : 2.8500000000000001,
+        "s" : 2.4100000000000001,
+        "t" : "today"
+      },
+      {
+        "e" : 3.2400000000000002,
+        "s" : 2.9300000000000002,
+        "t" : "we"
+      },
+      {
+        "e" : 3.7200000000000002,
+        "s" : 3.3199999999999998,
+        "t" : "talk"
+      },
+      {
+        "e" : 4.2400000000000002,
+        "s" : 3.7999999999999998,
+        "t" : "about"
+      },
+      {
+        "e" : 4.5899999999999999,
+        "s" : 4.3200000000000003,
+        "t" : "a"
+      },
+      {
+        "e" : 5.1100000000000003,
+        "s" : 4.6699999999999999,
+        "t" : "quiet"
+      },
+      {
+        "e" : 5.7300000000000004,
+        "s" : 5.1900000000000004,
+        "t" : "morning"
+      },
+      {
+        "e" : 6.1699999999999999,
+        "s" : 5.8099999999999996,
+        "t" : "and"
+      },
+      {
+        "e" : 6.6100000000000003,
+        "s" : 6.25,
+        "t" : "the"
+      },
+      {
+        "e" : 7.2300000000000004,
+        "s" : 6.6900000000000004,
+        "t" : "weather"
+      },
+      {
+        "e" : 7.8899999999999997,
+        "s" : 7.3099999999999996,
+        "t" : "forecast"
+      },
+      {
+        "e" : 8.3300000000000001,
+        "s" : 7.9699999999999998,
+        "t" : "for"
+      },
+      {
+        "e" : 8.7699999999999996,
+        "s" : 8.4100000000000001,
+        "t" : "the"
+      },
+      {
+        "e" : 9.3900000000000006,
+        "s" : 8.8499999999999996,
+        "t" : "weekend"
+      }
+    ]
+  },
+  "name" : "too_few_matches"
+}

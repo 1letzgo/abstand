@@ -1,0 +1,93 @@
+{
+    "description": "Written by the Android Kotlin writer (EbookTrackAlignment.encoded / PlayerTranscriptCacheStore.encode). iOS must decode both files to exactly these values.",
+    "bookId": "li_8f3c2a91-4d7e-4b2a-9c1f-0e5d6b7a8c90",
+    "bookDirectory": "transcripts/e8a76a093ce0dae0bb8df1d2f90ee45467fc411abbe5ccbd20c645260f13e161",
+    "alignmentFile": "a3-en-US.bin",
+    "transcriptFile": "t3-en-US.json",
+    "alignment": {
+        "magic": "0x41424C31",
+        "formatVersion": 1,
+        "byteOrder": "little-endian",
+        "layout": "u32 magic, u32 version, i32 ebookWordCount, i32 spokenWordCount, f64 spokenEnd, i32 count, i32[count] words, f32[count] starts, f32[count] ends, u8[count] flags",
+        "ebookWordCount": 1234,
+        "spokenWordCount": 987,
+        "spokenEnd": 412.345678,
+        "words": [
+            0,
+            1,
+            2,
+            5,
+            6,
+            1233
+        ],
+        "starts": [
+            0.5,
+            0.8199999928474426,
+            1.100000023841858,
+            2.25,
+            2.5999999046325684,
+            410.0
+        ],
+        "ends": [
+            0.800000011920929,
+            1.0499999523162842,
+            1.600000023841858,
+            2.549999952316284,
+            3.125,
+            412.29998779296875
+        ],
+        "flags": [
+            1,
+            1,
+            0,
+            1,
+            0,
+            1
+        ],
+        "byteCount": 106
+    },
+    "transcript": {
+        "version": 1,
+        "localeIdentifier": "en-US",
+        "trackIndex": 3,
+        "segments": [
+            {
+                "start": 0.0,
+                "end": 120.5,
+                "words": [
+                    {
+                        "t": "the",
+                        "s": 0.5,
+                        "e": 0.8
+                    },
+                    {
+                        "t": "lighthouse",
+                        "s": 0.82,
+                        "e": 1.6
+                    },
+                    {
+                        "t": "don't",
+                        "s": 2.25,
+                        "e": 2.55
+                    },
+                    {
+                        "t": "Straße",
+                        "s": 2.6,
+                        "e": 3.125
+                    }
+                ]
+            },
+            {
+                "start": 300.0,
+                "end": 412.4,
+                "words": [
+                    {
+                        "t": "end",
+                        "s": 410.0,
+                        "e": 412.3
+                    }
+                ]
+            }
+        ]
+    }
+}

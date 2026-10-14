@@ -1,0 +1,15 @@
+{
+ "name": "too_few_matches",
+ "description": "Only a handful of recognised words match the ebook: the alignment is below the reliability threshold and must stay empty.",
+ "segments": [
+  [
+   "It was a quiet morning in the harbour town, and the fishing boats had not yet returned."
+  ]
+ ],
+ "spoken": "welcome back to the show today we talk about a quiet morning and the weather forecast for the weekend",
+ "startTime": 0.0,
+ "globalOffset": 0.0,
+ "jumpTimes": [
+  2.0
+ ]
+}

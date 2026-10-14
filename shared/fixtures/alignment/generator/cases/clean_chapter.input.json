@@ -1,0 +1,25 @@
+{
+ "name": "clean_chapter",
+ "description": "Clean narration of two short paragraphs; recogniser output lower-case without punctuation.",
+ "segments": [
+  [
+   "The lighthouse keeper woke before dawn, as he always did.",
+   "He climbed the narrow stairs, counting each step under his breath.",
+   "At the top, the great lamp waited for him like an old friend."
+  ],
+  [
+   "Outside, the sea was calm and grey.",
+   "A single gull circled the rocks below, crying into the wind.",
+   "He wiped the glass, trimmed the wick, and watched the horizon turn from black to silver."
+  ]
+ ],
+ "spoken": "the lighthouse keeper woke before dawn as he always did |0.6| he climbed the narrow stairs counting each step under his breath |0.5| at the top the great lamp waited for him like an old friend |1.2| outside the sea was calm and grey |0.4| a single gull circled the rocks below crying into the wind |0.5| he wiped the glass trimmed the wick and watched the horizon turn from black to silver",
+ "startTime": 1.0,
+ "globalOffset": 100.0,
+ "jumpTimes": [
+  5.0,
+  20.0,
+  31.0,
+  60.0
+ ]
+}

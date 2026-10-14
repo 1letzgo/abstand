@@ -83,6 +83,21 @@ abstand.debug.password=…
 | `downloads/DownloadManager.kt`, `downloads/DownloadQueue.kt`, `downloads/DownloadWorker.kt` | `DownloadManager` (WorkManager `dataSync` worker) |
 | `downloads/PodcastAutoDownloadInterval.kt` | `PodcastAutoDownloadSchedule` |
 | `downloads/DownloadMaintenance.kt` | `LocalStoreMaintenance.removeStaleDownloadTempFiles` |
+| `ui/AppRoot.kt` | `abstandApp` / `AppRootContainer` / `MainTabShellView` |
+| `logic/FoundationText.kt` | Foundation string semantics (`folding`, `CharacterSet`, `Character`) used by the alignment |
+| `logic/EbookReadAlong.kt` (`ReadAlongText`, `EbookReadAlongIndex`, `EbookNarrationJump`) | `EbookReadAlong.swift` (index + narration-jump logic of `EbookNarrationJumpController`), `TeleprompterEbookText.swift` (index input) |
+| `logic/EbookAudioAlignment.kt` | `EbookAudioAlignment.swift` (builder, gap aligner, `a<track>-<locale>.bin`) |
+| `logic/PlayerTranscriptCacheStore.kt` | `PlayerTranscriptCacheStore.swift`, `PlayerTranscriptWord`/`PlayerTranscriptLine` |
+| `logic/PlayerTranscriptLibrary.kt` | `PlayerTranscriptLibrary.swift` (cache access, merge chain, recap text), `EbookAlignmentStore.loadOrBuild` |
+| `logic/PlayerTranscriptLineAccumulator.kt` | `PlayerTranscriptLineAccumulator.swift` |
+| `logic/PlayerTranscriptTeleprompter.kt` | `PlayerTranscriptTeleprompter.swift` metrics, timeline/merge parts of `PlayerLiveTranscriptionController`, `PlayerTranscriptWordLookup.swift` (pure parts) |
+| `logic/speech/SpeechTranscriptionLocaleResolver.kt` | `SpeechTranscriptionLocaleResolver.swift`, `SpeechTranscriberAvailability.swift` (Vosk catalog instead of `SpeechTranscriber`) |
+| `logic/speech/SpeechModelCatalog.kt`, `SpeechModelStore.kt`, `PcmResampler.kt` | `SpeechTranscriber` locales / `AssetInventory`, `PlayerTranscriptionAudioConverter` (from stashy) |
+| `logic/ListeningAchievements.kt` | `ListeningAchievements.swift` (model, not the card view) |
+| `logic/StatsLogic.kt` | pure parts of `StatsTabView.swift` / `StatsHeatmapViews.swift` (heatmaps themselves: `data/ModelsStats.kt`) |
+| `logic/ContinueHeroTintCache.kt` | `ContinueHeroTintCache.swift`, colour math of `DetailHeroViews.swift` |
+| `logic/CatalogBrowseTypes.kt` | `CatalogBrowseTypes.swift`, `BooksLibraryToolbarSnapshot` (`LibraryToolbarState.swift`) |
+| `logic/LibraryRowLiveState.kt` | `LibraryRowLiveState.swift` (pure parts) |
 
 (Extended as screens are ported.)
 
