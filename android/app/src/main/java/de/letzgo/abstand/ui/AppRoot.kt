@@ -45,6 +45,7 @@ import de.letzgo.abstand.ui.home.HomeTabRoot
 import de.letzgo.abstand.ui.login.LoginScreen
 import de.letzgo.abstand.ui.library.BooksLibraryTabRoot
 import de.letzgo.abstand.ui.podcasts.PodcastsTabRoot
+import de.letzgo.abstand.ui.reader.EbookReaderOverlay
 import de.letzgo.abstand.ui.search.SearchTabRoot
 import de.letzgo.abstand.ui.settings.SettingsTabRoot
 
@@ -79,7 +80,15 @@ fun AppRoot(model: AppModel = AppModel.shared) {
         )
     }
     CompositionLocalProvider(LocalCoverEnvironment provides coverEnvironment) {
-        if (loggedIn) MainTabShell(session, model.player) else LoginScreen(session)
+        if (loggedIn) {
+            // eBook-Reader als Vollbild-Overlay über den Tabs (iOS: `fullScreenCover(item: $model.ebookReaderSession)`).
+            Box(Modifier.fillMaxSize()) {
+                MainTabShell(session, model.player)
+                EbookReaderOverlay()
+            }
+        } else {
+            LoginScreen(session)
+        }
     }
 }
 

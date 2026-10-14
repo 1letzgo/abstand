@@ -168,6 +168,15 @@ abstand.debug.password=…
 | `ui/player/NowPlayingPresenter.kt` | `NowPlayingZoomPresenter.swift` + `FullScreenOverlayPresenter` (zoom from the mini player, drag-to-dismiss) |
 | `ui/player/AudioOutputSwitcher.kt` | `FullPlayerAirPlayButton` (`AVRoutePickerView` → system output switcher) |
 | `ui/AppIntegration.kt` | cross-feature wiring (detail admin sheets, Stats navigation, `bookUpdated`, Settings hooks, transcript prefetch) |
+| `ui/destinations/Destinations.kt` | detail `navigationDestination` targets (placeholders until the detail screens are ported) |
+| `reader/ReadiumReaderService.kt` (`ReadiumReaderService`, `EbookTextIndexProvider`) | `ReadiumReaderService.swift` (Readium Kotlin 3.1.2 streamer, initial locator, locator persistence, EPUB preferences), `TeleprompterEbookTextProvider.swift` + `EbookReadAlongIndex.build(publication:)` |
+| `reader/ReaderProgressLogic.kt` (pure, tested) | `ReadiumReaderProgressInfo`, `ReadiumReaderDelegate.bookWidePageProgress`, `ServerPositionOffer`, eBook progress rules of `AppModel` |
+| `reader/EbookProgressSync.kt` | eBook progress part of `AppModel` (`scheduleEbookProgressSync`, `flushEbookProgressSync`, `serverEbookFractionForReader`, `markEbookAsFinished`, `resetEbookReadingProgress`) |
+| `reader/EbookReaderLauncher.kt` (`EbookReaderLauncher.open(itemId)`, `EbookReaderSession`) | `AppModel.openAttachedEbook`, `ebookReaderSession` / `EbookReaderPresentation` |
+| `reader/EbookNarrationJumpController.kt` | `EbookNarrationJumpController` (EbookReadAlong.swift) |
+| `ui/reader/ReaderScreen.kt` (`EbookReaderOverlay`, `ReaderScreen`, `EbookServerPositionBanner`) | `ReadiumReaderView.swift`, `fullScreenCover` in `MainRootView` |
+| `ui/reader/ReaderNavigatorHost.kt` (`ReaderFragments`, `EpubNavigatorHost`) | `ReadiumNavigatorHost` / `ReaderNavigatorContainerViewController` |
+| `ui/reader/PdfPageReader.kt` (`PdfDocumentSource`, `PdfPageReader`) | Readium `PDFNavigatorViewController` (Android: platform `PdfRenderer`, Readium has no PDF engine on Maven Central) |
 
 (Extended as screens are ported.)
 
@@ -196,3 +205,7 @@ abstand.debug.password=…
   `TranscriptSettings.install(context)` once in `Application.onCreate` (foreground prefetch + WorkManager).
 - Downloads: `filesDir/Downloads/<storage id>/` with `download.json` byte-identical to iOS
   (`shared/fixtures/download_manifest.json`); the queue is persisted and run by one WorkManager worker.
+- eBooks: open only through `EbookReaderLauncher.open(itemId)` (or `open(book)`); `AppRoot` shows
+  `EbookReaderOverlay` above the tabs. The page-exact Readium locator stays local (`EbookLocalStore`,
+  same JSON files as iOS); the server only gets `ebookProgress` via `EbookProgressSync` — never while
+  the "read further elsewhere" offer is open. No automatic page sync / read-along (see `CLAUDE.md`).
