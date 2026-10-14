@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Container des Readium-EPUB-Navigators im eBook-Reader (ui/reader/ReaderScreen.kt). -->
+    <item name="abstand_reader_navigator_container" type="id" />
+</resources>

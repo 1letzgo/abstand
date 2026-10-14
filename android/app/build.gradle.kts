@@ -80,6 +80,8 @@ android {
         }
     }
     compileOptions {
+        // Readium (java.time u. a.) verlangt Core-Library-Desugaring bei minSdk 26.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -119,6 +121,15 @@ dependencies {
     implementation("androidx.room:room-ktx:$room")
     ksp("androidx.room:room-compiler:$room")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
+    // eBook-Reader (iOS: Readium Swift 3.9). 3.1.x ist die letzte Linie für Kotlin 2.1 (3.2+ braucht
+    // Kotlin 2.3). Media3 aus Readium ausgeschlossen: der Audio-/TTS-Navigator wird nicht genutzt und
+    // würde sonst das Media3 des Players (s. o.) zur Laufzeit hochziehen.
+    val readium = "3.1.2"
+    listOf("readium-shared", "readium-streamer", "readium-navigator").forEach { artifact ->
+        implementation("org.readium.kotlin-toolkit:$artifact:$readium") { exclude(group = "androidx.media3") }
+    }
+    implementation("androidx.fragment:fragment-ktx:1.8.7")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver3:5.3.2")
