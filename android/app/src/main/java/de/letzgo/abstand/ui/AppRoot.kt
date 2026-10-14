@@ -31,6 +31,7 @@ import de.letzgo.abstand.ui.components.LocalCoverEnvironment
 import de.letzgo.abstand.ui.components.TabRootScaffold
 import de.letzgo.abstand.ui.home.HomeTabRoot
 import de.letzgo.abstand.ui.login.LoginScreen
+import de.letzgo.abstand.ui.library.BooksLibraryTabRoot
 import de.letzgo.abstand.ui.podcasts.PodcastsTabRoot
 import de.letzgo.abstand.ui.search.SearchTabRoot
 import de.letzgo.abstand.ui.settings.SettingsTabRoot
@@ -146,7 +147,7 @@ private fun TabRootContent(tab: MainTab) {
     when (tab) {
         MainTab.settings -> SettingsTabRoot()
         MainTab.start -> HomeTabRoot()
-        MainTab.library -> PlaceholderTabRoot(tab, "Your audiobook library appears here.")
+        MainTab.library -> BooksLibraryTabRoot()
         MainTab.podcasts -> PodcastsTabRoot()
         MainTab.search -> SearchTabRoot()
     }
