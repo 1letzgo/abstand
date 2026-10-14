@@ -28,6 +28,9 @@ class AppModel(context: Context) {
     /** Session, Accounts, Bibliothekswahl, Offline-Modus, Tabs (iOS: `AppModelSessionAuth` + Teile von `AppModel`). */
     val session = SessionStore(appContext, scope, participants)
 
+    /** Podcasts-Tab, Verzeichnis, RSS/Admin (iOS: `AppModelCatalogPodcasts`/`AppModelPodcastDirectory`). */
+    val podcasts = PodcastStore(this).also { register(it) }
+
     /** Teilnehmer für Bootstrap-/Session-Lebenszyklus anmelden (Reihenfolge = Aufrufreihenfolge). */
     fun register(participant: SessionParticipant) {
         if (participant !in participants) participants.add(participant)
