@@ -3,12 +3,6 @@ package de.letzgo.abstand.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.LibraryBooks
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -25,11 +19,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 
 /** iOS: `AppModel.MainTab` — gleiche Labels, gleiche Reihenfolge. */
 enum class MainTab(val label: String, val icon: ImageVector) {
-    Start("Home", Icons.Filled.Home),
-    Library("Books", Icons.Outlined.LibraryBooks),
-    Podcasts("Podcasts", Icons.Filled.Mic),
-    Settings("Settings", Icons.Filled.Settings),
-    Search("Search", Icons.Filled.Search),
+    Start("Home", SF.houseFill),
+    Library("Books", SF.booksVerticalFill),
+    Podcasts("Podcasts", SF.micFill),
+    Settings("Settings", SF.gearshapeFill),
+    Search("Search", SF.magnifyingglass),
 }
 
 /** iOS: `AppRootContainer` + `MainTabShellView` (Scaffold-Platzhalter bis die Screens portiert sind). */
