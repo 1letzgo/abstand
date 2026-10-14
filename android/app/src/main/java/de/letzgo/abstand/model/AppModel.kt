@@ -28,6 +28,21 @@ class AppModel(context: Context) {
     /** Session, Accounts, Bibliothekswahl, Offline-Modus, Tabs (iOS: `AppModelSessionAuth` + Teile von `AppModel`). */
     val session = SessionStore(appContext, scope, participants)
 
+    /**
+     * Brücke zum Player (Play/Pause auf Karten, Now Playing). No-op, bis der Player-Port eine
+     * Implementierung setzt — vor [start] zuweisen.
+     */
+    var playbackLauncher: PlaybackLauncher = PlaybackLauncher.None
+
+    /** Brücke zu den Downloads (Karten-Badges, Offline-Home). No-op bis zum Download-Port. */
+    var downloadStatus: DownloadStatusSource = DownloadStatusSource.None
+
+    /** Home-Dashboard, Continue listening, Regal-Einstellungen, Fortschritt (iOS: Home-Teile von `AppModel`). */
+    val home = HomeStore(this).also { register(it) }
+
+    /** Einheitliche Suche über Bücher und Podcasts (iOS: Such-Teile von `AppModel`). */
+    val search = SearchStore(this).also { register(it) }
+
     /** Teilnehmer für Bootstrap-/Session-Lebenszyklus anmelden (Reihenfolge = Aufrufreihenfolge). */
     fun register(participant: SessionParticipant) {
         if (participant !in participants) participants.add(participant)

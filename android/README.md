@@ -75,6 +75,18 @@ abstand.debug.password=…
 | `ui/login/LoginScreen.kt` | `LoginView.swift` |
 | `ui/login/ServerCustomHeadersEditor.kt` | `ServerCustomHeadersEditor.swift` |
 | `ui/settings/SettingsAccountSections.kt` | Accounts/Account sections of `ServerAdminViews.swift` |
+| `model/HomeStore.kt` (`HomeStore`), `model/HomeShelfLogic.kt` (pure, tested) | Home parts of `AppModel.swift` (`startShelves`, `loadStartDashboard`, Continue listening/reading, New episodes, `startCategoryOrder`/`startDisabledCategories`/`homeBrowseCategory`, `progressByItemId`) |
+| `model/SearchStore.kt`, `model/SearchLogic.kt` (pure, tested) | search parts of `AppModel.swift` (`scheduleUnifiedSearch`, `performSearch`, `performPodcastLibrarySearch`, local-first results) |
+| `model/PlaybackLauncher.kt` (`PlaybackLauncher`, `NowPlayingState`, `DownloadStatusSource`) | card → player/download bridge (`model.play`, `player.$isPlaying`, `LibraryBookRowLiveState` download flags) |
+| `ui/home/HomeDashboardViews.kt` | `HomeDashboardViews.swift` (`HomeTabRootView`, `StartDashboardView`, Home carousels) |
+| `ui/home/HomeCompactCards.kt` | `HomeCompactCards.swift` |
+| `ui/home/ContinueListeningHeroViews.kt` | `ContinueListeningHeroViews.swift` + `ContinueListeningHeroBookCard`/`…PodcastCard` (LibraryCardViews.swift) |
+| `ui/home/HomeCardSupport.kt` | `LibraryRowLayout`, `LibraryRowCollapsedMetaLine`, `ContinueListeningHeroCoverPill`, cover-tint placeholder |
+| `ui/home/HomeShelfSettings.kt` | `SettingsAppearanceHomeView` (ServerAdminViews.swift) |
+| `ui/components/BrowseStrip.kt` | `AbstandExpandingDockBrowseStrip.swift` (`AbstandPinnedBrowseStrip`, dropdown pills), `AbstandFixedBrowseStripSectionsLayout` (AppTheme.swift) |
+| `ui/browse/BrowseFacetSections.kt` | `MainRootBrowseSections.swift`, `BrowseEntityRowCard`/`FacetBrowseTileCard`, `BooksBrowseSection` |
+| `ui/search/SearchTabViews.kt` | `SearchTabViews.swift` |
+| `ui/destinations/Destinations.kt` | detail `navigationDestination` targets (placeholders until the detail screens are ported) |
 
 (Extended as screens are ported.)
 
