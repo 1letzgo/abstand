@@ -75,6 +75,15 @@ abstand.debug.password=…
 | `ui/login/LoginScreen.kt` | `LoginView.swift` |
 | `ui/login/ServerCustomHeadersEditor.kt` | `ServerCustomHeadersEditor.swift` |
 | `ui/settings/SettingsAccountSections.kt` | Accounts/Account sections of `ServerAdminViews.swift` |
+| `model/PodcastStore.kt` (`PodcastStore`, `PodcastDirectoryState`, `PodcastShowAdminState`) | `AppModelCatalogPodcasts.swift`, `AppModelPodcastDirectory.swift`, podcast parts of `AppModel.swift` |
+| `model/PodcastLogic.kt` (`PodcastLogic`, `PodcastCatalogSortField`, `PodcastEpisodeSortField`, `PodcastAutoDownloadInterval`) | static podcast helpers in `AppModel.swift`, `CatalogBrowseTypes.swift`, `PodcastAutoDownloadSchedule.swift` |
+| `ui/podcasts/PodcastActions.kt` | player/download bridge (`playPodcastEpisode`, `startDownloadPodcastEpisode`, `downloadedItemIds`) |
+| `ui/podcasts/PodcastsTabRoot.kt` | podcasts root in `MainRootView.swift` + `PodcastCatalogTabShell`/`PodcastCatalogToolbarContent` (`LibraryToolbarState.swift`) |
+| `ui/podcasts/PodcastEpisodeRows.kt` | `PodcastEpisodeRowCard`, `LibraryRowStatusBadges`, `LibraryRowPlayPill` (`LibraryCardViews.swift`) |
+| `ui/podcasts/PodcastTabSheets.kt` | `PodcastTabSheets.swift` (Add podcast: search, charts, storefront) + `AbstandCatalogSortToolbarMenu` |
+| `ui/podcasts/PodcastDirectoryShowView.kt` | `PodcastDirectoryShowView.swift` |
+| `ui/podcasts/PodcastEpisodeDetailView.kt`, `ui/podcasts/PodcastDetailComponents.kt` | `PodcastEpisodeDetailView.swift`, detail building blocks from `DetailHeroViews.swift` |
+| `ui/podcasts/PodcastShowSettingsScreen.kt` | `ServerAdminPodcastShowView` + `PodcastRssFeedDraftRow` (`ServerAdminViews.swift`, `LibraryCardViews.swift`) |
 
 (Extended as screens are ported.)
 
