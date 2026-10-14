@@ -572,7 +572,7 @@ private enum SettingsHubSection: String, CaseIterable, Identifiable, Hashable {
   }
 
   static func stripOrder(isServerRoot: Bool, offlineHome: Bool) -> [SettingsHubSection] {
-    // Stats zuerst in der Leiste; Startseite bleibt `.account` (`hubSection`-Default).
+    // Stats zuerst in der Leiste und zugleich Startseite (`hubSection`-Default).
     var sections: [SettingsHubSection] = [.stats, .account, .appearance, .playback]
     if !offlineHome { sections.append(.downloads) }
     if isServerRoot { sections.append(.server) }
@@ -609,7 +609,7 @@ private struct SettingsIconStrip<Section: Identifiable & Hashable>: View {
 
 struct SettingsHubRootView: View {
   @EnvironmentObject private var model: AppModel
-  @State private var hubSection: SettingsHubSection = .account
+  @State private var hubSection: SettingsHubSection = .stats
   @State private var coverCacheByteCount: Int64 = 0
 
   private var hubSectionIDs: [SettingsHubSection] {

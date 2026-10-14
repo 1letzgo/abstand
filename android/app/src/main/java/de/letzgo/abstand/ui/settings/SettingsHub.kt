@@ -40,7 +40,7 @@ enum class SettingsHubSection(val label: String, val icon: ImageVector) {
     debug("Debug", SF.ladybug);
 
     companion object {
-        /** iOS: `stripOrder` — Stats zuerst in der Leiste, Startseite bleibt `.account`. */
+        /** iOS: `stripOrder` — Stats zuerst in der Leiste und zugleich Startseite. */
         fun stripOrder(isServerRoot: Boolean, offlineHome: Boolean): List<SettingsHubSection> = buildList {
             addAll(listOf(stats, account, appearance, playback))
             if (!offlineHome) add(downloads)
@@ -63,7 +63,7 @@ fun SettingsTabRoot(model: AppModel = AppModel.shared) {
     val offlineAuto by session.offlineHomeModeAuto.collectAsState()
     val offlineUI = offline || offlineAuto
     val sections = SettingsHubSection.stripOrder(isServerRoot, offlineUI)
-    var hubSection by rememberSaveable { mutableStateOf(SettingsHubSection.account) }
+    var hubSection by rememberSaveable { mutableStateOf(SettingsHubSection.stats) }
     // iOS: `clampHubSectionIfNeeded`.
     val current = if (hubSection in sections) hubSection else sections.first()
     val stats = remember { StatsStore.shared }
