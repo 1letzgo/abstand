@@ -98,6 +98,24 @@ abstand.debug.password=…
 | `logic/ContinueHeroTintCache.kt` | `ContinueHeroTintCache.swift`, colour math of `DetailHeroViews.swift` |
 | `logic/CatalogBrowseTypes.kt` | `CatalogBrowseTypes.swift`, `BooksLibraryToolbarSnapshot` (`LibraryToolbarState.swift`) |
 | `logic/LibraryRowLiveState.kt` | `LibraryRowLiveState.swift` (pure parts) |
+| `model/AppSettings.kt` (`AppSettings`, `LibraryCardStyle`, `TranslationTargetLanguage`) | simple `@Published` settings of `AppModel`, `LibraryBookCardStyle`/`LibraryPodcastCardStyle`/`TranslationTargetLanguage` (`AppAppearance.swift`) |
+| `model/AdminStore.kt` (`AdminStore`, `AdminLogic`) | server-admin part of `AppModel` (users, library stats/scan, M4B encode + polling, media-cache purge, `changeAccountPassword`) |
+| `model/StatsStore.kt` (`StatsStore`, `StatsLogicExt`) | listening-stats part of `AppModel` (`loadListeningStats`, achievements snapshot, stats navigation stubs) |
+| `data/AdminSocketClient.kt` (`AdminSocketClient`, `AdminSocketProtocol`) | `ABSAdminSocketClient.swift` (OkHttp WebSocket) |
+| `ui/settings/SettingsHub.kt`, `SettingsIconStrip.kt` | `SettingsHubRootView`, `SettingsHubSection`, `SettingsIconStrip` (`ServerAdminViews.swift`) |
+| `ui/settings/SettingsAccountSections.kt`, `SettingsAccountPages.kt` | `SettingsAccountView`, `SettingsChangePasswordView` (+ Android-only connection/custom-headers page) |
+| `ui/settings/SettingsAppearance.kt` | `SettingsAppearanceView`, `SettingsAppearanceHomeView`, `SettingsHomeShelfCard` |
+| `ui/settings/SettingsPlayback.kt` | `SettingsPlaybackView` (Playback + Teleprompter) |
+| `ui/settings/SettingsDownloads.kt` | Downloads/Cache hub sections, `SettingsDownloadsManageView`, `DownloadManageRow` |
+| `ui/settings/DebugLog.kt` | `DebugLogCollector.swift`, `DebugLogExportView` (share via `ACTION_SEND`) |
+| `ui/settings/SettingsIntegration.kt` | hooks into other stores (home shelves, transcript prefetch status, download removal) |
+| `ui/admin/ServerAdminMenu.kt`, `ServerUsers.kt`, `ServerLibraries.kt`, `ServerM4B.kt` | `serverSettingsMenuSections`, `ServerUsersListView`, `ServerUserDetailView`, `ServerUserListeningSessionsView`, `ServerLibrariesListView`, `ServerLibraryDetailView`, `ServerM4BProgressView` |
+| `ui/stats/StatsScreen.kt` | `StatsTabView.swift`, `SettingsStatsSectionView` |
+| `ui/stats/StatsHeatmap.kt` | `StatsHeatmapViews.swift` (`ListeningMonthHeatmapCard`, `StatsTimelineMetricCard`) |
+| `ui/stats/ListeningAchievementCard.kt` | `ListeningAchievementCard` (`ListeningAchievements.swift`) |
+| `ui/metadata/MetadataActions.kt` | metadata/cover/chapter actions of `AppModel` (`applyMetadataMatch`, `applyCoverURL`, `applyItemChapters`, …) |
+| `ui/metadata/EditMetadataSheet.kt`, `MatchMetadataSheet.kt`, `ChaptersEditorSheet.kt` | `EditMetadataSheet.swift`, `MatchMetadataSheet.swift`, `ChaptersEditorSheet.swift` |
+| `ui/permissions/NotificationPermission.kt` | — (Android 13+ `POST_NOTIFICATIONS`, asked once) |
 
 (Extended as screens are ported.)
 

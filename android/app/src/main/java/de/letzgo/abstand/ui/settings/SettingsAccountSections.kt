@@ -4,9 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,31 +30,13 @@ import de.letzgo.abstand.ui.components.ServerAdminSection
 import de.letzgo.abstand.ui.components.SettingsCardActionRow
 import de.letzgo.abstand.ui.components.SettingsCardDivider
 import de.letzgo.abstand.ui.components.SettingsCardInfoRow
+import de.letzgo.abstand.ui.components.SettingsCardNavRow
+import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.components.SettingsCardPickerRow
 import de.letzgo.abstand.ui.components.SettingsCardToggleRow
 import de.letzgo.abstand.ui.components.SettingsMetricCard
-import de.letzgo.abstand.ui.components.TabRootScaffold
 import de.letzgo.abstand.ui.login.AddAccountSheet
 import kotlinx.coroutines.launch
-
-/**
- * Settings-Tab (vorläufig): nur die Account-Sektionen aus iOS `ServerAdminViews.swift`
- * (`Accounts`, `Account`) plus Offline-Schalter. Weitere Sektionen ergänzt der Settings-Port.
- */
-@Composable
-fun SettingsTabRoot(session: SessionStore = AppModel.shared.session) {
-    TabRootScaffold(title = "Settings") { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            contentPadding = padding,
-            verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.sectionSpacing),
-        ) {
-            item(key = "accounts") { SettingsAccountsSection(session) }
-            item(key = "account") { SettingsAccountSection(session) }
-            item(key = "connection") { SettingsConnectionSection(session) }
-        }
-    }
-}
 
 /** iOS: `ServerAdminSection(title: "Accounts")` — gespeicherte Accounts, Wechsel, „Add account“. */
 @Composable
@@ -135,6 +115,9 @@ fun SettingsAccountSection(session: SessionStore) {
     val selectedPodcasts by session.selectedPodcastLibrary.collectAsState()
     val activeBooks by session.activeBooksLibraryIds.collectAsState()
     val activePodcasts by session.activePodcastLibraryIds.collectAsState()
+    val offline by session.offlineHomeMode.collectAsState()
+    val offlineAuto by session.offlineHomeModeAuto.collectAsState()
+    val navigator = LocalTabNavigator.current
     var confirmLogout by remember { mutableStateOf(false) }
     val typeLabel = remember(userType) { session.sessionAccountTypeLabel }
 
@@ -200,6 +183,18 @@ fun SettingsAccountSection(session: SessionStore) {
             }
         }
 
+        if (!session.isSessionGuest) {
+            val mayUseNetwork = !(offline || offlineAuto)
+            AbstandGroupedCard(Modifier.alpha(if (mayUseNetwork) 1f else DisabledAlpha)) {
+                SettingsCardNavRow(
+                    icon = SF.lockRotation,
+                    title = "Change Password",
+                    subtitle = if (mayUseNetwork) null else "Requires a server connection",
+                    onClick = { if (mayUseNetwork) navigator?.push(ChangePasswordDestination) },
+                )
+            }
+        }
+
         AbstandGroupedCard {
             SettingsCardActionRow(
                 icon = SF.rectanglePortraitAndArrowRight,
@@ -245,14 +240,18 @@ private fun LibraryPrimaryPicker(
     )
 }
 
-/** Verbindung: Server, Erreichbarkeit, Offline-Modus (iOS: Offline-Schalter im Home-Toolbar/Settings). */
+/**
+ * Android-Ergänzung: Server, Erreichbarkeit, Offline-Modus und Custom-Header des aktiven Servers
+ * (iOS: Offline-Schalter in der Home-Toolbar, Header nur im Login).
+ */
 @Composable
 fun SettingsConnectionSection(session: SessionStore) {
     val server by session.serverURL.collectAsState()
     val reachable by session.isServerReachable.collectAsState()
     val offline by session.offlineHomeMode.collectAsState()
     val offlineAuto by session.offlineHomeModeAuto.collectAsState()
-    ServerAdminSection("Server") {
+    val navigator = LocalTabNavigator.current
+    ServerAdminSection("Connection") {
         AbstandGroupedCard {
             SettingsCardInfoRow(
                 icon = SF.serverRack,
@@ -272,6 +271,13 @@ fun SettingsConnectionSection(session: SessionStore) {
                 subtitle = "Only downloaded titles; progress syncs when you go back online.",
                 checked = offline || offlineAuto,
                 onCheckedChange = { enabled -> if (enabled) session.setOfflineHomeMode(true) else session.exitOfflineHomeUI() },
+            )
+            SettingsCardDivider()
+            SettingsCardNavRow(
+                icon = SF.sliderHorizontal3,
+                title = "Custom headers",
+                subtitle = "Extra HTTP headers sent to this server",
+                onClick = { navigator?.push(CustomHeadersDestination) },
             )
         }
     }
