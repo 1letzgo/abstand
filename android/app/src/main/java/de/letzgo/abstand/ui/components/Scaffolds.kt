@@ -25,7 +25,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -47,6 +46,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.LocalScrollBottomInset
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
@@ -91,8 +91,8 @@ fun AbstandBackButton(onBack: () -> Unit, tint: Color = Theme.palette.textPrimar
 
 /**
  * iOS: Tab-Root (`.toolbarTitleDisplayMode(.inlineLarge)` + `abstandTabScreenChrome()` +
- * `AbstandFixedBrowseStripSectionsLayout`). Material-`LargeTopAppBar`, die beim Scrollen auf
- * die Inline-Höhe einklappt; [header] = fixer Browse-Strip unter dem Titel (bleibt stehen).
+ * `AbstandFixedBrowseStripSectionsLayout`). Feste Material-`TopAppBar`: der große Titel steht von
+ * Anfang an in der Leiste (wie `.inlineLarge`), nicht erst nach dem Einklappen beim Scrollen; [header] = fixer Browse-Strip unter dem Titel (bleibt stehen).
  * [content] bekommt das fertige Content-Padding (Top-Bar, `tabPaddingH`, Abstand Titel →
  * Inhalt, unterer Mini-Player-Inset) und soll es an seine `LazyColumn`/`LazyVerticalGrid` geben.
  * Die NavigationBar gehört der Tab-Shell; hier keine Bottom-Insets.
@@ -107,7 +107,7 @@ fun TabRootScaffold(
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val palette = Theme.palette
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = palette.background,
@@ -115,11 +115,11 @@ fun TabRootScaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             Column(Modifier.background(palette.background)) {
-                LargeTopAppBar(
-                    title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                TopAppBar(
+                    title = { Text(title, style = IosType.title2.bold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     actions = actions,
                     scrollBehavior = scrollBehavior,
-                    colors = TopAppBarDefaults.largeTopAppBarColors(
+                    colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = palette.background,
                         scrolledContainerColor = palette.background,
                         titleContentColor = palette.textPrimary,
