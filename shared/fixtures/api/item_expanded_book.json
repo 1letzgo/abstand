@@ -1,0 +1,39 @@
+{
+  "id": "li_book_0001",
+  "libraryId": "lib_books_main",
+  "mediaId": "book_media_0001",
+  "mediaType": "book",
+  "addedAt": 1700000000000,
+  "updatedAt": 1760000000000,
+  "libraryFiles": [
+    { "ino": "1001", "fileType": "audio", "metadata": { "filename": "01 - Opening.mp3", "ext": ".mp3", "size": 40000000 } },
+    { "ino": "1002", "fileType": "ebook", "isSupplementary": true, "metadata": { "filename": "The Quiet Lighthouse.epub", "ext": ".epub", "format": "epub", "size": 2345678 } },
+    { "ino": "1003", "fileType": "image", "metadata": { "filename": "cover.jpg", "ext": ".jpg", "size": 120000 } }
+  ],
+  "media": {
+    "metadata": {
+      "title": "The Quiet Lighthouse",
+      "subtitle": "A Coastal Mystery",
+      "authors": [{ "id": "aut_mara", "name": "Mara Feldt" }, { "id": "aut_jonas", "name": "Jonas Brink" }],
+      "narrators": ["Ilse Raven", "Tom Weller"],
+      "series": [{ "id": "ser_coast", "name": "Coastline", "sequence": "2" }],
+      "description": "<p>A keeper finds a <b>letter</b>.</p>",
+      "publisher": "Harbour Audio",
+      "language": "de"
+    },
+    "duration": 7200.25,
+    "numTracks": 2,
+    "chapters": [
+      { "id": 0, "start": 0, "end": 1800.5, "title": "Opening" },
+      { "id": 1, "start": 1800.5, "end": 7200.25, "title": "The Letter" }
+    ],
+    "tracks": [
+      { "index": 1, "startOffset": 0, "duration": 3600, "title": "01 - Opening.mp3", "metadata": { "ino": "1001" } },
+      { "index": 2, "startOffset": 3600, "duration": 3600.25, "title": "02 - Letter.mp3", "metadata": { "ino": "1004" } }
+    ],
+    "audioFiles": [
+      { "index": 1, "duration": 3600, "metadata": { "filename": "01 - Opening.mp3" } }
+    ],
+    "ebookFile": { "ino": "1002", "ebookFormat": "epub", "metadata": { "filename": "The Quiet Lighthouse.epub", "ext": ".epub" } }
+  }
+}

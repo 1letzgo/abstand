@@ -1,0 +1,43 @@
+{
+  "id": "play_ses_001",
+  "userId": "usr_7f3c2a1e",
+  "libraryId": "lib_pods",
+  "libraryItemId": "li_pod_0001",
+  "episodeId": "ep_0042",
+  "mediaType": "podcast",
+  "mediaMetadata": { "title": "Night Shift Radio" },
+  "displayTitle": "  Episode 42: The Long Night ",
+  "displayAuthor": "Studio Nord",
+  "coverPath": "/metadata/items/li_pod_0001/cover.jpg",
+  "duration": 2710,
+  "playMethod": 0,
+  "mediaPlayer": "ios",
+  "startTime": 0,
+  "currentTime": 1200.5,
+  "startedAt": 1760430000000,
+  "updatedAt": 1760430000000,
+  "audioTracks": [
+    {
+      "index": 1,
+      "startOffset": 0,
+      "duration": 2710,
+      "title": "ep42.mp3",
+      "contentUrl": "/api/items/li_pod_0001/file/2001",
+      "mimeType": "audio/mpeg",
+      "metadata": { "filename": "ep42.mp3", "ext": ".mp3", "ino": "2001" }
+    }
+  ],
+  "chapters": [],
+  "libraryItem": {
+    "id": "li_pod_0001",
+    "libraryId": "lib_pods",
+    "mediaId": "pod_media_0001",
+    "mediaType": "podcast",
+    "media": {
+      "metadata": { "title": "Night Shift Radio", "author": "Studio Nord", "feedUrl": "https://feeds.example.org/nightshift" },
+      "episodes": [
+        { "libraryItemId": "li_pod_0001", "id": "ep_0042", "title": "Episode 42: The Long Night", "duration": 2710, "publishedAt": 1759723200000 }
+      ]
+    }
+  }
+}

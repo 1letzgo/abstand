@@ -1,0 +1,32 @@
+Shared golden files (iOS + Android)
+===================================
+
+These JSON files are hand-written, realistic Audiobookshelf API samples (all IDs,
+titles and names are invented). They exist to prove that the Swift models
+(abstand/ABSModels.swift, ABSAPIClient.swift) and their Kotlin ports
+(android/app/src/main/java/de/letzgo/abstand/data/) decode the same input to the
+same values - including the lenient edge cases (string-or-number fields, missing
+keys, fractional numbers, broken rows that must be skipped or must break decoding).
+
+Consumers
+- Android: JUnit tests in android/app/src/test/java/de/letzgo/abstand/data/
+  (this directory is wired as a test resource root in app/build.gradle.kts and
+  loaded via the classpath, e.g. "api/login_response.json").
+- iOS: intended to be consumed by a future XCTest target with the same
+  assertions, so both platforms are checked against one source of truth.
+
+Layout
+- api/*.json            responses of individual endpoints (login, libraries,
+                        library items pages, expanded item, items-in-progress,
+                        personalized shelves, listening stats incl. snake_case,
+                        listening sessions incl. broken rows, recent episodes,
+                        series/author/collection detail, /play session)
+- progress_keys.json    progressLookupKey cases for ABSUserMediaProgress and
+                        ABSPodcastEpisodeListItem
+
+Rules
+- Never put real server data, tokens or personal names in here.
+- When a fixture changes, update the assertions on BOTH platforms.
+- Quirks are documented in the tests, not "fixed" in the fixtures: if iOS
+  behaves surprisingly (e.g. a numeric "ino" fails decoding), the Android port
+  mirrors it and the test pins that behaviour.

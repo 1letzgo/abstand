@@ -1,0 +1,34 @@
+{
+  "results": [
+    {
+      "id": "li_pod_0001",
+      "libraryId": "lib_pods",
+      "mediaType": "podcast",
+      "media": {
+        "metadata": {
+          "title": "Night Shift Radio",
+          "author": "Studio Nord",
+          "feedUrl": "https://feeds.example.org/nightshift",
+          "genres": ["Society & Culture"],
+          "language": "en",
+          "type": "episodic"
+        },
+        "numEpisodes": 214,
+        "autoDownloadEpisodes": true,
+        "autoDownloadSchedule": "0 * * * *",
+        "maxEpisodesToKeep": 0,
+        "maxNewEpisodesToDownload": 3
+      }
+    },
+    {
+      "id": "li_pod_0002",
+      "libraryId": "lib_pods",
+      "mediaType": "podcast",
+      "media": {
+        "metadata": { "title": "" , "author": "Anonymous Collective" }
+      }
+    }
+  ],
+  "total": 2,
+  "page": 0
+}
