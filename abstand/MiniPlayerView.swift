@@ -301,7 +301,8 @@ private struct FullPlayerScrubberSection: View {
             total: chapter.duration,
             showsScrubThumb: isChapterScrubbing,
             accessibilityLabelText: "Chapter position",
-            onSeek: { player.seek(global: $0) }
+            // Spur zeigt kapitel-relative Zeit — VoiceOver-Schritte auf die globale Zeit umrechnen.
+            onSeek: { player.seek(global: chapter.start + $0) }
           )
         }
         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
