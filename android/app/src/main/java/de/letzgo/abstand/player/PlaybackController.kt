@@ -216,6 +216,10 @@ class PlaybackController private constructor(private val appContext: Context) {
             return allTracksPresent(root, book)
         }
 
+    /** Transkription (iOS: `tracks`/`trackStarts`/`localRoot`) — Logik in `transcript/PlaybackTranscriptionSupport.kt`. */
+    internal val transcriptionTimeline: TrackTimeline get() = timeline
+    internal val transcriptionLocalRoot: File? get() = localRoot
+
     /** Floating-Bar Play/Pause: Player wirklich bereit (nicht nur `playBook` zurückgekehrt). */
     val isPlaybackControlsReady: Boolean
         get() {

@@ -9,18 +9,24 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import org.vosk.Model
 import java.io.File
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 import kotlin.coroutines.coroutineContext
 
 /**
- * Download/Installation der Vosk-Modelle (übernommen aus stashy `SpeechModelStore`). Das Laden des
- * Modells (`org.vosk.Model`) gehört zum Transkript-Producer und kommt mit der Vosk-Abhängigkeit; hier
- * liefert [modelDirectory] den Pfad dafür.
+ * Download/Installation und Laden der Vosk-Modelle (übernommen aus stashy `SpeechModelStore`).
+ * Geladene Modelle bleiben im Speicher (Laden dauert Sekunden); Teleprompter und Vorproduktion
+ * können parallel dasselbe Modell nutzen — ein Modell wird erst geschlossen, wenn niemand es mehr
+ * benutzt und ein anderes geladen wurde (oder beim Löschen).
  */
 object SpeechModelStore {
     private val mutex = Mutex()
+
+    /** Geladene Modelle je Modellname und ihre aktiven Nutzer ([withModel]). */
+    private val loaded = LinkedHashMap<String, Model>()
+    private val users = HashMap<String, Int>()
 
     private fun root(context: Context) = File(context.filesDir, "speech-models")
 
@@ -33,8 +39,58 @@ object SpeechModelStore {
     /** Bytes aller geladenen Sprachmodelle (Einstellungen). */
     fun installedBytes(context: Context): Long = root(context).walkBottomUp().filter { it.isFile }.sumOf { it.length() }
 
-    fun deleteAll(context: Context) {
-        root(context).deleteRecursively()
+    /** Alle Modelle löschen (Einstellungen). Geladene, unbenutzte Modelle werden vorher geschlossen. */
+    suspend fun deleteAll(context: Context) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            closeUnused(keep = null)
+            root(context).listFiles()?.forEach { dir ->
+                // Ein gerade benutztes Modell bleibt liegen, bis seine Erkennung endet.
+                if ((users[dir.name] ?: 0) == 0) dir.deleteRecursively()
+            }
+        }
+    }
+
+    /**
+     * Lädt (und behält) ein installiertes Modell — Sekunden, deshalb off-main. Andere, gerade nicht
+     * benutzte Modelle werden dabei geschlossen (Speicher). Wirft, wenn das Modell fehlt.
+     */
+    suspend fun load(context: Context, entry: SpeechModelCatalog.Entry): Model = withContext(Dispatchers.IO) {
+        mutex.withLock { loadLocked(context, entry) }
+    }
+
+    /** [block] mit geladenem Modell; währenddessen wird es nicht geschlossen. */
+    suspend fun <T> withModel(context: Context, entry: SpeechModelCatalog.Entry, block: suspend (Model) -> T): T {
+        val model = withContext(Dispatchers.IO) {
+            mutex.withLock {
+                loadLocked(context, entry).also { users[entry.modelName] = (users[entry.modelName] ?: 0) + 1 }
+            }
+        }
+        try {
+            return block(model)
+        } finally {
+            withContext(kotlinx.coroutines.NonCancellable) {
+                mutex.withLock { users[entry.modelName] = maxOf(0, (users[entry.modelName] ?: 1) - 1) }
+            }
+        }
+    }
+
+    private fun loadLocked(context: Context, entry: SpeechModelCatalog.Entry): Model {
+        loaded[entry.modelName]?.let { return it }
+        if (!isInstalled(context, entry)) throw IllegalStateException("Speech model is not downloaded")
+        closeUnused(keep = entry.modelName)
+        val model = Model(modelDirectory(context, entry).absolutePath)
+        loaded[entry.modelName] = model
+        return model
+    }
+
+    private fun closeUnused(keep: String?) {
+        val it = loaded.entries.iterator()
+        while (it.hasNext()) {
+            val (name, model) = it.next()
+            if (name == keep || (users[name] ?: 0) > 0) continue
+            runCatching { model.close() }
+            it.remove()
+        }
     }
 
     /**
