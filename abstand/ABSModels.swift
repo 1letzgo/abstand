@@ -218,9 +218,10 @@ struct ABSUserMediaProgress: Codable {
 
   /// Schlüssel für `AppModel.progressByItemId` (Episoden: `libraryItemId-episodeId`).
   var progressLookupKey: String {
+    let lid = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
     let e = episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    if !e.isEmpty { return "\(libraryItemId)-\(e)" }
-    return libraryItemId
+    if !e.isEmpty { return "\(lid)-\(e)" }
+    return lid
   }
 
   /// ABS `DELETE /api/me/progress/:id` — moderner Server erwartet die DB-UUID (`MediaProgress.id`).
@@ -1566,7 +1567,7 @@ struct ABSAudioTrack: Codable {
     duration = try c.decode(Double.self, forKey: .duration)
     title = try c.decodeIfPresent(String.self, forKey: .title)
     var resolvedIno: String?
-    if let s = try c.decodeIfPresent(String.self, forKey: .ino), !s.isEmpty {
+    if let s = try? c.decodeIfPresent(String.self, forKey: .ino), !s.isEmpty {
       resolvedIno = s
     } else if let n = try c.decodeIfPresent(Int64.self, forKey: .ino) {
       resolvedIno = String(n)
@@ -1574,7 +1575,7 @@ struct ABSAudioTrack: Codable {
     if resolvedIno == nil,
       let meta = try? c.nestedContainer(keyedBy: MetadataKeys.self, forKey: .metadata)
     {
-      if let s = try meta.decodeIfPresent(String.self, forKey: .ino), !s.isEmpty {
+      if let s = try? meta.decodeIfPresent(String.self, forKey: .ino), !s.isEmpty {
         resolvedIno = s
       } else if let n = try meta.decodeIfPresent(Int64.self, forKey: .ino) {
         resolvedIno = String(n)
@@ -1623,7 +1624,7 @@ struct ABSLibraryFile: Codable {
 
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
-    if let s = try c.decodeIfPresent(String.self, forKey: .ino), !s.isEmpty {
+    if let s = try? c.decodeIfPresent(String.self, forKey: .ino), !s.isEmpty {
       ino = s
     } else if let n = try c.decodeIfPresent(Int64.self, forKey: .ino) {
       ino = String(n)
@@ -1689,7 +1690,7 @@ struct ABSEbookFile: Codable {
 
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
-    if let s = try c.decodeIfPresent(String.self, forKey: .ino), !s.isEmpty {
+    if let s = try? c.decodeIfPresent(String.self, forKey: .ino), !s.isEmpty {
       ino = s
     } else if let n = try c.decodeIfPresent(Int64.self, forKey: .ino) {
       ino = String(n)
@@ -2426,7 +2427,8 @@ extension ABSBook {
       tracks: media.tracks,
       podcastEpisodes: media.podcastEpisodes,
       ebookFile: media.ebookFile,
-      ebookFormat: media.ebookFormat
+      ebookFormat: media.ebookFormat,
+      tags: media.tags
     )
     return ABSBook(
       id: id,
@@ -2434,7 +2436,8 @@ extension ABSBook {
       media: media,
       addedAt: addedAt,
       updatedAt: updatedAt,
-      mediaId: mediaId
+      mediaId: mediaId,
+      libraryFiles: libraryFiles
     )
   }
 }
@@ -4351,11 +4354,23 @@ struct ABSListeningStatsResponse: Decodable {
     -> [ABSListeningStatsRecentSession]
   {
     guard c.contains(.recentSessions) else { return [] }
-    if let sessions = try? c.decode([ABSListeningStatsRecentSession].self, forKey: .recentSessions) {
-      return sessions
+    guard var list = try? c.nestedUnkeyedContainer(forKey: .recentSessions) else { return [] }
+    // Zeilenweise tolerant: eine kaputte Zeile darf nicht die ganze Liste leeren.
+    var out: [ABSListeningStatsRecentSession] = []
+    while !list.isAtEnd {
+      if let s = try? list.decode(ABSListeningStatsRecentSession.self) {
+        out.append(s)
+      } else if (try? list.decode(ABSJSONSkippedValue.self)) == nil {
+        break
+      }
     }
-    return []
+    return out
   }
+}
+
+/// Überspringt einen beliebigen JSON-Wert in einem `UnkeyedDecodingContainer`.
+private struct ABSJSONSkippedValue: Decodable {
+  init(from decoder: Decoder) throws {}
 }
 
 struct ABSListeningStatsItemAggregate: Decodable, Identifiable {
@@ -4540,9 +4555,9 @@ struct ABSListeningStatsRecentSession: Decodable, Identifiable {
     mediaType = try c.decodeIfPresent(String.self, forKey: .mediaType)
     timeListening = ABSListeningStatsDecode.flexibleInt(c, forKey: .timeListening)
     startTime = ABSListeningStatsDecode.flexibleDouble(c, forKey: .startTime)
-    if let s = try c.decodeIfPresent(Int64.self, forKey: .startedAt) {
+    if let s = try? c.decodeIfPresent(Int64.self, forKey: .startedAt) {
       startedAt = s
-    } else if let d = try c.decodeIfPresent(Double.self, forKey: .startedAt) {
+    } else if let d = try? c.decodeIfPresent(Double.self, forKey: .startedAt) {
       startedAt = Int64(d.rounded())
     } else {
       startedAt = 0
@@ -4562,12 +4577,21 @@ struct ABSListeningStatsRecentSession: Decodable, Identifiable {
 }
 
 extension ABSListeningStatsResponse {
-  /// Dekodierung: zuerst Standard-JSON (camelCase wie in der API-Doku), sonst mit `convertFromSnakeCase` (Proxys / ältere Server).
+  /// Dekodierung: Standard-JSON (camelCase wie in der API-Doku) oder `snake_case` (Proxys / ältere Server).
+  /// Der camelCase-Decoder scheitert an snake_case nie (alles optional/lenient) — daher die Variante
+  /// anhand der Top-Level-Keys bewusst wählen statt per Fallback.
   static func decodeAPIPayload(_ data: Data) throws -> ABSListeningStatsResponse {
-    if let s = try? ABSJSON.decoder().decode(ABSListeningStatsResponse.self, from: data) {
-      return s
-    }
-    return try ABSJSON.decoderListeningStats().decode(ABSListeningStatsResponse.self, from: data)
+    let decoder = usesSnakeCaseKeys(data) ? ABSJSON.decoderListeningStats() : ABSJSON.decoder()
+    return try decoder.decode(ABSListeningStatsResponse.self, from: data)
+  }
+
+  /// `true`, wenn die Antwort `total_time`/`day_of_week`/`recent_sessions` statt der camelCase-Keys nutzt.
+  static func usesSnakeCaseKeys(_ data: Data) -> Bool {
+    guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+    let camel: Set<String> = ["totalTime", "dayOfWeek", "recentSessions"]
+    if root.keys.contains(where: { camel.contains($0) }) { return false }
+    let snake: Set<String> = ["total_time", "day_of_week", "recent_sessions"]
+    return root.keys.contains(where: { snake.contains($0) })
   }
 }
 

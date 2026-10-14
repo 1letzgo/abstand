@@ -186,14 +186,15 @@ class ModelsDecodingTest {
     }
 
     @Test
-    fun numericInoBreaksDecodingLikeIOS() {
-        // iOS: `try decodeIfPresent(String.self, forKey: .ino)` wirft bei Zahl — der Int64-Zweig greift nie.
-        assertThrows(SerializationException::class.java) {
-            dec.decodeFromString(AbsAudioTrackSerializer, """{"index":1,"duration":1,"ino":42}""")
-        }
-        assertThrows(SerializationException::class.java) {
-            dec.decodeFromString(AbsLibraryFileSerializer, """{"ino":42}""")
-        }
+    fun numericInoFallsBackToInt64() {
+        // `try?` beim String-Versuch, danach greift der Int64-Fallback.
+        assertEquals("42", dec.decodeFromString(AbsAudioTrackSerializer, """{"index":1,"duration":1,"ino":42}""").ino)
+        assertEquals(
+            "43",
+            dec.decodeFromString(AbsAudioTrackSerializer, """{"index":1,"duration":1,"metadata":{"ino":43}}""").ino,
+        )
+        assertEquals("42", dec.decodeFromString(AbsLibraryFileSerializer, """{"ino":42}""").ino)
+        assertEquals("44", dec.decodeFromString(AbsEbookFileSerializer, """{"ino":44}""").ino)
         assertThrows(SerializationException::class.java) {
             dec.decodeFromString(AbsLibraryFileSerializer, """{"fileType":"audio"}""")
         }
@@ -282,37 +283,38 @@ class ModelsDecodingTest {
     }
 
     @Test
-    fun listeningStatsFractionalStartedAtDropsRecentSessionsLikeIOS() {
-        val json = """{"recentSessions":[{"id":"a","startedAt":1.5}],"totalTime":1}"""
+    fun listeningStatsFractionalStartedAtIsRoundedAndBrokenRowsSkipped() {
+        val json = """{"recentSessions":[{"id":"a","startedAt":1.5},{"id":7},{"id":"b","startedAt":3}],"totalTime":1}"""
         val s = AbsListeningStatsResponse.decodeAPIPayload(json)
         assertEquals(1, s.totalTime)
-        assertTrue(s.recentSessions.isEmpty())
+        assertEquals(listOf("a", "b"), s.recentSessions.map { it.id })
+        assertEquals(2L, s.recentSessions[0].startedAt)
+        assertEquals(3L, s.recentSessions[1].startedAt)
     }
 
     @Test
     fun listeningStatsSnakeCase() {
         val raw = Fixtures.api("listening_stats_snake.json")
-        // iOS-Verhalten: der camelCase-Decoder scheitert nicht (alles optional/lenient), daher greift der
-        // snake_case-Fallback in `decodeAPIPayload` nie — nur gleichnamige Keys kommen an.
-        val viaPayload = AbsListeningStatsResponse.decodeAPIPayload(raw)
-        assertEquals(0, viaPayload.totalTime)
-        assertEquals(600, viaPayload.today)
-        assertEquals(2, viaPayload.days.size)
-        assertTrue(viaPayload.dayOfWeek.isEmpty())
-        assertTrue(viaPayload.recentSessions.isEmpty())
-
-        // Direkt mit dem snake_case-Decoder (iOS `ABSJSON.decoderListeningStats()`).
-        val s = AbsJson.decoderListeningStats.decodeFromString(AbsListeningStatsResponseSerializer, raw)
-        assertEquals(7200, s.totalTime)
-        assertEquals(mapOf("1" to 6600, "2" to 600), s.dayOfWeek)
-        // `convertFromSnakeCase` wandelt auch Dictionary-Keys um (Swift-Verhalten).
-        val item = s.items["liSnake1"]!!
-        assertEquals("li_snake_1", item.id)
-        assertEquals(7200, item.timeListening)
-        assertEquals("Cora Snake", item.mediaMetadata!!.authorName)
-        assertEquals("li_snake_1", s.recentSessions.single().libraryItemId)
-        assertEquals(10.0, s.recentSessions.single().startTime, 0.0)
-        assertEquals(1760400000000L, s.recentSessions.single().startedAt)
+        assertTrue(AbsListeningStatsResponse.usesSnakeCaseKeys(raw))
+        assertFalse(AbsListeningStatsResponse.usesSnakeCaseKeys(Fixtures.api("listening_stats.json")))
+        // `decodeAPIPayload` erkennt snake_case an den Top-Level-Keys und wählt den passenden Decoder.
+        for (s in listOf(
+            AbsListeningStatsResponse.decodeAPIPayload(raw),
+            AbsJson.decoderListeningStats.decodeFromString(AbsListeningStatsResponseSerializer, raw),
+        )) {
+            assertEquals(7200, s.totalTime)
+            assertEquals(600, s.today)
+            assertEquals(2, s.days.size)
+            assertEquals(mapOf("1" to 6600, "2" to 600), s.dayOfWeek)
+            // Item-IDs als Map-Keys bleiben unverändert (kein `liSnake1`).
+            val item = s.items["li_snake_1"]!!
+            assertEquals("li_snake_1", item.id)
+            assertEquals(7200, item.timeListening)
+            assertEquals("Cora Snake", item.mediaMetadata!!.authorName)
+            assertEquals("li_snake_1", s.recentSessions.single().libraryItemId)
+            assertEquals(10.0, s.recentSessions.single().startTime, 0.0)
+            assertEquals(1760400000000L, s.recentSessions.single().startedAt)
+        }
     }
 
     @Test

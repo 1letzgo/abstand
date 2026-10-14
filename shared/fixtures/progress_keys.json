@@ -1,12 +1,12 @@
 {
-  "_comment": "progressLookupKey parity cases. mediaProgress = ABSUserMediaProgress (trims only episodeId), episodeListItem = ABSPodcastEpisodeListItem (trims both; only defined when episodeId is non-null).",
+  "_comment": "progressLookupKey parity cases. mediaProgress = ABSUserMediaProgress (trims both), episodeListItem = ABSPodcastEpisodeListItem (trims both; only defined when episodeId is non-null).",
   "cases": [
     { "libraryItemId": "li_book_0001", "episodeId": null, "mediaProgress": "li_book_0001", "episodeListItem": null },
     { "libraryItemId": "li_book_0001", "episodeId": "", "mediaProgress": "li_book_0001", "episodeListItem": "li_book_0001-" },
     { "libraryItemId": "li_book_0001", "episodeId": "   ", "mediaProgress": "li_book_0001", "episodeListItem": "li_book_0001-" },
     { "libraryItemId": "li_pod_0001", "episodeId": "ep_0042", "mediaProgress": "li_pod_0001-ep_0042", "episodeListItem": "li_pod_0001-ep_0042" },
     { "libraryItemId": "li_pod_0001", "episodeId": " ep_0042\n", "mediaProgress": "li_pod_0001-ep_0042", "episodeListItem": "li_pod_0001-ep_0042" },
-    { "libraryItemId": " li_pod_0001 ", "episodeId": "ep_0042", "mediaProgress": " li_pod_0001 -ep_0042", "episodeListItem": "li_pod_0001-ep_0042" },
+    { "libraryItemId": " li_pod_0001 ", "episodeId": "ep_0042", "mediaProgress": "li_pod_0001-ep_0042", "episodeListItem": "li_pod_0001-ep_0042" },
     { "libraryItemId": "6f1d0b52-1111-4c4c-9e9e-000000000001", "episodeId": "a6b7-uuid-ep", "mediaProgress": "6f1d0b52-1111-4c4c-9e9e-000000000001-a6b7-uuid-ep", "episodeListItem": "6f1d0b52-1111-4c4c-9e9e-000000000001-a6b7-uuid-ep" }
   ],
   "decodedFromServerId": [

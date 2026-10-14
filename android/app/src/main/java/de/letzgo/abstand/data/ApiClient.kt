@@ -1238,11 +1238,11 @@ class AbsApiClient(
         }
 
         private const val UNRESERVED = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-        private const val QUERY_EXTRA = "!$'()*+,;:@/?"
+        private const val QUERY_EXTRA = "!$'()*,;:@/?"
 
         /**
-         * Kodierung wie `URLComponents.queryItems`: erlaubt bleiben `urlQueryAllowed` ohne `&` (und
-         * ohne `=` in Namen). Insbesondere wird `+` **nicht** kodiert — identisch zu iOS.
+         * Kodierung wie iOS `buildURL`: erlaubt bleiben `urlQueryAllowed` ohne `&` und `+` (und
+         * ohne `=` in Namen). `+` wird kodiert, sonst liest der Server es als Leerzeichen.
          */
         internal fun swiftQueryEncode(s: String, isName: Boolean): String {
             val sb = StringBuilder()
