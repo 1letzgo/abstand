@@ -347,10 +347,34 @@ actor ABSAPIClient {
     let pathClean = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     guard var comp = URLComponents(string: baseStr + "/" + pathClean) else { throw ABSAPIError.invalidURL }
     if !query.isEmpty {
-      comp.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+      // Selbst kodieren: `queryItems` lässt `+` stehen, der Server liest es als Leerzeichen
+      // (kaputte base64-`filter=`-Werte, Suche nach „C++“).
+      comp.percentEncodedQueryItems = query.map {
+        URLQueryItem(
+          name: Self.percentEncodeQueryComponent($0.key, allowed: Self.queryNameAllowed),
+          value: Self.percentEncodeQueryComponent($0.value, allowed: Self.queryValueAllowed)
+        )
+      }
     }
     guard let url = comp.url else { throw ABSAPIError.invalidURL }
     return url
+  }
+
+  /// `urlQueryAllowed` ohne `&` und `+` (in Namen zusätzlich ohne `=`).
+  private static let queryValueAllowed: CharacterSet = {
+    var set = CharacterSet.urlQueryAllowed
+    set.remove(charactersIn: "&+")
+    return set
+  }()
+
+  private static let queryNameAllowed: CharacterSet = {
+    var set = queryValueAllowed
+    set.remove(charactersIn: "=")
+    return set
+  }()
+
+  private static func percentEncodeQueryComponent(_ s: String, allowed: CharacterSet) -> String {
+    s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
   }
 
   private func authorizedRequest(

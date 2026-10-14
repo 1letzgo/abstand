@@ -1,7 +1,8 @@
 import Foundation
 
 // Abgleich Hörbuch ↔ eBook: genau eine Quelle der Wahrheit für „welches eBook-Wort wird wann gesprochen".
-// Teleprompter, Read Along, Catch Up und „Go to ebook position" lesen nur noch diese Karte.
+// Nutzer: der Teleprompter (`displayWords()`) und der Reader-Button `EbookNarrationJumpController`
+// (springt zur Seite der Hörposition, markiert die letzten gesprochenen Wörter).
 //
 // Je Track wird das Transkript (Erkennung, mit Zeiten) global-monoton gegen das eBook ausgerichtet:
 // eindeutige Trigramme als Fixpunkte (längste aufsteigende Teilfolge), Lücken rekursiv über eindeutige

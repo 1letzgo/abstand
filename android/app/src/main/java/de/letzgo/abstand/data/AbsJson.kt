@@ -3,6 +3,7 @@ package de.letzgo.abstand.data
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 /**
  * iOS: `ABSJSON`. Nie eigene `Json { }`-Instanzen bauen — falscher Decoder = still falsche Werte.
@@ -25,17 +26,34 @@ object AbsJson {
     }
 
     /**
-     * iOS: `ABSJSON.decoderListeningStats()` — `JSONDecoder` mit `.convertFromSnakeCase`.
-     * Swift wandelt dabei **jeden** Objekt-Key (auch Dictionary-Keys) von `snake_case` nach camelCase,
-     * camelCase-Keys bleiben unverändert. kotlinx' `JsonNamingStrategy.SnakeCase` macht das Gegenteil
-     * (erwartet ausschließlich snake_case) — deshalb werden die Keys hier vorab umgeschrieben und
-     * danach mit [decoder] dekodiert.
+     * iOS: `ABSJSON.decoderListeningStats()` — snake_case → camelCase wie `.convertFromSnakeCase`.
+     * Ausnahmen wie iOS: die Keys der Top-Level-Maps `items` (Library-Item-IDs wie `li_x_1`),
+     * `days` und `dayOfWeek` bleiben unverändert (Swift-`[String: T]` konvertiert keine Keys;
+     * `items` bewahrt iOS über eine eigene Key-Strategie). Die Keys werden vorab umgeschrieben
+     * und danach mit [decoder] dekodiert.
      */
     object decoderListeningStats {
         fun <T> decodeFromString(deserializer: DeserializationStrategy<T>, string: String): T =
-            decoder.decodeFromJsonElement(deserializer, SwiftJson.convertKeysFromSnakeCase(decoder.parseToJsonElement(string)))
+            decoder.decodeFromJsonElement(deserializer, convertStatsKeys(decoder.parseToJsonElement(string)))
 
         fun <T> decodeFromJsonElement(deserializer: DeserializationStrategy<T>, element: JsonElement): T =
-            decoder.decodeFromJsonElement(deserializer, SwiftJson.convertKeysFromSnakeCase(element))
+            decoder.decodeFromJsonElement(deserializer, convertStatsKeys(element))
+
+        private val mapKeys = setOf("items", "days", "dayOfWeek")
+
+        private fun convertStatsKeys(e: JsonElement): JsonElement {
+            val root = e as? JsonObject ?: return SwiftJson.convertKeysFromSnakeCase(e)
+            return JsonObject(
+                root.entries.associate { (k, v) ->
+                    val key = SwiftJson.convertFromSnakeCase(k)
+                    val value = if (key in mapKeys && v is JsonObject) {
+                        JsonObject(v.entries.associate { (id, item) -> id to SwiftJson.convertKeysFromSnakeCase(item) })
+                    } else {
+                        SwiftJson.convertKeysFromSnakeCase(v)
+                    }
+                    key to value
+                },
+            )
+        }
     }
 }

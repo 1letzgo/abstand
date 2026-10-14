@@ -34,7 +34,14 @@ sealed class AdminSocketEvent {
  * Netz testbar. [handlePacket] liefert die zu sendenden Antworten und erkannte Events.
  */
 object AdminSocketProtocol {
-    data class PacketResult(val replies: List<String> = emptyList(), val events: List<AdminSocketEvent> = emptyList(), val pingIntervalMs: Double? = null)
+    /**
+     * [livenessTimeoutMs]: aus dem Engine.IO-Open-Paket (`pingInterval + pingTimeout`). In v4 pingt
+     * nur der Server; bleibt so lange jedes Paket aus, gilt die Verbindung als tot.
+     */
+    data class PacketResult(val replies: List<String> = emptyList(), val events: List<AdminSocketEvent> = emptyList(), val livenessTimeoutMs: Long? = null)
+
+    /** Standard-Frist ohne Open-Paket (Engine.IO-Defaults 25 s + 20 s). */
+    const val DEFAULT_LIVENESS_TIMEOUT_MS = 45_000L
 
     /** iOS: `socketIOWebSocketURL(from:)` — `ws(s)://host[/pfad]/socket.io/?EIO=4&transport=websocket`. */
     fun socketIOWebSocketURL(serverURL: String): String? {
@@ -58,11 +65,14 @@ object AdminSocketProtocol {
         val body = raw.substring(1)
         return when (type) {
             0 -> {
-                val interval = runCatching {
-                    (AbsJson.decoder.parseToJsonElement(body) as? JsonObject)?.get("pingInterval")?.jsonPrimitive?.doubleOrNull
-                }.getOrNull()
+                val json = runCatching { AbsJson.decoder.parseToJsonElement(body) as? JsonObject }.getOrNull()
+                val interval = json?.get("pingInterval")?.jsonPrimitive?.doubleOrNull
+                val timeout = json?.get("pingTimeout")?.jsonPrimitive?.doubleOrNull ?: 20_000.0
                 // Socket.IO-Namespace verbinden.
-                PacketResult(replies = listOf("40"), pingIntervalMs = interval?.let { maxOf(5_000.0, it) })
+                PacketResult(
+                    replies = listOf("40"),
+                    livenessTimeoutMs = interval?.let { (maxOf(5_000.0, it) + maxOf(1_000.0, timeout)).toLong() },
+                )
             }
             2 -> PacketResult(replies = listOf("3"))
             4 -> {
@@ -128,6 +138,9 @@ class AdminSocketClient(private val http: OkHttpClient = Net.client) {
     private var wantsConnection = false
     private var reconnectAttempt = 0
     private var reconnectJob: Job? = null
+    /** iOS: `livenessTask` — Server-Pings bleiben aus → Socket abbrechen, `onFailure` reconnectet. */
+    private var livenessTimeoutMs = AdminSocketProtocol.DEFAULT_LIVENESS_TIMEOUT_MS
+    private var livenessJob: Job? = null
 
     fun connect(serverURL: String, token: String) {
         val trimmed = token.trim()
@@ -160,6 +173,16 @@ class AdminSocketClient(private val http: OkHttpClient = Net.client) {
             }
         })
         webSocket = own
+        armLivenessWatchdog(own)
+    }
+
+    private fun armLivenessWatchdog(socket: WebSocket) {
+        livenessJob?.cancel()
+        val timeout = livenessTimeoutMs
+        livenessJob = scope.launch {
+            delay(timeout)
+            if (webSocket === socket) socket.cancel()
+        }
     }
 
     fun disconnect() {
@@ -170,6 +193,8 @@ class AdminSocketClient(private val http: OkHttpClient = Net.client) {
     }
 
     private fun disconnectSocketOnly() {
+        livenessJob?.cancel()
+        livenessJob = null
         reconnectJob?.cancel()
         reconnectJob = null
         webSocket?.close(1001, null)
@@ -178,6 +203,8 @@ class AdminSocketClient(private val http: OkHttpClient = Net.client) {
 
     private fun handle(text: String) {
         val result = AdminSocketProtocol.handlePacket(text, token)
+        result.livenessTimeoutMs?.let { livenessTimeoutMs = it }
+        webSocket?.let { armLivenessWatchdog(it) }
         result.replies.forEach { webSocket?.send(it) }
         result.events.forEach { event ->
             if (event is AdminSocketEvent.Connected) reconnectAttempt = 0

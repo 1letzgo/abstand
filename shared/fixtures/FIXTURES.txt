@@ -32,8 +32,10 @@ Rules
 - Never put real server data, tokens or personal names in here.
 - When a fixture changes, update the assertions on BOTH platforms.
 - Quirks are documented in the tests, not "fixed" in the fixtures: if iOS
-  behaves surprisingly (e.g. a numeric "ino" fails decoding), the Android port
-  mirrors it and the test pins that behaviour.
+  behaves surprisingly, the Android port mirrors it and the test pins that
+  behaviour. When such a quirk turns out to be an iOS bug, fix it on both
+  platforms and update the pinned assertions (e.g. numeric "ino", snake_case
+  listening stats, fractional "startedAt", "+" in query values).
 
 Alignment / transcript caches (generated, not hand-written)
 - alignment/<case>.json   eBook segments + recognised words (input) and the

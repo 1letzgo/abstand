@@ -34,13 +34,14 @@ struct EditMetadataSheet: View {
   @State private var genres: String = ""
   @State private var tagsText: String = ""
   @State private var asin: String = ""
-  /// Vorschläge pro Series-Zeile (Index → Namen aus Library-Search).
-  @State private var seriesSuggestionsByRow: [Int: [String]] = [:]
-  @State private var seriesSearchBusyRow: Int?
+  /// Vorschläge pro Series-Zeile (stabile Zeilen-ID → Namen aus Library-Search).
+  /// Bewusst nicht per Index: nach dem Entfernen einer Zeile hingen sie sonst an der falschen.
+  @State private var seriesSuggestionsByRow: [UUID: [String]] = [:]
+  @State private var seriesSearchBusyRow: UUID?
   /// Laufende Debounce-Tasks pro Zeile (nur bei Nutzer-Eingabe, nicht Prefill).
-  @State private var seriesSearchTasks: [Int: Task<Void, Never>] = [:]
-  /// Nächstes `onChange` überspringen (Vorschlag übernommen / Zeile geleert).
-  @State private var seriesSearchSuppressRows: Set<Int> = []
+  @State private var seriesSearchTasks: [UUID: Task<Void, Never>] = [:]
+  /// Nächstes `onChange` überspringen (Vorschlag übernommen).
+  @State private var seriesSearchSuppressRows: Set<UUID> = []
 
   // Save-State
   @State private var isSaving = false
@@ -157,12 +158,13 @@ struct EditMetadataSheet: View {
   private var seriesEditor: some View {
     VStack(alignment: .leading, spacing: DetailMetaLayoutMetrics.labelToContentSpacing) {
       MetadataSheetFieldLabel(title: "Series", hint: "Search from 3 letters")
-      ForEach(Array(seriesRows.enumerated()), id: \.offset) { idx, _ in
+      ForEach($seriesRows) { $row in
+        let rowId = row.id
         VStack(alignment: .leading, spacing: AppTheme.Layout.compactSpacing) {
           HStack(spacing: AppTheme.Layout.inlineSpacing) {
             TextField(
               "",
-              text: $seriesRows[idx].name,
+              text: $row.name,
               prompt: Text("Series name")
                 .foregroundStyle(palette.textSecondary.opacity(0.55))
             )
@@ -173,12 +175,12 @@ struct EditMetadataSheet: View {
             .autocorrectionDisabled()
             .accessibilityLabel("Series name")
             .metadataSheetFieldChrome()
-            .onChange(of: seriesRows[idx].name) { _, _ in
-              scheduleSeriesSearch(rowIndex: idx)
+            .onChange(of: row.name) { _, _ in
+              scheduleSeriesSearch(rowId: rowId)
             }
             TextField(
               "",
-              text: $seriesRows[idx].sequence,
+              text: $row.sequence,
               prompt: Text("#").foregroundStyle(palette.textSecondary.opacity(0.55))
             )
             .font(.body)
@@ -190,7 +192,7 @@ struct EditMetadataSheet: View {
             .metadataSheetFieldChrome(horizontalPadding: AppTheme.Layout.inlineSpacing)
             .frame(width: SeriesRowMetrics.numberFieldWidth)
             Button {
-              removeSeriesRow(idx)
+              removeSeriesRow(rowId)
             } label: {
               Image(systemName: "minus.circle")
                 .font(.body)
@@ -199,14 +201,14 @@ struct EditMetadataSheet: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Remove series")
           }
-          if seriesSearchBusyRow == idx {
+          if seriesSearchBusyRow == rowId {
             ProgressView()
               .controlSize(.mini)
               .tint(themeAccent)
               .frame(maxWidth: .infinity, alignment: .leading)
               .padding(.leading, AppTheme.Layout.hairlineSpacing)
-          } else if let suggestions = seriesSuggestionsByRow[idx], !suggestions.isEmpty {
-            seriesSuggestionsList(rowIndex: idx, suggestions: suggestions)
+          } else if let suggestions = seriesSuggestionsByRow[rowId], !suggestions.isEmpty {
+            seriesSuggestionsList(rowId: rowId, suggestions: suggestions)
           }
         }
       }
@@ -223,30 +225,34 @@ struct EditMetadataSheet: View {
     .frame(maxWidth: .infinity, alignment: .leading)
   }
 
-  private func removeSeriesRow(_ idx: Int) {
-    seriesSearchTasks[idx]?.cancel()
-    seriesSearchTasks[idx] = nil
-    seriesSearchSuppressRows.insert(idx)
+  private func removeSeriesRow(_ rowId: UUID) {
+    seriesSearchTasks[rowId]?.cancel()
+    seriesSearchTasks[rowId] = nil
+    seriesSearchSuppressRows.remove(rowId)
+    seriesSuggestionsByRow[rowId] = nil
+    if seriesSearchBusyRow == rowId { seriesSearchBusyRow = nil }
+    guard let idx = seriesRows.firstIndex(where: { $0.id == rowId }) else { return }
     if seriesRows.count == 1 {
+      // Neue Zeile mit neuer ID — erzeugt kein `onChange` auf der alten.
       seriesRows[0] = EditSeriesRow()
     } else {
       seriesRows.remove(at: idx)
     }
-    seriesSuggestionsByRow[idx] = nil
-    if seriesSearchBusyRow == idx { seriesSearchBusyRow = nil }
   }
 
   @ViewBuilder
-  private func seriesSuggestionsList(rowIndex: Int, suggestions: [String]) -> some View {
+  private func seriesSuggestionsList(rowId: UUID, suggestions: [String]) -> some View {
     VStack(alignment: .leading, spacing: 0) {
       ForEach(suggestions, id: \.self) { name in
         Button {
-          seriesSearchTasks[rowIndex]?.cancel()
-          seriesSearchTasks[rowIndex] = nil
-          seriesSearchSuppressRows.insert(rowIndex)
-          seriesRows[rowIndex].name = name
-          seriesSuggestionsByRow[rowIndex] = []
-          if seriesSearchBusyRow == rowIndex { seriesSearchBusyRow = nil }
+          seriesSearchTasks[rowId]?.cancel()
+          seriesSearchTasks[rowId] = nil
+          if let idx = seriesRows.firstIndex(where: { $0.id == rowId }) {
+            seriesSearchSuppressRows.insert(rowId)
+            seriesRows[idx].name = name
+          }
+          seriesSuggestionsByRow[rowId] = []
+          if seriesSearchBusyRow == rowId { seriesSearchBusyRow = nil }
         } label: {
           Text(name)
             .font(.subheadline)
@@ -275,41 +281,45 @@ struct EditMetadataSheet: View {
   }
 
   /// Nur bei aktiver Texteingabe — nicht beim Prefill aus vorhandenen Metadaten.
-  private func scheduleSeriesSearch(rowIndex: Int) {
-    if seriesSearchSuppressRows.contains(rowIndex) {
-      seriesSearchSuppressRows.remove(rowIndex)
-      seriesSuggestionsByRow[rowIndex] = []
-      if seriesSearchBusyRow == rowIndex { seriesSearchBusyRow = nil }
+  private func scheduleSeriesSearch(rowId: UUID) {
+    if seriesSearchSuppressRows.contains(rowId) {
+      seriesSearchSuppressRows.remove(rowId)
+      seriesSuggestionsByRow[rowId] = []
+      if seriesSearchBusyRow == rowId { seriesSearchBusyRow = nil }
       return
     }
-    seriesSearchTasks[rowIndex]?.cancel()
-    seriesSearchTasks[rowIndex] = Task {
-      await runSeriesSearch(rowIndex: rowIndex)
+    seriesSearchTasks[rowId]?.cancel()
+    seriesSearchTasks[rowId] = Task {
+      await runSeriesSearch(rowId: rowId)
     }
   }
 
+  private func seriesRowName(_ rowId: UUID) -> String? {
+    seriesRows.first(where: { $0.id == rowId })?.name
+  }
+
   /// Debounced Library-Search für Series-Namen (ab 3 Zeichen).
-  private func runSeriesSearch(rowIndex: Int) async {
-    guard seriesRows.indices.contains(rowIndex) else { return }
-    let q = seriesRows[rowIndex].name.trimmingCharacters(in: .whitespacesAndNewlines)
+  private func runSeriesSearch(rowId: UUID) async {
+    guard let name = seriesRowName(rowId) else { return }
+    let q = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard q.count >= 3 else {
-      seriesSuggestionsByRow[rowIndex] = []
-      if seriesSearchBusyRow == rowIndex { seriesSearchBusyRow = nil }
+      seriesSuggestionsByRow[rowId] = []
+      if seriesSearchBusyRow == rowId { seriesSearchBusyRow = nil }
       return
     }
     guard model.isNetworkReachable else {
-      seriesSuggestionsByRow[rowIndex] = []
+      seriesSuggestionsByRow[rowId] = []
       return
     }
     try? await Task.sleep(for: .milliseconds(300))
     guard !Task.isCancelled else { return }
-    guard seriesRows.indices.contains(rowIndex) else { return }
-    let still = seriesRows[rowIndex].name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let stillName = seriesRowName(rowId) else { return }
+    let still = stillName.trimmingCharacters(in: .whitespacesAndNewlines)
     guard still == q else { return }
 
-    seriesSearchBusyRow = rowIndex
+    seriesSearchBusyRow = rowId
     defer {
-      if seriesSearchBusyRow == rowIndex { seriesSearchBusyRow = nil }
+      if seriesSearchBusyRow == rowId { seriesSearchBusyRow = nil }
     }
     do {
       let rows = try await model.searchLibrarySeries(query: q, libraryId: libraryId)
@@ -317,11 +327,13 @@ struct EditMetadataSheet: View {
       let names = rows
         .map(\.name)
         .filter { $0.caseInsensitiveCompare(q) != .orderedSame }
-      seriesSuggestionsByRow[rowIndex] = names
+      // Zeile inzwischen entfernt → keine Vorschläge mehr ablegen.
+      guard seriesRowName(rowId) != nil else { return }
+      seriesSuggestionsByRow[rowId] = names
     } catch is CancellationError {
       // Stille.
     } catch {
-      seriesSuggestionsByRow[rowIndex] = []
+      seriesSuggestionsByRow[rowId] = []
     }
   }
 
@@ -516,7 +528,9 @@ struct EditMetadataSheet: View {
 }
 
 /// Editierbare Serie-Zeile (Name + Sequence) für den Metadaten-Editor.
-private struct EditSeriesRow {
+private struct EditSeriesRow: Identifiable {
+  /// Stabile Zeilen-ID für Vorschläge/Such-Tasks (nicht Teil des Patches).
+  let id = UUID()
   var name: String = ""
   var sequence: String = ""
 

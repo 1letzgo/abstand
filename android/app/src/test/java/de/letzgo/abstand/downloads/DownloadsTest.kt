@@ -130,6 +130,10 @@ class DownloadsTest {
         assertEquals(PodcastAutoDownloadInterval.every6Hours, PodcastAutoDownloadInterval.from("  0  */6 * * * "))
         assertEquals(PodcastAutoDownloadInterval.weekly, PodcastAutoDownloadInterval.from("30 4 * * 5"))
         assertEquals(PodcastAutoDownloadInterval.daily, PodcastAutoDownloadInterval.from("15 3 * * *"))
+        // Stunden-Feld vor „täglich“: kein Fehlgriff auf daily.
+        assertEquals(PodcastAutoDownloadInterval.every6Hours, PodcastAutoDownloadInterval.from("5 */6 * * *"))
+        assertEquals(PodcastAutoDownloadInterval.every12Hours, PodcastAutoDownloadInterval.from("5 */12 * * *"))
+        assertEquals(PodcastAutoDownloadInterval.everyHour, PodcastAutoDownloadInterval.from("5 * * * *"))
         assertEquals(PodcastAutoDownloadInterval.everyHour, PodcastAutoDownloadInterval.from("0 * 1 * *"))
         assertEquals(PodcastAutoDownloadInterval.daily, PodcastAutoDownloadInterval.from(null))
         assertEquals(PodcastAutoDownloadInterval.daily, PodcastAutoDownloadInterval.from("bogus"))

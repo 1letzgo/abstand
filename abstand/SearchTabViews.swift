@@ -71,7 +71,7 @@ struct SearchTabRootView: View {
         .frame(maxWidth: .infinity)
         .multilineTextAlignment(.center)
         .padding(AppTheme.Layout.blockSpacing)
-    } else if model.isSearchingBooks || model.isLoadingPodcasts, !hasAnyResults {
+    } else if model.isSearchingBooks || model.isSearchingPodcasts, !hasAnyResults {
       AbstandLoadingSpinner()
     } else if !hasAnyResults {
       Text("No results.")

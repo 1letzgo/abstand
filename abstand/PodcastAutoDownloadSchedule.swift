@@ -39,14 +39,16 @@ enum PodcastAutoDownloadInterval: String, CaseIterable, Identifiable, Equatable 
     }
     let parts = normalized.split(whereSeparator: \.isWhitespace).map(String.init)
     guard parts.count >= 5 else { return .default }
+    let hour = parts[1]
     let dom = parts[2]
     let month = parts[3]
     let dow = parts[4]
-    if dom == "*", month == "*", dow == "*" { return .daily }
     if dom == "*", month == "*", dow != "*" { return .weekly }
-    if parts[1] == "*" { return .everyHour }
-    if parts[1].hasPrefix("*/6") { return .every6Hours }
-    if parts[1].hasPrefix("*/12") { return .every12Hours }
+    // Stunden-Feld vor „täglich“ prüfen — `5 */6 * * *` hat auch `* * *` in Tag/Monat/Wochentag.
+    if hour.hasPrefix("*/12") { return .every12Hours }
+    if hour.hasPrefix("*/6") { return .every6Hours }
+    if hour == "*" { return .everyHour }
+    if dom == "*", month == "*" { return .daily }
     return .default
   }
 

@@ -529,13 +529,13 @@ struct PodcastDirectoryShowView: View {
 
   // MARK: Date helpers
 
-  private static func dateLabel(millis: Int64) -> String {
+  nonisolated private static func dateLabel(millis: Int64) -> String {
     Date(timeIntervalSince1970: TimeInterval(millis) / 1000)
       .formatted(date: .abbreviated, time: .omitted)
   }
 
   /// iTunes liefert `releaseDate` als ISO-String — nur den Tag anzeigen.
-  private static func dateLabel(isoDay value: String) -> String? {
+  nonisolated private static func dateLabel(isoDay value: String) -> String? {
     let day = String(value.prefix(10))
     guard day.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil else {
       return value.nilIfEmpty

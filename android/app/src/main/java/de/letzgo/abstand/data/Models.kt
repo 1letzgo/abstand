@@ -149,9 +149,10 @@ data class AbsUserMediaProgress(
     /** Schlüssel für `AppModel.progressByItemId` (Episoden: `libraryItemId-episodeId`). */
     val progressLookupKey: String
         get() {
+            val lid = libraryItemId.swiftTrim()
             val e = episodeId?.swiftTrim() ?: ""
-            if (e.isNotEmpty()) return "$libraryItemId-$e"
-            return libraryItemId
+            if (e.isNotEmpty()) return "$lid-$e"
+            return lid
         }
 
     /**
