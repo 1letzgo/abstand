@@ -416,12 +416,15 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     recapErrorMessage = nil
     recapFallbackNotice = nil
     recapShowsTranscript = false
+    let generation = UUID()
+    currentRecapGeneration = generation
     defer {
-      isGeneratingRecap = false
+      // Nur den eigenen Lauf beenden — nach einem Timeout kann schon ein neuer Recap laufen,
+      // dessen Spinner/Guards sonst vom auslaufenden alten Lauf zurückgesetzt würden.
+      if currentRecapGeneration == generation { isGeneratingRecap = false }
       PlayerTranscriptLibrary.endPriorityWork()
     }
 
-    let generation = UUID()
     let timeoutTask = Task { @MainActor [weak self] in
       try? await Task.sleep(nanoseconds: UInt64(Self.recapGenerationTimeoutSeconds * 1_000_000_000))
       guard !Task.isCancelled, let self else { return }
@@ -435,7 +438,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     }
 
     do {
-      currentRecapGeneration = generation
       try await ensureSpeechRecognitionAuthorized()
       let languageTag = player.preferredTranscriptionLanguageTag
       let resolution = try await SpeechTranscriptionLocaleResolver.resolve(
@@ -522,12 +524,15 @@ final class PlayerLiveTranscriptionController: ObservableObject {
         )
       }
     } catch {
-      recapText = nil
-      recapErrorMessage = (error as? LocalizedError)?.errorDescription
-        ?? String(
-          localized: "The on-device recap could not be created. Please try again.",
-          comment: "Read along recap error"
-        )
+      // Ein abgelöster (z. B. per Timeout aufgegebener) Lauf überschreibt den neuen nicht.
+      if currentRecapGeneration == generation {
+        recapText = nil
+        recapErrorMessage = (error as? LocalizedError)?.errorDescription
+          ?? String(
+            localized: "The on-device recap could not be created. Please try again.",
+            comment: "Read along recap error"
+          )
+      }
     }
     timeoutTask.cancel()
   }

@@ -11,3 +11,10 @@
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
+
+# Vosk (Read Along) spricht libvosk über JNA an — dessen Klassen und Callback-/Struktur-Typen
+# müssen unverschleiert bleiben.
+-keep class com.sun.jna.** { *; }
+-keep class * implements com.sun.jna.** { *; }
+-keep class org.vosk.** { *; }
+-dontwarn java.awt.**

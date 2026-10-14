@@ -119,6 +119,18 @@ abstand.debug.password=…
 | `ui/browse/BrowseFacetSections.kt` | `MainRootBrowseSections.swift`, `BrowseEntityRowCard`/`FacetBrowseTileCard`, `BooksBrowseSection` |
 | `ui/search/SearchTabViews.kt` | `SearchTabViews.swift` |
 | `ui/destinations/Destinations.kt` | detail `navigationDestination` targets (placeholders until the detail screens are ported) |
+| `transcript/PlaybackTranscriptionSupport.kt` (`PlaybackTranscription`, `PlayerTranscriptionAudioContext`) | transcription extension of `PlaybackController` (`transcriptionStorageId`, `transcriptionTrackKey`, `makeTranscriptionAudioContext`, `localTranscriptionTrackSources`, language override) |
+| `transcript/PlayerTranscriptionAudioConverter.kt` | `PlayerTranscriptionAudioConverter.swift` + `AVAssetReader` part of `PlayerTranscriptProducer` (MediaExtractor/MediaCodec → 16 kHz mono) |
+| `transcript/PlayerTranscriptProducer.kt` (`PlayerTranscriptProducer`, `VoskResult`) | `PlayerTranscriptProducer.swift` (Vosk instead of `SpeechAnalyzer`/`SpeechTranscriber`) |
+| `transcript/PlayerTranscriptProduction.kt` | `PlayerTranscriptLibrary.produceAndPersist` / `transcriptText` (gap filling) |
+| `transcript/PlayerLiveTranscriptionController.kt` (+ `TranscriptFollowPolicy`, `TranscriptWordMerge`) | `PlayerLiveTranscriptionController.swift` |
+| `transcript/TranscriptionModelSelection.kt` | `SpeechTranscriptionLocaleResolver.resolve` + `ensureSpeechModel` (language → Vosk model) |
+| `transcript/PlayerTranscriptPrefetcher.kt` (`PlayerTranscriptPrefetcher`, `PrefetchPlanner`, `TranscriptPrefetchWorker`) | `PlayerTranscriptPrefetcher.swift` (`BGProcessingTask` → WorkManager unique work `de.letzgo.abstand.transcripts`, charging + battery not low), `AppModel.downloadedTranscriptJobs` |
+| `transcript/TeleprompterEbookText.kt` | `TeleprompterEbookText.swift` (`TeleprompterEbookTextProvider`; EPUB opening plugged in by the reader via `indexLoader`) |
+| `transcript/TranscriptSettings.kt` (`TranscriptSettings`, `TranslationTargetLanguage`), `transcript/TranscriptAccount.kt`, `transcript/WordLookupLinks.kt` | Teleprompter section of `ServerAdminViews.swift`, `TranslationTargetLanguage` (AppAppearance.swift), `PlayerTranscriptCacheStore.activeAccount` |
+| `ui/transcript/TranscriptTeleprompter.kt` (`TranscriptTeleprompter`, `TeleprompterFontSize`) | `PlayerTranscriptTeleprompter.swift` (`PlayerLiveTranscriptPanelView`) |
+| `ui/transcript/TranscriptWordLookupSheet.kt` | `PlayerTranscriptWordLookup.swift` (sheet; Translate/Search the web instead of system dictionary/Translation) |
+| `ui/transcript/TranscriptRecapSheet.kt` (`TranscriptRecapSheet`, `TranscriptRecapContent`) | `PlayerTranscriptRecapSheet.swift` (`PlayerTranscriptRecapCard`) |
 
 (Extended as screens are ported.)
 
@@ -141,5 +153,9 @@ abstand.debug.password=…
   with the global timeline (`BookTimelinePlayer`). Audio focus / becoming-noisy are ExoPlayer's — no
   extra session activation logic. App state reaches the player only through `PlaybackHost`,
   `BrowseSource` (Android Auto) and `DownloadHost`.
+- Read along: Vosk (`com.alphacephei:vosk-android`) like stashy's AI subtitles — speech models are
+  downloaded only after an explicit tap (`filesDir/speech-models/`); transcripts use the iOS cache
+  format/paths, keyed by the Vosk model's language tag (`de`, `en`, `en-GB` …). Call
+  `TranscriptSettings.install(context)` once in `Application.onCreate` (foreground prefetch + WorkManager).
 - Downloads: `filesDir/Downloads/<storage id>/` with `download.json` byte-identical to iOS
   (`shared/fixtures/download_manifest.json`); the queue is persisted and run by one WorkManager worker.
