@@ -1,0 +1,13 @@
+{
+  "id": "col_roadtrip",
+  "libraryId": "lib_books_main",
+  "userId": "usr_7f3c2a1e",
+  "name": "Road Trip",
+  "description": "Long drives, long books.",
+  "books": [
+    { "id": "li_book_0001", "media": { "metadata": { "title": "The Quiet Lighthouse" }, "numTracks": 12, "duration": 36123.5 } },
+    { "id": "li_book_0002", "media": { "metadata": { "title": "Atlas of Small Things" }, "numTracks": 4, "duration": 9000 } }
+  ],
+  "lastUpdate": "1760000000000",
+  "createdAt": 1700000000000
+}

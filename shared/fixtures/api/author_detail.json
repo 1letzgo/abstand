@@ -1,0 +1,31 @@
+{
+  "id": "aut_mara",
+  "asin": null,
+  "name": "Mara Feldt",
+  "description": "Mara Feldt writes coastal mysteries.",
+  "imagePath": "/metadata/authors/aut_mara.jpg",
+  "libraryId": "lib_books_main",
+  "addedAt": 1700000000000,
+  "updatedAt": 1760000000000,
+  "libraryItems": [
+    {
+      "id": "li_book_0001",
+      "libraryId": "lib_books_main",
+      "media": { "metadata": { "title": "The Quiet Lighthouse", "authorName": "Mara Feldt" }, "numTracks": 12, "duration": 36123.5 }
+    },
+    {
+      "id": "li_book_0006",
+      "libraryId": "lib_books_main",
+      "media": { "metadata": { "title": "Tidal Ledger", "authorName": "Mara Feldt" }, "numTracks": 0, "ebookFormat": "epub" }
+    }
+  ],
+  "series": [
+    {
+      "id": "ser_coast",
+      "name": "Coastline",
+      "items": [
+        { "id": "li_book_0001", "media": { "metadata": { "title": "The Quiet Lighthouse" }, "numTracks": 12, "duration": 36123.5 } }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "id": "li_book_0004",
+  "libraryId": "lib_books_main",
+  "media": {
+    "metadata": { "title": "Unordered Files" },
+    "duration": 300,
+    "numTracks": 3,
+    "tracks": [],
+    "audioFiles": [
+      { "index": 3, "duration": 50.5, "metadata": { "filename": "c.m4a" } },
+      { "index": 1, "duration": 100, "metadata": { "filename": "a.m4a" } },
+      { "index": 2, "metadata": { "filename": "b.m4a" } }
+    ]
+  }
+}

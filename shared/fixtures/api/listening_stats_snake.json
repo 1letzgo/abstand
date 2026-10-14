@@ -1,0 +1,24 @@
+{
+  "total_time": 7200,
+  "today": 600,
+  "days": { "2026-10-14": 600, "2026-10-13": 6600 },
+  "day_of_week": { "1": 6600, "2": 600 },
+  "items": {
+    "li_snake_1": {
+      "id": "li_snake_1",
+      "time_listening": 7200,
+      "media_metadata": { "title": "Snake Case Book", "author_name": "Cora Snake" }
+    }
+  },
+  "recent_sessions": [
+    {
+      "id": "ses_s1",
+      "library_item_id": "li_snake_1",
+      "display_title": "Snake Case Book",
+      "media_type": "book",
+      "time_listening": 600,
+      "start_time": 10,
+      "started_at": 1760400000000
+    }
+  ]
+}

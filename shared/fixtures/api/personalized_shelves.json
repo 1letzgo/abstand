@@ -1,0 +1,75 @@
+[
+  {
+    "id": "continue-listening",
+    "label": "Continue Listening",
+    "labelStringKey": "LabelContinueListening",
+    "type": "book",
+    "entities": [
+      {
+        "id": "li_book_0001",
+        "libraryId": "lib_books_main",
+        "mediaType": "book",
+        "media": { "metadata": { "title": "The Quiet Lighthouse", "authorName": "Mara Feldt" }, "numTracks": 12, "duration": 36123.5 }
+      },
+      {
+        "id": "li_ebook_0003",
+        "mediaType": "book",
+        "media": { "metadata": { "title": "Field Notes (eBook only)" }, "ebookFormat": "pdf" }
+      },
+      {
+        "id": "li_pod_x",
+        "mediaType": "podcast",
+        "media": { "metadata": { "title": "Should be skipped" }, "numTracks": 1 }
+      }
+    ]
+  },
+  {
+    "id": "continue-series",
+    "label": "Continue Series",
+    "type": "book",
+    "category": "continueSeries",
+    "entities": [
+      {
+        "id": "li_ebook_0005",
+        "mediaType": "book",
+        "media": { "metadata": { "title": "Atlas II (eBook)" }, "ebookFormat": "epub" }
+      }
+    ]
+  },
+  {
+    "id": "recent-series",
+    "label": "Recent Series",
+    "type": "series",
+    "entities": [
+      {
+        "id": "ser_atlas",
+        "name": "Atlas",
+        "books": [
+          { "id": "li_book_0002", "media": { "metadata": { "title": "Atlas of Small Things", "authorName": "Pia Morgen" }, "numTracks": 4, "duration": 9000 } }
+        ]
+      },
+      { "id": "ser_empty", "name": "   ", "books": [] }
+    ]
+  },
+  {
+    "id": "newest-authors",
+    "label": "Newest Authors",
+    "type": "authors",
+    "entities": [
+      { "id": "aut_mara", "name": "Mara Feldt", "numBooks": 3, "imagePath": "/metadata/authors/aut_mara.jpg" },
+      { "id": "aut_broken" }
+    ]
+  },
+  {
+    "id": "newest-episodes",
+    "label": "Newest Episodes",
+    "type": "episode",
+    "entities": [ { "id": "ep_1" } ]
+  },
+  {
+    "id": "discover",
+    "label": "Discover",
+    "type": "book",
+    "entities": []
+  }
+]

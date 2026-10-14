@@ -1,8 +1,8 @@
 package de.letzgo.abstand.data
 
-import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNamingStrategy
+import kotlinx.serialization.json.JsonElement
 
 /**
  * iOS: `ABSJSON`. Nie eigene `Json { }`-Instanzen bauen — falscher Decoder = still falsche Werte.
@@ -24,9 +24,18 @@ object AbsJson {
         encodeDefaults = true
     }
 
-    /** iOS: `ABSJSON.decoderListeningStats()` — Hördaten-Endpunkt liefert teils `snake_case`. */
-    @OptIn(ExperimentalSerializationApi::class)
-    val decoderListeningStats: Json = Json(decoder) {
-        namingStrategy = JsonNamingStrategy.SnakeCase
+    /**
+     * iOS: `ABSJSON.decoderListeningStats()` — `JSONDecoder` mit `.convertFromSnakeCase`.
+     * Swift wandelt dabei **jeden** Objekt-Key (auch Dictionary-Keys) von `snake_case` nach camelCase,
+     * camelCase-Keys bleiben unverändert. kotlinx' `JsonNamingStrategy.SnakeCase` macht das Gegenteil
+     * (erwartet ausschließlich snake_case) — deshalb werden die Keys hier vorab umgeschrieben und
+     * danach mit [decoder] dekodiert.
+     */
+    object decoderListeningStats {
+        fun <T> decodeFromString(deserializer: DeserializationStrategy<T>, string: String): T =
+            decoder.decodeFromJsonElement(deserializer, SwiftJson.convertKeysFromSnakeCase(decoder.parseToJsonElement(string)))
+
+        fun <T> decodeFromJsonElement(deserializer: DeserializationStrategy<T>, element: JsonElement): T =
+            decoder.decodeFromJsonElement(deserializer, SwiftJson.convertKeysFromSnakeCase(element))
     }
 }

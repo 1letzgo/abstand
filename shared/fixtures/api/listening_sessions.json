@@ -1,0 +1,46 @@
+{
+  "total": 4,
+  "numPages": 1,
+  "page": 0,
+  "itemsPerPage": 50,
+  "sessions": [
+    {
+      "id": "ses_a",
+      "userId": "usr_7f3c2a1e",
+      "libraryId": "lib_books_main",
+      "libraryItemId": "li_book_0001",
+      "bookId": "book_media_0001",
+      "episodeId": null,
+      "mediaType": "book",
+      "duration": 36123.5,
+      "startTime": 14000,
+      "currentTime": 15218.9,
+      "timeListening": 1219,
+      "startedAt": 1760420000000,
+      "updatedAt": 1760421219000
+    },
+    {
+      "id": "ses_b_broken",
+      "libraryItemId": "li_pod_0001",
+      "episodeId": "ep_0042",
+      "duration": "2710",
+      "startTime": 0,
+      "currentTime": 600.5,
+      "timeListening": 600.4,
+      "startedAt": 1760300000000,
+      "updatedAt": 1760300600000
+    },
+    {
+      "sessionId": 987,
+      "library_item_id": "li_book_0002",
+      "book_id": "  ",
+      "time_listening": "300",
+      "started_at": "1760200000000",
+      "current_time": 42
+    },
+    {
+      "libraryItemId": "li_no_id",
+      "timeListening": 10
+    }
+  ]
+}

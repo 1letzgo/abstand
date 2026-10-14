@@ -1,0 +1,61 @@
+{
+  "libraryItems": [
+    {
+      "id": "li_book_0001",
+      "libraryId": "lib_books_main",
+      "mediaType": "book",
+      "media": {
+        "metadata": { "title": "The Quiet Lighthouse", "authorName": "Mara Feldt" },
+        "numTracks": 12,
+        "duration": 36123.5
+      },
+      "progressLastUpdate": 1760430000000
+    },
+    {
+      "id": "li_book_stub",
+      "libraryId": "lib_books_main",
+      "mediaType": "book",
+      "media": { "metadata": { "title": "Not playable (no tracks, no duration)" } }
+    },
+    {
+      "id": "li_pod_0001",
+      "libraryId": "lib_pods",
+      "mediaType": "podcast",
+      "media": {
+        "metadata": { "title": "Night Shift Radio", "author": "Studio Nord" }
+      },
+      "recentEpisode": {
+        "id": "ep_0042",
+        "title": "  Episode 42: The Long Night  ",
+        "subtitle": "Insomnia stories",
+        "pubDate": "Mon, 06 Oct 2025 04:00:00 +0000",
+        "publishedAt": 1759723200000,
+        "duration": 2710
+      }
+    },
+    {
+      "id": "li_pod_0002",
+      "libraryId": "lib_pods",
+      "mediaType": "podcast",
+      "media": { "metadata": { "title": "Sunday Papers" } },
+      "recentEpisode": {
+        "libraryItemId": "li_pod_0002",
+        "id": "ep_0007",
+        "title": "",
+        "duration": 1800.5,
+        "publishedAt": 1759000000000.4,
+        "podcast": { "metadata": { "title": "Sunday Papers (nested)", "author": "Lena Paar" } }
+      }
+    },
+    {
+      "id": "",
+      "mediaType": "podcast",
+      "recentEpisode": { "id": "ep_x", "title": "Orphan without show id" }
+    },
+    {
+      "id": "li_pod_0003",
+      "mediaType": "podcast",
+      "media": { "metadata": { "title": "No recent episode" } }
+    }
+  ]
+}

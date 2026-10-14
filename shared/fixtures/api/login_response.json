@@ -1,0 +1,53 @@
+{
+  "user": {
+    "id": "usr_7f3c2a1e",
+    "username": "demo-listener",
+    "type": "admin",
+    "token": "legacy-token-abc123",
+    "accessToken": "  eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ1c3JfN2YzYzJhMWUiLCJleHAiOjE5MDAwMDAwMDB9.c2lnbmF0dXJl  ",
+    "refreshToken": "refresh-token-r1",
+    "mediaProgress": [
+      {
+        "id": "6f1d0b52-1111-4c4c-9e9e-000000000001",
+        "libraryItemId": "li_book_0001",
+        "episodeId": null,
+        "duration": 36123.5,
+        "progress": 0.4213,
+        "currentTime": 15218.9,
+        "isFinished": false,
+        "lastUpdate": 1760430000000,
+        "ebookProgress": 0.25,
+        "ebookLocation": "epubcfi(/6/14!/4/2/1:0)"
+      },
+      {
+        "id": "li_pod_0001-ep_0042",
+        "episodeId": "ep_0042",
+        "duration": 2710,
+        "progress": 1,
+        "currentTime": 2710,
+        "isFinished": true,
+        "lastUpdate": 1760340000000,
+        "ebookProgress": "not-a-number"
+      },
+      {
+        "id": "li_book_0002",
+        "duration": 18000,
+        "progress": 0.05,
+        "currentTime": 900,
+        "isFinished": false
+      }
+    ],
+    "bookmarks": [
+      { "libraryItemId": "li_book_0001", "title": "Great quote", "time": 1234.6, "createdAt": 1760000000000 },
+      { "libraryItemId": "li_book_0001", "time": 42 }
+    ]
+  },
+  "userDefaultLibraryId": "lib_books_main",
+  "serverSettings": {
+    "scannerFindCovers": false,
+    "sortingIgnorePrefix": true,
+    "logLevel": 2,
+    "language": "de-de",
+    "version": "2.30.0"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "episodes": [
+    {
+      "libraryItemId": "li_pod_0001",
+      "id": "ep_0043",
+      "title": "Episode 43: Dawn",
+      "subtitle": "Morning stories",
+      "description": "<p>Stories from the <i>early</i> shift.</p>",
+      "pubDate": "Mon, 13 Oct 2025 04:00:00 +0000",
+      "publishedAt": 1760328000000,
+      "duration": 2950.7,
+      "podcast": {
+        "metadata": { "title": "Night Shift Radio", "author": "Studio Nord", "genres": ["Society & Culture"] }
+      }
+    },
+    {
+      "libraryItemId": "li_pod_0002",
+      "id": "ep_0008",
+      "title": "   ",
+      "duration": 1800,
+      "publishedAt": 1759900000000.6,
+      "podcast": { "metadata": { "title": null } }
+    },
+    {
+      "id": "ep_no_item",
+      "title": "Missing library item id"
+    }
+  ],
+  "total": "3",
+  "limit": 40,
+  "page": 0
+}

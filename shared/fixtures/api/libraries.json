@@ -1,0 +1,7 @@
+{
+  "libraries": [
+    { "id": "lib_books_main", "name": "Audiobooks", "mediaType": "book", "displayOrder": 1, "icon": "audiobookshelf" },
+    { "id": "lib_pods", "name": "Podcasts", "mediaType": "podcast", "displayOrder": 2 },
+    { "id": "lib_legacy", "name": "Old Library" }
+  ]
+}

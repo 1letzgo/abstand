@@ -1,0 +1,65 @@
+{
+  "totalTime": 98765.4,
+  "today": 1800,
+  "days": {
+    "2026-10-12": 3600,
+    "2026-10-13": 1200.6,
+    "2026-10-14": 1800,
+    "2026-09-30": 600,
+    "2025-12-31": 60
+  },
+  "dayOfWeek": {
+    "0": 600,
+    "1": 3600,
+    "2": 3000
+  },
+  "items": {
+    "li_book_0001": {
+      "id": "li_book_0001",
+      "timeListening": 54321.7,
+      "mediaMetadata": {
+        "title": "The Quiet Lighthouse",
+        "authors": [{ "id": "aut_mara", "name": "Mara Feldt" }, { "id": "aut_jonas", "name": "Jonas Brink" }]
+      }
+    },
+    "li_pod_0001": {
+      "timeListening": 4000,
+      "mediaMetadata": { "title": "Night Shift Radio", "author": "Studio Nord", "feedUrl": "https://feeds.example.org/nightshift" }
+    },
+    "li_book_0009": {
+      "id": "li_book_0009",
+      "timeListening": 120,
+      "mediaMetadata": { "title": "String Authors", "authors": ["  Ada North ", ""] }
+    },
+    "li_broken": {
+      "id": 12345,
+      "timeListening": 10
+    },
+    "li_meta_broken": {
+      "id": "li_meta_broken",
+      "timeListening": 5,
+      "mediaMetadata": { "title": 99 }
+    }
+  },
+  "recentSessions": [
+    {
+      "id": "ses_1",
+      "libraryItemId": "li_pod_0001",
+      "episodeId": "ep_0042",
+      "displayTitle": "Episode 42: The Long Night",
+      "displayAuthor": "Night Shift Radio",
+      "mediaType": "podcast",
+      "timeListening": 1500.4,
+      "startTime": 120,
+      "startedAt": 1760420000000
+    },
+    {
+      "id": "ses_2",
+      "libraryItemId": "li_book_0001",
+      "mediaType": "book",
+      "timeListening": 900,
+      "startTime": 14000.5,
+      "startedAt": 1760410000000
+    }
+  ]
+}

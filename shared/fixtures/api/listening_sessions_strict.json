@@ -1,0 +1,25 @@
+{
+  "total": 2,
+  "numPages": 1,
+  "page": 0,
+  "itemsPerPage": 50,
+  "sessions": [
+    {
+      "id": "ses_c",
+      "libraryItem": { "id": "li_nested_only" },
+      "episodeId": "ep_9",
+      "duration": 100,
+      "startTime": 0,
+      "currentTime": 50,
+      "timeListening": 50,
+      "startedAt": 1760000000000,
+      "updatedAt": 1760000050000
+    },
+    {
+      "id": 4711,
+      "libraryItemId": "",
+      "bookId": "book_media_9",
+      "timeListening": 7
+    }
+  ]
+}

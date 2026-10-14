@@ -1,0 +1,64 @@
+{
+  "results": [
+    {
+      "id": "li_book_0001",
+      "libraryId": "lib_books_main",
+      "mediaId": "book_media_0001",
+      "addedAt": 1700000000000,
+      "updatedAt": 1760000000000,
+      "mediaType": "book",
+      "media": {
+        "metadata": {
+          "title": "The Quiet Lighthouse",
+          "titleIgnorePrefix": "Quiet Lighthouse, The",
+          "subtitle": "A Coastal Mystery",
+          "authorName": "Mara Feldt, Jonas Brink",
+          "narratorName": "Ilse Raven",
+          "seriesName": "Coastline #2",
+          "genres": ["Mystery", "Thriller"],
+          "publishedYear": "2021",
+          "language": "German",
+          "asin": "B0TESTASIN"
+        },
+        "numTracks": 12,
+        "numChapters": 24,
+        "duration": 36123.5,
+        "size": 523456789,
+        "ebookFormat": "epub",
+        "tags": ["favourite"]
+      }
+    },
+    {
+      "id": "li_book_0002",
+      "libraryId": "lib_books_main",
+      "addedAt": 1700000500000,
+      "media": {
+        "metadata": {
+          "title": "Atlas of Small Things",
+          "author": "Pia Morgen",
+          "series": { "id": "ser_atlas", "name": "Atlas", "sequence": "1" },
+          "feedURL": "  https://feeds.example.org/atlas.xml  "
+        },
+        "numTracks": 0,
+        "duration": 0
+      }
+    },
+    {
+      "id": "li_ebook_0003",
+      "libraryId": "lib_books_main",
+      "media": {
+        "metadata": {
+          "title": "Field Notes (eBook only)",
+          "authors": [{ "id": "aut_1", "name": "Ruth Okafor" }],
+          "series": [{ "id": "ser_notes", "name": "", "sequence": null }]
+        },
+        "ebookFileFormat": "pdf"
+      }
+    }
+  ],
+  "total": 187,
+  "limit": 3,
+  "page": 0,
+  "sortBy": "media.metadata.title",
+  "minified": true
+}
