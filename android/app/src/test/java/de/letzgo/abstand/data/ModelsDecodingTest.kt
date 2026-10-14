@@ -443,7 +443,8 @@ class ModelsDecodingTest {
         )
         val json = AbsDownloadManifest.encodeToString(m)
         assertTrue(json.startsWith("{\"audioFileExtension\":\"mp3\",\"chapters\":"))
-        assertTrue(json.contains("{\"duration\":2710.0,\"index\":1,\"startOffset\":0.0,\"title\":\"ep42.mp3\"}"))
+        // Zahlen wie Swift-`JSONEncoder` (`2710`, `0`), siehe auch `DownloadsTest` (Golden-File).
+        assertTrue(json.contains("{\"duration\":2710,\"index\":1,\"startOffset\":0,\"title\":\"ep42.mp3\"}"))
         assertEquals(m, dec.decodeFromString(AbsDownloadManifestSerializer, json))
         assertEquals("li_pod_0001-ep_0042", m.offlineStorageItemId)
 

@@ -23,6 +23,10 @@ Layout
                         series/author/collection detail, /play session)
 - progress_keys.json    progressLookupKey cases for ABSUserMediaProgress and
                         ABSPodcastEpisodeListItem
+- download_manifest.json  a `download.json` exactly as iOS `ABSDownloadManifest.write(to:)`
+                        produces it (JSONEncoder, .sortedKeys, compact, Swift number
+                        formatting, "/" escaped as "\/"); Android must decode it and
+                        re-encode it byte-identically
 
 Rules
 - Never put real server data, tokens or personal names in here.

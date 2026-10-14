@@ -88,13 +88,28 @@ data class AbsDownloadManifest(
             return runCatching { AbsJson.decoder.decodeFromString(AbsDownloadManifestSerializer, text) }.getOrNull()
         }
 
-        /** JSON mit alphabetisch sortierten Keys (auch in verschachtelten Objekten), wie iOS `.sortedKeys`. */
-        fun encodeToString(m: AbsDownloadManifest): String = sortKeys(AbsDownloadManifestSerializer.encode(m)).toString()
+        /**
+         * Byte-gleich zu iOS `JSONEncoder` mit `.sortedKeys`: Keys alphabetisch (auch verschachtelt),
+         * Zahlen wie Swift (`0` statt `0.0`, nie Exponent für Epochen-Sekunden), `/` als `\/` maskiert.
+         */
+        fun encodeToString(m: AbsDownloadManifest): String =
+            swiftStyle(AbsDownloadManifestSerializer.encode(m)).toString().replace("/", "\\/")
 
-        private fun sortKeys(e: JsonElement): JsonElement = when (e) {
-            is JsonObject -> JsonObject(e.entries.sortedBy { it.key }.associateTo(LinkedHashMap()) { it.key to sortKeys(it.value) })
-            is JsonArray -> JsonArray(e.map { sortKeys(it) })
+        @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+        private fun swiftStyle(e: JsonElement): JsonElement = when (e) {
+            is JsonObject -> JsonObject(e.entries.sortedBy { it.key }.associateTo(LinkedHashMap()) { it.key to swiftStyle(it.value) })
+            is JsonArray -> JsonArray(e.map { swiftStyle(it) })
+            is JsonPrimitive -> if (e.isString) e else e.content.toDoubleOrNull()
+                ?.takeIf { e.content.contains('.') || e.content.contains('E') }
+                ?.let { kotlinx.serialization.json.JsonUnquotedLiteral(swiftNumber(it)) } ?: e
             else -> e
+        }
+
+        /** Swift-`Double`-Darstellung im JSON: ganze Werte ohne `.0`, sonst kürzeste Dezimalform ohne Exponent. */
+        internal fun swiftNumber(d: Double): String {
+            if (!d.isFinite()) return d.toString()
+            if (d == Math.rint(d) && kotlin.math.abs(d) < 1e15) return d.toLong().toString()
+            return java.math.BigDecimal(d.toString()).stripTrailingZeros().toPlainString()
         }
     }
 }
