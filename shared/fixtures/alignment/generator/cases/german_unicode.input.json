@@ -1,0 +1,23 @@
+{
+ "name": "german_unicode",
+ "description": "German text with typographic quotes, ß, umlauts, em dash and ellipsis; recogniser writes 'strasse' and drops diacritics in places.",
+ "segments": [
+  [
+   "„Wir müssen über die Straße“, sagte Jürgen leise — und zögerte.",
+   "Die Ampel blieb rot… ewig rot.",
+   "Ein Fahrradfahrer klingelte zweimal, dann war die Kreuzung wieder still."
+  ],
+  [
+   "Jürgens Großmutter hatte ihm beigebracht, niemals bei Rot zu gehen.",
+   "Er dachte an ihre Hände, an den Geruch von Äpfeln und Zimt in ihrer Küche."
+  ]
+ ],
+ "spoken": "wir müssen über die strasse sagte jurgen leise und zögerte |0.6| die ampel blieb rot ewig rot |0.5| ein fahrradfahrer klingelte zweimal dann war die kreuzung wieder still |1.1| jürgens grossmutter hatte ihm beigebracht niemals bei rot zu gehen |0.4| er dachte an ihre hände an den geruch von äpfeln und zimt in ihrer küche",
+ "startTime": 0.0,
+ "globalOffset": 10.0,
+ "jumpTimes": [
+  3.0,
+  15.0,
+  30.0
+ ]
+}

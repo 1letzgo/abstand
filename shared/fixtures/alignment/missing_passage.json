@@ -1,0 +1,2036 @@
+{
+  "description" : "Audio-only intro (publisher announcement) before the text, and an ebook paragraph that the narrator skipped entirely.",
+  "expected" : {
+    "alignment" : {
+      "binBase64" : "MUxCQQEAAABwAAAARAAAAMP1KFyPgkRANgAAAAAAAAABAAAAAgAAAAMAAAAEAAAABQAAAAYAAAAHAAAACAAAAAkAAAAKAAAACwAAAAwAAAANAAAADgAAAA8AAAAQAAAAEQAAABIAAAATAAAAFAAAABUAAAAWAAAAFwAAABgAAAAZAAAAGgAAABsAAAAcAAAAVwAAAFgAAABZAAAAWgAAAFsAAABcAAAAXQAAAF4AAABfAAAAYAAAAGEAAABiAAAAYwAAAGQAAABlAAAAZgAAAGcAAABoAAAAaQAAAGoAAABrAAAAbAAAAG0AAABuAAAAbwAAAIXrGUEK1yNBFK43Qc3MQEE9CkdBexROQQAAWEEAAGRBFK5rQVK4ckGuR31BzcyCQcP1ikF7FI5B16OSQYXrl0GkcJtBZmagQR+Fo0E9CqdBMzOpQQAArEEK169BZma0QYXrt0F7FLxBmpm\/QZqZxUFSuMhBZmboQR+F60EpXO9B4XryQQAA9kEK1\/1BFK4AQpqZAkL2KARChesFQgAACEKPwglCFK4LQqRwDUIfhQ9CrkcRQj0KE0K4HhVCj8IXQh+FGUKuRxtCPQodQs3MHkIpXCBCuB4iQlyPIkGamSlBH4U\/QY\/CRUHNzExBUrhWQVK4YkFmZmpBpHBxQQAAfEH2KIJBuB6HQaRwjUEAAJJBrkeXQc3MmkGPwp9BSOGiQWZmpkEzM6lBKVyrQTMzr0GPwrNBrke3QaRwu0HD9b5Bw\/XEQXsUyEGamctBSOHqQVK47kEK1\/FBKVz1QTMz+UEpXABCrkcCQgrXA0KamQVCFK4HQqRwCUIpXAtCuB4NQjMzD0LD9RBCUrgSQs3MFEKkcBdCMzMZQsP1GkJSuBxC4XoeQj0KIELNzCFCexQkQgEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==",
+      "ebookWordCount" : 112,
+      "ends" : [
+        10.159999847412109,
+        10.600000381469727,
+        11.970000267028809,
+        12.359999656677246,
+        12.800000190734863,
+        13.420000076293945,
+        14.170000076293945,
+        14.649999618530273,
+        15.090000152587891,
+        15.75,
+        16.270000457763672,
+        16.889999389648438,
+        17.680000305175781,
+        18.25,
+        18.909999847412109,
+        19.350000381469727,
+        19.969999313354492,
+        20.360000610351562,
+        20.799999237060547,
+        21.149999618530273,
+        21.420000076293945,
+        21.899999618530273,
+        22.469999313354492,
+        22.909999847412109,
+        23.430000305175781,
+        23.870000839233398,
+        24.620000839233398,
+        25.010000228881836,
+        25.450000762939453,
+        29.360000610351562,
+        29.840000152587891,
+        30.229999542236328,
+        30.670000076293945,
+        31.149999618530273,
+        32.090000152587891,
+        32.569999694824219,
+        32.959999084472656,
+        33.400001525878906,
+        33.919998168945312,
+        34.360000610351562,
+        34.840000152587891,
+        35.279998779296875,
+        35.799999237060547,
+        36.240001678466797,
+        36.680000305175781,
+        37.200000762939453,
+        37.860000610351562,
+        38.299999237060547,
+        38.740001678466797,
+        39.180000305175781,
+        39.619998931884766,
+        40.009998321533203,
+        40.450000762939453,
+        41.020000457763672
+      ],
+      "flags" : [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "spokenEnd" : 41.020000000000003,
+      "spokenWordCount" : 68,
+      "starts" : [
+        9.619999885559082,
+        10.239999771118164,
+        11.479999542236328,
+        12.050000190734863,
+        12.439999580383301,
+        12.880000114440918,
+        13.5,
+        14.25,
+        14.729999542236328,
+        15.170000076293945,
+        15.829999923706055,
+        16.350000381469727,
+        17.370000839233398,
+        17.760000228881836,
+        18.329999923706055,
+        18.989999771118164,
+        19.430000305175781,
+        20.049999237060547,
+        20.440000534057617,
+        20.879999160766602,
+        21.149999618530273,
+        21.5,
+        21.979999542236328,
+        22.549999237060547,
+        22.989999771118164,
+        23.510000228881836,
+        23.950000762939453,
+        24.700000762939453,
+        25.090000152587891,
+        29.049999237060547,
+        29.440000534057617,
+        29.920000076293945,
+        30.309999465942383,
+        30.75,
+        31.729999542236328,
+        32.169998168945312,
+        32.650001525878906,
+        33.040000915527344,
+        33.479999542236328,
+        34,
+        34.439998626708984,
+        34.919998168945312,
+        35.360000610351562,
+        35.880001068115234,
+        36.319999694824219,
+        36.759998321533203,
+        37.279998779296875,
+        37.939998626708984,
+        38.380001068115234,
+        38.819999694824219,
+        39.259998321533203,
+        39.700000762939453,
+        40.090000152587891,
+        40.529998779296875
+      ],
+      "words" : [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111
+      ]
+    },
+    "displaySpans" : [
+      [
+        59.619999885559082,
+        75.450000762939453
+      ],
+      [
+        79.049999237060547,
+        91.020000457763672
+      ]
+    ],
+    "displayWords" : [
+      {
+        "end" : 60.159999847412109,
+        "id" : "e-0",
+        "start" : 59.619999885559082,
+        "text" : "Chapter "
+      },
+      {
+        "end" : 60.600000381469727,
+        "id" : "e-1",
+        "start" : 60.239999771118164,
+        "text" : "One. "
+      },
+      {
+        "end" : 61.970000267028809,
+        "id" : "e-2",
+        "start" : 61.479999542236328,
+        "text" : "Nobody "
+      },
+      {
+        "end" : 62.359999656677246,
+        "id" : "e-3",
+        "start" : 62.050000190734863,
+        "text" : "in "
+      },
+      {
+        "end" : 62.800000190734863,
+        "id" : "e-4",
+        "start" : 62.439999580383301,
+        "text" : "the "
+      },
+      {
+        "end" : 63.420000076293945,
+        "id" : "e-5",
+        "start" : 62.880000114440918,
+        "text" : "village "
+      },
+      {
+        "end" : 64.170000076293945,
+        "id" : "e-6",
+        "start" : 63.5,
+        "text" : "remembered "
+      },
+      {
+        "end" : 64.649999618530273,
+        "id" : "e-7",
+        "start" : 64.25,
+        "text" : "when "
+      },
+      {
+        "end" : 65.090000152587891,
+        "id" : "e-8",
+        "start" : 64.729999542236328,
+        "text" : "the "
+      },
+      {
+        "end" : 65.75,
+        "id" : "e-9",
+        "start" : 65.170000076293945,
+        "text" : "stranger "
+      },
+      {
+        "end" : 66.270000457763672,
+        "id" : "e-10",
+        "start" : 65.829999923706055,
+        "text" : "first "
+      },
+      {
+        "end" : 66.889999389648438,
+        "id" : "e-11",
+        "start" : 66.350000381469727,
+        "text" : "arrived. "
+      },
+      {
+        "end" : 67.680000305175781,
+        "id" : "e-12",
+        "start" : 67.370000839233398,
+        "text" : "He "
+      },
+      {
+        "end" : 68.25,
+        "id" : "e-13",
+        "start" : 67.760000228881836,
+        "text" : "simply "
+      },
+      {
+        "end" : 68.909999847412109,
+        "id" : "e-14",
+        "start" : 68.329999923706055,
+        "text" : "appeared "
+      },
+      {
+        "end" : 69.350000381469727,
+        "id" : "e-15",
+        "start" : 68.989999771118164,
+        "text" : "one "
+      },
+      {
+        "end" : 69.969999313354492,
+        "id" : "e-16",
+        "start" : 69.430000305175781,
+        "text" : "morning "
+      },
+      {
+        "end" : 70.360000610351562,
+        "id" : "e-17",
+        "start" : 70.049999237060547,
+        "text" : "at "
+      },
+      {
+        "end" : 70.799999237060547,
+        "id" : "e-18",
+        "start" : 70.440000534057617,
+        "text" : "the "
+      },
+      {
+        "end" : 71.149999618530273,
+        "id" : "e-19",
+        "start" : 70.879999160766602,
+        "text" : "baker'"
+      },
+      {
+        "end" : 71.420000076293945,
+        "id" : "e-20",
+        "start" : 71.149999618530273,
+        "text" : "s "
+      },
+      {
+        "end" : 71.899999618530273,
+        "id" : "e-21",
+        "start" : 71.5,
+        "text" : "door, "
+      },
+      {
+        "end" : 72.469999313354492,
+        "id" : "e-22",
+        "start" : 71.979999542236328,
+        "text" : "asking "
+      },
+      {
+        "end" : 72.909999847412109,
+        "id" : "e-23",
+        "start" : 72.549999237060547,
+        "text" : "for "
+      },
+      {
+        "end" : 73.430000305175781,
+        "id" : "e-24",
+        "start" : 72.989999771118164,
+        "text" : "bread "
+      },
+      {
+        "end" : 73.870000839233398,
+        "id" : "e-25",
+        "start" : 73.510000228881836,
+        "text" : "and "
+      },
+      {
+        "end" : 74.620000839233398,
+        "id" : "e-26",
+        "start" : 73.950000762939453,
+        "text" : "directions "
+      },
+      {
+        "end" : 75.010000228881836,
+        "id" : "e-27",
+        "start" : 74.700000762939453,
+        "text" : "to "
+      },
+      {
+        "end" : 75.450000762939453,
+        "id" : "e-28",
+        "start" : 75.090000152587891,
+        "text" : "the "
+      },
+      {
+        "end" : 79.360000610351562,
+        "id" : "e-87",
+        "start" : 79.049999237060547,
+        "text" : "By "
+      },
+      {
+        "end" : 79.840000152587891,
+        "id" : "e-88",
+        "start" : 79.440000534057617,
+        "text" : "noon "
+      },
+      {
+        "end" : 80.229999542236328,
+        "id" : "e-89",
+        "start" : 79.920000076293945,
+        "text" : "he "
+      },
+      {
+        "end" : 80.670000076293945,
+        "id" : "e-90",
+        "start" : 80.309999465942383,
+        "text" : "was "
+      },
+      {
+        "end" : 81.149999618530273,
+        "id" : "e-91",
+        "start" : 80.75,
+        "text" : "gone. "
+      },
+      {
+        "end" : 82.090000152587891,
+        "id" : "e-92",
+        "start" : 81.729999542236328,
+        "text" : "The "
+      },
+      {
+        "end" : 82.569999694824219,
+        "id" : "e-93",
+        "start" : 82.169998168945312,
+        "text" : "road "
+      },
+      {
+        "end" : 82.959999084472656,
+        "id" : "e-94",
+        "start" : 82.650001525878906,
+        "text" : "to "
+      },
+      {
+        "end" : 83.400001525878906,
+        "id" : "e-95",
+        "start" : 83.040000915527344,
+        "text" : "the "
+      },
+      {
+        "end" : 83.919998168945312,
+        "id" : "e-96",
+        "start" : 83.479999542236328,
+        "text" : "coast "
+      },
+      {
+        "end" : 84.360000610351562,
+        "id" : "e-97",
+        "start" : 84,
+        "text" : "was "
+      },
+      {
+        "end" : 84.840000152587891,
+        "id" : "e-98",
+        "start" : 84.439998626708984,
+        "text" : "long "
+      },
+      {
+        "end" : 85.279998779296875,
+        "id" : "e-99",
+        "start" : 84.919998168945312,
+        "text" : "and "
+      },
+      {
+        "end" : 85.799999237060547,
+        "id" : "e-100",
+        "start" : 85.360000610351562,
+        "text" : "empty, "
+      },
+      {
+        "end" : 86.240001678466797,
+        "id" : "e-101",
+        "start" : 85.880001068115234,
+        "text" : "and "
+      },
+      {
+        "end" : 86.680000305175781,
+        "id" : "e-102",
+        "start" : 86.319999694824219,
+        "text" : "the "
+      },
+      {
+        "end" : 87.200000762939453,
+        "id" : "e-103",
+        "start" : 86.759998321533203,
+        "text" : "gulls "
+      },
+      {
+        "end" : 87.860000610351562,
+        "id" : "e-104",
+        "start" : 87.279998779296875,
+        "text" : "followed "
+      },
+      {
+        "end" : 88.299999237060547,
+        "id" : "e-105",
+        "start" : 87.939998626708984,
+        "text" : "him "
+      },
+      {
+        "end" : 88.740001678466797,
+        "id" : "e-106",
+        "start" : 88.380001068115234,
+        "text" : "all "
+      },
+      {
+        "end" : 89.180000305175781,
+        "id" : "e-107",
+        "start" : 88.819999694824219,
+        "text" : "the "
+      },
+      {
+        "end" : 89.619998931884766,
+        "id" : "e-108",
+        "start" : 89.259998321533203,
+        "text" : "way "
+      },
+      {
+        "end" : 90.009998321533203,
+        "id" : "e-109",
+        "start" : 89.700000762939453,
+        "text" : "to "
+      },
+      {
+        "end" : 90.450000762939453,
+        "id" : "e-110",
+        "start" : 90.090000152587891,
+        "text" : "the "
+      },
+      {
+        "end" : 91.020000457763672,
+        "id" : "e-111",
+        "start" : 90.529998779296875,
+        "text" : "cliffs. "
+      }
+    ],
+    "index" : {
+      "sentences" : [
+        {
+          "after" : " Nobody in the village remembered when t",
+          "before" : null,
+          "highlight" : "Chapter One.",
+          "segment" : 0
+        },
+        {
+          "after" : " He simply appeared one morning at the b",
+          "before" : "Chapter One. ",
+          "highlight" : "Nobody in the village remembered when the stranger first arrived.",
+          "segment" : 0
+        },
+        {
+          "after" : null,
+          "before" : "mbered when the stranger first arrived. ",
+          "highlight" : "He simply appeared one morning at the baker's door, asking for bread and directions to the coast.",
+          "segment" : 0
+        },
+        {
+          "after" : " These details grew with every telling u",
+          "before" : null,
+          "highlight" : "The baker's wife later swore that his shoes were dry although it had rained all night, that his coat smelled of cedar and smoke, and that he paid with a coin nobody could identify.",
+          "segment" : 1
+        },
+        {
+          "after" : null,
+          "before" : "paid with a coin nobody could identify. ",
+          "highlight" : "These details grew with every telling until the stranger had become, in the village memory, half a saint and half a thief.",
+          "segment" : 1
+        },
+        {
+          "after" : " The road to the coast was long and empt",
+          "before" : null,
+          "highlight" : "By noon he was gone.",
+          "segment" : 2
+        },
+        {
+          "after" : null,
+          "before" : "By noon he was gone. ",
+          "highlight" : "The road to the coast was long and empty, and the gulls followed him all the way to the cliffs.",
+          "segment" : 2
+        }
+      ],
+      "vocabularySize" : 74,
+      "words" : [
+        {
+          "d" : "Chapter ",
+          "n" : "chapter",
+          "s" : 0
+        },
+        {
+          "d" : "One. ",
+          "n" : "one",
+          "s" : 0
+        },
+        {
+          "d" : "Nobody ",
+          "n" : "nobody",
+          "s" : 1
+        },
+        {
+          "d" : "in ",
+          "n" : "in",
+          "s" : 1
+        },
+        {
+          "d" : "the ",
+          "n" : "the",
+          "s" : 1
+        },
+        {
+          "d" : "village ",
+          "n" : "village",
+          "s" : 1
+        },
+        {
+          "d" : "remembered ",
+          "n" : "remembered",
+          "s" : 1
+        },
+        {
+          "d" : "when ",
+          "n" : "when",
+          "s" : 1
+        },
+        {
+          "d" : "the ",
+          "n" : "the",
+          "s" : 1
+        },
+        {
+          "d" : "stranger ",
+          "n" : "stranger",
+          "s" : 1
+        },
+        {
+          "d" : "first ",
+          "n" : "first",
+          "s" : 1
+        },
+        {
+          "d" : "arrived. ",
+          "n" : "arrived",
+          "s" : 1
+        },
+        {
+          "d" : "He ",
+          "n" : "he",
+          "s" : 2
+        },
+        {
+          "d" : "simply ",
+          "n" : "simply",
+          "s" : 2
+        },
+        {
+          "d" : "appeared ",
+          "n" : "appeared",
+          "s" : 2
+        },
+        {
+          "d" : "one ",
+          "n" : "one",
+          "s" : 2
+        },
+        {
+          "d" : "morning ",
+          "n" : "morning",
+          "s" : 2
+        },
+        {
+          "d" : "at ",
+          "n" : "at",
+          "s" : 2
+        },
+        {
+          "d" : "the ",
+          "n" : "the",
+          "s" : 2
+        },
+        {
+          "d" : "baker'",
+          "n" : "baker",
+          "s" : 2
+        },
+        {
+          "d" : "s ",
+          "n" : "s",
+          "s" : 2
+        },
+        {
+          "d" : "door, ",
+          "n" : "door",
+          "s" : 2
+        },
+        {
+          "d" : "asking ",
+          "n" : "asking",
+          "s" : 2
+        },
+        {
+          "d" : "for ",
+          "n" : "for",
+          "s" : 2
+        },
+        {
+          "d" : "bread ",
+          "n" : "bread",
+          "s" : 2
+        },
+        {
+          "d" : "and ",
+          "n" : "and",
+          "s" : 2
+        },
+        {
+          "d" : "directions ",
+          "n" : "directions",
+          "s" : 2
+        },
+        {
+          "d" : "to ",
+          "n" : "to",
+          "s" : 2
+        },
+        {
+          "d" : "the ",
+          "n" : "the",
+          "s" : 2
+        },
+        {
+          "d" : "coast. ",
+          "n" : "coast",
+          "s" : 2
+        },
+        {
+          "d" : "The ",
+          "n" : "the",
+          "s" : 3
+        },
+        {
+          "d" : "baker'",
+          "n" : "baker",
+          "s" : 3
+        },
+        {
+          "d" : "s ",
+          "n" : "s",
+          "s" : 3
+        },
+        {
+          "d" : "wife ",
+          "n" : "wife",
+          "s" : 3
+        },
+        {
+          "d" : "later ",
+          "n" : "later",
+          "s" : 3
+        },
+        {
+          "d" : "swore ",
+          "n" : "swore",
+          "s" : 3
+        },
+        {
+          "d" : "that ",
+          "n" : "that",
+          "s" : 3
+        },
+        {
+          "d" : "his ",
+          "n" : "his",
+          "s" : 3
+        },
+        {
+          "d" : "shoes ",
+          "n" : "shoes",
+          "s" : 3
+        },
+        {
+          "d" : "were ",
+          "n" : "were",
+          "s" : 3
+        },
+        {
+          "d" : "dry ",
+          "n" : "dry",
+          "s" : 3
+        },
+        {
+          "d" : "although ",
+          "n" : "although",
+          "s" : 3
+        },
+        {
+          "d" : "it ",
+          "n" : "it",
+          "s" : 3
+        },
+        {
+          "d" : "had ",
+          "n" : "had",
+          "s" : 3
+        },
+        {
+          "d" : "rained ",
+          "n" : "rained",
+          "s" : 3
+        },
+        {
+          "d" : "all ",
+          "n" : "all",
+          "s" : 3
+        },
+        {
+          "d" : "night, ",
+          "n" : "night",
+          "s" : 3
+        },
+        {
+          "d" : "that ",
+          "n" : "that",
+          "s" : 3
+        },
+        {
+          "d" : "his ",
+          "n" : "his",
+          "s" : 3
+        },
+        {
+          "d" : "coat ",
+          "n" : "coat",
+          "s" : 3
+        },
+        {
+          "d" : "smelled ",
+          "n" : "smelled",
+          "s" : 3
+        },
+        {
+          "d" : "of ",
+          "n" : "of",
+          "s" : 3
+        },
+        {
+          "d" : "cedar ",
+          "n" : "cedar",
+          "s" : 3
+        },
+        {
+          "d" : "and ",
+          "n" : "and",
+          "s" : 3
+        },
+        {
+          "d" : "smoke, ",
+          "n" : "smoke",
+          "s" : 3
+        },
+        {
+          "d" : "and ",
+          "n" : "and",
+          "s" : 3
+        },
+        {
+          "d" : "that ",
+          "n" : "that",
+          "s" : 3
+        },
+        {
+          "d" : "he ",
+          "n" : "he",
+          "s" : 3
+        },
+        {
+          "d" : "paid ",
+          "n" : "paid",
+          "s" : 3
+        },
+        {
+          "d" : "with ",
+          "n" : "with",
+          "s" : 3
+        },
+        {
+          "d" : "a ",
+          "n" : "a",
+          "s" : 3
+        },
+        {
+          "d" : "coin ",
+          "n" : "coin",
+          "s" : 3
+        },
+        {
+          "d" : "nobody ",
+          "n" : "nobody",
+          "s" : 3
+        },
+        {
+          "d" : "could ",
+          "n" : "could",
+          "s" : 3
+        },
+        {
+          "d" : "identify. ",
+          "n" : "identify",
+          "s" : 3
+        },
+        {
+          "d" : "These ",
+          "n" : "these",
+          "s" : 4
+        },
+        {
+          "d" : "details ",
+          "n" : "details",
+          "s" : 4
+        },
+        {
+          "d" : "grew ",
+          "n" : "grew",
+          "s" : 4
+        },
+        {
+          "d" : "with ",
+          "n" : "with",
+          "s" : 4
+        },
+        {
+          "d" : "every ",
+          "n" : "every",
+          "s" : 4
+        },
+        {
+          "d" : "telling ",
+          "n" : "telling",
+          "s" : 4
+        },
+        {
+          "d" : "until ",
+          "n" : "until",
+          "s" : 4
+        },
+        {
+          "d" : "the ",
+          "n" : "the",
+          "s" : 4
+        },
+        {
+          "d" : "stranger ",
+          "n" : "stranger",
+          "s" : 4
+        },
+        {
+          "d" : "had ",
+          "n" : "had",
+          "s" : 4
+        },
+        {
+          "d" : "become, ",
+          "n" : "become",
+          "s" : 4
+        },
+        {
+          "d" : "in ",
+          "n" : "in",
+          "s" : 4
+        },
+        {
+          "d" : "the ",
+          "n" : "the",
+          "s" : 4
+        },
+        {
+          "d" : "village ",
+          "n" : "village",
+          "s" : 4
+        },
+        {
+          "d" : "memory, ",
+          "n" : "memory",
+          "s" : 4
+        },
+        {
+          "d" : "half ",
+          "n" : "half",
+          "s" : 4
+        },
+        {
+          "d" : "a ",
+          "n" : "a",
+          "s" : 4
+        },
+        {
+          "d" : "saint ",
+          "n" : "saint",
+          "s" : 4
+        },
+        {
+          "d" : "and ",
+          "n" : "and",
+          "s" : 4
+        },
+        {
+          "d" : "half ",
+          "n" : "half",
+          "s" : 4
+        },
+        {
+          "d" : "a ",
+          "n" : "a",
+          "s" : 4
+        },
+        {
+          "d" : "thief. ",
+          "n" : "thief",
+          "s" : 4
+        },
+        {
+          "d" : "By ",
+          "n" : "by",
+          "s" : 5
+        },
+        {
+          "d" : "noon ",
+          "n" : "noon",
+          "s" : 5
+        },
+        {
+          "d" : "he ",
+          "n" : "he",
+          "s" : 5
+        },
+        {
+          "d" : "was ",
+          "n" : "was",
+          "s" : 5
+        },
+        {
+          "d" : "gone. ",
+          "n" : "gone",
+          "s" : 5
+        },
+        {
+          "d" : "The ",
+          "n" : "the",
+          "s" : 6
+        },
+        {
+          "d" : "road ",
+          "n" : "road",
+          "s" : 6
+        },
+        {
+          "d" : "to ",
+          "n" : "to",
+          "s" : 6
+        },
+        {
+          "d" : "the ",
+          "n" : "the",
+          "s" : 6
+        },
+        {
+          "d" : "coast ",
+          "n" : "coast",
+          "s" : 6
+        },
+        {
+          "d" : "was ",
+          "n" : "was",
+          "s" : 6
+        },
+        {
+          "d" : "long ",
+          "n" : "long",
+          "s" : 6
+        },
+        {
+          "d" : "and ",
+          "n" : "and",
+          "s" : 6
+        },
+        {
+          "d" : "empty, ",
+          "n" : "empty",
+          "s" : 6
+        },
+        {
+          "d" : "and ",
+          "n" : "and",
+          "s" : 6
+        },
+        {
+          "d" : "the ",
+          "n" : "the",
+          "s" : 6
+        },
+        {
+          "d" : "gulls ",
+          "n" : "gulls",
+          "s" : 6
+        },
+        {
+          "d" : "followed ",
+          "n" : "followed",
+          "s" : 6
+        },
+        {
+          "d" : "him ",
+          "n" : "him",
+          "s" : 6
+        },
+        {
+          "d" : "all ",
+          "n" : "all",
+          "s" : 6
+        },
+        {
+          "d" : "the ",
+          "n" : "the",
+          "s" : 6
+        },
+        {
+          "d" : "way ",
+          "n" : "way",
+          "s" : 6
+        },
+        {
+          "d" : "to ",
+          "n" : "to",
+          "s" : 6
+        },
+        {
+          "d" : "the ",
+          "n" : "the",
+          "s" : 6
+        },
+        {
+          "d" : "cliffs. ",
+          "n" : "cliffs",
+          "s" : 6
+        }
+      ]
+    },
+    "narrationJumps" : [
+      {
+        "decorations" : [
+
+        ],
+        "t" : 2,
+        "word" : null
+      },
+      {
+        "decorations" : [
+          {
+            "after" : " Nobody in the village remembered when t",
+            "before" : null,
+            "highlight" : "Chapter One.",
+            "id" : "recent-0",
+            "sentence" : 0,
+            "wordEnd" : 2,
+            "wordStart" : 0
+          },
+          {
+            "after" : "in the village remembered when the stran",
+            "before" : "Chapter One. ",
+            "highlight" : "Nobody",
+            "id" : "recent-1",
+            "sentence" : 1,
+            "wordEnd" : 3,
+            "wordStart" : 2
+          }
+        ],
+        "t" : 12,
+        "word" : 2
+      },
+      {
+        "decorations" : [
+          {
+            "after" : " He simply appeared one morning at the b",
+            "before" : "Chapter One. Nobody ",
+            "highlight" : "in the village remembered when the stranger first arrived.",
+            "id" : "recent-1",
+            "sentence" : 1,
+            "wordEnd" : 12,
+            "wordStart" : 3
+          },
+          {
+            "after" : "the coast. ",
+            "before" : "mbered when the stranger first arrived. ",
+            "highlight" : "He simply appeared one morning at the baker's door, asking for bread and directions to",
+            "id" : "recent-2",
+            "sentence" : 2,
+            "wordEnd" : 28,
+            "wordStart" : 12
+          }
+        ],
+        "t" : 25,
+        "word" : 27
+      },
+      {
+        "decorations" : [
+          {
+            "after" : null,
+            "before" : "identify. These details grew with every ",
+            "highlight" : "telling until the stranger had become, in the village memory, half a saint and half a thief.",
+            "id" : "recent-4",
+            "sentence" : 4,
+            "wordEnd" : 87,
+            "wordStart" : 70
+          },
+          {
+            "after" : " The road to the coast was long and empt",
+            "before" : null,
+            "highlight" : "By noon he was gone.",
+            "id" : "recent-5",
+            "sentence" : 5,
+            "wordEnd" : 92,
+            "wordStart" : 87
+          },
+          {
+            "after" : "the coast was long and empty, and the gu",
+            "before" : "By noon he was gone. ",
+            "highlight" : "The road to",
+            "id" : "recent-6",
+            "sentence" : 6,
+            "wordEnd" : 95,
+            "wordStart" : 92
+          }
+        ],
+        "t" : 33,
+        "word" : 94
+      }
+    ],
+    "queries" : [
+      {
+        "t" : 0,
+        "word" : null
+      },
+      {
+        "t" : 0.5,
+        "word" : null
+      },
+      {
+        "t" : 1,
+        "word" : null
+      },
+      {
+        "t" : 1.5,
+        "word" : null
+      },
+      {
+        "t" : 2,
+        "word" : null
+      },
+      {
+        "t" : 2.5,
+        "word" : null
+      },
+      {
+        "t" : 3,
+        "word" : null
+      },
+      {
+        "t" : 3.5,
+        "word" : null
+      },
+      {
+        "t" : 4,
+        "word" : null
+      },
+      {
+        "t" : 4.5,
+        "word" : null
+      },
+      {
+        "t" : 5,
+        "word" : null
+      },
+      {
+        "t" : 5.5,
+        "word" : null
+      },
+      {
+        "t" : 6,
+        "word" : null
+      },
+      {
+        "t" : 6.5,
+        "word" : null
+      },
+      {
+        "t" : 7,
+        "word" : null
+      },
+      {
+        "t" : 7.5,
+        "word" : null
+      },
+      {
+        "t" : 8,
+        "word" : null
+      },
+      {
+        "t" : 8.5,
+        "word" : null
+      },
+      {
+        "t" : 9,
+        "word" : null
+      },
+      {
+        "t" : 9.5,
+        "word" : null
+      },
+      {
+        "t" : 10,
+        "word" : 0
+      },
+      {
+        "t" : 10.5,
+        "word" : 1
+      },
+      {
+        "t" : 11,
+        "word" : 1
+      },
+      {
+        "t" : 11.5,
+        "word" : 2
+      },
+      {
+        "t" : 12,
+        "word" : 2
+      },
+      {
+        "t" : 12.5,
+        "word" : 4
+      },
+      {
+        "t" : 13,
+        "word" : 5
+      },
+      {
+        "t" : 13.5,
+        "word" : 6
+      },
+      {
+        "t" : 14,
+        "word" : 6
+      },
+      {
+        "t" : 14.5,
+        "word" : 7
+      },
+      {
+        "t" : 15,
+        "word" : 8
+      },
+      {
+        "t" : 15.5,
+        "word" : 9
+      },
+      {
+        "t" : 16,
+        "word" : 10
+      },
+      {
+        "t" : 16.5,
+        "word" : 11
+      },
+      {
+        "t" : 17,
+        "word" : 11
+      },
+      {
+        "t" : 17.5,
+        "word" : 12
+      },
+      {
+        "t" : 18,
+        "word" : 13
+      },
+      {
+        "t" : 18.5,
+        "word" : 14
+      },
+      {
+        "t" : 19,
+        "word" : 15
+      },
+      {
+        "t" : 19.5,
+        "word" : 16
+      },
+      {
+        "t" : 20,
+        "word" : 16
+      },
+      {
+        "t" : 20.5,
+        "word" : 18
+      },
+      {
+        "t" : 21,
+        "word" : 19
+      },
+      {
+        "t" : 21.5,
+        "word" : 21
+      },
+      {
+        "t" : 22,
+        "word" : 22
+      },
+      {
+        "t" : 22.5,
+        "word" : 22
+      },
+      {
+        "t" : 23,
+        "word" : 24
+      },
+      {
+        "t" : 23.5,
+        "word" : 24
+      },
+      {
+        "t" : 24,
+        "word" : 26
+      },
+      {
+        "t" : 24.5,
+        "word" : 26
+      },
+      {
+        "t" : 25,
+        "word" : 27
+      },
+      {
+        "t" : 25.5,
+        "word" : 28
+      },
+      {
+        "t" : 26,
+        "word" : 28
+      },
+      {
+        "t" : 26.5,
+        "word" : 28
+      },
+      {
+        "t" : 27,
+        "word" : 28
+      },
+      {
+        "t" : 27.5,
+        "word" : 28
+      },
+      {
+        "t" : 28,
+        "word" : 28
+      },
+      {
+        "t" : 28.5,
+        "word" : null
+      },
+      {
+        "t" : 29,
+        "word" : null
+      },
+      {
+        "t" : 29.5,
+        "word" : 88
+      },
+      {
+        "t" : 30,
+        "word" : 89
+      },
+      {
+        "t" : 30.5,
+        "word" : 90
+      },
+      {
+        "t" : 31,
+        "word" : 91
+      },
+      {
+        "t" : 31.5,
+        "word" : 91
+      },
+      {
+        "t" : 32,
+        "word" : 92
+      },
+      {
+        "t" : 32.5,
+        "word" : 93
+      },
+      {
+        "t" : 33,
+        "word" : 94
+      },
+      {
+        "t" : 33.5,
+        "word" : 96
+      },
+      {
+        "t" : 34,
+        "word" : 97
+      },
+      {
+        "t" : 34.5,
+        "word" : 98
+      },
+      {
+        "t" : 35,
+        "word" : 99
+      },
+      {
+        "t" : 35.5,
+        "word" : 100
+      },
+      {
+        "t" : 36,
+        "word" : 101
+      },
+      {
+        "t" : 36.5,
+        "word" : 102
+      },
+      {
+        "t" : 37,
+        "word" : 103
+      },
+      {
+        "t" : 37.5,
+        "word" : 104
+      },
+      {
+        "t" : 38,
+        "word" : 105
+      },
+      {
+        "t" : 38.5,
+        "word" : 106
+      },
+      {
+        "t" : 39,
+        "word" : 107
+      },
+      {
+        "t" : 39.5,
+        "word" : 108
+      },
+      {
+        "t" : 40,
+        "word" : 109
+      },
+      {
+        "t" : 40.5,
+        "word" : 110
+      },
+      {
+        "t" : 41,
+        "word" : 111
+      },
+      {
+        "t" : 41.5,
+        "word" : 111
+      },
+      {
+        "t" : 42,
+        "word" : 111
+      },
+      {
+        "t" : 42.5,
+        "word" : 111
+      },
+      {
+        "t" : 43,
+        "word" : 111
+      },
+      {
+        "t" : 43.5,
+        "word" : 111
+      },
+      {
+        "t" : 44,
+        "word" : 111
+      },
+      {
+        "t" : 44.5,
+        "word" : null
+      },
+      {
+        "t" : 45,
+        "word" : null
+      },
+      {
+        "t" : 45.5,
+        "word" : null
+      },
+      {
+        "t" : 46,
+        "word" : null
+      }
+    ]
+  },
+  "generatedBy" : "Swift (abstand iOS EbookAudioAlignment.swift \/ ReadAlongText, unchanged) via android\/..\/shared fixture generator",
+  "input" : {
+    "globalOffset" : 50,
+    "segments" : [
+      {
+        "sentenceRanges" : [
+          [
+            0,
+            12
+          ],
+          [
+            13,
+            78
+          ],
+          [
+            79,
+            176
+          ]
+        ],
+        "text" : "Chapter One. Nobody in the village remembered when the stranger first arrived. He simply appeared one morning at the baker's door, asking for bread and directions to the coast."
+      },
+      {
+        "sentenceRanges" : [
+          [
+            0,
+            180
+          ],
+          [
+            181,
+            303
+          ]
+        ],
+        "text" : "The baker's wife later swore that his shoes were dry although it had rained all night, that his coat smelled of cedar and smoke, and that he paid with a coin nobody could identify. These details grew with every telling until the stranger had become, in the village memory, half a saint and half a thief."
+      },
+      {
+        "sentenceRanges" : [
+          [
+            0,
+            20
+          ],
+          [
+            21,
+            116
+          ]
+        ],
+        "text" : "By noon he was gone. The road to the coast was long and empty, and the gulls followed him all the way to the cliffs."
+      }
+    ],
+    "transcript" : [
+      {
+        "e" : 0.69999999999999996,
+        "s" : 0.29999999999999999,
+        "t" : "this"
+      },
+      {
+        "e" : 1.4099999999999999,
+        "s" : 0.78000000000000003,
+        "t" : "audiobook"
+      },
+      {
+        "e" : 1.8,
+        "s" : 1.49,
+        "t" : "is"
+      },
+      {
+        "e" : 2.4199999999999999,
+        "s" : 1.8799999999999999,
+        "t" : "brought"
+      },
+      {
+        "e" : 2.8100000000000001,
+        "s" : 2.5,
+        "t" : "to"
+      },
+      {
+        "e" : 3.25,
+        "s" : 2.8900000000000001,
+        "t" : "you"
+      },
+      {
+        "e" : 3.6400000000000001,
+        "s" : 3.3300000000000001,
+        "t" : "by"
+      },
+      {
+        "e" : 4.2999999999999998,
+        "s" : 3.7200000000000002,
+        "t" : "northern"
+      },
+      {
+        "e" : 4.8700000000000001,
+        "s" : 4.3799999999999999,
+        "t" : "lights"
+      },
+      {
+        "e" : 5.6200000000000001,
+        "s" : 4.9500000000000002,
+        "t" : "recordings"
+      },
+      {
+        "e" : 6.0999999999999996,
+        "s" : 5.7000000000000002,
+        "t" : "read"
+      },
+      {
+        "e" : 6.4900000000000002,
+        "s" : 6.1799999999999997,
+        "t" : "by"
+      },
+      {
+        "e" : 6.9699999999999998,
+        "s" : 6.5700000000000003,
+        "t" : "anna"
+      },
+      {
+        "e" : 7.54,
+        "s" : 7.0499999999999998,
+        "t" : "fields"
+      },
+      {
+        "e" : 10.16,
+        "s" : 9.6199999999999992,
+        "t" : "chapter"
+      },
+      {
+        "e" : 10.6,
+        "s" : 10.24,
+        "t" : "one"
+      },
+      {
+        "e" : 11.970000000000001,
+        "s" : 11.48,
+        "t" : "nobody"
+      },
+      {
+        "e" : 12.359999999999999,
+        "s" : 12.050000000000001,
+        "t" : "in"
+      },
+      {
+        "e" : 12.800000000000001,
+        "s" : 12.44,
+        "t" : "the"
+      },
+      {
+        "e" : 13.42,
+        "s" : 12.880000000000001,
+        "t" : "village"
+      },
+      {
+        "e" : 14.17,
+        "s" : 13.5,
+        "t" : "remembered"
+      },
+      {
+        "e" : 14.65,
+        "s" : 14.25,
+        "t" : "when"
+      },
+      {
+        "e" : 15.09,
+        "s" : 14.73,
+        "t" : "the"
+      },
+      {
+        "e" : 15.75,
+        "s" : 15.17,
+        "t" : "stranger"
+      },
+      {
+        "e" : 16.27,
+        "s" : 15.83,
+        "t" : "first"
+      },
+      {
+        "e" : 16.890000000000001,
+        "s" : 16.350000000000001,
+        "t" : "arrived"
+      },
+      {
+        "e" : 17.68,
+        "s" : 17.370000000000001,
+        "t" : "he"
+      },
+      {
+        "e" : 18.25,
+        "s" : 17.760000000000002,
+        "t" : "simply"
+      },
+      {
+        "e" : 18.91,
+        "s" : 18.329999999999998,
+        "t" : "appeared"
+      },
+      {
+        "e" : 19.350000000000001,
+        "s" : 18.989999999999998,
+        "t" : "one"
+      },
+      {
+        "e" : 19.969999999999999,
+        "s" : 19.43,
+        "t" : "morning"
+      },
+      {
+        "e" : 20.359999999999999,
+        "s" : 20.050000000000001,
+        "t" : "at"
+      },
+      {
+        "e" : 20.800000000000001,
+        "s" : 20.440000000000001,
+        "t" : "the"
+      },
+      {
+        "e" : 21.420000000000002,
+        "s" : 20.879999999999999,
+        "t" : "baker's"
+      },
+      {
+        "e" : 21.899999999999999,
+        "s" : 21.5,
+        "t" : "door"
+      },
+      {
+        "e" : 22.469999999999999,
+        "s" : 21.98,
+        "t" : "asking"
+      },
+      {
+        "e" : 22.91,
+        "s" : 22.550000000000001,
+        "t" : "for"
+      },
+      {
+        "e" : 23.43,
+        "s" : 22.989999999999998,
+        "t" : "bread"
+      },
+      {
+        "e" : 23.870000000000001,
+        "s" : 23.510000000000002,
+        "t" : "and"
+      },
+      {
+        "e" : 24.620000000000001,
+        "s" : 23.949999999999999,
+        "t" : "directions"
+      },
+      {
+        "e" : 25.010000000000002,
+        "s" : 24.699999999999999,
+        "t" : "to"
+      },
+      {
+        "e" : 25.449999999999999,
+        "s" : 25.09,
+        "t" : "the"
+      },
+      {
+        "e" : 25.969999999999999,
+        "s" : 25.530000000000001,
+        "t" : "coast"
+      },
+      {
+        "e" : 29.359999999999999,
+        "s" : 29.050000000000001,
+        "t" : "by"
+      },
+      {
+        "e" : 29.84,
+        "s" : 29.440000000000001,
+        "t" : "noon"
+      },
+      {
+        "e" : 30.23,
+        "s" : 29.920000000000002,
+        "t" : "he"
+      },
+      {
+        "e" : 30.670000000000002,
+        "s" : 30.309999999999999,
+        "t" : "was"
+      },
+      {
+        "e" : 31.149999999999999,
+        "s" : 30.75,
+        "t" : "gone"
+      },
+      {
+        "e" : 32.090000000000003,
+        "s" : 31.73,
+        "t" : "the"
+      },
+      {
+        "e" : 32.57,
+        "s" : 32.170000000000002,
+        "t" : "road"
+      },
+      {
+        "e" : 32.960000000000001,
+        "s" : 32.649999999999999,
+        "t" : "to"
+      },
+      {
+        "e" : 33.399999999999999,
+        "s" : 33.039999999999999,
+        "t" : "the"
+      },
+      {
+        "e" : 33.920000000000002,
+        "s" : 33.479999999999997,
+        "t" : "coast"
+      },
+      {
+        "e" : 34.359999999999999,
+        "s" : 34,
+        "t" : "was"
+      },
+      {
+        "e" : 34.840000000000003,
+        "s" : 34.439999999999998,
+        "t" : "long"
+      },
+      {
+        "e" : 35.280000000000001,
+        "s" : 34.920000000000002,
+        "t" : "and"
+      },
+      {
+        "e" : 35.799999999999997,
+        "s" : 35.359999999999999,
+        "t" : "empty"
+      },
+      {
+        "e" : 36.240000000000002,
+        "s" : 35.880000000000003,
+        "t" : "and"
+      },
+      {
+        "e" : 36.68,
+        "s" : 36.32,
+        "t" : "the"
+      },
+      {
+        "e" : 37.200000000000003,
+        "s" : 36.759999999999998,
+        "t" : "gulls"
+      },
+      {
+        "e" : 37.859999999999999,
+        "s" : 37.280000000000001,
+        "t" : "followed"
+      },
+      {
+        "e" : 38.299999999999997,
+        "s" : 37.939999999999998,
+        "t" : "him"
+      },
+      {
+        "e" : 38.740000000000002,
+        "s" : 38.380000000000003,
+        "t" : "all"
+      },
+      {
+        "e" : 39.18,
+        "s" : 38.82,
+        "t" : "the"
+      },
+      {
+        "e" : 39.619999999999997,
+        "s" : 39.259999999999998,
+        "t" : "way"
+      },
+      {
+        "e" : 40.009999999999998,
+        "s" : 39.700000000000003,
+        "t" : "to"
+      },
+      {
+        "e" : 40.450000000000003,
+        "s" : 40.090000000000003,
+        "t" : "the"
+      },
+      {
+        "e" : 41.020000000000003,
+        "s" : 40.530000000000001,
+        "t" : "cliffs"
+      }
+    ]
+  },
+  "name" : "missing_passage"
+}

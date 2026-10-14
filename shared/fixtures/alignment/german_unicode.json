@@ -1,0 +1,1475 @@
+{
+  "description" : "German text with typographic quotes, ß, umlauts, em dash and ellipsis; recogniser writes 'strasse' and drops diacritics in places.",
+  "expected" : {
+    "alignment" : {
+      "binBase64" : "MUxCQQEAAAAzAAAAMwAAAM3MzMzMDD1AMwAAAAAAAAABAAAAAgAAAAMAAAAEAAAABQAAAAYAAAAHAAAACAAAAAkAAAAKAAAACwAAAAwAAAANAAAADgAAAA8AAAAQAAAAEQAAABIAAAATAAAAFAAAABUAAAAWAAAAFwAAABgAAAAZAAAAGgAAABsAAAAcAAAAHQAAAB4AAAAfAAAAIAAAACEAAAAiAAAAIwAAACQAAAAlAAAAJgAAACcAAAAoAAAAKQAAACoAAAArAAAALAAAAC0AAAAuAAAALwAAADAAAAAxAAAAMgAAAAAAAACuR+E+rkeBP1K4vj89Cvc\/MzMjQOF6REDD9WhAuB6FQDMzk0BxPbpA7FHIQMP12ECamelAFK73QB+FA0FcjxJBmpkZQQrXJ0EzMzNBuB49Qc3MREEK10tBSOFSQaRwXUFcj2ZBcT2AQTMzhUGamYtBj8KPQa5Hk0EUrplB16OeQfYookEUrqVBzcyoQfYosEGuR7NBCte3QcP1ukHNzL5Bw\/XCQXsUxkGamclB9ijOQRSu0UFxPdZBj8LZQZqZ3UFSuOBBSOHkQexRuD57FG4\/4Xq0P83M7D97FB5AKVw\/QArXY0Bcj4JA16OQQOF6pECPwsVAZmbWQD0K50C4HvVAcT0CQa5HCUHsURhBXI8mQYXrMUEK1ztBH4VDQVyPSkGamVFB9ihcQa5HZUGamW1BXI+EQcP1ikG4Ho9B16OSQT0KmUEAAJ5BH4WhQT0KpUH2KKhB7FGsQdejskEzM7dB7FG6QfYovkHsUcJBpHDFQcP1yEEfhc1BPQrRQZqZ1UG4HtlBw\/XcQXsU4EFxPeRBZmboQQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==",
+      "ebookWordCount" : 51,
+      "ends" : [
+        0.36000001430511475,
+        0.93000000715255737,
+        1.4099999666213989,
+        1.8500000238418579,
+        2.4700000286102295,
+        2.9900000095367432,
+        3.559999942779541,
+        4.0799999237060547,
+        4.5199999809265137,
+        5.1399998664855957,
+        6.179999828338623,
+        6.6999998092651367,
+        7.2199997901916504,
+        7.6599998474121094,
+        8.1400003433227539,
+        8.5799999237060547,
+        9.5200004577636719,
+        10.409999847412109,
+        11.119999885559082,
+        11.739999771118164,
+        12.220000267028809,
+        12.659999847412109,
+        13.100000381469727,
+        13.760000228881836,
+        14.329999923706055,
+        14.850000381469727,
+        16.569999694824219,
+        17.370000839233398,
+        17.889999389648438,
+        18.329999923706055,
+        19.129999160766602,
+        19.75,
+        20.190000534057617,
+        20.629999160766602,
+        21.020000457763672,
+        21.540000915527344,
+        22.329999923706055,
+        22.899999618530273,
+        23.290000915527344,
+        23.770000457763672,
+        24.290000915527344,
+        24.680000305175781,
+        25.120000839233398,
+        25.690000534057617,
+        26.129999160766602,
+        26.700000762939453,
+        27.139999389648438,
+        27.620000839233398,
+        28.010000228881836,
+        28.530000686645508,
+        29.049999237060547
+      ],
+      "flags" : [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "spokenEnd" : 29.050000000000001,
+      "spokenWordCount" : 51,
+      "starts" : [
+        0,
+        0.43999999761581421,
+        1.0099999904632568,
+        1.4900000095367432,
+        1.9299999475479126,
+        2.5499999523162842,
+        3.0699999332427979,
+        3.6400001049041748,
+        4.1599998474121094,
+        4.5999999046325684,
+        5.820000171661377,
+        6.2600002288818359,
+        6.7800002098083496,
+        7.3000001907348633,
+        7.7399997711181641,
+        8.2200002670288086,
+        9.1599998474121094,
+        9.6000003814697266,
+        10.489999771118164,
+        11.199999809265137,
+        11.819999694824219,
+        12.300000190734863,
+        12.739999771118164,
+        13.180000305175781,
+        13.840000152587891,
+        14.409999847412109,
+        16.030000686645508,
+        16.649999618530273,
+        17.450000762939453,
+        17.969999313354492,
+        18.409999847412109,
+        19.209999084472656,
+        19.829999923706055,
+        20.270000457763672,
+        20.709999084472656,
+        21.100000381469727,
+        22.020000457763672,
+        22.409999847412109,
+        22.979999542236328,
+        23.370000839233398,
+        23.850000381469727,
+        24.370000839233398,
+        24.760000228881836,
+        25.200000762939453,
+        25.770000457763672,
+        26.209999084472656,
+        26.780000686645508,
+        27.219999313354492,
+        27.700000762939453,
+        28.090000152587891,
+        28.610000610351562
+      ],
+      "words" : [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50
+      ]
+    },
+    "displaySpans" : [
+      [
+        10,
+        39.049999237060547
+      ]
+    ],
+    "displayWords" : [
+      {
+        "end" : 10.360000014305115,
+        "id" : "e-0",
+        "start" : 10,
+        "text" : "„Wir "
+      },
+      {
+        "end" : 10.930000007152557,
+        "id" : "e-1",
+        "start" : 10.439999997615814,
+        "text" : "müssen "
+      },
+      {
+        "end" : 11.409999966621399,
+        "id" : "e-2",
+        "start" : 11.009999990463257,
+        "text" : "über "
+      },
+      {
+        "end" : 11.850000023841858,
+        "id" : "e-3",
+        "start" : 11.490000009536743,
+        "text" : "die "
+      },
+      {
+        "end" : 12.470000028610229,
+        "id" : "e-4",
+        "start" : 11.929999947547913,
+        "text" : "Straße“, "
+      },
+      {
+        "end" : 12.990000009536743,
+        "id" : "e-5",
+        "start" : 12.549999952316284,
+        "text" : "sagte "
+      },
+      {
+        "end" : 13.559999942779541,
+        "id" : "e-6",
+        "start" : 13.069999933242798,
+        "text" : "Jürgen "
+      },
+      {
+        "end" : 14.079999923706055,
+        "id" : "e-7",
+        "start" : 13.640000104904175,
+        "text" : "leise — "
+      },
+      {
+        "end" : 14.519999980926514,
+        "id" : "e-8",
+        "start" : 14.159999847412109,
+        "text" : "und "
+      },
+      {
+        "end" : 15.139999866485596,
+        "id" : "e-9",
+        "start" : 14.599999904632568,
+        "text" : "zögerte. "
+      },
+      {
+        "end" : 16.179999828338623,
+        "id" : "e-10",
+        "start" : 15.820000171661377,
+        "text" : "Die "
+      },
+      {
+        "end" : 16.699999809265137,
+        "id" : "e-11",
+        "start" : 16.260000228881836,
+        "text" : "Ampel "
+      },
+      {
+        "end" : 17.21999979019165,
+        "id" : "e-12",
+        "start" : 16.78000020980835,
+        "text" : "blieb "
+      },
+      {
+        "end" : 17.659999847412109,
+        "id" : "e-13",
+        "start" : 17.300000190734863,
+        "text" : "rot… "
+      },
+      {
+        "end" : 18.140000343322754,
+        "id" : "e-14",
+        "start" : 17.739999771118164,
+        "text" : "ewig "
+      },
+      {
+        "end" : 18.579999923706055,
+        "id" : "e-15",
+        "start" : 18.220000267028809,
+        "text" : "rot. "
+      },
+      {
+        "end" : 19.520000457763672,
+        "id" : "e-16",
+        "start" : 19.159999847412109,
+        "text" : "Ein "
+      },
+      {
+        "end" : 20.409999847412109,
+        "id" : "e-17",
+        "start" : 19.600000381469727,
+        "text" : "Fahrradfahrer "
+      },
+      {
+        "end" : 21.119999885559082,
+        "id" : "e-18",
+        "start" : 20.489999771118164,
+        "text" : "klingelte "
+      },
+      {
+        "end" : 21.739999771118164,
+        "id" : "e-19",
+        "start" : 21.199999809265137,
+        "text" : "zweimal, "
+      },
+      {
+        "end" : 22.220000267028809,
+        "id" : "e-20",
+        "start" : 21.819999694824219,
+        "text" : "dann "
+      },
+      {
+        "end" : 22.659999847412109,
+        "id" : "e-21",
+        "start" : 22.300000190734863,
+        "text" : "war "
+      },
+      {
+        "end" : 23.100000381469727,
+        "id" : "e-22",
+        "start" : 22.739999771118164,
+        "text" : "die "
+      },
+      {
+        "end" : 23.760000228881836,
+        "id" : "e-23",
+        "start" : 23.180000305175781,
+        "text" : "Kreuzung "
+      },
+      {
+        "end" : 24.329999923706055,
+        "id" : "e-24",
+        "start" : 23.840000152587891,
+        "text" : "wieder "
+      },
+      {
+        "end" : 24.850000381469727,
+        "id" : "e-25",
+        "start" : 24.409999847412109,
+        "text" : "still. "
+      },
+      {
+        "end" : 26.569999694824219,
+        "id" : "e-26",
+        "start" : 26.030000686645508,
+        "text" : "Jürgens "
+      },
+      {
+        "end" : 27.370000839233398,
+        "id" : "e-27",
+        "start" : 26.649999618530273,
+        "text" : "Großmutter "
+      },
+      {
+        "end" : 27.889999389648438,
+        "id" : "e-28",
+        "start" : 27.450000762939453,
+        "text" : "hatte "
+      },
+      {
+        "end" : 28.329999923706055,
+        "id" : "e-29",
+        "start" : 27.969999313354492,
+        "text" : "ihm "
+      },
+      {
+        "end" : 29.129999160766602,
+        "id" : "e-30",
+        "start" : 28.409999847412109,
+        "text" : "beigebracht, "
+      },
+      {
+        "end" : 29.75,
+        "id" : "e-31",
+        "start" : 29.209999084472656,
+        "text" : "niemals "
+      },
+      {
+        "end" : 30.190000534057617,
+        "id" : "e-32",
+        "start" : 29.829999923706055,
+        "text" : "bei "
+      },
+      {
+        "end" : 30.629999160766602,
+        "id" : "e-33",
+        "start" : 30.270000457763672,
+        "text" : "Rot "
+      },
+      {
+        "end" : 31.020000457763672,
+        "id" : "e-34",
+        "start" : 30.709999084472656,
+        "text" : "zu "
+      },
+      {
+        "end" : 31.540000915527344,
+        "id" : "e-35",
+        "start" : 31.100000381469727,
+        "text" : "gehen. "
+      },
+      {
+        "end" : 32.329999923706055,
+        "id" : "e-36",
+        "start" : 32.020000457763672,
+        "text" : "Er "
+      },
+      {
+        "end" : 32.899999618530273,
+        "id" : "e-37",
+        "start" : 32.409999847412109,
+        "text" : "dachte "
+      },
+      {
+        "end" : 33.290000915527344,
+        "id" : "e-38",
+        "start" : 32.979999542236328,
+        "text" : "an "
+      },
+      {
+        "end" : 33.770000457763672,
+        "id" : "e-39",
+        "start" : 33.370000839233398,
+        "text" : "ihre "
+      },
+      {
+        "end" : 34.290000915527344,
+        "id" : "e-40",
+        "start" : 33.850000381469727,
+        "text" : "Hände, "
+      },
+      {
+        "end" : 34.680000305175781,
+        "id" : "e-41",
+        "start" : 34.370000839233398,
+        "text" : "an "
+      },
+      {
+        "end" : 35.120000839233398,
+        "id" : "e-42",
+        "start" : 34.760000228881836,
+        "text" : "den "
+      },
+      {
+        "end" : 35.690000534057617,
+        "id" : "e-43",
+        "start" : 35.200000762939453,
+        "text" : "Geruch "
+      },
+      {
+        "end" : 36.129999160766602,
+        "id" : "e-44",
+        "start" : 35.770000457763672,
+        "text" : "von "
+      },
+      {
+        "end" : 36.700000762939453,
+        "id" : "e-45",
+        "start" : 36.209999084472656,
+        "text" : "Äpfeln "
+      },
+      {
+        "end" : 37.139999389648438,
+        "id" : "e-46",
+        "start" : 36.780000686645508,
+        "text" : "und "
+      },
+      {
+        "end" : 37.620000839233398,
+        "id" : "e-47",
+        "start" : 37.219999313354492,
+        "text" : "Zimt "
+      },
+      {
+        "end" : 38.010000228881836,
+        "id" : "e-48",
+        "start" : 37.700000762939453,
+        "text" : "in "
+      },
+      {
+        "end" : 38.530000686645508,
+        "id" : "e-49",
+        "start" : 38.090000152587891,
+        "text" : "ihrer "
+      },
+      {
+        "end" : 39.049999237060547,
+        "id" : "e-50",
+        "start" : 38.610000610351562,
+        "text" : "Küche. "
+      }
+    ],
+    "index" : {
+      "sentences" : [
+        {
+          "after" : " Die Ampel blieb rot… ewig rot. Ein Fahr",
+          "before" : null,
+          "highlight" : "„Wir müssen über die Straße“, sagte Jürgen leise — und zögerte.",
+          "segment" : 0
+        },
+        {
+          "after" : " Ein Fahrradfahrer klingelte zweimal, da",
+          "before" : "aße“, sagte Jürgen leise — und zögerte. ",
+          "highlight" : "Die Ampel blieb rot… ewig rot.",
+          "segment" : 0
+        },
+        {
+          "after" : null,
+          "before" : "zögerte. Die Ampel blieb rot… ewig rot. ",
+          "highlight" : "Ein Fahrradfahrer klingelte zweimal, dann war die Kreuzung wieder still.",
+          "segment" : 0
+        },
+        {
+          "after" : " Er dachte an ihre Hände, an den Geruch ",
+          "before" : null,
+          "highlight" : "Jürgens Großmutter hatte ihm beigebracht, niemals bei Rot zu gehen.",
+          "segment" : 1
+        },
+        {
+          "after" : null,
+          "before" : " beigebracht, niemals bei Rot zu gehen. ",
+          "highlight" : "Er dachte an ihre Hände, an den Geruch von Äpfeln und Zimt in ihrer Küche.",
+          "segment" : 1
+        }
+      ],
+      "vocabularySize" : 45,
+      "words" : [
+        {
+          "d" : "„Wir ",
+          "n" : "wir",
+          "s" : 0
+        },
+        {
+          "d" : "müssen ",
+          "n" : "mussen",
+          "s" : 0
+        },
+        {
+          "d" : "über ",
+          "n" : "uber",
+          "s" : 0
+        },
+        {
+          "d" : "die ",
+          "n" : "die",
+          "s" : 0
+        },
+        {
+          "d" : "Straße“, ",
+          "n" : "strasse",
+          "s" : 0
+        },
+        {
+          "d" : "sagte ",
+          "n" : "sagte",
+          "s" : 0
+        },
+        {
+          "d" : "Jürgen ",
+          "n" : "jurgen",
+          "s" : 0
+        },
+        {
+          "d" : "leise — ",
+          "n" : "leise",
+          "s" : 0
+        },
+        {
+          "d" : "und ",
+          "n" : "und",
+          "s" : 0
+        },
+        {
+          "d" : "zögerte. ",
+          "n" : "zogerte",
+          "s" : 0
+        },
+        {
+          "d" : "Die ",
+          "n" : "die",
+          "s" : 1
+        },
+        {
+          "d" : "Ampel ",
+          "n" : "ampel",
+          "s" : 1
+        },
+        {
+          "d" : "blieb ",
+          "n" : "blieb",
+          "s" : 1
+        },
+        {
+          "d" : "rot… ",
+          "n" : "rot",
+          "s" : 1
+        },
+        {
+          "d" : "ewig ",
+          "n" : "ewig",
+          "s" : 1
+        },
+        {
+          "d" : "rot. ",
+          "n" : "rot",
+          "s" : 1
+        },
+        {
+          "d" : "Ein ",
+          "n" : "ein",
+          "s" : 2
+        },
+        {
+          "d" : "Fahrradfahrer ",
+          "n" : "fahrradfahrer",
+          "s" : 2
+        },
+        {
+          "d" : "klingelte ",
+          "n" : "klingelte",
+          "s" : 2
+        },
+        {
+          "d" : "zweimal, ",
+          "n" : "zweimal",
+          "s" : 2
+        },
+        {
+          "d" : "dann ",
+          "n" : "dann",
+          "s" : 2
+        },
+        {
+          "d" : "war ",
+          "n" : "war",
+          "s" : 2
+        },
+        {
+          "d" : "die ",
+          "n" : "die",
+          "s" : 2
+        },
+        {
+          "d" : "Kreuzung ",
+          "n" : "kreuzung",
+          "s" : 2
+        },
+        {
+          "d" : "wieder ",
+          "n" : "wieder",
+          "s" : 2
+        },
+        {
+          "d" : "still. ",
+          "n" : "still",
+          "s" : 2
+        },
+        {
+          "d" : "Jürgens ",
+          "n" : "jurgens",
+          "s" : 3
+        },
+        {
+          "d" : "Großmutter ",
+          "n" : "grossmutter",
+          "s" : 3
+        },
+        {
+          "d" : "hatte ",
+          "n" : "hatte",
+          "s" : 3
+        },
+        {
+          "d" : "ihm ",
+          "n" : "ihm",
+          "s" : 3
+        },
+        {
+          "d" : "beigebracht, ",
+          "n" : "beigebracht",
+          "s" : 3
+        },
+        {
+          "d" : "niemals ",
+          "n" : "niemals",
+          "s" : 3
+        },
+        {
+          "d" : "bei ",
+          "n" : "bei",
+          "s" : 3
+        },
+        {
+          "d" : "Rot ",
+          "n" : "rot",
+          "s" : 3
+        },
+        {
+          "d" : "zu ",
+          "n" : "zu",
+          "s" : 3
+        },
+        {
+          "d" : "gehen. ",
+          "n" : "gehen",
+          "s" : 3
+        },
+        {
+          "d" : "Er ",
+          "n" : "er",
+          "s" : 4
+        },
+        {
+          "d" : "dachte ",
+          "n" : "dachte",
+          "s" : 4
+        },
+        {
+          "d" : "an ",
+          "n" : "an",
+          "s" : 4
+        },
+        {
+          "d" : "ihre ",
+          "n" : "ihre",
+          "s" : 4
+        },
+        {
+          "d" : "Hände, ",
+          "n" : "hande",
+          "s" : 4
+        },
+        {
+          "d" : "an ",
+          "n" : "an",
+          "s" : 4
+        },
+        {
+          "d" : "den ",
+          "n" : "den",
+          "s" : 4
+        },
+        {
+          "d" : "Geruch ",
+          "n" : "geruch",
+          "s" : 4
+        },
+        {
+          "d" : "von ",
+          "n" : "von",
+          "s" : 4
+        },
+        {
+          "d" : "Äpfeln ",
+          "n" : "apfeln",
+          "s" : 4
+        },
+        {
+          "d" : "und ",
+          "n" : "und",
+          "s" : 4
+        },
+        {
+          "d" : "Zimt ",
+          "n" : "zimt",
+          "s" : 4
+        },
+        {
+          "d" : "in ",
+          "n" : "in",
+          "s" : 4
+        },
+        {
+          "d" : "ihrer ",
+          "n" : "ihrer",
+          "s" : 4
+        },
+        {
+          "d" : "Küche. ",
+          "n" : "kuche",
+          "s" : 4
+        }
+      ]
+    },
+    "narrationJumps" : [
+      {
+        "decorations" : [
+          {
+            "after" : "Jürgen leise — und zögerte.  Die Ampel b",
+            "before" : null,
+            "highlight" : "„Wir müssen über die Straße“, sagte",
+            "id" : "recent-0",
+            "sentence" : 0,
+            "wordEnd" : 6,
+            "wordStart" : 0
+          }
+        ],
+        "t" : 3,
+        "word" : 5
+      },
+      {
+        "decorations" : [
+          {
+            "after" : " Die Ampel blieb rot… ewig rot. Ein Fahr",
+            "before" : "„Wir ",
+            "highlight" : "müssen über die Straße“, sagte Jürgen leise — und zögerte.",
+            "id" : "recent-0",
+            "sentence" : 0,
+            "wordEnd" : 10,
+            "wordStart" : 1
+          },
+          {
+            "after" : " Ein Fahrradfahrer klingelte zweimal, da",
+            "before" : "aße“, sagte Jürgen leise — und zögerte. ",
+            "highlight" : "Die Ampel blieb rot… ewig rot.",
+            "id" : "recent-1",
+            "sentence" : 1,
+            "wordEnd" : 16,
+            "wordStart" : 10
+          },
+          {
+            "after" : null,
+            "before" : "zögerte. Die Ampel blieb rot… ewig rot. ",
+            "highlight" : "Ein Fahrradfahrer klingelte zweimal, dann war die Kreuzung wieder still.",
+            "id" : "recent-2",
+            "sentence" : 2,
+            "wordEnd" : 26,
+            "wordStart" : 16
+          }
+        ],
+        "t" : 15,
+        "word" : 25
+      },
+      {
+        "decorations" : [
+          {
+            "after" : " Er dachte an ihre Hände, an den Geruch ",
+            "before" : null,
+            "highlight" : "Jürgens Großmutter hatte ihm beigebracht, niemals bei Rot zu gehen.",
+            "id" : "recent-3",
+            "sentence" : 3,
+            "wordEnd" : 36,
+            "wordStart" : 26
+          },
+          {
+            "after" : null,
+            "before" : " beigebracht, niemals bei Rot zu gehen. ",
+            "highlight" : "Er dachte an ihre Hände, an den Geruch von Äpfeln und Zimt in ihrer Küche.",
+            "id" : "recent-4",
+            "sentence" : 4,
+            "wordEnd" : 51,
+            "wordStart" : 36
+          }
+        ],
+        "t" : 30,
+        "word" : 50
+      }
+    ],
+    "queries" : [
+      {
+        "t" : 0,
+        "word" : 0
+      },
+      {
+        "t" : 0.5,
+        "word" : 1
+      },
+      {
+        "t" : 1,
+        "word" : 1
+      },
+      {
+        "t" : 1.5,
+        "word" : 3
+      },
+      {
+        "t" : 2,
+        "word" : 4
+      },
+      {
+        "t" : 2.5,
+        "word" : 4
+      },
+      {
+        "t" : 3,
+        "word" : 5
+      },
+      {
+        "t" : 3.5,
+        "word" : 6
+      },
+      {
+        "t" : 4,
+        "word" : 7
+      },
+      {
+        "t" : 4.5,
+        "word" : 8
+      },
+      {
+        "t" : 5,
+        "word" : 9
+      },
+      {
+        "t" : 5.5,
+        "word" : 9
+      },
+      {
+        "t" : 6,
+        "word" : 10
+      },
+      {
+        "t" : 6.5,
+        "word" : 11
+      },
+      {
+        "t" : 7,
+        "word" : 12
+      },
+      {
+        "t" : 7.5,
+        "word" : 13
+      },
+      {
+        "t" : 8,
+        "word" : 14
+      },
+      {
+        "t" : 8.5,
+        "word" : 15
+      },
+      {
+        "t" : 9,
+        "word" : 15
+      },
+      {
+        "t" : 9.5,
+        "word" : 16
+      },
+      {
+        "t" : 10,
+        "word" : 17
+      },
+      {
+        "t" : 10.5,
+        "word" : 18
+      },
+      {
+        "t" : 11,
+        "word" : 18
+      },
+      {
+        "t" : 11.5,
+        "word" : 19
+      },
+      {
+        "t" : 12,
+        "word" : 20
+      },
+      {
+        "t" : 12.5,
+        "word" : 21
+      },
+      {
+        "t" : 13,
+        "word" : 22
+      },
+      {
+        "t" : 13.5,
+        "word" : 23
+      },
+      {
+        "t" : 14,
+        "word" : 24
+      },
+      {
+        "t" : 14.5,
+        "word" : 25
+      },
+      {
+        "t" : 15,
+        "word" : 25
+      },
+      {
+        "t" : 15.5,
+        "word" : 25
+      },
+      {
+        "t" : 16,
+        "word" : 25
+      },
+      {
+        "t" : 16.5,
+        "word" : 26
+      },
+      {
+        "t" : 17,
+        "word" : 27
+      },
+      {
+        "t" : 17.5,
+        "word" : 28
+      },
+      {
+        "t" : 18,
+        "word" : 29
+      },
+      {
+        "t" : 18.5,
+        "word" : 30
+      },
+      {
+        "t" : 19,
+        "word" : 30
+      },
+      {
+        "t" : 19.5,
+        "word" : 31
+      },
+      {
+        "t" : 20,
+        "word" : 32
+      },
+      {
+        "t" : 20.5,
+        "word" : 33
+      },
+      {
+        "t" : 21,
+        "word" : 34
+      },
+      {
+        "t" : 21.5,
+        "word" : 35
+      },
+      {
+        "t" : 22,
+        "word" : 35
+      },
+      {
+        "t" : 22.5,
+        "word" : 37
+      },
+      {
+        "t" : 23,
+        "word" : 38
+      },
+      {
+        "t" : 23.5,
+        "word" : 39
+      },
+      {
+        "t" : 24,
+        "word" : 40
+      },
+      {
+        "t" : 24.5,
+        "word" : 41
+      },
+      {
+        "t" : 25,
+        "word" : 42
+      },
+      {
+        "t" : 25.5,
+        "word" : 43
+      },
+      {
+        "t" : 26,
+        "word" : 44
+      },
+      {
+        "t" : 26.5,
+        "word" : 45
+      },
+      {
+        "t" : 27,
+        "word" : 46
+      },
+      {
+        "t" : 27.5,
+        "word" : 47
+      },
+      {
+        "t" : 28,
+        "word" : 48
+      },
+      {
+        "t" : 28.5,
+        "word" : 49
+      },
+      {
+        "t" : 29,
+        "word" : 50
+      },
+      {
+        "t" : 29.5,
+        "word" : 50
+      },
+      {
+        "t" : 30,
+        "word" : 50
+      },
+      {
+        "t" : 30.5,
+        "word" : 50
+      },
+      {
+        "t" : 31,
+        "word" : 50
+      },
+      {
+        "t" : 31.5,
+        "word" : 50
+      },
+      {
+        "t" : 32,
+        "word" : 50
+      },
+      {
+        "t" : 32.5,
+        "word" : null
+      },
+      {
+        "t" : 33,
+        "word" : null
+      },
+      {
+        "t" : 33.5,
+        "word" : null
+      },
+      {
+        "t" : 34,
+        "word" : null
+      }
+    ]
+  },
+  "generatedBy" : "Swift (abstand iOS EbookAudioAlignment.swift \/ ReadAlongText, unchanged) via android\/..\/shared fixture generator",
+  "input" : {
+    "globalOffset" : 10,
+    "segments" : [
+      {
+        "sentenceRanges" : [
+          [
+            0,
+            63
+          ],
+          [
+            64,
+            94
+          ],
+          [
+            95,
+            167
+          ]
+        ],
+        "text" : "„Wir müssen über die Straße“, sagte Jürgen leise — und zögerte. Die Ampel blieb rot… ewig rot. Ein Fahrradfahrer klingelte zweimal, dann war die Kreuzung wieder still."
+      },
+      {
+        "sentenceRanges" : [
+          [
+            0,
+            67
+          ],
+          [
+            68,
+            142
+          ]
+        ],
+        "text" : "Jürgens Großmutter hatte ihm beigebracht, niemals bei Rot zu gehen. Er dachte an ihre Hände, an den Geruch von Äpfeln und Zimt in ihrer Küche."
+      }
+    ],
+    "transcript" : [
+      {
+        "e" : 0.35999999999999999,
+        "s" : 0,
+        "t" : "wir"
+      },
+      {
+        "e" : 0.93000000000000005,
+        "s" : 0.44,
+        "t" : "müssen"
+      },
+      {
+        "e" : 1.4099999999999999,
+        "s" : 1.01,
+        "t" : "über"
+      },
+      {
+        "e" : 1.8500000000000001,
+        "s" : 1.49,
+        "t" : "die"
+      },
+      {
+        "e" : 2.4700000000000002,
+        "s" : 1.9299999999999999,
+        "t" : "strasse"
+      },
+      {
+        "e" : 2.9900000000000002,
+        "s" : 2.5499999999999998,
+        "t" : "sagte"
+      },
+      {
+        "e" : 3.5600000000000001,
+        "s" : 3.0699999999999998,
+        "t" : "jurgen"
+      },
+      {
+        "e" : 4.0800000000000001,
+        "s" : 3.6400000000000001,
+        "t" : "leise"
+      },
+      {
+        "e" : 4.5199999999999996,
+        "s" : 4.1600000000000001,
+        "t" : "und"
+      },
+      {
+        "e" : 5.1399999999999997,
+        "s" : 4.5999999999999996,
+        "t" : "zögerte"
+      },
+      {
+        "e" : 6.1799999999999997,
+        "s" : 5.8200000000000003,
+        "t" : "die"
+      },
+      {
+        "e" : 6.7000000000000002,
+        "s" : 6.2599999999999998,
+        "t" : "ampel"
+      },
+      {
+        "e" : 7.2199999999999998,
+        "s" : 6.7800000000000002,
+        "t" : "blieb"
+      },
+      {
+        "e" : 7.6600000000000001,
+        "s" : 7.2999999999999998,
+        "t" : "rot"
+      },
+      {
+        "e" : 8.1400000000000006,
+        "s" : 7.7400000000000002,
+        "t" : "ewig"
+      },
+      {
+        "e" : 8.5800000000000001,
+        "s" : 8.2200000000000006,
+        "t" : "rot"
+      },
+      {
+        "e" : 9.5199999999999996,
+        "s" : 9.1600000000000001,
+        "t" : "ein"
+      },
+      {
+        "e" : 10.41,
+        "s" : 9.5999999999999996,
+        "t" : "fahrradfahrer"
+      },
+      {
+        "e" : 11.119999999999999,
+        "s" : 10.49,
+        "t" : "klingelte"
+      },
+      {
+        "e" : 11.74,
+        "s" : 11.199999999999999,
+        "t" : "zweimal"
+      },
+      {
+        "e" : 12.220000000000001,
+        "s" : 11.82,
+        "t" : "dann"
+      },
+      {
+        "e" : 12.66,
+        "s" : 12.300000000000001,
+        "t" : "war"
+      },
+      {
+        "e" : 13.1,
+        "s" : 12.74,
+        "t" : "die"
+      },
+      {
+        "e" : 13.76,
+        "s" : 13.18,
+        "t" : "kreuzung"
+      },
+      {
+        "e" : 14.33,
+        "s" : 13.84,
+        "t" : "wieder"
+      },
+      {
+        "e" : 14.85,
+        "s" : 14.41,
+        "t" : "still"
+      },
+      {
+        "e" : 16.57,
+        "s" : 16.030000000000001,
+        "t" : "jürgens"
+      },
+      {
+        "e" : 17.370000000000001,
+        "s" : 16.649999999999999,
+        "t" : "grossmutter"
+      },
+      {
+        "e" : 17.890000000000001,
+        "s" : 17.449999999999999,
+        "t" : "hatte"
+      },
+      {
+        "e" : 18.329999999999998,
+        "s" : 17.969999999999999,
+        "t" : "ihm"
+      },
+      {
+        "e" : 19.129999999999999,
+        "s" : 18.41,
+        "t" : "beigebracht"
+      },
+      {
+        "e" : 19.75,
+        "s" : 19.210000000000001,
+        "t" : "niemals"
+      },
+      {
+        "e" : 20.190000000000001,
+        "s" : 19.829999999999998,
+        "t" : "bei"
+      },
+      {
+        "e" : 20.629999999999999,
+        "s" : 20.27,
+        "t" : "rot"
+      },
+      {
+        "e" : 21.02,
+        "s" : 20.710000000000001,
+        "t" : "zu"
+      },
+      {
+        "e" : 21.539999999999999,
+        "s" : 21.100000000000001,
+        "t" : "gehen"
+      },
+      {
+        "e" : 22.329999999999998,
+        "s" : 22.02,
+        "t" : "er"
+      },
+      {
+        "e" : 22.899999999999999,
+        "s" : 22.41,
+        "t" : "dachte"
+      },
+      {
+        "e" : 23.289999999999999,
+        "s" : 22.98,
+        "t" : "an"
+      },
+      {
+        "e" : 23.77,
+        "s" : 23.370000000000001,
+        "t" : "ihre"
+      },
+      {
+        "e" : 24.289999999999999,
+        "s" : 23.850000000000001,
+        "t" : "hände"
+      },
+      {
+        "e" : 24.68,
+        "s" : 24.370000000000001,
+        "t" : "an"
+      },
+      {
+        "e" : 25.120000000000001,
+        "s" : 24.760000000000002,
+        "t" : "den"
+      },
+      {
+        "e" : 25.690000000000001,
+        "s" : 25.199999999999999,
+        "t" : "geruch"
+      },
+      {
+        "e" : 26.129999999999999,
+        "s" : 25.77,
+        "t" : "von"
+      },
+      {
+        "e" : 26.699999999999999,
+        "s" : 26.210000000000001,
+        "t" : "äpfeln"
+      },
+      {
+        "e" : 27.140000000000001,
+        "s" : 26.780000000000001,
+        "t" : "und"
+      },
+      {
+        "e" : 27.620000000000001,
+        "s" : 27.219999999999999,
+        "t" : "zimt"
+      },
+      {
+        "e" : 28.010000000000002,
+        "s" : 27.699999999999999,
+        "t" : "in"
+      },
+      {
+        "e" : 28.530000000000001,
+        "s" : 28.09,
+        "t" : "ihrer"
+      },
+      {
+        "e" : 29.050000000000001,
+        "s" : 28.609999999999999,
+        "t" : "küche"
+      }
+    ]
+  },
+  "name" : "german_unicode"
+}

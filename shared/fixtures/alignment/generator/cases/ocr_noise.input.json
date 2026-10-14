@@ -1,0 +1,24 @@
+{
+ "name": "ocr_noise",
+ "description": "Recogniser noise: contractions split (don't), hyphenated compounds, number written as digits vs words, wrong homophones, dropped and inserted words, OCR-style typos in the ebook.",
+ "segments": [
+  [
+   "\"Don't touch that,\" Margaret said, but it was already too late.",
+   "The well-known inventor had left his machine running since 1984, and nobody dared to switch it off.",
+   "Its gears turned slowly, tick by tick, measuring something no one understood."
+  ],
+  [
+   "Tbe children gathered around it every evening.",
+   "They whispered their theories: a clock for ghosts, a counter of rainy days, a heart made of brass.",
+   "Margaret thought it was simply waiting."
+  ]
+ ],
+ "spoken": "don't touch that margaret said but it was all ready too late |0.5| the well known inventor had left his machine running since nineteen eighty four and nobody dared to switch it of |0.4| it's gears turned slowly tick by tick measuring something no one understood |1.0| um the children gathered round it every evening |0.3| they whispered there theories a clock for ghosts a counter of rainy days a heart made of brass |0.6| margaret thought it was simply waiting",
+ "startTime": 0.5,
+ "globalOffset": 0.0,
+ "jumpTimes": [
+  4.0,
+  25.0,
+  40.0
+ ]
+}

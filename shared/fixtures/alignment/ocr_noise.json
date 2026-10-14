@@ -1,0 +1,2053 @@
+{
+  "description" : "Recogniser noise: contractions split (don't), hyphenated compounds, number written as digits vs words, wrong homophones, dropped and inserted words, OCR-style typos in the ebook.",
+  "expected" : {
+    "alignment" : {
+      "binBase64" : "MUxCQQEAAABJAAAATAAAAOxRuB6FC0VASQAAAAAAAAABAAAAAgAAAAMAAAAEAAAABQAAAAYAAAAHAAAACAAAAAkAAAAKAAAACwAAAAwAAAANAAAADgAAAA8AAAAQAAAAEQAAABIAAAATAAAAFAAAABUAAAAWAAAAFwAAABgAAAAZAAAAGgAAABsAAAAcAAAAHQAAAB4AAAAfAAAAIAAAACEAAAAiAAAAIwAAACQAAAAlAAAAJgAAACcAAAAoAAAAKQAAACoAAAArAAAALAAAAC0AAAAuAAAALwAAADAAAAAxAAAAMgAAADMAAAA0AAAANQAAADYAAAA3AAAAOAAAADkAAAA6AAAAOwAAADwAAAA9AAAAPgAAAD8AAABAAAAAQQAAAEIAAABDAAAARAAAAEUAAABGAAAARwAAAEgAAAAAAAA\/7FE4P1yPgj+4HsU\/rkcBQB+FK0BxPUpAZmZmQClcf0AzM4tA4XqsQFyPukCF69lAAADoQClc90AAAARBXI8OQZqZFUGuRx1B7FEkQXE9LkH2KDhBMzM\/QQrXW0FI4WJBAABsQexRdEFcj3pBCteBQexRhEFSuIlBuB6PQa5Hk0EK15dBZmacQXE9oEEpXKNBMzOnQUjhrEFcj7JBFK61QTMzuUFcj75BCtfNQbge00GPwtdBXI\/cQRSu30EK1+NBMzPrQT0K70F7FPRBSOH4QfYo\/kHhegBCXI8CQuxRBEKamQZCAAAIQuF6CkI9CgxCuB4OQj0KEEKkcBFCH4UTQqRwFUIAABdC4XobQrgeHkKamSBC9igiQoXrI0IzMyZC7FE4P9ejcD9I4bo\/7FH4P2ZmJkC4HkVArkdhQHE9ekAzM4tA4XqsQAAAuEApXMdApHDlQM3M9EBSuAJBrkcNQexRFEEAABxBPQojQcP1LEFI4TZBMzM\/QQrXW0GamWFBUrhqQT0Kc0GuR3lBMzOBQexRhEFSuIlBuB6PQdejkkEzM5dBj8KbQZqZn0FSuKJBXI+mQXE9rEGF67FBPQq1QVyPuEFcj75BCtfNQeF60kGPwtdBXI\/cQT0K30EzM+NB9ijoQWZm7kF7FPRBSOH4QR+F\/UH2KABCcT0CQgAABEKuRwZCFK4HQvYoCkJSuAtCzcwNQlK4D0K4HhFCMzMTQrgeFUIUrhZCj8IYQs3MHUKuRyBCCtchQpqZI0JI4SVCKVwoQgEBAQEBAQEBAQABAQEBAQEBAQEBAQEAAQEBAQEBAAABAQEBAQEBAQEBAQABAQABAQEBAQABAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+      "ebookWordCount" : 73,
+      "ends" : [
+        0.72000002861022949,
+        0.93999999761581421,
+        1.4600000381469727,
+        1.940000057220459,
+        2.5999999046325684,
+        3.0799999237060547,
+        3.5199999809265137,
+        3.9100000858306885,
+        4.3499999046325684,
+        5.3899998664855957,
+        5.75,
+        6.2300000190734863,
+        7.1700000762939453,
+        7.6500000953674316,
+        8.1700000762939453,
+        8.8299999237060547,
+        9.2700004577636719,
+        9.75,
+        10.189999580383301,
+        10.810000419616699,
+        11.430000305175781,
+        11.949999809265137,
+        13.739999771118164,
+        14.100000381469727,
+        14.670000076293945,
+        15.189999580383301,
+        15.579999923706055,
+        16.149999618530273,
+        16.540000915527344,
+        17.215000152587891,
+        17.889999389648438,
+        18.329999923706055,
+        18.899999618530273,
+        19.469999313354492,
+        19.950000762939453,
+        20.340000152587891,
+        20.819999694824219,
+        21.530000686645508,
+        22.239999771118164,
+        22.629999160766602,
+        23.069999694824219,
+        23.819999694824219,
+        25.729999542236328,
+        26.309999465942383,
+        26.969999313354492,
+        27.569999694824219,
+        27.879999160766602,
+        28.399999618530273,
+        29.020000457763672,
+        29.799999237060547,
+        30.510000228881836,
+        31.110000610351562,
+        31.690000534057617,
+        32.040000915527344,
+        32.560001373291016,
+        33,
+        33.569999694824219,
+        33.919998168945312,
+        34.540000915527344,
+        34.930000305175781,
+        35.450000762939453,
+        35.930000305175781,
+        36.279998779296875,
+        36.799999237060547,
+        37.279998779296875,
+        37.669998168945312,
+        38.189998626708984,
+        39.450000762939453,
+        40.069999694824219,
+        40.459999084472656,
+        40.900001525878906,
+        41.470001220703125,
+        42.090000152587891
+      ],
+      "flags" : [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        1,
+        1,
+        0,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "spokenEnd" : 42.090000000000003,
+      "spokenWordCount" : 76,
+      "starts" : [
+        0.5,
+        0.72000002861022949,
+        1.0199999809265137,
+        1.5399999618530273,
+        2.0199999809265137,
+        2.6800000667572021,
+        3.1600000858306885,
+        3.5999999046325684,
+        3.9900000095367432,
+        4.3499999046325684,
+        5.3899998664855957,
+        5.8299999237060547,
+        6.809999942779541,
+        7.25,
+        7.7300000190734863,
+        8.25,
+        8.9099998474121094,
+        9.3500003814697266,
+        9.8299999237060547,
+        10.270000457763672,
+        10.890000343322754,
+        11.510000228881836,
+        11.949999809265137,
+        13.739999771118164,
+        14.180000305175781,
+        14.75,
+        15.270000457763672,
+        15.659999847412109,
+        16.229999542236328,
+        16.540000915527344,
+        17.215000152587891,
+        17.889999389648438,
+        18.409999847412109,
+        18.979999542236328,
+        19.549999237060547,
+        20.030000686645508,
+        20.420000076293945,
+        20.899999618530273,
+        21.610000610351562,
+        22.319999694824219,
+        22.709999084472656,
+        23.149999618530273,
+        23.819999694824219,
+        25.729999542236328,
+        26.389999389648438,
+        26.969999313354492,
+        27.569999694824219,
+        27.959999084472656,
+        28.479999542236328,
+        29.399999618530273,
+        29.879999160766602,
+        30.510000228881836,
+        31.110000610351562,
+        31.770000457763672,
+        32.119998931884766,
+        32.639999389648438,
+        33.080001831054688,
+        33.650001525878906,
+        34,
+        34.619998931884766,
+        35.009998321533203,
+        35.529998779296875,
+        36.009998321533203,
+        36.360000610351562,
+        36.880001068115234,
+        37.360000610351562,
+        37.75,
+        38.869998931884766,
+        39.529998779296875,
+        40.150001525878906,
+        40.540000915527344,
+        40.979999542236328,
+        41.549999237060547
+      ],
+      "words" : [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72
+      ]
+    },
+    "displaySpans" : [
+      [
+        0.5,
+        42.090000152587891
+      ]
+    ],
+    "displayWords" : [
+      {
+        "end" : 0.72000002861022949,
+        "id" : "e-0",
+        "start" : 0.5,
+        "text" : "\"Don'"
+      },
+      {
+        "end" : 0.93999999761581421,
+        "id" : "e-1",
+        "start" : 0.72000002861022949,
+        "text" : "t "
+      },
+      {
+        "end" : 1.4600000381469727,
+        "id" : "e-2",
+        "start" : 1.0199999809265137,
+        "text" : "touch "
+      },
+      {
+        "end" : 1.940000057220459,
+        "id" : "e-3",
+        "start" : 1.5399999618530273,
+        "text" : "that,\" "
+      },
+      {
+        "end" : 2.5999999046325684,
+        "id" : "e-4",
+        "start" : 2.0199999809265137,
+        "text" : "Margaret "
+      },
+      {
+        "end" : 3.0799999237060547,
+        "id" : "e-5",
+        "start" : 2.6800000667572021,
+        "text" : "said, "
+      },
+      {
+        "end" : 3.5199999809265137,
+        "id" : "e-6",
+        "start" : 3.1600000858306885,
+        "text" : "but "
+      },
+      {
+        "end" : 3.9100000858306885,
+        "id" : "e-7",
+        "start" : 3.5999999046325684,
+        "text" : "it "
+      },
+      {
+        "end" : 4.3499999046325684,
+        "id" : "e-8",
+        "start" : 3.9900000095367432,
+        "text" : "was "
+      },
+      {
+        "end" : 5.3899998664855957,
+        "id" : "e-9",
+        "start" : 4.3499999046325684,
+        "text" : "already "
+      },
+      {
+        "end" : 5.75,
+        "id" : "e-10",
+        "start" : 5.3899998664855957,
+        "text" : "too "
+      },
+      {
+        "end" : 6.2300000190734863,
+        "id" : "e-11",
+        "start" : 5.8299999237060547,
+        "text" : "late. "
+      },
+      {
+        "end" : 7.1700000762939453,
+        "id" : "e-12",
+        "start" : 6.809999942779541,
+        "text" : "The "
+      },
+      {
+        "end" : 7.6500000953674316,
+        "id" : "e-13",
+        "start" : 7.25,
+        "text" : "well-"
+      },
+      {
+        "end" : 8.1700000762939453,
+        "id" : "e-14",
+        "start" : 7.7300000190734863,
+        "text" : "known "
+      },
+      {
+        "end" : 8.8299999237060547,
+        "id" : "e-15",
+        "start" : 8.25,
+        "text" : "inventor "
+      },
+      {
+        "end" : 9.2700004577636719,
+        "id" : "e-16",
+        "start" : 8.9099998474121094,
+        "text" : "had "
+      },
+      {
+        "end" : 9.75,
+        "id" : "e-17",
+        "start" : 9.3500003814697266,
+        "text" : "left "
+      },
+      {
+        "end" : 10.189999580383301,
+        "id" : "e-18",
+        "start" : 9.8299999237060547,
+        "text" : "his "
+      },
+      {
+        "end" : 10.810000419616699,
+        "id" : "e-19",
+        "start" : 10.270000457763672,
+        "text" : "machine "
+      },
+      {
+        "end" : 11.430000305175781,
+        "id" : "e-20",
+        "start" : 10.890000343322754,
+        "text" : "running "
+      },
+      {
+        "end" : 11.949999809265137,
+        "id" : "e-21",
+        "start" : 11.510000228881836,
+        "text" : "since "
+      },
+      {
+        "end" : 13.739999771118164,
+        "id" : "e-22",
+        "start" : 11.949999809265137,
+        "text" : "1984, "
+      },
+      {
+        "end" : 14.100000381469727,
+        "id" : "e-23",
+        "start" : 13.739999771118164,
+        "text" : "and "
+      },
+      {
+        "end" : 14.670000076293945,
+        "id" : "e-24",
+        "start" : 14.180000305175781,
+        "text" : "nobody "
+      },
+      {
+        "end" : 15.189999580383301,
+        "id" : "e-25",
+        "start" : 14.75,
+        "text" : "dared "
+      },
+      {
+        "end" : 15.579999923706055,
+        "id" : "e-26",
+        "start" : 15.270000457763672,
+        "text" : "to "
+      },
+      {
+        "end" : 16.149999618530273,
+        "id" : "e-27",
+        "start" : 15.659999847412109,
+        "text" : "switch "
+      },
+      {
+        "end" : 16.540000915527344,
+        "id" : "e-28",
+        "start" : 16.229999542236328,
+        "text" : "it "
+      },
+      {
+        "end" : 17.215000152587891,
+        "id" : "e-29",
+        "start" : 16.540000915527344,
+        "text" : "off. "
+      },
+      {
+        "end" : 17.889999389648438,
+        "id" : "e-30",
+        "start" : 17.215000152587891,
+        "text" : "Its "
+      },
+      {
+        "end" : 18.329999923706055,
+        "id" : "e-31",
+        "start" : 17.889999389648438,
+        "text" : "gears "
+      },
+      {
+        "end" : 18.899999618530273,
+        "id" : "e-32",
+        "start" : 18.409999847412109,
+        "text" : "turned "
+      },
+      {
+        "end" : 19.469999313354492,
+        "id" : "e-33",
+        "start" : 18.979999542236328,
+        "text" : "slowly, "
+      },
+      {
+        "end" : 19.950000762939453,
+        "id" : "e-34",
+        "start" : 19.549999237060547,
+        "text" : "tick "
+      },
+      {
+        "end" : 20.340000152587891,
+        "id" : "e-35",
+        "start" : 20.030000686645508,
+        "text" : "by "
+      },
+      {
+        "end" : 20.819999694824219,
+        "id" : "e-36",
+        "start" : 20.420000076293945,
+        "text" : "tick, "
+      },
+      {
+        "end" : 21.530000686645508,
+        "id" : "e-37",
+        "start" : 20.899999618530273,
+        "text" : "measuring "
+      },
+      {
+        "end" : 22.239999771118164,
+        "id" : "e-38",
+        "start" : 21.610000610351562,
+        "text" : "something "
+      },
+      {
+        "end" : 22.629999160766602,
+        "id" : "e-39",
+        "start" : 22.319999694824219,
+        "text" : "no "
+      },
+      {
+        "end" : 23.069999694824219,
+        "id" : "e-40",
+        "start" : 22.709999084472656,
+        "text" : "one "
+      },
+      {
+        "end" : 23.819999694824219,
+        "id" : "e-41",
+        "start" : 23.149999618530273,
+        "text" : "understood. "
+      },
+      {
+        "end" : 25.729999542236328,
+        "id" : "e-42",
+        "start" : 23.819999694824219,
+        "text" : "Tbe "
+      },
+      {
+        "end" : 26.309999465942383,
+        "id" : "e-43",
+        "start" : 25.729999542236328,
+        "text" : "children "
+      },
+      {
+        "end" : 26.969999313354492,
+        "id" : "e-44",
+        "start" : 26.389999389648438,
+        "text" : "gathered "
+      },
+      {
+        "end" : 27.569999694824219,
+        "id" : "e-45",
+        "start" : 26.969999313354492,
+        "text" : "around "
+      },
+      {
+        "end" : 27.879999160766602,
+        "id" : "e-46",
+        "start" : 27.569999694824219,
+        "text" : "it "
+      },
+      {
+        "end" : 28.399999618530273,
+        "id" : "e-47",
+        "start" : 27.959999084472656,
+        "text" : "every "
+      },
+      {
+        "end" : 29.020000457763672,
+        "id" : "e-48",
+        "start" : 28.479999542236328,
+        "text" : "evening. "
+      },
+      {
+        "end" : 29.799999237060547,
+        "id" : "e-49",
+        "start" : 29.399999618530273,
+        "text" : "They "
+      },
+      {
+        "end" : 30.510000228881836,
+        "id" : "e-50",
+        "start" : 29.879999160766602,
+        "text" : "whispered "
+      },
+      {
+        "end" : 31.110000610351562,
+        "id" : "e-51",
+        "start" : 30.510000228881836,
+        "text" : "their "
+      },
+      {
+        "end" : 31.690000534057617,
+        "id" : "e-52",
+        "start" : 31.110000610351562,
+        "text" : "theories: "
+      },
+      {
+        "end" : 32.040000915527344,
+        "id" : "e-53",
+        "start" : 31.770000457763672,
+        "text" : "a "
+      },
+      {
+        "end" : 32.560001373291016,
+        "id" : "e-54",
+        "start" : 32.119998931884766,
+        "text" : "clock "
+      },
+      {
+        "end" : 33,
+        "id" : "e-55",
+        "start" : 32.639999389648438,
+        "text" : "for "
+      },
+      {
+        "end" : 33.569999694824219,
+        "id" : "e-56",
+        "start" : 33.080001831054688,
+        "text" : "ghosts, "
+      },
+      {
+        "end" : 33.919998168945312,
+        "id" : "e-57",
+        "start" : 33.650001525878906,
+        "text" : "a "
+      },
+      {
+        "end" : 34.540000915527344,
+        "id" : "e-58",
+        "start" : 34,
+        "text" : "counter "
+      },
+      {
+        "end" : 34.930000305175781,
+        "id" : "e-59",
+        "start" : 34.619998931884766,
+        "text" : "of "
+      },
+      {
+        "end" : 35.450000762939453,
+        "id" : "e-60",
+        "start" : 35.009998321533203,
+        "text" : "rainy "
+      },
+      {
+        "end" : 35.930000305175781,
+        "id" : "e-61",
+        "start" : 35.529998779296875,
+        "text" : "days, "
+      },
+      {
+        "end" : 36.279998779296875,
+        "id" : "e-62",
+        "start" : 36.009998321533203,
+        "text" : "a "
+      },
+      {
+        "end" : 36.799999237060547,
+        "id" : "e-63",
+        "start" : 36.360000610351562,
+        "text" : "heart "
+      },
+      {
+        "end" : 37.279998779296875,
+        "id" : "e-64",
+        "start" : 36.880001068115234,
+        "text" : "made "
+      },
+      {
+        "end" : 37.669998168945312,
+        "id" : "e-65",
+        "start" : 37.360000610351562,
+        "text" : "of "
+      },
+      {
+        "end" : 38.189998626708984,
+        "id" : "e-66",
+        "start" : 37.75,
+        "text" : "brass. "
+      },
+      {
+        "end" : 39.450000762939453,
+        "id" : "e-67",
+        "start" : 38.869998931884766,
+        "text" : "Margaret "
+      },
+      {
+        "end" : 40.069999694824219,
+        "id" : "e-68",
+        "start" : 39.529998779296875,
+        "text" : "thought "
+      },
+      {
+        "end" : 40.459999084472656,
+        "id" : "e-69",
+        "start" : 40.150001525878906,
+        "text" : "it "
+      },
+      {
+        "end" : 40.900001525878906,
+        "id" : "e-70",
+        "start" : 40.540000915527344,
+        "text" : "was "
+      },
+      {
+        "end" : 41.470001220703125,
+        "id" : "e-71",
+        "start" : 40.979999542236328,
+        "text" : "simply "
+      },
+      {
+        "end" : 42.090000152587891,
+        "id" : "e-72",
+        "start" : 41.549999237060547,
+        "text" : "waiting. "
+      }
+    ],
+    "index" : {
+      "sentences" : [
+        {
+          "after" : " The well-known inventor had left his ma",
+          "before" : null,
+          "highlight" : "\"Don't touch that,\" Margaret said, but it was already too late.",
+          "segment" : 0
+        },
+        {
+          "after" : " Its gears turned slowly, tick by tick, ",
+          "before" : "aret said, but it was already too late. ",
+          "highlight" : "The well-known inventor had left his machine running since 1984, and nobody dared to switch it off.",
+          "segment" : 0
+        },
+        {
+          "after" : null,
+          "before" : "984, and nobody dared to switch it off. ",
+          "highlight" : "Its gears turned slowly, tick by tick, measuring something no one understood.",
+          "segment" : 0
+        },
+        {
+          "after" : " They whispered their theories: a clock ",
+          "before" : null,
+          "highlight" : "Tbe children gathered around it every evening.",
+          "segment" : 1
+        },
+        {
+          "after" : " Margaret thought it was simply waiting.",
+          "before" : "ldren gathered around it every evening. ",
+          "highlight" : "They whispered their theories: a clock for ghosts, a counter of rainy days, a heart made of brass.",
+          "segment" : 1
+        },
+        {
+          "after" : null,
+          "before" : "r of rainy days, a heart made of brass. ",
+          "highlight" : "Margaret thought it was simply waiting.",
+          "segment" : 1
+        }
+      ],
+      "vocabularySize" : 64,
+      "words" : [
+        {
+          "d" : "\"Don'",
+          "n" : "don",
+          "s" : 0
+        },
+        {
+          "d" : "t ",
+          "n" : "t",
+          "s" : 0
+        },
+        {
+          "d" : "touch ",
+          "n" : "touch",
+          "s" : 0
+        },
+        {
+          "d" : "that,\" ",
+          "n" : "that",
+          "s" : 0
+        },
+        {
+          "d" : "Margaret ",
+          "n" : "margaret",
+          "s" : 0
+        },
+        {
+          "d" : "said, ",
+          "n" : "said",
+          "s" : 0
+        },
+        {
+          "d" : "but ",
+          "n" : "but",
+          "s" : 0
+        },
+        {
+          "d" : "it ",
+          "n" : "it",
+          "s" : 0
+        },
+        {
+          "d" : "was ",
+          "n" : "was",
+          "s" : 0
+        },
+        {
+          "d" : "already ",
+          "n" : "already",
+          "s" : 0
+        },
+        {
+          "d" : "too ",
+          "n" : "too",
+          "s" : 0
+        },
+        {
+          "d" : "late. ",
+          "n" : "late",
+          "s" : 0
+        },
+        {
+          "d" : "The ",
+          "n" : "the",
+          "s" : 1
+        },
+        {
+          "d" : "well-",
+          "n" : "well",
+          "s" : 1
+        },
+        {
+          "d" : "known ",
+          "n" : "known",
+          "s" : 1
+        },
+        {
+          "d" : "inventor ",
+          "n" : "inventor",
+          "s" : 1
+        },
+        {
+          "d" : "had ",
+          "n" : "had",
+          "s" : 1
+        },
+        {
+          "d" : "left ",
+          "n" : "left",
+          "s" : 1
+        },
+        {
+          "d" : "his ",
+          "n" : "his",
+          "s" : 1
+        },
+        {
+          "d" : "machine ",
+          "n" : "machine",
+          "s" : 1
+        },
+        {
+          "d" : "running ",
+          "n" : "running",
+          "s" : 1
+        },
+        {
+          "d" : "since ",
+          "n" : "since",
+          "s" : 1
+        },
+        {
+          "d" : "1984, ",
+          "n" : "1984",
+          "s" : 1
+        },
+        {
+          "d" : "and ",
+          "n" : "and",
+          "s" : 1
+        },
+        {
+          "d" : "nobody ",
+          "n" : "nobody",
+          "s" : 1
+        },
+        {
+          "d" : "dared ",
+          "n" : "dared",
+          "s" : 1
+        },
+        {
+          "d" : "to ",
+          "n" : "to",
+          "s" : 1
+        },
+        {
+          "d" : "switch ",
+          "n" : "switch",
+          "s" : 1
+        },
+        {
+          "d" : "it ",
+          "n" : "it",
+          "s" : 1
+        },
+        {
+          "d" : "off. ",
+          "n" : "off",
+          "s" : 1
+        },
+        {
+          "d" : "Its ",
+          "n" : "its",
+          "s" : 2
+        },
+        {
+          "d" : "gears ",
+          "n" : "gears",
+          "s" : 2
+        },
+        {
+          "d" : "turned ",
+          "n" : "turned",
+          "s" : 2
+        },
+        {
+          "d" : "slowly, ",
+          "n" : "slowly",
+          "s" : 2
+        },
+        {
+          "d" : "tick ",
+          "n" : "tick",
+          "s" : 2
+        },
+        {
+          "d" : "by ",
+          "n" : "by",
+          "s" : 2
+        },
+        {
+          "d" : "tick, ",
+          "n" : "tick",
+          "s" : 2
+        },
+        {
+          "d" : "measuring ",
+          "n" : "measuring",
+          "s" : 2
+        },
+        {
+          "d" : "something ",
+          "n" : "something",
+          "s" : 2
+        },
+        {
+          "d" : "no ",
+          "n" : "no",
+          "s" : 2
+        },
+        {
+          "d" : "one ",
+          "n" : "one",
+          "s" : 2
+        },
+        {
+          "d" : "understood. ",
+          "n" : "understood",
+          "s" : 2
+        },
+        {
+          "d" : "Tbe ",
+          "n" : "tbe",
+          "s" : 3
+        },
+        {
+          "d" : "children ",
+          "n" : "children",
+          "s" : 3
+        },
+        {
+          "d" : "gathered ",
+          "n" : "gathered",
+          "s" : 3
+        },
+        {
+          "d" : "around ",
+          "n" : "around",
+          "s" : 3
+        },
+        {
+          "d" : "it ",
+          "n" : "it",
+          "s" : 3
+        },
+        {
+          "d" : "every ",
+          "n" : "every",
+          "s" : 3
+        },
+        {
+          "d" : "evening. ",
+          "n" : "evening",
+          "s" : 3
+        },
+        {
+          "d" : "They ",
+          "n" : "they",
+          "s" : 4
+        },
+        {
+          "d" : "whispered ",
+          "n" : "whispered",
+          "s" : 4
+        },
+        {
+          "d" : "their ",
+          "n" : "their",
+          "s" : 4
+        },
+        {
+          "d" : "theories: ",
+          "n" : "theories",
+          "s" : 4
+        },
+        {
+          "d" : "a ",
+          "n" : "a",
+          "s" : 4
+        },
+        {
+          "d" : "clock ",
+          "n" : "clock",
+          "s" : 4
+        },
+        {
+          "d" : "for ",
+          "n" : "for",
+          "s" : 4
+        },
+        {
+          "d" : "ghosts, ",
+          "n" : "ghosts",
+          "s" : 4
+        },
+        {
+          "d" : "a ",
+          "n" : "a",
+          "s" : 4
+        },
+        {
+          "d" : "counter ",
+          "n" : "counter",
+          "s" : 4
+        },
+        {
+          "d" : "of ",
+          "n" : "of",
+          "s" : 4
+        },
+        {
+          "d" : "rainy ",
+          "n" : "rainy",
+          "s" : 4
+        },
+        {
+          "d" : "days, ",
+          "n" : "days",
+          "s" : 4
+        },
+        {
+          "d" : "a ",
+          "n" : "a",
+          "s" : 4
+        },
+        {
+          "d" : "heart ",
+          "n" : "heart",
+          "s" : 4
+        },
+        {
+          "d" : "made ",
+          "n" : "made",
+          "s" : 4
+        },
+        {
+          "d" : "of ",
+          "n" : "of",
+          "s" : 4
+        },
+        {
+          "d" : "brass. ",
+          "n" : "brass",
+          "s" : 4
+        },
+        {
+          "d" : "Margaret ",
+          "n" : "margaret",
+          "s" : 5
+        },
+        {
+          "d" : "thought ",
+          "n" : "thought",
+          "s" : 5
+        },
+        {
+          "d" : "it ",
+          "n" : "it",
+          "s" : 5
+        },
+        {
+          "d" : "was ",
+          "n" : "was",
+          "s" : 5
+        },
+        {
+          "d" : "simply ",
+          "n" : "simply",
+          "s" : 5
+        },
+        {
+          "d" : "waiting. ",
+          "n" : "waiting",
+          "s" : 5
+        }
+      ]
+    },
+    "narrationJumps" : [
+      {
+        "decorations" : [
+          {
+            "after" : "already too late.  The well-known invent",
+            "before" : null,
+            "highlight" : "\"Don't touch that,\" Margaret said, but it was",
+            "id" : "recent-0",
+            "sentence" : 0,
+            "wordEnd" : 9,
+            "wordStart" : 0
+          }
+        ],
+        "t" : 4,
+        "word" : 8
+      },
+      {
+        "decorations" : [
+          {
+            "after" : " Its gears turned slowly, tick by tick, ",
+            "before" : " late. The well-known inventor had left ",
+            "highlight" : "his machine running since 1984, and nobody dared to switch it off.",
+            "id" : "recent-1",
+            "sentence" : 1,
+            "wordEnd" : 30,
+            "wordStart" : 18
+          },
+          {
+            "after" : null,
+            "before" : "984, and nobody dared to switch it off. ",
+            "highlight" : "Its gears turned slowly, tick by tick, measuring something no one understood.",
+            "id" : "recent-2",
+            "sentence" : 2,
+            "wordEnd" : 42,
+            "wordStart" : 30
+          },
+          {
+            "after" : "children gathered around it every evenin",
+            "before" : null,
+            "highlight" : "Tbe",
+            "id" : "recent-3",
+            "sentence" : 3,
+            "wordEnd" : 43,
+            "wordStart" : 42
+          }
+        ],
+        "t" : 25,
+        "word" : 42
+      },
+      {
+        "decorations" : [
+          {
+            "after" : " They whispered their theories: a clock ",
+            "before" : "Tbe children ",
+            "highlight" : "gathered around it every evening.",
+            "id" : "recent-3",
+            "sentence" : 3,
+            "wordEnd" : 49,
+            "wordStart" : 44
+          },
+          {
+            "after" : " Margaret thought it was simply waiting.",
+            "before" : "ldren gathered around it every evening. ",
+            "highlight" : "They whispered their theories: a clock for ghosts, a counter of rainy days, a heart made of brass.",
+            "id" : "recent-4",
+            "sentence" : 4,
+            "wordEnd" : 67,
+            "wordStart" : 49
+          },
+          {
+            "after" : "it was simply waiting. ",
+            "before" : "r of rainy days, a heart made of brass. ",
+            "highlight" : "Margaret thought",
+            "id" : "recent-5",
+            "sentence" : 5,
+            "wordEnd" : 69,
+            "wordStart" : 67
+          }
+        ],
+        "t" : 40,
+        "word" : 68
+      }
+    ],
+    "queries" : [
+      {
+        "t" : 0,
+        "word" : null
+      },
+      {
+        "t" : 0.5,
+        "word" : 0
+      },
+      {
+        "t" : 1,
+        "word" : 1
+      },
+      {
+        "t" : 1.5,
+        "word" : 2
+      },
+      {
+        "t" : 2,
+        "word" : 3
+      },
+      {
+        "t" : 2.5,
+        "word" : 4
+      },
+      {
+        "t" : 3,
+        "word" : 5
+      },
+      {
+        "t" : 3.5,
+        "word" : 6
+      },
+      {
+        "t" : 4,
+        "word" : 8
+      },
+      {
+        "t" : 4.5,
+        "word" : 9
+      },
+      {
+        "t" : 5,
+        "word" : 9
+      },
+      {
+        "t" : 5.5,
+        "word" : 10
+      },
+      {
+        "t" : 6,
+        "word" : 11
+      },
+      {
+        "t" : 6.5,
+        "word" : 11
+      },
+      {
+        "t" : 7,
+        "word" : 12
+      },
+      {
+        "t" : 7.5,
+        "word" : 13
+      },
+      {
+        "t" : 8,
+        "word" : 14
+      },
+      {
+        "t" : 8.5,
+        "word" : 15
+      },
+      {
+        "t" : 9,
+        "word" : 16
+      },
+      {
+        "t" : 9.5,
+        "word" : 17
+      },
+      {
+        "t" : 10,
+        "word" : 18
+      },
+      {
+        "t" : 10.5,
+        "word" : 19
+      },
+      {
+        "t" : 11,
+        "word" : 20
+      },
+      {
+        "t" : 11.5,
+        "word" : 20
+      },
+      {
+        "t" : 12,
+        "word" : 22
+      },
+      {
+        "t" : 12.5,
+        "word" : 22
+      },
+      {
+        "t" : 13,
+        "word" : 22
+      },
+      {
+        "t" : 13.5,
+        "word" : 22
+      },
+      {
+        "t" : 14,
+        "word" : 23
+      },
+      {
+        "t" : 14.5,
+        "word" : 24
+      },
+      {
+        "t" : 15,
+        "word" : 25
+      },
+      {
+        "t" : 15.5,
+        "word" : 26
+      },
+      {
+        "t" : 16,
+        "word" : 27
+      },
+      {
+        "t" : 16.5,
+        "word" : 28
+      },
+      {
+        "t" : 17,
+        "word" : 29
+      },
+      {
+        "t" : 17.5,
+        "word" : 30
+      },
+      {
+        "t" : 18,
+        "word" : 31
+      },
+      {
+        "t" : 18.5,
+        "word" : 32
+      },
+      {
+        "t" : 19,
+        "word" : 33
+      },
+      {
+        "t" : 19.5,
+        "word" : 33
+      },
+      {
+        "t" : 20,
+        "word" : 34
+      },
+      {
+        "t" : 20.5,
+        "word" : 36
+      },
+      {
+        "t" : 21,
+        "word" : 37
+      },
+      {
+        "t" : 21.5,
+        "word" : 37
+      },
+      {
+        "t" : 22,
+        "word" : 38
+      },
+      {
+        "t" : 22.5,
+        "word" : 39
+      },
+      {
+        "t" : 23,
+        "word" : 40
+      },
+      {
+        "t" : 23.5,
+        "word" : 41
+      },
+      {
+        "t" : 24,
+        "word" : 42
+      },
+      {
+        "t" : 24.5,
+        "word" : 42
+      },
+      {
+        "t" : 25,
+        "word" : 42
+      },
+      {
+        "t" : 25.5,
+        "word" : 42
+      },
+      {
+        "t" : 26,
+        "word" : 43
+      },
+      {
+        "t" : 26.5,
+        "word" : 44
+      },
+      {
+        "t" : 27,
+        "word" : 45
+      },
+      {
+        "t" : 27.5,
+        "word" : 45
+      },
+      {
+        "t" : 28,
+        "word" : 47
+      },
+      {
+        "t" : 28.5,
+        "word" : 48
+      },
+      {
+        "t" : 29,
+        "word" : 48
+      },
+      {
+        "t" : 29.5,
+        "word" : 49
+      },
+      {
+        "t" : 30,
+        "word" : 50
+      },
+      {
+        "t" : 30.5,
+        "word" : 50
+      },
+      {
+        "t" : 31,
+        "word" : 51
+      },
+      {
+        "t" : 31.5,
+        "word" : 52
+      },
+      {
+        "t" : 32,
+        "word" : 53
+      },
+      {
+        "t" : 32.5,
+        "word" : 54
+      },
+      {
+        "t" : 33,
+        "word" : 55
+      },
+      {
+        "t" : 33.5,
+        "word" : 56
+      },
+      {
+        "t" : 34,
+        "word" : 58
+      },
+      {
+        "t" : 34.5,
+        "word" : 58
+      },
+      {
+        "t" : 35,
+        "word" : 59
+      },
+      {
+        "t" : 35.5,
+        "word" : 60
+      },
+      {
+        "t" : 36,
+        "word" : 61
+      },
+      {
+        "t" : 36.5,
+        "word" : 63
+      },
+      {
+        "t" : 37,
+        "word" : 64
+      },
+      {
+        "t" : 37.5,
+        "word" : 65
+      },
+      {
+        "t" : 38,
+        "word" : 66
+      },
+      {
+        "t" : 38.5,
+        "word" : 66
+      },
+      {
+        "t" : 39,
+        "word" : 67
+      },
+      {
+        "t" : 39.5,
+        "word" : 67
+      },
+      {
+        "t" : 40,
+        "word" : 68
+      },
+      {
+        "t" : 40.5,
+        "word" : 69
+      },
+      {
+        "t" : 41,
+        "word" : 71
+      },
+      {
+        "t" : 41.5,
+        "word" : 71
+      },
+      {
+        "t" : 42,
+        "word" : 72
+      },
+      {
+        "t" : 42.5,
+        "word" : 72
+      },
+      {
+        "t" : 43,
+        "word" : 72
+      },
+      {
+        "t" : 43.5,
+        "word" : 72
+      },
+      {
+        "t" : 44,
+        "word" : 72
+      },
+      {
+        "t" : 44.5,
+        "word" : 72
+      },
+      {
+        "t" : 45,
+        "word" : 72
+      },
+      {
+        "t" : 45.5,
+        "word" : null
+      },
+      {
+        "t" : 46,
+        "word" : null
+      },
+      {
+        "t" : 46.5,
+        "word" : null
+      },
+      {
+        "t" : 47,
+        "word" : null
+      }
+    ]
+  },
+  "generatedBy" : "Swift (abstand iOS EbookAudioAlignment.swift \/ ReadAlongText, unchanged) via android\/..\/shared fixture generator",
+  "input" : {
+    "globalOffset" : 0,
+    "segments" : [
+      {
+        "sentenceRanges" : [
+          [
+            0,
+            63
+          ],
+          [
+            64,
+            163
+          ],
+          [
+            164,
+            241
+          ]
+        ],
+        "text" : "\"Don't touch that,\" Margaret said, but it was already too late. The well-known inventor had left his machine running since 1984, and nobody dared to switch it off. Its gears turned slowly, tick by tick, measuring something no one understood."
+      },
+      {
+        "sentenceRanges" : [
+          [
+            0,
+            46
+          ],
+          [
+            47,
+            145
+          ],
+          [
+            146,
+            185
+          ]
+        ],
+        "text" : "Tbe children gathered around it every evening. They whispered their theories: a clock for ghosts, a counter of rainy days, a heart made of brass. Margaret thought it was simply waiting."
+      }
+    ],
+    "transcript" : [
+      {
+        "e" : 0.93999999999999995,
+        "s" : 0.5,
+        "t" : "don't"
+      },
+      {
+        "e" : 1.46,
+        "s" : 1.02,
+        "t" : "touch"
+      },
+      {
+        "e" : 1.9399999999999999,
+        "s" : 1.54,
+        "t" : "that"
+      },
+      {
+        "e" : 2.6000000000000001,
+        "s" : 2.02,
+        "t" : "margaret"
+      },
+      {
+        "e" : 3.0800000000000001,
+        "s" : 2.6800000000000002,
+        "t" : "said"
+      },
+      {
+        "e" : 3.52,
+        "s" : 3.1600000000000001,
+        "t" : "but"
+      },
+      {
+        "e" : 3.9100000000000001,
+        "s" : 3.6000000000000001,
+        "t" : "it"
+      },
+      {
+        "e" : 4.3499999999999996,
+        "s" : 3.9900000000000002,
+        "t" : "was"
+      },
+      {
+        "e" : 4.79,
+        "s" : 4.4299999999999997,
+        "t" : "all"
+      },
+      {
+        "e" : 5.3099999999999996,
+        "s" : 4.8700000000000001,
+        "t" : "ready"
+      },
+      {
+        "e" : 5.75,
+        "s" : 5.3899999999999997,
+        "t" : "too"
+      },
+      {
+        "e" : 6.2300000000000004,
+        "s" : 5.8300000000000001,
+        "t" : "late"
+      },
+      {
+        "e" : 7.1699999999999999,
+        "s" : 6.8099999999999996,
+        "t" : "the"
+      },
+      {
+        "e" : 7.6500000000000004,
+        "s" : 7.25,
+        "t" : "well"
+      },
+      {
+        "e" : 8.1699999999999999,
+        "s" : 7.7300000000000004,
+        "t" : "known"
+      },
+      {
+        "e" : 8.8300000000000001,
+        "s" : 8.25,
+        "t" : "inventor"
+      },
+      {
+        "e" : 9.2699999999999996,
+        "s" : 8.9100000000000001,
+        "t" : "had"
+      },
+      {
+        "e" : 9.75,
+        "s" : 9.3499999999999996,
+        "t" : "left"
+      },
+      {
+        "e" : 10.19,
+        "s" : 9.8300000000000001,
+        "t" : "his"
+      },
+      {
+        "e" : 10.81,
+        "s" : 10.27,
+        "t" : "machine"
+      },
+      {
+        "e" : 11.43,
+        "s" : 10.890000000000001,
+        "t" : "running"
+      },
+      {
+        "e" : 11.949999999999999,
+        "s" : 11.51,
+        "t" : "since"
+      },
+      {
+        "e" : 12.609999999999999,
+        "s" : 12.029999999999999,
+        "t" : "nineteen"
+      },
+      {
+        "e" : 13.18,
+        "s" : 12.69,
+        "t" : "eighty"
+      },
+      {
+        "e" : 13.66,
+        "s" : 13.26,
+        "t" : "four"
+      },
+      {
+        "e" : 14.1,
+        "s" : 13.74,
+        "t" : "and"
+      },
+      {
+        "e" : 14.67,
+        "s" : 14.18,
+        "t" : "nobody"
+      },
+      {
+        "e" : 15.19,
+        "s" : 14.75,
+        "t" : "dared"
+      },
+      {
+        "e" : 15.58,
+        "s" : 15.27,
+        "t" : "to"
+      },
+      {
+        "e" : 16.149999999999999,
+        "s" : 15.66,
+        "t" : "switch"
+      },
+      {
+        "e" : 16.539999999999999,
+        "s" : 16.23,
+        "t" : "it"
+      },
+      {
+        "e" : 16.93,
+        "s" : 16.620000000000001,
+        "t" : "of"
+      },
+      {
+        "e" : 17.809999999999999,
+        "s" : 17.41,
+        "t" : "it's"
+      },
+      {
+        "e" : 18.329999999999998,
+        "s" : 17.890000000000001,
+        "t" : "gears"
+      },
+      {
+        "e" : 18.899999999999999,
+        "s" : 18.41,
+        "t" : "turned"
+      },
+      {
+        "e" : 19.469999999999999,
+        "s" : 18.98,
+        "t" : "slowly"
+      },
+      {
+        "e" : 19.949999999999999,
+        "s" : 19.550000000000001,
+        "t" : "tick"
+      },
+      {
+        "e" : 20.34,
+        "s" : 20.030000000000001,
+        "t" : "by"
+      },
+      {
+        "e" : 20.82,
+        "s" : 20.420000000000002,
+        "t" : "tick"
+      },
+      {
+        "e" : 21.530000000000001,
+        "s" : 20.899999999999999,
+        "t" : "measuring"
+      },
+      {
+        "e" : 22.239999999999998,
+        "s" : 21.609999999999999,
+        "t" : "something"
+      },
+      {
+        "e" : 22.629999999999999,
+        "s" : 22.32,
+        "t" : "no"
+      },
+      {
+        "e" : 23.07,
+        "s" : 22.710000000000001,
+        "t" : "one"
+      },
+      {
+        "e" : 23.82,
+        "s" : 23.149999999999999,
+        "t" : "understood"
+      },
+      {
+        "e" : 25.210000000000001,
+        "s" : 24.899999999999999,
+        "t" : "um"
+      },
+      {
+        "e" : 25.649999999999999,
+        "s" : 25.289999999999999,
+        "t" : "the"
+      },
+      {
+        "e" : 26.309999999999999,
+        "s" : 25.73,
+        "t" : "children"
+      },
+      {
+        "e" : 26.969999999999999,
+        "s" : 26.390000000000001,
+        "t" : "gathered"
+      },
+      {
+        "e" : 27.489999999999998,
+        "s" : 27.050000000000001,
+        "t" : "round"
+      },
+      {
+        "e" : 27.879999999999999,
+        "s" : 27.57,
+        "t" : "it"
+      },
+      {
+        "e" : 28.399999999999999,
+        "s" : 27.960000000000001,
+        "t" : "every"
+      },
+      {
+        "e" : 29.02,
+        "s" : 28.48,
+        "t" : "evening"
+      },
+      {
+        "e" : 29.800000000000001,
+        "s" : 29.399999999999999,
+        "t" : "they"
+      },
+      {
+        "e" : 30.510000000000002,
+        "s" : 29.879999999999999,
+        "t" : "whispered"
+      },
+      {
+        "e" : 31.030000000000001,
+        "s" : 30.59,
+        "t" : "there"
+      },
+      {
+        "e" : 31.690000000000001,
+        "s" : 31.109999999999999,
+        "t" : "theories"
+      },
+      {
+        "e" : 32.039999999999999,
+        "s" : 31.77,
+        "t" : "a"
+      },
+      {
+        "e" : 32.560000000000002,
+        "s" : 32.119999999999997,
+        "t" : "clock"
+      },
+      {
+        "e" : 33,
+        "s" : 32.640000000000001,
+        "t" : "for"
+      },
+      {
+        "e" : 33.57,
+        "s" : 33.079999999999998,
+        "t" : "ghosts"
+      },
+      {
+        "e" : 33.920000000000002,
+        "s" : 33.649999999999999,
+        "t" : "a"
+      },
+      {
+        "e" : 34.539999999999999,
+        "s" : 34,
+        "t" : "counter"
+      },
+      {
+        "e" : 34.93,
+        "s" : 34.619999999999997,
+        "t" : "of"
+      },
+      {
+        "e" : 35.450000000000003,
+        "s" : 35.009999999999998,
+        "t" : "rainy"
+      },
+      {
+        "e" : 35.93,
+        "s" : 35.530000000000001,
+        "t" : "days"
+      },
+      {
+        "e" : 36.280000000000001,
+        "s" : 36.009999999999998,
+        "t" : "a"
+      },
+      {
+        "e" : 36.799999999999997,
+        "s" : 36.359999999999999,
+        "t" : "heart"
+      },
+      {
+        "e" : 37.280000000000001,
+        "s" : 36.880000000000003,
+        "t" : "made"
+      },
+      {
+        "e" : 37.670000000000002,
+        "s" : 37.359999999999999,
+        "t" : "of"
+      },
+      {
+        "e" : 38.189999999999998,
+        "s" : 37.75,
+        "t" : "brass"
+      },
+      {
+        "e" : 39.450000000000003,
+        "s" : 38.869999999999997,
+        "t" : "margaret"
+      },
+      {
+        "e" : 40.07,
+        "s" : 39.530000000000001,
+        "t" : "thought"
+      },
+      {
+        "e" : 40.460000000000001,
+        "s" : 40.149999999999999,
+        "t" : "it"
+      },
+      {
+        "e" : 40.899999999999999,
+        "s" : 40.539999999999999,
+        "t" : "was"
+      },
+      {
+        "e" : 41.469999999999999,
+        "s" : 40.979999999999997,
+        "t" : "simply"
+      },
+      {
+        "e" : 42.090000000000003,
+        "s" : 41.549999999999997,
+        "t" : "waiting"
+      }
+    ]
+  },
+  "name" : "ocr_noise"
+}

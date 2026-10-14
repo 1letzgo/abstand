@@ -30,3 +30,19 @@ Rules
 - Quirks are documented in the tests, not "fixed" in the fixtures: if iOS
   behaves surprisingly (e.g. a numeric "ino" fails decoding), the Android port
   mirrors it and the test pins that behaviour.
+
+Alignment / transcript caches (generated, not hand-written)
+- alignment/<case>.json   eBook segments + recognised words (input) and the
+                          expected index, EbookTrackAlignment (incl. the exact
+                          a<track>-<locale>.bin bytes as base64), time queries,
+                          teleprompter display words and narration-jump marks.
+                          Produced by running the unchanged iOS code
+                          (EbookAudioAlignment.swift, ReadAlongText) via
+                          alignment/generator/generate.sh (macOS + Swift).
+- alignment/tokenization.json, unicode_tables.json
+                          Foundation reference for ReadAlongText.normalize /
+                          words(in:) / String.count (fixed strings, 4000 seeded
+                          random strings, per-scalar tables).
+- transcript_cache/       a3-en-US.bin + t3-en-US.json written by the Kotlin
+                          writer, contents.json describes them; generate.sh
+                          checks that the iOS code reads them identically.
