@@ -15,7 +15,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,8 +46,8 @@ import de.letzgo.abstand.ui.detail.CollectionDetailDestination
 import de.letzgo.abstand.ui.detail.FacetFilteredBooksDestination
 import de.letzgo.abstand.ui.detail.NarratorDetailDestination
 import de.letzgo.abstand.ui.detail.SeriesDetailDestination
-import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
+import de.letzgo.abstand.ui.components.AbstandTextButton
 
 /** Kachel einer Facetten-Sektion (Sprecher, Sammlung, Genre, Tag). */
 private data class FacetTile(val key: String, val title: String, val count: Int?, val open: () -> Unit)
@@ -280,6 +279,6 @@ private fun CatalogFilterBanner(summary: String?, onShowAll: () -> Unit) {
     ) {
         Icon(SF.line3HorizontalDecreaseCircle, null, tint = palette.textSecondary)
         Text(summary ?: "Library filtered", style = IosType.body, color = palette.textPrimary, maxLines = 2, modifier = Modifier.weight(1f))
-        TextButton(onClick = onShowAll) { Text("Show all", style = IosType.subheadline.semibold, color = Theme.accent) }
+        AbstandTextButton("Show all", onShowAll, emphasized = true, compact = true)
     }
 }

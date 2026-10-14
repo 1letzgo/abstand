@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -52,6 +50,8 @@ import de.letzgo.abstand.ui.components.AbstandGroupedCard
 import de.letzgo.abstand.ui.components.abstandCardListRowFrame
 import de.letzgo.abstand.ui.semibold
 import java.time.LocalDate
+import de.letzgo.abstand.ui.components.AbstandIconButton
+import de.letzgo.abstand.ui.components.AbstandCapsLabel
 
 /**
  * iOS: `ListeningMonthHeatmapCard` — Monatskalender (Montag zuerst, en_US) mit Vor/Zurück,
@@ -174,9 +174,14 @@ private fun CalendarCard(
 @Composable
 private fun NavButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
     val palette = Theme.palette
-    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(AppTheme.Layout.compactIconButtonSize)) {
-        Icon(icon, contentDescription = label, tint = if (enabled) palette.textPrimary else palette.textSecondary.copy(alpha = 0.35f))
-    }
+    AbstandIconButton(
+        icon,
+        label,
+        onClick = onClick,
+        enabled = enabled,
+        size = AppTheme.Layout.compactIconButtonSize,
+        tint = if (enabled) palette.textPrimary else palette.textSecondary.copy(alpha = 0.35f),
+    )
 }
 
 @Composable
@@ -268,7 +273,7 @@ fun StatsTimelineMetricCard(title: String, value: String, accessibility: String,
     val palette = Theme.palette
     AbstandGroupedCard(modifier.semantics { contentDescription = accessibility }) {
         Column(Modifier.abstandCardListRowFrame(), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing, Alignment.CenterVertically)) {
-            Text(title.uppercase(), style = IosType.caption.semibold, color = palette.textSecondary, maxLines = 2)
+            AbstandCapsLabel(title, maxLines = 2)
             Text(value, style = IosType.headline.bold, color = palette.textPrimary, maxLines = 1)
         }
     }

@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,6 +30,7 @@ import de.letzgo.abstand.ui.components.SettingsSubpageScaffold
 import de.letzgo.abstand.ui.components.TabContentSectionTitle
 import de.letzgo.abstand.ui.components.abstandCardListRowFrame
 import de.letzgo.abstand.ui.components.abstandSwitchColors
+import de.letzgo.abstand.ui.components.AbstandIconButton
 
 /**
  * iOS: `SettingsAppearanceHomeView` (Settings → Appearance → Home) — je Regal eine Karte mit
@@ -95,12 +94,22 @@ private fun HomeShelfSettingsCard(
                 Switch(checked = enabled, onCheckedChange = null, colors = abstandSwitchColors())
             }
             if (!isContinue) {
-                IconButton(onClick = { onMove(-1) }, enabled = canMoveUp, modifier = Modifier.size(AppTheme.Layout.compactIconButtonSize)) {
-                    Icon(SF.arrowUp, contentDescription = "Move up", tint = palette.textSecondary)
-                }
-                IconButton(onClick = { onMove(1) }, enabled = canMoveDown, modifier = Modifier.size(AppTheme.Layout.compactIconButtonSize)) {
-                    Icon(SF.arrowDown, contentDescription = "Move down", tint = palette.textSecondary)
-                }
+                AbstandIconButton(
+                    SF.arrowUp,
+                    "Move up",
+                    onClick = { onMove(-1) },
+                    enabled = canMoveUp,
+                    size = AppTheme.Layout.compactIconButtonSize,
+                    tint = palette.textSecondary,
+                )
+                AbstandIconButton(
+                    SF.arrowDown,
+                    "Move down",
+                    onClick = { onMove(1) },
+                    enabled = canMoveDown,
+                    size = AppTheme.Layout.compactIconButtonSize,
+                    tint = palette.textSecondary,
+                )
             }
         }
     }

@@ -14,12 +14,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
@@ -44,6 +41,8 @@ import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.components.AbstandCard
 import de.letzgo.abstand.ui.components.AbstandProminentButton
 import de.letzgo.abstand.ui.semibold
+import de.letzgo.abstand.ui.components.AbstandIconButton
+import de.letzgo.abstand.ui.components.AbstandProgressBar
 
 /** iOS: `DetailHeroLayoutMetrics` / `DetailMetaLayoutMetrics` (Ausschnitt für Podcast-Details). */
 internal object PodcastDetailMetrics {
@@ -134,16 +133,13 @@ internal fun PodcastDetailPlayActions(
         horizontalArrangement = Arrangement.spacedBy(PodcastDetailMetrics.actionRowSpacing, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(
+        AbstandIconButton(
+            if (isFinished) SF.arrowUturnBackward else SF.checkmark,
+            if (isFinished) "Mark as not finished" else "Mark as finished",
             onClick = onMark,
-            modifier = Modifier.size(PodcastDetailMetrics.sideControlSize).clip(CircleShape),
-        ) {
-            Icon(
-                if (isFinished) SF.arrowUturnBackward else SF.checkmark,
-                contentDescription = if (isFinished) "Mark as not finished" else "Mark as finished",
-                tint = palette.textPrimary,
-            )
-        }
+            size = PodcastDetailMetrics.sideControlSize,
+            tint = palette.textPrimary,
+        )
         Column(Modifier.fillMaxWidth(PodcastDetailMetrics.singlePrimaryWidthFraction)) {
             AbstandProminentButton(
                 onClick = onPrimary,
@@ -155,13 +151,9 @@ internal fun PodcastDetailPlayActions(
                 Text(if (isPlaying) "Pause" else if (isFinished) "Play again" else if (progress01 > 0) "Resume" else "Play")
             }
             if (progress01 > 0 && !isFinished) {
-                LinearProgressIndicator(
-                    progress = { progress01.toFloat().coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().padding(top = AppTheme.Layout.compactSpacing)
-                        .height(PodcastDetailMetrics.primaryProgressHeight),
-                    color = Theme.accent,
-                    trackColor = palette.progressTrack,
-                    drawStopIndicator = {},
+                AbstandProgressBar(
+                    progress01, Modifier.padding(top = AppTheme.Layout.compactSpacing),
+                    height = PodcastDetailMetrics.primaryProgressHeight,
                 )
             }
         }

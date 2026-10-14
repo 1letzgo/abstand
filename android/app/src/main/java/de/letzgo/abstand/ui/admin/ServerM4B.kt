@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,6 +36,7 @@ import de.letzgo.abstand.ui.components.abstandCardListRowFrame
 import de.letzgo.abstand.ui.medium
 import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
+import de.letzgo.abstand.ui.components.AbstandTextButton
 
 /** iOS: `ServerM4BProgressView` — laufende/letzte M4B-Encodes, Media-Cache leeren. */
 data object ServerM4BDestination : TabDestination {
@@ -89,10 +89,10 @@ fun ServerM4BProgressScreen(onBack: () -> Unit, model: AppModel = AppModel.share
                             }
                         }
                         if (recent.isNotEmpty()) {
-                            TextButton(
-                                onClick = { admin.clearFinishedM4BEncodeJobs() },
-                                modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.End),
-                            ) { Text("Clear finished", style = IosType.subheadline.medium, color = Theme.accent) }
+                            AbstandTextButton(
+                                "Clear finished", { admin.clearFinishedM4BEncodeJobs() },
+                                Modifier.fillMaxWidth().wrapContentWidth(Alignment.End), compact = true,
+                            )
                         }
                     }
                 }
@@ -140,7 +140,7 @@ private fun M4BJobRow(job: ServerM4BEncodeJob, percent: Double?, onCancel: () ->
             }
         }
         if (job.isActive) {
-            TextButton(onClick = onCancel) { Text("Cancel", style = IosType.subheadline.medium, color = AppTheme.danger) }
+            AbstandTextButton("Cancel", onCancel, destructive = true, compact = true)
         }
     }
 }

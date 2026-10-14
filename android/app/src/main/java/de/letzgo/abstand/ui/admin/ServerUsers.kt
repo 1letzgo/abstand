@@ -48,10 +48,11 @@ import de.letzgo.abstand.ui.components.SettingsSubpageScaffold
 import de.letzgo.abstand.ui.components.abstandCardListRowFrame
 import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.medium
-import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import de.letzgo.abstand.ui.components.AbstandBadge
+import de.letzgo.abstand.ui.components.AbstandBadgeTone
 
 /** iOS: `ServerUsersListView`. */
 data object ServerUsersDestination : TabDestination {
@@ -127,13 +128,7 @@ private fun ServerUserListRow(user: AbsAdminUserSummary, isOnline: Boolean) {
         )
         Text(user.username, style = IosType.body.medium, color = palette.textPrimary)
         if (user.isRoot) {
-            Text(
-                "root",
-                style = IosType.caption2.semibold,
-                color = Theme.accent,
-                modifier = Modifier.clip(CircleShape).background(Theme.accent.copy(alpha = 0.2f))
-                    .padding(horizontal = AppTheme.Layout.compactSpacing, vertical = AppTheme.Layout.hairlineSpacing),
-            )
+            AbstandBadge("root", tone = AbstandBadgeTone.Accent)
         } else {
             user.typeLabel?.let { Text(it, style = IosType.caption2, color = palette.textSecondary) }
         }
@@ -220,13 +215,7 @@ private fun UserHeaderBlock(detail: AbsAdminUserDetail) {
     ) {
         Text(detail.lastSeenCaption(), style = IosType.subheadline, color = palette.textSecondary)
         detail.typeLabel?.let { type ->
-            Text(
-                type,
-                style = IosType.caption.semibold,
-                color = palette.textSecondary,
-                modifier = Modifier.clip(CircleShape).background(palette.card)
-                    .padding(horizontal = AppTheme.Layout.inlineSpacing, vertical = AppTheme.Layout.tightSpacing),
-            )
+            AbstandBadge(type)
         }
     }
 }

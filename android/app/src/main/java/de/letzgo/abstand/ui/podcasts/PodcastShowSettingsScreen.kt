@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -58,6 +56,7 @@ import de.letzgo.abstand.ui.components.SettingsCardToggleRow
 import de.letzgo.abstand.ui.components.TabContentSectionTitle
 import de.letzgo.abstand.ui.components.abstandScrollBottomPadding
 import kotlinx.coroutines.launch
+import de.letzgo.abstand.ui.components.AbstandIconButton
 
 /** Navigationsziel der Sendungs-Verwaltung (iOS: Toolbar-Zahnrad → `ServerAdminPodcastShowView`). */
 class PodcastShowSettingsDestination(val showId: String, val showTitle: String) : TabDestination {
@@ -103,14 +102,20 @@ fun PodcastShowSettingsScreen(showId: String, showTitle: String, navigator: TabN
         onBack = { navigator.pop() },
         actions = {
             if (tab == PodcastShowSettingsTab.feed) {
-                IconButton(
+                AbstandIconButton(
+                    SF.arrowClockwise,
+                    "Refresh RSS feed",
                     onClick = { scope.launch { store.ensurePodcastRssFeedLoaded(showId, forceReload = true) } },
                     enabled = reachable && showId !in admin.rssFeedLoadInProgressShowIds,
-                ) { Icon(SF.arrowClockwise, contentDescription = "Refresh RSS feed") }
+                )
             }
-            IconButton(onClick = { confirmRemove = true }, enabled = reachable) {
-                Icon(SF.trash, contentDescription = "Remove from library", tint = if (reachable) AppTheme.danger else Theme.palette.textSecondary)
-            }
+            AbstandIconButton(
+                SF.trash,
+                "Remove from library",
+                onClick = { confirmRemove = true },
+                enabled = reachable,
+                tint = if (reachable) AppTheme.danger else Theme.palette.textSecondary,
+            )
         },
     ) { inner ->
         Column(Modifier.fillMaxSize().padding(top = inner.calculateTopPadding())) {
@@ -305,15 +310,22 @@ private fun PodcastRssFeedSection(
                         publishedAt = draft.publishedAt,
                     ) {
                         when {
-                            match != null -> IconButton(onClick = { deleteConfirmation = match }, enabled = reachable) {
-                                Icon(SF.trash, contentDescription = "Delete episode from library", tint = AppTheme.danger)
-                            }
+                            match != null -> AbstandIconButton(
+                                SF.trash,
+                                "Delete episode from library",
+                                onClick = { deleteConfirmation = match },
+                                enabled = reachable,
+                                tint = AppTheme.danger,
+                            )
                             draft.id in inProgressDraftIds -> AbstandInlineSpinner()
                             draft.id in completedDraftIds -> PodcastInLibraryLabel()
-                            else -> IconButton(
+                            else -> AbstandIconButton(
+                                SF.arrowDownCircle,
+                                "Download episode to server",
                                 onClick = { scope.launch { store.downloadPodcastRssEpisodeDraft(draft, showId) } },
                                 enabled = reachable,
-                            ) { Icon(SF.arrowDownCircle, contentDescription = "Download episode to server", tint = Theme.accent) }
+                                tint = Theme.accent,
+                            )
                         }
                     }
                 }
@@ -323,9 +335,13 @@ private fun PodcastRssFeedSection(
                     }
                     items(libraryOnly, key = { "lib-${it.progressLookupKey}" }) { episode ->
                         FeedDraftRow(showId, episode.episodeTitle, showTitle, episode.publishedAt) {
-                            IconButton(onClick = { deleteConfirmation = episode }, enabled = reachable) {
-                                Icon(SF.trash, contentDescription = "Delete episode from library", tint = AppTheme.danger)
-                            }
+                            AbstandIconButton(
+                                SF.trash,
+                                "Delete episode from library",
+                                onClick = { deleteConfirmation = episode },
+                                enabled = reachable,
+                                tint = AppTheme.danger,
+                            )
                         }
                     }
                 }

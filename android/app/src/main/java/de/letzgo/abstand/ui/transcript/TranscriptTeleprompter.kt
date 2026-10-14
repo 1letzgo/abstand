@@ -15,11 +15,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -63,6 +61,8 @@ import de.letzgo.abstand.ui.components.AbstandPrimaryButton
 import de.letzgo.abstand.ui.components.AbstandProminentButton
 import kotlin.math.floor
 import kotlin.math.roundToInt
+import de.letzgo.abstand.ui.components.AbstandProgressBar
+import de.letzgo.abstand.ui.components.AbstandBadge
 
 /**
  * iOS: Schriftgröße des Teleprompters (`PlayerTeleprompterMetrics.savedFontSize`/`persistFontSize`,
@@ -298,29 +298,13 @@ private fun LineText(
 /** Quelle des angezeigten Texts — eBook (korrekte Schreibweise) oder Spracherkennung. */
 @Composable
 private fun SourceBadge(showingEbook: Boolean, modifier: Modifier) {
-    val palette = Theme.palette
-    Row(
-        modifier
-            .background(palette.card.copy(alpha = 0.85f), CircleShape)
-            .padding(horizontal = AppTheme.Layout.compactSpacing, vertical = AppTheme.Layout.tightSpacing),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing),
-    ) {
-        Icon(
-            if (showingEbook) SF.bookClosed else Icons.Outlined.GraphicEq,
-            contentDescription = null,
-            tint = palette.textSecondary,
-            modifier = Modifier.size(SourceBadgeIconSize),
-        )
-        Text(
-            if (showingEbook) "Text from eBook" else "Text from transcript",
-            style = IosType.caption2.copy(fontWeight = FontWeight.Medium),
-            color = palette.textSecondary,
-        )
-    }
+    AbstandBadge(
+        if (showingEbook) "Text from eBook" else "Text from transcript",
+        modifier,
+        icon = if (showingEbook) SF.bookClosed else Icons.Outlined.GraphicEq,
+        containerColor = Theme.palette.card.copy(alpha = 0.85f),
+    )
 }
-
-private val SourceBadgeIconSize = 12.dp
 
 /** Android: Sprachmodell fehlt — Download nur nach ausdrücklichem Tap (wie stashy/iOS-Sprachpakete). */
 @Composable
@@ -355,12 +339,7 @@ private fun DownloadingOverlay(progress: Double) {
         verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing, Alignment.CenterVertically),
     ) {
         Text("Downloading speech model…", style = IosType.subheadline, color = palette.textSecondary)
-        LinearProgressIndicator(
-            progress = { progress.toFloat().coerceIn(0f, 1f) },
-            color = Theme.accent,
-            trackColor = palette.card,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        AbstandProgressBar(progress, trackColor = palette.card, contentDescription = "Speech model download")
         Text("${(progress * 100).roundToInt()} %", style = IosType.caption, color = palette.textSecondary)
     }
 }

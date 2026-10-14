@@ -1,18 +1,11 @@
 package de.letzgo.abstand.ui.settings
 
 import android.text.format.Formatter
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,7 +15,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -55,6 +47,9 @@ import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import de.letzgo.abstand.ui.components.AbstandIconButton
+import de.letzgo.abstand.ui.components.AbstandProgressBar
+import de.letzgo.abstand.ui.components.AbstandListRow
 
 /** iOS: Hub-Bereich „Downloads“ — Sektionen „Downloads“ und „Cache“. */
 fun LazyListScope.settingsDownloadsSections(session: SessionStore) {
@@ -274,39 +269,30 @@ fun SettingsDownloadsManageScreen(onBack: () -> Unit, model: AppModel = AppModel
 private fun DownloadManageActiveRow(storageId: String, progress: Double, isQueued: Boolean, onCancel: () -> Unit) {
     val palette = Theme.palette
     val entry = remember(storageId) { DownloadManager.catalogEntry(storageId) }
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = AppTheme.Layout.rowVerticalPadding),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
-    ) {
-        if (entry != null) {
-            DownloadCover(entry.libraryItemId)
-        } else {
-            SettingsCardIcon(if (isQueued) SF.circleDashed else SF.arrowDownCircle)
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-            Text(
-                entry?.title?.ifEmpty { null } ?: if (isQueued) "Waiting…" else "Downloading…",
-                style = IosType.body.medium, color = palette.textPrimary, maxLines = 2,
-            )
-            entry?.subtitle?.takeIf { it.isNotEmpty() }?.let {
-                Text(it, style = IosType.caption, color = palette.textSecondary, maxLines = 1)
-            }
+    AbstandListRow(
+        title = entry?.title?.ifEmpty { null } ?: if (isQueued) "Waiting…" else "Downloading…",
+        subtitle = entry?.subtitle,
+        titleStyle = IosType.body.medium,
+        titleMaxLines = 2,
+        verticalPadding = AppTheme.Layout.rowVerticalPadding,
+        leading = {
+            if (entry != null) DownloadCover(entry.libraryItemId) else SettingsCardIcon(if (isQueued) SF.circleDashed else SF.arrowDownCircle)
+        },
+        below = {
             when {
                 isQueued -> Text("Queued", style = IosType.caption2, color = Theme.accent)
                 // Balken nur bei Hörbüchern — Podcast-Folgen springen meist von 0 auf fertig.
-                entry?.isPodcastEpisode != true -> LinearProgressIndicator(
-                    progress = { progress.toFloat().coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().padding(top = AppTheme.Layout.hairlineWidth),
-                    color = Theme.accent,
-                    trackColor = palette.progressTrack,
-                )
+                entry?.isPodcastEpisode != true -> AbstandProgressBar(progress, Modifier.padding(top = AppTheme.Layout.hairlineWidth), contentDescription = "Downloading")
                 else -> Text("Downloading…", style = IosType.caption2, color = palette.textSecondary)
             }
-        }
-        IconButton(onClick = onCancel) {
-            Icon(SF.xmarkCircleFill, contentDescription = if (isQueued) "Remove from queue" else "Cancel download", tint = palette.textSecondary)
-        }
+        },
+    ) {
+        AbstandIconButton(
+            SF.xmarkCircleFill,
+            if (isQueued) "Remove from queue" else "Cancel download",
+            onClick = onCancel,
+            tint = palette.textSecondary,
+        )
     }
 }
 
@@ -316,22 +302,20 @@ private fun DownloadManageSavedRow(row: DownloadManageRow, onDelete: () -> Unit)
     val palette = Theme.palette
     val context = LocalContext.current
     var confirm by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = AppTheme.Layout.rowVerticalPadding),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
-    ) {
-        DownloadCover(row.libraryItemId)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-            Text(row.title, style = IosType.body.medium, color = palette.textPrimary, maxLines = 2)
-            row.author?.takeIf { it.isNotEmpty() }?.let { Text(it, style = IosType.caption, color = palette.textSecondary, maxLines = 1) }
+    AbstandListRow(
+        title = row.title,
+        subtitle = row.author,
+        titleStyle = IosType.body.medium,
+        titleMaxLines = 2,
+        verticalPadding = AppTheme.Layout.rowVerticalPadding,
+        leading = { DownloadCover(row.libraryItemId) },
+        below = {
             val meta = listOfNotNull(row.durationLabel, row.savedLabel.ifEmpty { null }).joinToString(" · ")
             if (meta.isNotEmpty()) Text(meta, style = IosType.caption2, color = palette.textSecondary, maxLines = 1)
-        }
+        },
+    ) {
         Text(Formatter.formatFileSize(context, row.byteCount), style = IosType.caption, color = palette.textSecondary)
-        IconButton(onClick = { confirm = true }) {
-            Icon(SF.trash, contentDescription = "Delete download", tint = AppTheme.danger)
-        }
+        AbstandIconButton(SF.trash, "Delete download", onClick = { confirm = true }, tint = AppTheme.danger)
     }
     if (confirm) {
         AbstandDialog(
@@ -340,8 +324,7 @@ private fun DownloadManageSavedRow(row: DownloadManageRow, onDelete: () -> Unit)
             message = "This removes the offline copy from this device. The item stays on your server.",
             confirmLabel = "Delete",
             destructive = true,
-            dismissOnConfirm = false,
-            onConfirm = { confirm = false; onDelete() },
+            onConfirm = onDelete,
         )
     }
 }

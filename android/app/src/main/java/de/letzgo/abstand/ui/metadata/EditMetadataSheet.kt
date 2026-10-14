@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +60,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import de.letzgo.abstand.ui.components.AbstandIconButton
 
 /** Feste Breite des Seriennummer-Feldes (iOS: `SeriesRowMetrics.numberFieldWidth`). */
 private val SeriesNumberFieldWidth = 64.dp
@@ -239,15 +239,20 @@ private fun EditMetadataForm(itemId: String, book: AbsBook, onDismiss: () -> Uni
                                     centered = true,
                                     modifier = Modifier.width(SeriesNumberFieldWidth),
                                 )
-                                IconButton(onClick = {
-                                    searchJobs.remove(row.id)?.cancel()
-                                    suggestions.remove(row.id)
-                                    if (searchBusyRow == row.id) searchBusyRow = null
-                                    val i = seriesRows.indexOfFirst { it.id == row.id }
-                                    if (i >= 0) {
-                                        if (seriesRows.size == 1) seriesRows[0] = EditSeriesRow() else seriesRows.removeAt(i)
-                                    }
-                                }) { Icon(SF.minusCircle, contentDescription = "Remove series", tint = palette.textSecondary) }
+                                AbstandIconButton(
+                                    SF.minusCircle,
+                                    "Remove series",
+                                    onClick = {
+                                        searchJobs.remove(row.id)?.cancel()
+                                        suggestions.remove(row.id)
+                                        if (searchBusyRow == row.id) searchBusyRow = null
+                                        val i = seriesRows.indexOfFirst { it.id == row.id }
+                                        if (i >= 0) {
+                                            if (seriesRows.size == 1) seriesRows[0] = EditSeriesRow() else seriesRows.removeAt(i)
+                                        }
+                                    },
+                                    tint = palette.textSecondary,
+                                )
                             }
                             val rowSuggestions = suggestions[row.id].orEmpty()
                             if (searchBusyRow == row.id) {

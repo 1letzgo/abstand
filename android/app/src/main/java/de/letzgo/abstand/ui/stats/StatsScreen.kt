@@ -1,6 +1,5 @@
 package de.letzgo.abstand.ui.stats
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -26,8 +24,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.AbsListeningStatsItemAggregate
@@ -46,7 +42,6 @@ import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.components.AbstandCard
 import de.letzgo.abstand.ui.components.AbstandGroupedCard
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
@@ -63,6 +58,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import de.letzgo.abstand.ui.components.AbstandCoverPillText
 
 /**
  * Navigation aus Stats in Detailseiten anderer Domänen (iOS: `BookDetailView`,
@@ -340,14 +336,7 @@ private fun StatsLibraryRowCard(
             Box(Modifier.size(side), contentAlignment = Alignment.BottomStart) {
                 SquareCoverImage(itemId = coverItemId, modifier = Modifier.size(side))
                 if (rank != null) {
-                    Text(
-                        "$rank",
-                        style = IosType.caption2.bold,
-                        color = Color.White,
-                        modifier = Modifier.padding(AppTheme.Layout.tightSpacing).clip(CircleShape)
-                            .background(palette.coverPlayBadgeBackground)
-                            .padding(horizontal = AppTheme.Layout.compactSpacing, vertical = AppTheme.Layout.badgeSpacing),
-                    )
+                    AbstandCoverPillText("$rank")
                 }
             }
             Column(

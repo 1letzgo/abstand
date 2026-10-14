@@ -22,11 +22,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -57,6 +54,10 @@ import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.components.abstandCardChrome
 import de.letzgo.abstand.ui.components.abstandCardElevation
 import de.letzgo.abstand.ui.semibold
+import de.letzgo.abstand.ui.components.AbstandIconButton
+import de.letzgo.abstand.ui.components.AbstandProgressRing
+import de.letzgo.abstand.ui.components.AbstandTextButton
+import de.letzgo.abstand.ui.components.AbstandCapsLabel
 
 /** iOS: `DetailHeroLayoutMetrics`. */
 object DetailHeroLayoutMetrics {
@@ -79,12 +80,10 @@ object DetailHeroLayoutMetrics {
 object DetailMetaLayoutMetrics {
     val thumbnailSize = 44.dp
     val labelToContentSpacing: Dp = AppTheme.Layout.compactSpacing
-    val labelIconSpacing = 5.dp
     val linkRowSpacing: Dp = AppTheme.Layout.withinSectionSpacing
     val disclosureContentTopPadding: Dp = AppTheme.Layout.compactSpacing
     val sectionCardSpacing: Dp = AppTheme.Layout.withinSectionSpacing
     const val descriptionCollapsedLineLimit = 4
-    val labelIconSize = 11.dp
 }
 
 
@@ -288,11 +287,7 @@ fun DetailHeroActionsBar(actions: List<DetailHeroMediaAction>, modifier: Modifie
 /** Meta-Überschrift (Symbol + Versalien, `footnote.semibold`, `textSecondary`). */
 @Composable
 fun DetailMetaLabel(title: String) {
-    val color = Theme.palette.textSecondary
-    Row(horizontalArrangement = Arrangement.spacedBy(DetailMetaLayoutMetrics.labelIconSpacing), verticalAlignment = Alignment.CenterVertically) {
-        DetailMetaLabelIcon.icon(title)?.let { Icon(it, null, tint = color, modifier = Modifier.size(DetailMetaLayoutMetrics.labelIconSize)) }
-        Text(title.uppercase(), style = IosType.footnote.semibold, color = color)
-    }
+    AbstandCapsLabel(title, icon = DetailMetaLabelIcon.icon(title))
 }
 
 /** iOS: `DetailDetailSectionCard` — Meta-Karte mit Cover-Tint-Fläche ([LocalDetailSectionCardBackground]). */
@@ -336,7 +331,7 @@ fun DetailMetaExpandableTextBlock(text: String, expanded: Boolean, onToggle: () 
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = onToggle) { Text(if (expanded) "Less" else "More", style = IosType.subheadline.semibold, color = Theme.accent) }
+            AbstandTextButton(if (expanded) "Less" else "More", onToggle, emphasized = true, compact = true)
         }
     }
 }
@@ -400,19 +395,18 @@ fun RowScope.DetailToolbarDownloadItem(storageId: String, onStartDownload: () ->
     val accent = Theme.accent
     when {
         active == storageId -> Box(Modifier.size(AppTheme.Layout.minTapTarget), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(
-                progress = { progress.toFloat() }, color = accent, strokeWidth = 2.dp,
-                modifier = Modifier.size(20.dp).semantics { contentDescription = "Downloading" },
-            )
+            AbstandProgressRing(progress, color = accent, contentDescription = "Downloading")
         }
         storageId in queued -> Box(Modifier.size(AppTheme.Layout.minTapTarget), contentAlignment = Alignment.Center) {
             Icon(SF.circleDashed, contentDescription = "Queued", tint = accent)
         }
-        storageId in downloaded -> IconButton(onClick = onRemoveDownload, enabled = enabled) {
-            Icon(SF.arrowDownCircleBadgeXmark, contentDescription = "Remove offline copy", tint = accent)
-        }
-        else -> IconButton(onClick = onStartDownload, enabled = enabled) {
-            Icon(SF.arrowDownCircle, contentDescription = "Download", tint = accent)
-        }
+        storageId in downloaded -> AbstandIconButton(
+            SF.arrowDownCircleBadgeXmark,
+            "Remove offline copy",
+            onClick = onRemoveDownload,
+            enabled = enabled,
+            tint = accent,
+        )
+        else -> AbstandIconButton(SF.arrowDownCircle, "Download", onClick = onStartDownload, enabled = enabled, tint = accent)
     }
 }

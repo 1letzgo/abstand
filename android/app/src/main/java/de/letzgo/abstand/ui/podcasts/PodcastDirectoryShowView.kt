@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +60,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Date
 import kotlinx.coroutines.launch
+import de.letzgo.abstand.ui.components.AbstandIconButton
 
 /** Navigationsziel: Sendungsvorschau aus dem „Add podcast“-Flow (iOS: `navigationDestination(item: $previewHit)`). */
 class PodcastDirectoryShowDestination(val hit: AbsPodcastDirectorySearchHit) : TabDestination {
@@ -353,9 +353,14 @@ private fun FeedEpisodeDownloadControl(
             store.podcastDirectoryEpisodeIsInLibrary(episode, hit) ->
                 Icon(SF.checkmarkCircleFill, contentDescription = "Episode already in library", tint = Theme.accent, modifier = Modifier.size(ControlIconSize))
             key in inProgressKeys -> AbstandInlineSpinner()
-            else -> IconButton(onClick = { scope.launch { store.downloadPodcastDirectoryEpisode(episode, hit) } }, enabled = reachable) {
-                Icon(SF.arrowDownCircle, contentDescription = "Download episode to server", tint = Theme.accent, modifier = Modifier.size(ControlIconSize))
-            }
+            else -> AbstandIconButton(
+                SF.arrowDownCircle,
+                "Download episode to server",
+                onClick = { scope.launch { store.downloadPodcastDirectoryEpisode(episode, hit) } },
+                enabled = reachable,
+                iconSize = ControlIconSize,
+                tint = Theme.accent,
+            )
         }
     }
 }

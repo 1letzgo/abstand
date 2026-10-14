@@ -1,7 +1,6 @@
 package de.letzgo.abstand.ui.detail
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -12,12 +11,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -55,8 +51,10 @@ import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import de.letzgo.abstand.ui.components.AbstandIconButton
+import de.letzgo.abstand.ui.components.AbstandDivider
+import de.letzgo.abstand.ui.components.AbstandListRow
 
-private val ThinDivider @Composable get() = Theme.palette.textSecondary.copy(alpha = 0.15f)
 
 // MARK: - Kapitel
 
@@ -64,15 +62,14 @@ private val ThinDivider @Composable get() = Theme.palette.textSecondary.copy(alp
 @Composable
 fun BookChapterRow(chapter: AbsChapter, playState: BookChapterPlayState, onPlay: () -> Unit) {
     val palette = Theme.palette
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onPlay).padding(vertical = AppTheme.Layout.withinSectionSpacing),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing),
+    AbstandListRow(
+        title = chapter.title,
+        subtitle = "${formatPlaybackTime(chapter.start)} – ${formatPlaybackTime(chapter.end)}",
+        onClick = onPlay,
+        titleStyle = IosType.headline,
+        titleMaxLines = Int.MAX_VALUE,
+        verticalPadding = AppTheme.Layout.withinSectionSpacing,
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-            Text(chapter.title, style = IosType.headline, color = palette.textPrimary)
-            Text("${formatPlaybackTime(chapter.start)} – ${formatPlaybackTime(chapter.end)}", style = IosType.caption, color = palette.textSecondary)
-        }
         when (playState) {
             BookChapterPlayState.Completed -> Icon(SF.checkmarkCircleFill, "Completed", tint = Theme.accent)
             BookChapterPlayState.InProgress -> Icon(SF.playCircleFill, "In progress", tint = Theme.accent)
@@ -92,7 +89,7 @@ fun BookChapterList(book: AbsBook, progress: AbsUserMediaProgress?, onPlayChapte
     Column(Modifier.fillMaxWidth()) {
         chapters.forEachIndexed { idx, ch ->
             BookChapterRow(ch, BookChapterPlayState.resolve(ch, progress)) { onPlayChapter(ch) }
-            if (idx < chapters.lastIndex) HorizontalDivider(color = ThinDivider)
+            if (idx < chapters.lastIndex) AbstandDivider(opacity = 0.15f)
         }
     }
 }
@@ -120,23 +117,18 @@ fun AudiobookBookmarkList(libraryItemId: String, onJump: (AbsAudioBookmark) -> U
     } else {
         Column(Modifier.fillMaxWidth()) {
             marks.forEachIndexed { idx, mark ->
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = AppTheme.Layout.rowVerticalPadding),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing),
+                AbstandListRow(
+                    title = mark.title.trim().ifEmpty { "—" },
+                    subtitle = formatPlaybackTime(mark.time.toDouble()),
+                    onClick = { onJump(mark) },
+                    titleStyle = IosType.subheadline.semibold,
+                    verticalPadding = AppTheme.Layout.rowVerticalPadding,
                 ) {
-                    Column(
-                        Modifier.weight(1f).clickable { onJump(mark) },
-                        verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing),
-                    ) {
-                        Text(mark.title.trim().ifEmpty { "—" }, style = IosType.subheadline.semibold, color = palette.textPrimary)
-                        Text(formatPlaybackTime(mark.time.toDouble()), style = IosType.caption, color = palette.textSecondary)
-                    }
                     if (reachable) {
-                        IconButton(onClick = { confirmDelete = mark }) { Icon(SF.trash, "Delete bookmark", tint = AppTheme.danger) }
+                        AbstandIconButton(SF.trash, "Delete bookmark", onClick = { confirmDelete = mark }, tint = AppTheme.danger)
                     }
                 }
-                if (idx < marks.lastIndex) HorizontalDivider(color = ThinDivider)
+                if (idx < marks.lastIndex) AbstandDivider(opacity = 0.15f)
             }
         }
     }
@@ -219,9 +211,13 @@ fun ListeningHistoryRow(session: AbsListeningSession, onJump: (AbsListeningSessi
                     style = IosType.caption, color = palette.textSecondary,
                 )
             }
-            IconButton(onClick = { onJump(session) }) {
-                Icon(SF.arrowCounterclockwiseCircleFill, "Jump to this session", tint = Theme.accent, modifier = Modifier.size(28.dp))
-            }
+            AbstandIconButton(
+                SF.arrowCounterclockwiseCircleFill,
+                "Jump to this session",
+                onClick = { onJump(session) },
+                iconSize = 28.dp,
+                tint = Theme.accent,
+            )
         }
         BoxWithConstraints(Modifier.fillMaxWidth().height(7.dp).background(palette.card, CircleShape)) {
             val x0 = (maxWidth * rel0.toFloat()).coerceIn(0.dp, maxWidth)

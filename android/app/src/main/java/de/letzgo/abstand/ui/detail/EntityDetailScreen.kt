@@ -63,6 +63,7 @@ import de.letzgo.abstand.ui.library.LibraryBookListCard
 import de.letzgo.abstand.ui.library.coverRevisionFor
 import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
+import de.letzgo.abstand.ui.components.AbstandCapsLabel
 
 /** iOS: `entityPlaceholderIcon`. */
 private val BooksEntityDetailNav.Kind.placeholderIcon: ImageVector
@@ -219,7 +220,7 @@ private fun EntityDescription(state: EntityDetailState) {
 
 @Composable
 private fun EntitySectionHeading(title: String) {
-    Text(title.uppercase(), style = IosType.caption.bold, color = Theme.palette.textSecondary, modifier = Modifier.fillMaxWidth())
+    AbstandCapsLabel(title, Modifier.fillMaxWidth())
 }
 
 /** iOS: `AuthorDetailBookListCard` — immer kompakte Zeile; Cover mittig beschnitten (außer reine eBooks). */

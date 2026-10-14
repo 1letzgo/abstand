@@ -12,7 +12,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -96,13 +95,12 @@ fun AbstandLabeledTextField(
                 modifier = Modifier.weight(1f).padding(FieldInnerPadding).semantics { contentDescription = title },
             )
             if (isSecure) {
-                IconButton(onClick = { revealed = !revealed }) {
-                    Icon(
-                        if (revealed) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                        contentDescription = if (revealed) "Hide password" else "Show password",
-                        tint = palette.textSecondary,
-                    )
-                }
+                AbstandIconButton(
+                    if (revealed) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                    if (revealed) "Hide password" else "Show password",
+                    onClick = { revealed = !revealed },
+                    tint = palette.textSecondary,
+                )
             }
         }
     }
@@ -141,9 +139,14 @@ fun AbstandSearchField(
             )
         }
         if (query.isNotEmpty()) {
-            IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(AppTheme.Layout.compactIconButtonSize)) {
-                Icon(SF.xmarkCircleFill, contentDescription = "Clear", tint = palette.textSecondary, modifier = Modifier.size(SearchIconSize))
-            }
+            AbstandIconButton(
+                SF.xmarkCircleFill,
+                "Clear",
+                onClick = { onQueryChange("") },
+                size = AppTheme.Layout.compactIconButtonSize,
+                iconSize = SearchIconSize,
+                tint = palette.textSecondary,
+            )
         }
     }
 }

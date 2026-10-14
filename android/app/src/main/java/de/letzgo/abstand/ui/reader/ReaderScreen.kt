@@ -39,7 +39,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -115,6 +114,7 @@ import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.services.locateProgression
 import org.readium.r2.shared.publication.services.positions
 import org.readium.r2.shared.util.AbsoluteUrl
+import de.letzgo.abstand.ui.components.AbstandTextButton
 
 /** iOS: `ReaderChromeMetrics` + Reader-Farben (feste Lesefarben wie Readium, nicht App-Palette). */
 internal object ReaderMetrics {
@@ -828,9 +828,7 @@ private fun EbookServerPositionBanner(
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onStay, modifier = Modifier.heightIn(min = AppTheme.Layout.minTapTarget)) {
-                Text("Stay here", style = IosType.subheadline.semibold, color = foreground)
-            }
+            AbstandTextButton("Stay here", onStay, Modifier.heightIn(min = AppTheme.Layout.minTapTarget), emphasized = true, compact = true, color = foreground)
             Spacer(Modifier.weight(1f))
             AbstandProminentButton(text = "Go to ${percent(offer.serverFraction)}", onClick = onContinue)
         }

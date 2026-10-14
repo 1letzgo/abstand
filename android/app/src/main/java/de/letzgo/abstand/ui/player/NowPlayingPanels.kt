@@ -53,6 +53,7 @@ import de.letzgo.abstand.ui.detail.ListeningHistorySessionList
 import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
+import de.letzgo.abstand.ui.components.AbstandListRow
 
 /** iOS: `FullPlayerCoverPanel` — was den Cover-Bereich ersetzt (+ Read-along, iOS: Teleprompter-Zustand). */
 enum class FullPlayerCoverPanel { artwork, description, bookmarks, chapters, sessions, readAlong }
@@ -211,17 +212,13 @@ fun BookmarksPanel(wiring: PlayerWiring, audiobookId: String) {
         } else {
             LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                 itemsIndexed(list, key = { _, b -> b.id }) { _, b ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { wiring.player.seek(b.time.toDouble()) }
-                            .padding(start = AppTheme.Layout.cardPadding, top = AppTheme.Layout.tightSpacing, bottom = AppTheme.Layout.tightSpacing),
-                        verticalAlignment = Alignment.CenterVertically,
+                    AbstandListRow(
+                        title = b.title.ifBlank { "Bookmark" },
+                        subtitle = formatPlaybackTime(b.time.toDouble()),
+                        onClick = { wiring.player.seek(b.time.toDouble()) },
+                        titleMaxLines = 2,
+                        modifier = Modifier.padding(start = AppTheme.Layout.cardPadding),
                     ) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-                            Text(b.title.ifBlank { "Bookmark" }, style = IosType.body, color = palette.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(formatPlaybackTime(b.time.toDouble()), style = IosType.footnote, color = palette.textSecondary)
-                        }
                         AbstandIconButton(SF.trash, "Delete bookmark", onClick = { deleting = b }, tint = AppTheme.danger)
                     }
                 }

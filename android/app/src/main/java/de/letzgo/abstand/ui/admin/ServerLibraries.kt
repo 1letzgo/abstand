@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +57,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import de.letzgo.abstand.ui.components.AbstandIconButton
 
 /** iOS: `ServerLibrariesListView`. */
 data object ServerLibrariesDestination : TabDestination {
@@ -237,20 +237,24 @@ fun ServerLibraryDetailScreen(library: AbsLibrary, navigator: TabNavigator, admi
             title = library.name,
             onBack = { navigator.pop() },
             actions = {
-                IconButton(onClick = {
-                    scope.launch {
-                        try {
-                            admin.scanServerLibrary(library.id)
-                            scanMessage = "Scan started."
-                            loadError = null
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            scanMessage = null
-                            loadError = e.message
+                AbstandIconButton(
+                    SF.arrowClockwise,
+                    "Scan library",
+                    onClick = {
+                        scope.launch {
+                            try {
+                                admin.scanServerLibrary(library.id)
+                                scanMessage = "Scan started."
+                                loadError = null
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                scanMessage = null
+                                loadError = e.message
+                            }
                         }
-                    }
-                }) { Icon(SF.arrowClockwise, contentDescription = "Scan library") }
+                    },
+                )
             },
         ) {
             scanMessage?.let { msg -> item(key = "scan") { Text(msg, style = IosType.caption, color = palette.textSecondary) } }

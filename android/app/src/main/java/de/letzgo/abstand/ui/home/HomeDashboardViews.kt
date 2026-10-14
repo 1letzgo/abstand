@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -50,6 +48,7 @@ import de.letzgo.abstand.ui.destinations.AuthorDestination
 import de.letzgo.abstand.ui.destinations.BookDetailDestination
 import de.letzgo.abstand.ui.destinations.EpisodeDestination
 import de.letzgo.abstand.ui.destinations.SeriesDestination
+import de.letzgo.abstand.ui.components.AbstandIconButton
 
 // iOS: HomeDashboardViews.swift — Home-Tab (`HomeTabRootView` + `StartDashboardView`).
 
@@ -140,9 +139,7 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
 /** iOS: `HomeGoOfflineToolbarButton` — statischer Offline-/Online-Schalter (nur Symbol). */
 @Composable
 private fun HomeGoOfflineToolbarButton(offline: Boolean, onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
-        Icon(if (offline) SF.icloudSlash else SF.icloud, contentDescription = if (offline) "Go online" else "Go offline")
-    }
+    AbstandIconButton(if (offline) SF.icloudSlash else SF.icloud, if (offline) "Go online" else "Go offline", onClick = onClick)
 }
 
 /** iOS: `startDashboardShelfContent` — Continue listening als Hero-Karten, sonst Kompaktkarten. */

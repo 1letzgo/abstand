@@ -56,13 +56,18 @@ private val PrimaryVerticalPadding = 14.dp
 private val ProminentHorizontalPadding = 14.dp
 private val ProminentVerticalPadding = 8.dp
 
+/** Akzent- bzw. bei [destructive] Danger-Fläche (iOS: `.environment(\.themeAccent, AppTheme.danger)`). */
 @Composable
-private fun accentButtonColors() = ButtonDefaults.buttonColors(
-    containerColor = Theme.accent,
-    contentColor = Theme.onAccent,
-    disabledContainerColor = Theme.accent.copy(alpha = DisabledFillOpacity),
-    disabledContentColor = Theme.onAccent,
-)
+private fun accentButtonColors(destructive: Boolean = false): androidx.compose.material3.ButtonColors {
+    val fill = if (destructive) AppTheme.danger else Theme.accent
+    val content = if (destructive) Theme.palette.foregroundOnAccent(AppTheme.danger) else Theme.onAccent
+    return ButtonDefaults.buttonColors(
+        containerColor = fill,
+        contentColor = content,
+        disabledContainerColor = fill.copy(alpha = DisabledFillOpacity),
+        disabledContentColor = content,
+    )
+}
 
 /**
  * iOS: `AbstandPrimaryButtonStyle` — vollbreite Primäraktion (Login, Bestätigen) in
@@ -113,6 +118,7 @@ fun AbstandProminentButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     capsule: Boolean = false,
+    destructive: Boolean = false,
     content: @Composable RowScope.() -> Unit,
 ) {
     Button(
@@ -120,7 +126,7 @@ fun AbstandProminentButton(
         modifier = modifier,
         enabled = enabled,
         shape = if (capsule) CircleShape else RoundedCornerShape(AppTheme.Layout.cardCornerRadius),
-        colors = accentButtonColors(),
+        colors = accentButtonColors(destructive),
         contentPadding = if (capsule) PaddingValues(0.dp) else PaddingValues(
             horizontal = ProminentHorizontalPadding, vertical = ProminentVerticalPadding,
         ),
@@ -129,7 +135,7 @@ fun AbstandProminentButton(
     }
 }
 
-/** [AbstandProminentButton] mit Text (+ optionalem Symbol). */
+/** [AbstandProminentButton] mit Text (+ optionalem Symbol); [destructive] = Danger-Fläche. */
 @Composable
 fun AbstandProminentButton(
     text: String,
@@ -138,8 +144,9 @@ fun AbstandProminentButton(
     icon: ImageVector? = null,
     enabled: Boolean = true,
     isBusy: Boolean = false,
+    destructive: Boolean = false,
 ) {
-    AbstandProminentButton(onClick, modifier, enabled = enabled && !isBusy) {
+    AbstandProminentButton(onClick, modifier, enabled = enabled && !isBusy, destructive = destructive) {
         ButtonLabel(text, icon, isBusy)
     }
 }
@@ -305,7 +312,8 @@ fun AbstandPlayPill(
 
 /**
  * Text-Knopf ohne Fläche (Dialog-/Toolbar-Aktionen, „Show all“): Akzent, [destructive] = danger,
- * [emphasized] = semibold. Ersetzt rohes `TextButton { Text(…) }`.
+ * [emphasized] = semibold, [compact] = `subheadline` statt `body` (Aktionen im Inhalt).
+ * Ersetzt rohes `TextButton { Text(…) }`.
  */
 @Composable
 fun AbstandTextButton(
@@ -315,6 +323,7 @@ fun AbstandTextButton(
     enabled: Boolean = true,
     destructive: Boolean = false,
     emphasized: Boolean = false,
+    compact: Boolean = false,
     color: Color = Color.Unspecified,
 ) {
     val base = when {
@@ -325,7 +334,7 @@ fun AbstandTextButton(
     androidx.compose.material3.TextButton(onClick = onClick, enabled = enabled, modifier = modifier) {
         Text(
             text,
-            style = if (emphasized) IosType.body.semibold else IosType.body,
+            style = (if (compact) IosType.subheadline else IosType.body).let { if (emphasized) it.semibold else it },
             color = if (enabled) base else Theme.palette.textSecondary.copy(alpha = 0.5f),
             maxLines = 1,
         )

@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -54,6 +53,7 @@ import de.letzgo.abstand.ui.components.MetadataSheetToggleRow
 import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import de.letzgo.abstand.ui.components.AbstandBadge
 
 /** iOS: `MatchResultCoverMetrics`. */
 private val MatchCoverWidth = 56.dp
@@ -237,8 +237,8 @@ private fun MatchCard(match: AbsMetadataMatch, onClick: () -> Unit) {
                     match.displayAuthors?.let { Text(it, style = IosType.footnote, color = palette.textSecondary, maxLines = 1) }
                     match.displayNarrator?.let { Text("Narrated by $it", style = IosType.footnote, color = palette.textSecondary, maxLines = 1) }
                     Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
-                        match.displayYear?.let { Chip(it) }
-                        match.publisher?.trim()?.takeIf { it.isNotEmpty() }?.let { Chip(it) }
+                        match.displayYear?.let { AbstandBadge(it, containerColor = Theme.palette.background) }
+                        match.publisher?.trim()?.takeIf { it.isNotEmpty() }?.let { AbstandBadge(it, containerColor = Theme.palette.background) }
                     }
                 }
             }
@@ -248,15 +248,6 @@ private fun MatchCard(match: AbsMetadataMatch, onClick: () -> Unit) {
     }
 }
 
-@Composable
-private fun Chip(text: String) {
-    val palette = Theme.palette
-    Text(
-        text, style = IosType.caption2, color = palette.textSecondary, maxLines = 1,
-        modifier = Modifier.clip(CircleShape).background(palette.background.copy(alpha = 0.6f))
-            .padding(horizontal = AppTheme.Layout.inlineSpacing, vertical = AppTheme.Layout.tightSpacing),
-    )
-}
 
 /** Reine Logik des Match-Sheets (testbar). */
 object MatchLogic {

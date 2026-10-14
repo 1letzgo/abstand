@@ -8,16 +8,8 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.ui.graphics.Color
-import de.letzgo.abstand.ui.semibold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,7 +19,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.SF
@@ -115,8 +106,8 @@ fun DebugLogSection() {
                 )
                 AbstandProminentButton(text = "Refresh", icon = SF.arrowClockwise, onClick = { entries = DebugLogCollector.entries })
                 // Destruktiv: Prominent-Stil mit Danger statt Akzent (iOS: `themeAccent` lokal auf Danger).
-                DangerProminentButton(
-                    text = "Clear", enabled = entries.isNotEmpty(),
+                AbstandProminentButton(
+                    text = "Clear", icon = SF.trash, enabled = entries.isNotEmpty(), destructive = true,
                     onClick = { DebugLogCollector.clear(); entries = emptyList() },
                 )
             }
@@ -141,36 +132,6 @@ fun DebugLogSection() {
         }
     }
 }
-
-/**
- * Prominent-Stil in Danger statt Akzent (iOS: `.environment(\.themeAccent, AppTheme.danger)` +
- * `AbstandProminentButtonStyle`).
- */
-@Composable
-private fun DangerProminentButton(text: String, enabled: Boolean, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        shape = RoundedCornerShape(AppTheme.Layout.cardCornerRadius),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = AppTheme.danger,
-            contentColor = Color.White,
-            disabledContainerColor = AppTheme.danger.copy(alpha = DISABLED_FILL_OPACITY),
-            disabledContentColor = Color.White,
-        ),
-        contentPadding = PaddingValues(horizontal = AppTheme.Layout.cardPadding, vertical = AppTheme.Layout.inlineSpacing),
-    ) {
-        Icon(SF.trash, contentDescription = null, modifier = Modifier.size(DangerIconSize))
-        Spacer(Modifier.size(AppTheme.Layout.inlineSpacing))
-        Text(text, style = IosType.body.semibold)
-    }
-}
-
-/** Symbolgröße im Button-Label (iOS: SF-Symbol in `.body`). */
-private val DangerIconSize = 20.dp
-
-/** iOS: `AbstandPrimaryButtonStyle.fillOpacity` (deaktiviert). */
-private const val DISABLED_FILL_OPACITY = 0.35f
 
 /** iOS: `entries.suffix(50)`. */
 private const val LAST_VISIBLE = 50
