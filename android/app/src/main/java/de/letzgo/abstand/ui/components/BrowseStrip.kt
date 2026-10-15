@@ -1,5 +1,24 @@
 package de.letzgo.abstand.ui.components
 
+import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.AppType
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.draw.clip
+import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -199,6 +218,102 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
             } else {
                 list()
             }
+        }
+    }
+}
+
+/**
+ * Bereichsumschalter als Icon-Tabs (wie stashy `NativeTabStrip`): nur Symbol, der aktive Tab
+ * Symbol + Label mit Akzent-Indikator — für Bereiche ohne Bibliothek (Settings), wo eine Pill
+ * mehr Platz kostet als sie bringt.
+ */
+@Composable
+fun AbstandBrowseIconTabs(
+    items: List<AbstandBrowseStripItem>,
+    selectionId: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (items.isEmpty()) return
+    val haptics = LocalHapticFeedback.current
+    val selectedIndex = items.indexOfFirst { it.id == selectionId }.coerceAtLeast(0)
+    CompactIconTabs(
+        items, selectedIndex,
+        { item ->
+            if (item.id != selectionId) {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onSelect(item.id)
+            }
+        },
+        pinFirst = false,
+        modifier = modifier.fillMaxWidth(),
+    )
+}
+
+/**
+ * Icon-Tabs (stashy `CompactIconTabs`): eigene Zeile statt `ScrollableTabRow`, weil diese jedem
+ * Tab 90 dp Mindestbreite gibt und reine Symbol-Tabs weit auseinanderzieht.
+ */
+@Composable
+private fun CompactIconTabs(
+    items: List<AbstandBrowseStripItem>,
+    selectedIndex: Int,
+    onSelect: (AbstandBrowseStripItem) -> Unit,
+    pinFirst: Boolean,
+    modifier: Modifier,
+) {
+    val scrolling = if (pinFirst) items.drop(1) else items
+    val offset = if (pinFirst) 1 else 0
+    val scrollIndex = (selectedIndex - offset).takeIf { it >= 0 }
+    val state = rememberLazyListState()
+    LaunchedEffect(scrollIndex) { scrollIndex?.let { state.animateScrollToItem((it - 1).coerceAtLeast(0)) } }
+    Row(modifier.heightIn(min = AppTheme.Layout.minTapTarget), verticalAlignment = Alignment.CenterVertically) {
+        if (pinFirst) {
+            Spacer(Modifier.width(AppTheme.Layout.stackSpacing))
+            CompactIconTab(items[0], selectedIndex == 0, onSelect)
+        }
+        LazyRow(
+            Modifier.weight(1f).heightIn(min = AppTheme.Layout.minTapTarget),
+            state = state,
+            contentPadding = PaddingValues(horizontal = AppTheme.Layout.stackSpacing),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            items(scrolling.size, key = { scrolling[it].id }) { i ->
+                CompactIconTab(scrolling[i], i + offset == selectedIndex, onSelect)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactIconTab(item: AbstandBrowseStripItem, isSelected: Boolean, onSelect: (AbstandBrowseStripItem) -> Unit) {
+    val accent = Theme.accent
+    val color = if (isSelected) accent else Theme.palette.textSecondary
+    Box(
+        Modifier
+            .heightIn(min = AppTheme.Layout.minTapTarget)
+            .clip(RoundedCornerShape(AppTheme.Layout.cornerMedium))
+            .clickable(role = Role.Tab) { onSelect(item) }
+            .semantics { selected = isSelected }
+            .padding(horizontal = AppTheme.Layout.rowSpacing),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            Modifier.padding(vertical = AppTheme.Layout.compactSpacing).animateContentSize(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing),
+        ) {
+            Icon(item.icon, if (isSelected) null else item.label, tint = color, modifier = Modifier.size(AppTheme.Layout.iconSize))
+            if (isSelected) Text(item.label, style = AppType.titleSmall, color = color, maxLines = 1)
+        }
+        if (isSelected) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .width(AppTheme.Layout.browseTabIndicatorWidth)
+                    .height(AppTheme.Layout.browseTabIndicatorHeight)
+                    .background(accent, RoundedCornerShape(topStart = AppTheme.Layout.browseTabIndicatorHeight, topEnd = AppTheme.Layout.browseTabIndicatorHeight)),
+            )
         }
     }
 }
