@@ -1,6 +1,5 @@
 package de.letzgo.abstand.ui.components
 
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -8,13 +7,11 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Tab
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,11 +41,10 @@ data class AbstandBrowseStripItem(
 )
 
 /**
- * Bereichsumschalter als Top-Leiste (kein Titel — der Tab-Name steht in der Navigation Bar) mit
- * den Dropdown-Pills aus iOS `AbstandPinnedBrowseStrip`: links die Bibliothek (nur bei mehreren
- * aktiven Bibliotheken), daneben der Bereich — gemeinsam über die Breite bis zu den Aktionen
- * (Vorlage = die Variante mit zwei Bibliotheken); mit einer Bibliothek füllt die Bereichs-Pill sie
- * allein. Aktionen des Screens stehen rechts daneben (siehe `TabRootScaffold`).
+ * Bereichsumschalter unter der Titelzeile mit den Dropdown-Pills aus iOS `AbstandPinnedBrowseStrip`:
+ * eigene Zeile über die volle Breite, links die Bibliothek, rechts der Bereich (50/50) — **immer**
+ * beide, auch bei nur einer aktiven Bibliothek (die Pill zeigt dann deren Namen). Ohne
+ * Bibliotheksauswahl (Settings) füllt die Bereichs-Pill die Zeile allein.
  */
 @Composable
 fun AbstandBrowsePills(
@@ -73,11 +69,11 @@ fun AbstandBrowsePills(
     Row(
         modifier
             .fillMaxWidth()
-            .padding(start = AppTheme.Layout.tabPaddingH, end = AppTheme.Layout.stackSpacing, top = dock.verticalPadding, bottom = dock.verticalPadding),
+            .padding(horizontal = AppTheme.Layout.tabPaddingH, vertical = dock.verticalPadding),
         horizontalArrangement = Arrangement.spacedBy(dock.itemSpacing),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (onSelectLibrary != null && libraryItems.size > 1) {
+        if (onSelectLibrary != null && libraryItems.isNotEmpty()) {
             AbstandDropdownPill(libraryItems, librarySelectionId, onSelectLibrary, Modifier.weight(1f), SF.booksVerticalFill, "Library")
             AbstandDropdownPill(items, selectionId, select, Modifier.weight(1f), SF.squareGrid2x2, sectionAccessibilityLabel)
         } else {
