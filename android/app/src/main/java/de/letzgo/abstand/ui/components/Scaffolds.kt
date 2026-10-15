@@ -139,7 +139,7 @@ fun TabRootScaffold(
                     scrollBehavior = scrollBehavior,
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = palette.background,
-                        scrolledContainerColor = palette.background,
+                        scrolledContainerColor = palette.scheme.surfaceContainer,
                         titleContentColor = palette.textPrimary,
                         actionIconContentColor = Theme.accent,
                     ),
@@ -232,7 +232,7 @@ fun SettingsSubpageScaffold(
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = palette.background,
-                    scrolledContainerColor = palette.background,
+                    scrolledContainerColor = palette.scheme.surfaceContainer,
                     titleContentColor = palette.textPrimary,
                     navigationIconContentColor = palette.textPrimary,
                     actionIconContentColor = Theme.accent,
@@ -303,7 +303,7 @@ fun MetadataSheetScaffold(
                     actions = { if (onConfirm != null) SheetConfirmAction(confirmLabel, onConfirm, confirmEnabled, isBusy) },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = palette.background,
-                        scrolledContainerColor = palette.background,
+                        scrolledContainerColor = palette.scheme.surfaceContainer,
                         titleContentColor = palette.textPrimary,
                     ),
                 )

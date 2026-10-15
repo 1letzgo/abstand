@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -131,7 +130,9 @@ private fun MainTabShell(session: SessionStore, player: PlayerWiring) {
         contentColor = palette.textPrimary,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            NavigationBar(containerColor = palette.card) {
+            // M3-Standardrollen: Leiste surfaceContainer, Indicator secondaryContainer,
+            // aktives Symbol onSecondaryContainer, Labels onSurface / onSurfaceVariant.
+            NavigationBar {
                 visibleTabs.forEach { tab ->
                     NavigationBarItem(
                         selected = tab == current,
@@ -141,13 +142,6 @@ private fun MainTabShell(session: SessionStore, player: PlayerWiring) {
                         },
                         icon = { Icon(tab.icon, contentDescription = null) },
                         label = { Text(tab.label) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Theme.accent,
-                            selectedTextColor = Theme.accent,
-                            indicatorColor = Theme.accent.copy(alpha = 0.16f),
-                            unselectedIconColor = palette.textSecondary,
-                            unselectedTextColor = palette.textSecondary,
-                        ),
                     )
                 }
             }

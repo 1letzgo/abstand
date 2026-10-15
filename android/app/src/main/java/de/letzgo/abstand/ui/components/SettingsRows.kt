@@ -1,5 +1,6 @@
 package de.letzgo.abstand.ui.components
 
+import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -74,7 +75,14 @@ private val ColorPreviewSize = 56.dp
 @Composable
 fun ServerAdminSection(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing)) {
-        TabContentSectionTitle(title)
+        // M3-Listen-Subheader: titleSmall in primary.
+        Text(
+            title,
+            style = AppType.titleSmall,
+            color = Theme.accent,
+            modifier = Modifier.fillMaxWidth().padding(top = AppTheme.Layout.stackSpacing, start = AppTheme.Layout.settingsCardInsetHPadding)
+                .semantics { heading() },
+        )
         content()
     }
 }
@@ -83,7 +91,7 @@ fun ServerAdminSection(title: String, modifier: Modifier = Modifier, content: @C
 @Composable
 fun SettingsCardIcon(icon: ImageVector, tint: Color? = null) {
     Box(Modifier.width(AppTheme.Layout.settingsIconColumnWidth), contentAlignment = Alignment.Center) {
-        Icon(icon, contentDescription = null, tint = tint ?: Theme.accent, modifier = Modifier.size(RowIconSize))
+        Icon(icon, contentDescription = null, tint = tint ?: Theme.palette.textSecondary, modifier = Modifier.size(RowIconSize))
     }
 }
 
@@ -93,7 +101,7 @@ fun SettingsCardDivider(modifier: Modifier = Modifier) {
     HorizontalDivider(
         modifier.padding(vertical = AppTheme.Layout.settingsCardDividerSpacing),
         thickness = AppTheme.Layout.hairlineWidth,
-        color = Theme.palette.textSecondary.copy(alpha = 0.25f),
+        color = Theme.palette.scheme.outlineVariant,
     )
 }
 
@@ -162,15 +170,18 @@ fun SettingsCardToggleRow(
     }
 }
 
-/** Switch-Farben: Akzent-Spur, Daumen in `foregroundOnAccent` (iOS: `.tint(themeAccent)`). */
+/**
+ * Switch-Farben: Akzent-Spur, Daumen in `onPrimary` (iOS: `.tint(themeAccent)`); aus nach M3
+ * (Spur surfaceContainerHighest, Daumen und Rand outline).
+ */
 @Composable
 fun abstandSwitchColors() = SwitchDefaults.colors(
     checkedTrackColor = Theme.accent,
     checkedThumbColor = Theme.onAccent,
     checkedBorderColor = Theme.accent,
-    uncheckedTrackColor = Theme.palette.background,
-    uncheckedThumbColor = Theme.palette.textSecondary,
-    uncheckedBorderColor = Theme.palette.textSecondary.copy(alpha = 0.5f),
+    uncheckedTrackColor = Theme.palette.scheme.surfaceContainerHighest,
+    uncheckedThumbColor = Theme.palette.scheme.outline,
+    uncheckedBorderColor = Theme.palette.scheme.outline,
 )
 
 /**

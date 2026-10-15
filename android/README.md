@@ -14,7 +14,8 @@ What is language-neutral is shared 1:1:
   the Android unit tests read them as test resources.
 
 **Goal: behave like the iOS app, look like a standard Material 3 app** — same tabs, order, labels
-(English UI), defaults, features, palette/accent and screen structure as iOS; dimensions, spacing,
+(English UI), defaults, features, accent and screen structure as iOS; colors are a Material 3
+scheme generated from the iOS accent (accent = seed = `primary`, see `UI_TEMPLATES.txt` → "Material 3 colors"); dimensions, spacing,
 typography and component sizes follow **Material 3** (4-dp grid, 48-dp touch targets, M3 type
 scale). The token *names* stay the iOS ones (`AppTheme.Layout.rowSpacing`, `cardPadding`, …) so call
 sites remain comparable; only their Android values differ (table: `UI_TEMPLATES.txt` → "Material 3

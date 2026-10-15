@@ -8,7 +8,7 @@ import org.junit.Test
  * „Lint“ für das Design-System (android/README.md, android/UI_TEMPLATES.txt): Menüs, Dialoge,
  * Sheets, Icon-/Text-Buttons, Chips, Segment-Umschalter und Fortschrittsanzeigen werden nur in
  * `ui/components/` aus Material-Widgets gebaut — überall sonst die `Abstand*`-Vorlagen nutzen.
- * Rohe `Color(0x…)`-Literale gehören nur in Theme.kt/Palette.kt. Maße folgen dem Material-3-
+ * Rohe `Color(0x…)`-Literale gehören nur in Theme.kt/Palette.kt/MaterialScheme.kt. Maße folgen dem Material-3-
  * 4-dp-Raster (`.dp`-Literale außerhalb von ui/components/Theme nur als Vielfache von 4, Haarlinien
  * 0,5/1 dp ausgenommen), Schriftgrößen nur aus `AppType` (keine `fontSize = 17`/`17.sp`-Literale).
  */
@@ -88,7 +88,7 @@ class UiTemplateLintTest {
 
     @Test
     fun hexColorLiteralsOnlyInThemeAndPalette() {
-        val allowed = setOf("de/letzgo/abstand/ui/Theme.kt", "de/letzgo/abstand/ui/Palette.kt")
+        val allowed = setOf("de/letzgo/abstand/ui/Theme.kt", "de/letzgo/abstand/ui/Palette.kt", "de/letzgo/abstand/ui/MaterialScheme.kt")
         val violations = kotlinFiles()
             .filterNot { relative(it) in allowed }
             .flatMap { file ->
@@ -97,7 +97,7 @@ class UiTemplateLintTest {
                 }
             }
         assertTrue(
-            "Color(0x…)-Literale außerhalb von Theme.kt/Palette.kt — Farbe in AppTheme/Palette definieren:\n" + violations.joinToString("\n"),
+            "Color(0x…)-Literale außerhalb von Theme.kt/Palette.kt/MaterialScheme.kt — Farbe in AppTheme/Palette definieren:\n" + violations.joinToString("\n"),
             violations.isEmpty(),
         )
     }

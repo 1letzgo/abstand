@@ -63,26 +63,28 @@ class AppearanceColorTest {
         assertEquals("abstand_appearance_accent_rgb_light", AppearanceAccentSlot.Light.prefsKey)
     }
 
-    @Test fun darkPaletteIsFixed() {
-        val p = AppColorPalette.derived(Color(0.2f, 0.9f, 0.1f), isDarkLike = true)
+    /** Android: Palette = M3-Rollen aus dem Akzent-Seed (Dark: getönte Flächen statt #353535/#454545). */
+    @Test fun darkPaletteUsesMaterialSurfaces() {
+        val p = AppColorPalette.derived(AppTheme.defaultAccent, isDarkLike = true)
         assertTrue(p.isDarkLike)
-        assertRgb(Rgb(53 / 255.0, 53 / 255.0, 53 / 255.0), p.background)
-        assertRgb(Rgb(69 / 255.0, 69 / 255.0, 69 / 255.0), p.card)
-        assertRgb(Rgb(176 / 255.0, 176 / 255.0, 176 / 255.0), p.textSecondary)
+        assertEquals(6.0, TonalColor.tone(p.background), 1.0)
+        assertEquals(17.0, TonalColor.tone(p.card), 1.0)
+        assertEquals(90.0, TonalColor.tone(p.textPrimary), 1.0)
+        assertEquals(80.0, TonalColor.tone(p.textSecondary), 1.0)
+        assertEquals(p.scheme.surface, p.background)
+        assertEquals(p.scheme.surfaceContainerHigh, p.card)
+        assertEquals(p.scheme.secondaryContainer, p.progressTrack)
         assertEquals(0.36f, p.cardShadow.alpha, 0.005f)
         assertEquals(0.32f, p.heroCardShadow.alpha, 0.005f)
-        assertEquals(0.14f, p.progressTrack.alpha, 0.005f)
     }
 
-    @Test fun lightPaletteMixesAccent() {
+    @Test fun lightPaletteUsesMaterialSurfaces() {
         val p = AppColorPalette.derived(AppTheme.defaultLightAccent, isDarkLike = false)
         assertFalse(p.isDarkLike)
-        // background = (252,252,250)·0.9 + (0,55,74)·0.1
-        assertRgb(Rgb(226.8 / 255, 232.3 / 255, 232.4 / 255), p.background)
-        // card = (230,230,228)·0.84 + (0,55,74)·0.16
-        assertRgb(Rgb(193.2 / 255, 202.0 / 255, 203.36 / 255), p.card)
-        assertRgb(Rgb(28 / 255.0, 28 / 255.0, 30 / 255.0), p.textPrimary)
-        assertRgb(Rgb(110 / 255.0, 110 / 255.0, 115 / 255.0), p.textSecondary)
+        assertEquals(98.0, TonalColor.tone(p.background), 1.0)
+        assertEquals(92.0, TonalColor.tone(p.card), 1.0)
+        assertEquals(10.0, TonalColor.tone(p.textPrimary), 1.0)
+        assertEquals(30.0, TonalColor.tone(p.textSecondary), 1.0)
         assertEquals(0.1f, p.cardShadow.alpha, 0.005f)
     }
 
@@ -91,7 +93,7 @@ class AppearanceColorTest {
         val light = AppColorPalette.derived(AppTheme.defaultLightAccent, false)
         // Gelber Standard-Akzent ist hell (Luminanz ≈ 0,58 > 0,55) → dunkle Schrift.
         assertRgb(Rgb(42 / 255.0, 32 / 255.0, 24 / 255.0), dark.foregroundOnAccent(AppTheme.defaultAccent))
-        assertRgb(Rgb(28 / 255.0, 28 / 255.0, 30 / 255.0), light.foregroundOnAccent(AppTheme.defaultAccent))
+        assertEquals(light.textPrimary, light.foregroundOnAccent(AppTheme.defaultAccent))
         assertEquals(Color.White, light.foregroundOnAccent(AppTheme.defaultLightAccent))
         assertEquals(Color.White, dark.foregroundOnAccent(AppTheme.defaultLightAccent))
     }

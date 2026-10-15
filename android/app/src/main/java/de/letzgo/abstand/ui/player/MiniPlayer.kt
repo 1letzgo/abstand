@@ -173,7 +173,7 @@ private fun MiniPlayerBar(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring, mo
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = shape,
-        color = palette.card,
+        color = palette.scheme.surfaceContainerHighest,
         contentColor = palette.textPrimary,
         shadowElevation = MiniPlayerMetrics.accessoryShadowElevation,
     ) {

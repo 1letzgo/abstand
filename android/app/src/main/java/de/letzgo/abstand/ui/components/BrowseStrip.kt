@@ -1,5 +1,7 @@
 package de.letzgo.abstand.ui.components
 
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.layout.Column
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.AppType
 import androidx.compose.ui.semantics.semantics
@@ -267,7 +269,8 @@ private fun CompactIconTabs(
     val scrollIndex = (selectedIndex - offset).takeIf { it >= 0 }
     val state = rememberLazyListState()
     LaunchedEffect(scrollIndex) { scrollIndex?.let { state.animateScrollToItem((it - 1).coerceAtLeast(0)) } }
-    Row(modifier.heightIn(min = AppTheme.Layout.minTapTarget), verticalAlignment = Alignment.CenterVertically) {
+    Column(modifier) {
+    Row(Modifier.fillMaxWidth().heightIn(min = AppTheme.Layout.minTapTarget), verticalAlignment = Alignment.CenterVertically) {
         if (pinFirst) {
             Spacer(Modifier.width(AppTheme.Layout.stackSpacing))
             CompactIconTab(items[0], selectedIndex == 0, onSelect)
@@ -283,28 +286,34 @@ private fun CompactIconTabs(
             }
         }
     }
+    // M3 Tabs: Trennlinie outlineVariant unter der Leiste.
+    HorizontalDivider(thickness = AppTheme.Layout.hairlineWidth, color = Theme.palette.scheme.outlineVariant)
+    }
 }
 
+/**
+ * M3 Primary Tab (Symbol über Label, 64 dp): gewählt `primary` mit 3-dp-Indikator, sonst
+ * `onSurfaceVariant`. Label immer sichtbar (statt iOS-Dock „nur aktiv mit Label“).
+ */
 @Composable
 private fun CompactIconTab(item: AbstandBrowseStripItem, isSelected: Boolean, onSelect: (AbstandBrowseStripItem) -> Unit) {
     val accent = Theme.accent
     val color = if (isSelected) accent else Theme.palette.textSecondary
     Box(
         Modifier
-            .heightIn(min = AppTheme.Layout.minTapTarget)
-            .clip(RoundedCornerShape(AppTheme.Layout.cornerMedium))
+            .heightIn(min = AppTheme.Layout.primaryTabHeight)
             .clickable(role = Role.Tab) { onSelect(item) }
             .semantics { selected = isSelected }
             .padding(horizontal = AppTheme.Layout.rowSpacing),
         contentAlignment = Alignment.Center,
     ) {
-        Row(
-            Modifier.padding(vertical = AppTheme.Layout.compactSpacing).animateContentSize(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing),
+        Column(
+            Modifier.padding(vertical = AppTheme.Layout.stackSpacing),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing),
         ) {
-            Icon(item.icon, if (isSelected) null else item.label, tint = color, modifier = Modifier.size(AppTheme.Layout.iconSize))
-            if (isSelected) Text(item.label, style = AppType.titleSmall, color = color, maxLines = 1)
+            Icon(item.icon, contentDescription = null, tint = color, modifier = Modifier.size(AppTheme.Layout.iconSize))
+            Text(item.label, style = AppType.titleSmall, color = color, maxLines = 1)
         }
         if (isSelected) {
             Box(

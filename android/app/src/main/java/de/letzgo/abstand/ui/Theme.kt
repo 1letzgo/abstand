@@ -1,12 +1,13 @@
 package de.letzgo.abstand.ui
 
 import android.app.Activity
+import android.os.Build
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
@@ -18,8 +19,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -68,12 +69,12 @@ object AppTheme {
      * Stufen, Schattenfarbe aus [AppColorPalette].
      */
     enum class CardElevation(val shadowElevation: Dp) {
-        /** Browse-Icon-Kacheln, kleine Chips (M3 Level 1). */
-        Subtle(1.dp),
-        /** Library-Zeilen, Achievements, Stats-Karten (M3 Elevated Card: Level 1). */
-        Standard(1.dp),
-        /** Continue-Hero-Karten, Menüs (M3 Level 2). */
-        Hero(3.dp),
+        /** Browse-Icon-Kacheln, kleine Chips (M3: tonal, kein Schatten). */
+        Subtle(0.dp),
+        /** Library-Zeilen, Achievements, Stats-Karten (M3 Filled Card: Level 0, Tiefe über surfaceContainer). */
+        Standard(0.dp),
+        /** Continue-Hero-Karten (M3 Elevated Card: Level 1). */
+        Hero(1.dp),
     }
 
     /**
@@ -81,17 +82,18 @@ object AppTheme {
      * (40 dp hoch, 8-dp-Abstände, 20-dp-Symbol, 24-dp-Avatar) statt der iOS-Kapsel (46 pt).
      */
     object ExpandingDock {
-        const val inactiveIconOpacity = 0.72f
+        // Android: M3 Filter Chips (32 dp, 8-dp-Ecke, Label immer sichtbar) statt Kreis → Kapsel.
+        const val inactiveIconOpacity = 1f
         val itemSpacing = 8.dp
         val horizontalPadding = 16.dp
         val verticalPadding = 4.dp
-        val circleSize = 40.dp
-        val iconSize = 20.dp
+        val circleSize = 32.dp
+        val iconSize = 18.dp
         val activeCoverSize = 24.dp
-        /** Cover im inaktiven Kreis (Podcast-Shows). */
-        val inactiveCoverSize = 32.dp
-        val activeHeight = 40.dp
-        val activeLeadingPadding = 12.dp
+        /** Cover im nicht gewählten Chip (Podcast-Shows). */
+        val inactiveCoverSize = 24.dp
+        val activeHeight = 32.dp
+        val activeLeadingPadding = 8.dp
         val activeTrailingPadding = 16.dp
         val iconLabelSpacing = 8.dp
         const val centerWhenFewThreshold = 4
@@ -111,12 +113,14 @@ object AppTheme {
             val activeShadow: Color,
         ) {
             companion object {
+                /** M3 Filter Chip: gewählt secondaryContainer / onSecondaryContainer, sonst onSurfaceVariant. */
+                @Suppress("UNUSED_PARAMETER")
                 fun of(palette: AppColorPalette, accent: Color, inactiveBackground: Color? = null) = Colors(
-                    activeBackground = accent,
-                    activeForeground = palette.foregroundOnAccent(accent),
-                    inactiveBackground = inactiveBackground ?: palette.card,
+                    activeBackground = palette.scheme.secondaryContainer,
+                    activeForeground = palette.scheme.onSecondaryContainer,
+                    inactiveBackground = inactiveBackground ?: palette.scheme.surfaceContainerLow,
                     inactiveForeground = palette.textSecondary,
-                    activeShadow = palette.cardShadow,
+                    activeShadow = Color.Transparent,
                 )
             }
         }
@@ -143,6 +147,8 @@ object AppTheme {
         val iconSize = 24.dp
         /** M3-Symbol in Buttons, Chips, Segmented Buttons. */
         val smallIconSize = 18.dp
+        /** M3 Primary Tab mit Symbol und Label. */
+        val primaryTabHeight = 64.dp
         /** M3 Top App Bar (small/center-aligned). */
         val topAppBarHeight = 64.dp
         /** M3 Common Buttons (Filled/Tonal/Text). */
@@ -412,6 +418,18 @@ object Appearance {
         private set
     var accentLight by mutableStateOf(Color.Unspecified)
         private set
+    /** Android-only: Dynamic Color (Wallpaper-Farben, Android 12+) statt Akzent-Seed. Standard aus. */
+    var dynamicColor by mutableStateOf(Prefs.bool(Keys.appearanceDynamicColor))
+        private set
+
+    /** Dynamic Color gibt es erst ab Android 12 (API 31). */
+    val dynamicColorSupported: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+    fun updateDynamicColor(value: Boolean) {
+        if (value == dynamicColor) return
+        dynamicColor = value
+        Prefs.setBool(Keys.appearanceDynamicColor, value)
+    }
 
     init {
         migrateAccentKeysIfNeeded()
@@ -493,9 +511,9 @@ object Theme {
     val accent: Color
         @Composable get() = LocalResolvedAppearance.current.accent
 
-    /** iOS: `palette.foregroundOnAccent(themeAccent)`. */
+    /** iOS: `palette.foregroundOnAccent(themeAccent)` — Android: `colorScheme.onPrimary` (gleiche Regel, auch bei Dynamic Color korrekt). */
     val onAccent: Color
-        @Composable get() = LocalResolvedAppearance.current.let { it.palette.foregroundOnAccent(it.accent) }
+        @Composable get() = LocalResolvedAppearance.current.palette.scheme.onPrimary
 
     /** System-Hell/Dunkel (für [Appearance.updateAccent] im System-Modus). */
     val systemDark: Boolean
@@ -503,42 +521,24 @@ object Theme {
 }
 
 /**
- * iOS: `.preferredColorScheme` + `.tint` + `themeAccentFromAppModel` am Root. Baut das
- * Material-ColorScheme aus der abstand-Palette (Dark: feste Grauflächen, Light: akzentgetönt),
- * setzt die M3-Typeskala ([AppType]) und die Statusleisten-Icons passend zum Modus.
+ * iOS: `.preferredColorScheme` + `.tint` + `themeAccentFromAppModel` am Root. Material-3-
+ * ColorScheme aus dem Akzent als Seed ([MaterialScheme], Akzent bleibt exakt `primary`) oder per
+ * Dynamic Color (Android 12+, [Appearance.dynamicColor]); [Theme.palette] liest dieselben Rollen.
+ * Setzt die M3-Typeskala ([AppType]) und die Statusleisten-Icons passend zum Modus.
  */
 @Composable
 fun AbstandTheme(content: @Composable () -> Unit) {
     val systemDark = isSystemInDarkTheme()
     val isDark = Appearance.mode.isDarkLike(systemDark)
-    val accent = Appearance.accent(systemDark)
-    val palette = AppColorPalette.derived(accent, isDark)
-    val onAccent = palette.foregroundOnAccent(accent)
-    val outline = palette.textSecondary.copy(alpha = 0.25f).compositeOver(palette.card)
-    val accentContainer = accent.copy(alpha = 0.24f).compositeOver(palette.background)
-    val scheme = if (isDark) darkColorScheme(
-        primary = accent, onPrimary = onAccent, primaryContainer = accentContainer, onPrimaryContainer = palette.textPrimary,
-        secondary = accent, onSecondary = onAccent, secondaryContainer = accentContainer, onSecondaryContainer = palette.textPrimary,
-        tertiary = accent, onTertiary = onAccent,
-        background = palette.background, onBackground = palette.textPrimary,
-        surface = palette.background, onSurface = palette.textPrimary,
-        surfaceVariant = palette.card, onSurfaceVariant = palette.textSecondary, surfaceTint = palette.card,
-        surfaceContainerLowest = palette.background, surfaceContainerLow = palette.card, surfaceContainer = palette.card,
-        surfaceContainerHigh = palette.card, surfaceContainerHighest = palette.card,
-        inverseSurface = palette.textPrimary, inverseOnSurface = palette.background, inversePrimary = accent,
-        error = AppTheme.danger, onError = Color.White, outline = outline, outlineVariant = outline,
-    ) else lightColorScheme(
-        primary = accent, onPrimary = onAccent, primaryContainer = accentContainer, onPrimaryContainer = palette.textPrimary,
-        secondary = accent, onSecondary = onAccent, secondaryContainer = accentContainer, onSecondaryContainer = palette.textPrimary,
-        tertiary = accent, onTertiary = onAccent,
-        background = palette.background, onBackground = palette.textPrimary,
-        surface = palette.background, onSurface = palette.textPrimary,
-        surfaceVariant = palette.card, onSurfaceVariant = palette.textSecondary, surfaceTint = palette.card,
-        surfaceContainerLowest = palette.background, surfaceContainerLow = palette.card, surfaceContainer = palette.card,
-        surfaceContainerHigh = palette.card, surfaceContainerHighest = palette.card,
-        inverseSurface = palette.textPrimary, inverseOnSurface = palette.background, inversePrimary = accent,
-        error = AppTheme.danger, onError = Color.White, outline = outline, outlineVariant = outline,
-    )
+    val context = LocalContext.current
+    // Dynamic Color (Android 12+): Wallpaper-Schema ersetzt den Akzent-Seed; sonst M3-Schema aus dem Akzent.
+    val dynamicScheme = if (Appearance.dynamicColor && Appearance.dynamicColorSupported) {
+        if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    } else null
+    val palette = dynamicScheme?.let { AppColorPalette.fromScheme(it, isDark) }
+        ?: AppColorPalette.derived(Appearance.accent(systemDark), isDark)
+    val scheme = palette.scheme
+    val accent = scheme.primary
 
     // Statusleisten-/Navigationsleisten-Icons folgen dem App-Modus, nicht nur dem System.
     val view = LocalView.current

@@ -1,5 +1,7 @@
 package de.letzgo.abstand.ui.player
 
+import kotlin.math.abs
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -87,7 +89,7 @@ private fun ProgressTrack(
     val currentTotal by rememberUpdatedState(total)
     val markerColor = palette.textSecondary.copy(alpha = 0.65f)
     val hairline = with(LocalDensity.current) { AppTheme.Layout.hairlineWidth.toPx() }
-    BoxWithConstraints(
+    Box(
         Modifier
             .fillMaxWidth()
             .height(MiniPlayerMetrics.progressRowHeight + MiniPlayerMetrics.scrubberPaddingAboveBar)
@@ -127,26 +129,31 @@ private fun ProgressTrack(
             },
         contentAlignment = Alignment.BottomStart,
     ) {
-        val w = maxWidth
-        Box(Modifier.fillMaxWidth().height(MiniPlayerMetrics.progressRowHeight), contentAlignment = Alignment.CenterStart) {
-            Canvas(Modifier.fillMaxWidth().height(MiniPlayerMetrics.progressTrackHeight).clip(CircleShape)) {
-                drawRect(palette.progressTrack)
-                drawRect(accent, size = Size(size.width * fraction.toFloat(), size.height))
-                chapterMarkers.forEach { m ->
-                    val x = max(0f, size.width * m.toFloat() - hairline / 2)
-                    drawRect(markerColor, topLeft = Offset(x, 0f), size = Size(hairline, size.height))
+        // M3-Slider (2024): aktive Spur | Lücke | Griff | Lücke | inaktive Spur mit Stopp-Punkt.
+        Canvas(Modifier.fillMaxWidth().height(MiniPlayerMetrics.progressRowHeight)) {
+            if (size.width <= AppTheme.Layout.tightSpacing.toPx() * 4) return@Canvas
+            val trackH = MiniPlayerMetrics.progressTrackHeight.toPx()
+            val gap = AppTheme.Layout.tightSpacing.toPx()
+            val handleW = AppTheme.Layout.tightSpacing.toPx()
+            val handleH = if (scrubbing) size.height else size.height * 0.8f
+            val cy = size.height / 2
+            val top = cy - trackH / 2
+            val radius = CornerRadius(trackH / 2)
+            val hx = (size.width * fraction.toFloat()).coerceIn(handleW / 2, size.width - handleW / 2)
+            val activeEnd = hx - handleW / 2 - gap
+            if (activeEnd > 0f) drawRoundRect(accent, Offset(0f, top), Size(activeEnd, trackH), radius)
+            val inactiveStart = hx + handleW / 2 + gap
+            if (inactiveStart < size.width) {
+                drawRoundRect(palette.progressTrack, Offset(inactiveStart, top), Size(size.width - inactiveStart, trackH), radius)
+                drawCircle(accent, handleW / 2, Offset(size.width - trackH / 2, cy))
+            }
+            chapterMarkers.forEach { m ->
+                val x = size.width * m.toFloat()
+                if (abs(x - hx) > handleW / 2 + gap) {
+                    drawRect(markerColor, topLeft = Offset(max(0f, x - hairline / 2), top), size = Size(hairline, trackH))
                 }
             }
-            if (scrubbing) {
-                val thumb = MiniPlayerMetrics.scrubThumbDiameter
-                Box(
-                    Modifier
-                        .offset(x = (w * fraction.toFloat() - thumb / 2).coerceAtLeast(0.dp))
-                        .size(thumb)
-                        .background(accent, CircleShape)
-                        .border(AppTheme.Layout.boldStrokeWidth, palette.background, CircleShape),
-                )
-            }
+            drawRoundRect(accent, Offset(hx - handleW / 2, cy - handleH / 2), Size(handleW, handleH), CornerRadius(handleW / 2))
         }
     }
 }

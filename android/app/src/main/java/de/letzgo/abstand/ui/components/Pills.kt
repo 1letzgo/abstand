@@ -1,5 +1,7 @@
 package de.letzgo.abstand.ui.components
 
+import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.spring
@@ -172,10 +174,11 @@ fun AbstandBadge(
     containerColor: Color = Color.Unspecified,
 ) {
     val palette = Theme.palette
-    val foreground = if (tone == AbstandBadgeTone.Accent) Theme.accent else palette.textSecondary
+    // M3: Akzent-Badge = secondaryContainer / onSecondaryContainer (statt Akzent mit 20 % Alpha).
+    val foreground = if (tone == AbstandBadgeTone.Accent) palette.scheme.onSecondaryContainer else palette.textSecondary
     val container = when {
         containerColor != Color.Unspecified -> containerColor
-        tone == AbstandBadgeTone.Accent -> Theme.accent.copy(alpha = 0.2f)
+        tone == AbstandBadgeTone.Accent -> palette.scheme.secondaryContainer
         else -> palette.card
     }
     Row(
@@ -207,22 +210,25 @@ fun AbstandChip(
 ) {
     val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
     val foreground = if (selected) colors.activeForeground else colors.inactiveForeground
+    // M3 Filter Chip: gewählt = secondaryContainer + Häkchen, sonst transparent mit outlineVariant-Rand.
+    val leading = icon ?: if (selected) SF.checkmark else null
     Row(
         modifier
             .minimumInteractiveComponentSize()
             .height(AppTheme.Layout.chipHeight)
             .clip(AbstandChipShape)
-            .background(if (selected) colors.activeBackground else colors.inactiveBackground)
+            .background(if (selected) colors.activeBackground else Color.Transparent)
+            .let { if (selected) it else it.border(AppTheme.Layout.hairlineWidth, Theme.palette.scheme.outlineVariant, AbstandChipShape) }
             .clickable(enabled = enabled, role = Role.Tab, onClick = onClick)
             .semantics { this.selected = selected }
             .padding(
-                start = if (icon != null) AppTheme.Layout.inlineSpacing else AppTheme.Layout.screenPadding,
+                start = if (leading != null) AppTheme.Layout.inlineSpacing else AppTheme.Layout.screenPadding,
                 end = if (trailingIcon != null) AppTheme.Layout.inlineSpacing else AppTheme.Layout.screenPadding,
             ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing),
     ) {
-        if (icon != null) Icon(icon, contentDescription = null, tint = foreground, modifier = Modifier.size(AbstandChipIconSize))
+        if (leading != null) Icon(leading, contentDescription = null, tint = foreground, modifier = Modifier.size(AbstandChipIconSize))
         Text(label, style = AppType.labelLarge, color = foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (trailingIcon != null) Icon(trailingIcon, contentDescription = null, tint = foreground, modifier = Modifier.size(AbstandChipIconSize))
     }
@@ -232,8 +238,9 @@ private val AbstandChipIconSize = AppTheme.Layout.smallIconSize
 private val AbstandChipShape = RoundedCornerShape(AppTheme.Layout.cornerSmall)
 
 /**
- * iOS: `AbstandExpandingDockChip` — inaktiv runder Symbol-/Cover-Knopf, aktiv wachsende
- * Akzent-Kapsel mit Label. Einziger Dock-Chip (Browse-Strip, Settings-Strip, Podcast-Shows).
+ * iOS: `AbstandExpandingDockChip` (Kreis → Akzent-Kapsel). Android: M3 Filter Chip mit immer
+ * sichtbarem Label — gewählt secondaryContainer mit Häkchen (bzw. Cover), sonst outlineVariant-
+ * Rand mit Symbol/Cover. Einziger Dock-Chip (Browse-Strip, Podcast-Shows).
  */
 @Composable
 fun AbstandDockChip(
@@ -246,14 +253,13 @@ fun AbstandDockChip(
 ) {
     val dock = AppTheme.ExpandingDock
     val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
-    // Inaktiv: Symbol bzw. Cover mittig im 40-dp-Kreis.
-    val inactiveInset = if (coverItemId != null) (dock.circleSize - dock.inactiveCoverSize) / 2 else dock.inactiveIconSideInset
+    val foreground = if (selected) colors.activeForeground else colors.inactiveForeground
     Surface(
         onClick = onClick,
-        shape = CircleShape,
-        color = if (selected) colors.activeBackground else colors.inactiveBackground,
-        contentColor = if (selected) colors.activeForeground else colors.inactiveForeground,
-        shadowElevation = if (selected) AppTheme.CardElevation.Subtle.shadowElevation else 0.dp,
+        shape = AbstandChipShape,
+        color = if (selected) colors.activeBackground else Color.Transparent,
+        contentColor = foreground,
+        border = if (selected) null else BorderStroke(AppTheme.Layout.hairlineWidth, Theme.palette.scheme.outlineVariant),
         modifier = modifier
             .height(dock.activeHeight)
             .animateContentSize(spring(dampingRatio = 0.72f, stiffness = dock.selectionAnimation.stiffness))
@@ -265,31 +271,18 @@ fun AbstandDockChip(
             },
     ) {
         Row(
-            Modifier.padding(
-                start = if (selected) dock.activeLeadingPadding else inactiveInset,
-                end = if (selected) dock.activeTrailingPadding else inactiveInset,
-            ).fillMaxHeight(),
+            Modifier.padding(start = dock.activeLeadingPadding, end = dock.activeTrailingPadding).fillMaxHeight(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(dock.iconLabelSpacing),
         ) {
-            if (coverItemId != null) {
-                Box(Modifier.size(if (selected) dock.activeCoverSize else dock.inactiveCoverSize).clip(CircleShape)) {
+            when {
+                coverItemId != null -> Box(Modifier.size(dock.activeCoverSize).clip(CircleShape)) {
                     CoverImage(itemId = coverItemId, modifier = Modifier.fillMaxSize())
                 }
-            } else {
-                Icon(
-                    icon, contentDescription = null,
-                    modifier = Modifier.size(dock.iconSize),
-                    tint = if (selected) colors.activeForeground else colors.inactiveForeground.copy(alpha = dock.inactiveIconOpacity),
-                )
+                selected -> Icon(SF.checkmark, contentDescription = null, modifier = Modifier.size(dock.iconSize))
+                else -> Icon(icon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
             }
-            AnimatedVisibility(
-                visible = selected,
-                enter = fadeIn() + expandHorizontally(),
-                exit = fadeOut() + shrinkHorizontally(),
-            ) {
-                Text(label, style = AppType.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
+            Text(label, style = AppType.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -317,10 +310,9 @@ fun AbstandDropdownPill(
         val showLeadingIcon = iconOnly || maxWidth >= AppTheme.Layout.dropdownPillIconMinWidth
         Surface(
             onClick = { expanded = true },
-            shape = RoundedCornerShape(percent = 50),
+            shape = AbstandChipShape,
             color = colors.activeBackground,
             contentColor = colors.activeForeground,
-            shadowElevation = AppTheme.CardElevation.Subtle.shadowElevation,
             modifier = (if (iconOnly) Modifier else Modifier.fillMaxWidth()).height(dock.activeHeight).semantics {
                 contentDescription = "$accessibilityLabel: ${current?.label.orEmpty()}"
             },

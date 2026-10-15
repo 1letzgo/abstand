@@ -99,6 +99,8 @@ object Keys {
     const val appearanceAccentRGBDark = "abstand_appearance_accent_rgb_dark"
     const val appearanceAccentRGBLight = "abstand_appearance_accent_rgb_light"
     const val appearanceMode = "abstand_appearance_mode"
+    /** Android-only (kein iOS-Gegenstück): Dynamic Color an/aus. */
+    const val appearanceDynamicColor = "abstand_appearance_dynamic_color"
     const val libraryBookCardStyle = "abstand_library_book_card_style"
     const val libraryPodcastCardStyle = "abstand_library_podcast_card_style"
     const val translationTargetLanguageCode = "abstand_translation_target_language"

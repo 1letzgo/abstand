@@ -1,5 +1,6 @@
 package de.letzgo.abstand.ui
 
+import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
 import java.util.Locale
 import kotlin.math.abs
@@ -79,8 +80,11 @@ object AccentRgbCodec {
 }
 
 /**
- * iOS: `AppColorPalette` — UI-Farben; Light leitet Hintergrund/Karten aus dem Akzent ab,
- * Dark nutzt feste Flächen (#353535 / #454545). Farbrechnung 1:1 aus AppAppearance.swift.
+ * iOS: `AppColorPalette` — UI-Farben unter iOS-Namen. Android: abgeleitet aus dem Material-3-
+ * [scheme] ([MaterialScheme.from], Akzent = Seed und exakt `primary`; oder Dynamic Color):
+ * `background` = surface, `card` = surfaceContainerHigh, `textPrimary` = onSurface,
+ * `textSecondary` = onSurfaceVariant, `progressTrack` = secondaryContainer. Dark nutzt damit
+ * getönte M3-Flächen statt der festen iOS-Grautöne (#353535 / #454545).
  */
 data class AppColorPalette(
     val isDarkLike: Boolean,
@@ -88,7 +92,7 @@ data class AppColorPalette(
     val card: Color,
     val textPrimary: Color,
     val textSecondary: Color,
-    /** Dezenter Fortschritts-/Track-Hintergrund auf Karten. */
+    /** Fortschritts-/Slider-Track (M3: secondaryContainer). */
     val progressTrack: Color,
     /** Schatten unter Hero-Karten (Continue Listening). */
     val heroCardShadow: Color,
@@ -96,15 +100,11 @@ data class AppColorPalette(
     val cardShadow: Color,
     /** Play-/Read-Badge auf Cover-Thumbnails (Library-Zeilen). */
     val coverPlayBadgeBackground: Color,
+    /** Vollständiges Material-3-Farbschema (alle Rollen inkl. Surface-Container-Leiter). */
+    val scheme: ColorScheme,
 ) {
     /** iOS: `foregroundOnAccent(_:)` — lesbare Schrift auf voller Akzentfläche. */
-    fun foregroundOnAccent(accent: Color): Color {
-        val c = Rgb.of(accent)
-        if (relativeLuminance(c.r, c.g, c.b) > 0.55) {
-            return if (isDarkLike) darkOnAccent else textPrimary
-        }
-        return Color.White
-    }
+    fun foregroundOnAccent(accent: Color): Color = onAccent(accent, isDarkLike, textPrimary)
 
     /** iOS: `readableTextOnTintedCard(_:)` — (primär, sekundär) auf Cover-getönten Karten. */
     fun readableTextOnTintedCard(tint: Color): Pair<Color, Color> {
@@ -121,39 +121,38 @@ data class AppColorPalette(
     companion object {
         private val darkOnAccent = rgb255(42, 32, 24)
 
+        /** iOS-Regel `foregroundOnAccent`: helle Akzente (Luminanz > 0,55) bekommen dunkle Schrift. */
+        fun onAccent(accent: Color, isDarkLike: Boolean, textPrimary: Color): Color {
+            val c = Rgb.of(accent)
+            if (relativeLuminance(c.r, c.g, c.b) > 0.55) {
+                return if (isDarkLike) darkOnAccent else textPrimary
+            }
+            return Color.White
+        }
+
         /** iOS: `palette(for:system:accent:)`. */
         fun palette(mode: AppearanceMode, systemDark: Boolean, accent: Color): AppColorPalette =
             derived(accent, mode.isDarkLike(systemDark))
 
-        /** iOS: `derived(from:isDarkLike:)`. */
+        /** iOS: `derived(from:isDarkLike:)` — Android: M3-Schema aus dem Akzent als Seed. */
         fun derived(accent: Color, isDarkLike: Boolean): AppColorPalette {
-            if (isDarkLike) return fixedDark
-            val a = Rgb.of(accent)
-            val text = rgb255(28, 28, 30)
-            return AppColorPalette(
-                isDarkLike = false,
-                background = mix(Rgb(252 / 255.0, 252 / 255.0, 250 / 255.0), a, 0.1),
-                card = mix(Rgb(230 / 255.0, 230 / 255.0, 228 / 255.0), a, 0.16),
-                textPrimary = text,
-                textSecondary = rgb255(110, 110, 115),
-                progressTrack = text.copy(alpha = 0.1f),
-                heroCardShadow = Color.Black.copy(alpha = 0.1f),
-                cardShadow = Color.Black.copy(alpha = 0.1f),
-                coverPlayBadgeBackground = Color(0.38f, 0.38f, 0.38f, 0.88f),
-            )
+            val textPrimary = MaterialScheme.palettes(accent).neutral.tone(if (isDarkLike) 90 else 10)
+            val onSeed = onAccent(accent, isDarkLike, textPrimary)
+            return fromScheme(MaterialScheme.from(accent, isDarkLike, onSeed), isDarkLike)
         }
 
-        private val fixedDark = AppColorPalette(
-            isDarkLike = true,
-            background = rgb255(53, 53, 53),
-            // Karten bleiben eine Stufe heller als der Hintergrund.
-            card = rgb255(69, 69, 69),
-            textPrimary = Color.White,
-            textSecondary = rgb255(176, 176, 176),
-            progressTrack = Color.White.copy(alpha = 0.14f),
-            heroCardShadow = Color.Black.copy(alpha = 0.32f),
-            cardShadow = Color.Black.copy(alpha = 0.36f),
+        /** Palette aus einem fertigen M3-Schema (Seed-Schema oder Dynamic Color). */
+        fun fromScheme(scheme: ColorScheme, isDarkLike: Boolean): AppColorPalette = AppColorPalette(
+            isDarkLike = isDarkLike,
+            background = scheme.surface,
+            card = scheme.surfaceContainerHigh,
+            textPrimary = scheme.onSurface,
+            textSecondary = scheme.onSurfaceVariant,
+            progressTrack = scheme.secondaryContainer,
+            heroCardShadow = Color.Black.copy(alpha = if (isDarkLike) 0.32f else 0.1f),
+            cardShadow = Color.Black.copy(alpha = if (isDarkLike) 0.36f else 0.1f),
             coverPlayBadgeBackground = Color(0.38f, 0.38f, 0.38f, 0.88f),
+            scheme = scheme,
         )
 
         /** iOS: `mix(base:accent:accentWeight:)`. */

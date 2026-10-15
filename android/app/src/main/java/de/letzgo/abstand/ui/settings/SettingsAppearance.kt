@@ -47,6 +47,7 @@ import de.letzgo.abstand.ui.components.SettingsCardIcon
 import de.letzgo.abstand.ui.components.SettingsCardNavRow
 import de.letzgo.abstand.ui.components.SettingsCardPickerRow
 import de.letzgo.abstand.ui.components.SettingsCardSegmentedRow
+import de.letzgo.abstand.ui.components.SettingsCardToggleRow
 import de.letzgo.abstand.ui.components.SettingsSubpageScaffold
 import de.letzgo.abstand.ui.components.abstandCardListRowFrame
 import de.letzgo.abstand.ui.components.abstandSwitchColors
@@ -72,22 +73,37 @@ private fun SettingsThemeSection() {
                 onSelect = { Appearance.updateMode(it) },
             )
         }
-        AbstandGroupedCard {
-            SettingsCardColorPickerRow(
-                icon = SF.paintpaletteFill,
-                title = "Accent color",
-                color = accent,
-                onColorChange = { Appearance.updateAccent(it, systemDark) },
-            )
+        // Android-only: Dynamic Color (Wallpaper-Farben, Android 12+) ersetzt den Akzent als Seed.
+        val dynamic = Appearance.dynamicColor && Appearance.dynamicColorSupported
+        if (Appearance.dynamicColorSupported) {
+            AbstandGroupedCard {
+                SettingsCardToggleRow(
+                    icon = SF.photo,
+                    title = "Dynamic color",
+                    subtitle = "Use wallpaper colors",
+                    checked = Appearance.dynamicColor,
+                    onCheckedChange = { Appearance.updateDynamicColor(it) },
+                )
+            }
         }
-        val matchesDefault = Appearance.accentMatchesDefault(systemDark)
-        AbstandGroupedCard {
-            SettingsCardActionRow(
-                icon = SF.arrowCounterclockwise,
-                title = "Reset to default",
-                onClick = { Appearance.resetAccentToDefault(systemDark) },
-                enabled = !matchesDefault,
-            )
+        if (!dynamic) {
+            AbstandGroupedCard {
+                SettingsCardColorPickerRow(
+                    icon = SF.paintpaletteFill,
+                    title = "Accent color",
+                    color = accent,
+                    onColorChange = { Appearance.updateAccent(it, systemDark) },
+                )
+            }
+            val matchesDefault = Appearance.accentMatchesDefault(systemDark)
+            AbstandGroupedCard {
+                SettingsCardActionRow(
+                    icon = SF.arrowCounterclockwise,
+                    title = "Reset to default",
+                    onClick = { Appearance.resetAccentToDefault(systemDark) },
+                    enabled = !matchesDefault,
+                )
+            }
         }
     }
 }

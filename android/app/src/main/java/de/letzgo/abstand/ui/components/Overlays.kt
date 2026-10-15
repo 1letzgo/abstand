@@ -195,7 +195,7 @@ fun AbstandSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         shape = AbstandOverlayMetrics.sheetShape,
-        containerColor = palette.background,
+        containerColor = palette.scheme.surfaceContainerLow,
         contentColor = palette.textPrimary,
         tonalElevation = 0.dp,
         dragHandle = {

@@ -362,8 +362,52 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    Bewusst abweichend: AppTheme.Layout.hairlineSpacing 2 dp (= M3 SegmentedGap), Strichstärken 2 dp
    (boldStrokeWidth, Ring), Fortschritts-/Kartenkanten 1 dp; Cover-/Karussell-Breiten aus Viewport-
    Formeln (iOS-Logik) und libraryRowCoverSide 100 dp (Cover-Maß); Detail-Play/Neben-Aktionen 56 dp
-   (FAB-Höhe) statt 40-dp-Button, weil sie die Hauptaktion der Seite sind; Dock-Strip behält die
-   „Expanding Dock“-Optik (Kreis → Kapsel) mit M3-Chip-Maßen.
+   (FAB-Höhe) statt 40-dp-Button, weil sie die Hauptaktion der Seite sind; Dock-Strip nutzt jetzt
+   M3 Filter Chips (siehe „Material 3 Komponenten“).
+
+## Material 3 colors (Android; iOS-Palette nur noch als Seed)
+   Quelle: m3.material.io Color roles / Tonal palettes. Umsetzung: ui/MaterialScheme.kt (CIELAB-
+   L* = M3-Ton, Gamut-Mapping über Chroma), Tests: MaterialSchemeTest, AppearanceColorTest.
+
+   Seed = gespeicherter Akzent (Dark-/Light-Slot wie iOS) und bleibt exakt `primary` (Fidelity).
+   Paletten: Primary (Seed-Farbton, Chroma ≥ 36) · Secondary (Chroma 16) · Tertiary (+60°, 24) ·
+   Neutral (4) · Neutral-Variant (8); Grau-Akzent (Chroma < 5) → alles neutral. Error = M3-Baseline.
+   Optional Dynamic Color (Android 12+, Settings › Appearance, Key abstand_appearance_dynamic_color).
+
+   Rolle                          Dark-Ton   Light-Ton   AppColorPalette (iOS-Name)
+   -----------------------------  ---------  ----------  ---------------------------
+   primary / onPrimary            Seed / Regel foregroundOnAccent (iOS)
+   primary/secondary/tertiaryContainer  30 / 90 (on…Container 90 / 10)
+   secondary, tertiary            80         40
+   surface = background           N6         N98         background
+   surfaceContainerLowest…Highest N4/10/12/17/22  N100/96/94/92/90
+   surfaceContainerHigh           N17        N92         card
+   onSurface                      N90        N10         textPrimary
+   onSurfaceVariant               NV80       NV30        textSecondary
+   outline / outlineVariant       NV60/NV30  NV50/NV80
+   secondaryContainer             S30        S90         progressTrack
+   Navigation Bar                 M3-Defaults (surfaceContainer, Indicator secondaryContainer)
+   Switch aus                     Spur surfaceContainerHighest, Daumen/Rand outline
+   AbstandBadge Accent            secondaryContainer / onSecondaryContainer
+
+   Vorher: Dark fest #353535/#454545, alle Container = card, secondary = tertiary = Akzent.
+
+## Material 3 Komponenten (Umbau, alle zentral in ui/components bzw. Theme)
+   Expanding Dock / AbstandDockChip   → M3 Filter Chip: 32 dp, 8er-Ecke, Label immer sichtbar,
+                                         gewählt secondaryContainer + Häkchen, sonst outlineVariant-Rand
+   AbstandChip                         → dito (Häkchen, wenn kein Symbol)
+   AbstandDropdownPill                 → Tonal-Chip (secondaryContainer, 8er-Ecke, kein Schatten)
+   Settings-Icon-Leiste                → M3 Primary Tabs (Symbol + Label, 64 dp, 3-dp-Indikator, Divider)
+   ServerAdminSection-Titel            → M3-Listen-Subheader (titleSmall, primary)
+   SettingsCardIcon                    → onSurfaceVariant statt Akzent; Divider outlineVariant
+   Karten (CardElevation)              → Filled Cards ohne Schatten (Subtle/Standard 0), Hero Level 1
+   AbstandPlayPill                     → mit Restzeit Filled Button (primary), nur Symbol Filled Tonal
+   AbstandIconButton Tonal             → secondaryContainer / onSecondaryContainer
+   Buttons deaktiviert                 → onSurface 12 % / 38 %
+   AbstandCapsLabel, Meta-Labels       → keine Versalien, labelLarge
+   Player-Scrubber                     → M3-Slider (Spur 16, Griff 4×40, Lücke 4, Stopp-Punkt)
+   Menüs / Sheets / Mini-Player        → surfaceContainer / surfaceContainerLow / surfaceContainerHighest
+   Top App Bar gescrollt               → surfaceContainer
 
 ## Bewusst nicht vereinheitlicht
    - DetailHeroPrimaryButton / DetailHeroCircularButton (Fortschritts-Kapsel mit Füllung) — Einzelstück der Detail-Hero.

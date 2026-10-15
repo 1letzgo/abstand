@@ -58,11 +58,13 @@ private val ButtonContentPadding = PaddingValues(horizontal = AppTheme.Layout.bu
 private fun accentButtonColors(destructive: Boolean = false): androidx.compose.material3.ButtonColors {
     val fill = if (destructive) AppTheme.danger else Theme.accent
     val content = if (destructive) Theme.palette.foregroundOnAccent(AppTheme.danger) else Theme.onAccent
+    // M3: deaktiviert = onSurface 12 % Fläche / 38 % Inhalt.
+    val onSurface = Theme.palette.scheme.onSurface
     return ButtonDefaults.buttonColors(
         containerColor = fill,
         contentColor = content,
-        disabledContainerColor = fill.copy(alpha = DisabledFillOpacity),
-        disabledContentColor = content,
+        disabledContainerColor = onSurface.copy(alpha = 0.12f),
+        disabledContentColor = onSurface.copy(alpha = 0.38f),
     )
 }
 
@@ -221,13 +223,13 @@ fun AbstandIconButton(
     val palette = Theme.palette
     val foreground = when {
         tint != Color.Unspecified -> tint
-        style == AbstandIconButtonStyle.Tonal -> Theme.accent
+        style == AbstandIconButtonStyle.Tonal -> palette.scheme.onSecondaryContainer
         style == AbstandIconButtonStyle.Filled -> Theme.onAccent
         else -> LocalContentColor.current
     }
     val container = when (style) {
         AbstandIconButtonStyle.Plain -> Color.Transparent
-        AbstandIconButtonStyle.Tonal -> if (containerColor != Color.Unspecified) containerColor else palette.card
+        AbstandIconButtonStyle.Tonal -> if (containerColor != Color.Unspecified) containerColor else palette.scheme.secondaryContainer
         AbstandIconButtonStyle.Filled -> if (containerColor != Color.Unspecified) containerColor else Theme.accent
     }
     IconButton(
@@ -284,12 +286,15 @@ fun AbstandPlayPill(
         }
     }
     val showsPause = optimistic ?: isPlaying
-    val onAccent = Theme.onAccent
+    // M3: mit Restzeit = Filled Button (primary), nur Symbol = Filled-Tonal-Icon-Button (secondaryContainer).
+    val scheme = Theme.palette.scheme
+    val container = if (caption != null) Theme.accent else scheme.secondaryContainer
+    val onAccent = if (caption != null) Theme.onAccent else scheme.onSecondaryContainer
     Row(
         modifier
             .height(height)
             .clip(CircleShape)
-            .background(Theme.accent)
+            .background(container)
             .clickable(role = Role.Button) {
                 optimistic = !showsPause
                 onClick()
@@ -298,7 +303,8 @@ fun AbstandPlayPill(
                 contentDescription = if (showsPause) "Pause" else "Play"
                 if (caption != null) stateDescription = if (showsPause) "Playing" else "$caption left"
             }
-            .padding(horizontal = horizontalPadding),
+            // M3 Button mit Symbol: Symbolseite schmaler, Textseite + 8 dp.
+            .padding(start = horizontalPadding, end = if (caption != null) horizontalPadding + AppTheme.Layout.inlineSpacing else horizontalPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing),
     ) {

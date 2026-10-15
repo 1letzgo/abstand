@@ -179,7 +179,7 @@ fun AbstandMenu(
         modifier = modifier,
         offset = offset,
         shape = AbstandMenuMetrics.shape,
-        containerColor = palette.card,
+        containerColor = palette.scheme.surfaceContainer,
         tonalElevation = 0.dp,
         shadowElevation = AppTheme.CardElevation.Hero.shadowElevation,
     ) {

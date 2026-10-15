@@ -92,7 +92,7 @@ fun AbstandDivider(modifier: Modifier = Modifier, opacity: Float = 0.2f) {
 private val CapsLabelIconSize = 16.dp
 
 /**
- * Versalien-Überschrift (M3 `labelMedium`, `textSecondary`) mit optionalem
+ * Meta-Überschrift (M3 `labelLarge`, normale Schreibweise statt iOS-Versalien, `textSecondary`) mit optionalem
  * Symbol — Meta-Labels in Details, Metadata-Sheets, Entity-Listen und Stats-Kacheln.
  */
 @Composable
@@ -111,7 +111,7 @@ fun AbstandCapsLabel(
     ) {
         if (icon != null) Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(CapsLabelIconSize))
         Text(
-            title.uppercase(), style = AppType.labelMedium, color = tint,
+            title, style = AppType.labelLarge, color = tint,
             maxLines = maxLines, overflow = TextOverflow.Ellipsis,
         )
     }
@@ -135,7 +135,7 @@ fun LibraryRowCollapsedMetaLine(
     val empty = line.isEmpty() || line == "—"
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
         Text(
-            label.uppercase(),
+            label,
             style = AppType.labelMedium,
             color = labelColor ?: palette.textSecondary,
             maxLines = 1,
