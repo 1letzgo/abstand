@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Gleiche Grafik wie das iOS-App-Icon (Assets.xcassets/AppIcon.appiconset/8.png). -->
+<!-- Logo aus dem iOS-App-Icon (8.png), verkleinert in die sichere Zone des Adaptive Icons
+     (Launcher maskieren nur die inneren 72 von 108 dp); Hintergrund als eigene Ebene. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_launcher_back" />
-    <foreground android:drawable="@android:color/transparent" />
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_fore" />
 </adaptive-icon>

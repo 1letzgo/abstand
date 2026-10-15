@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Hintergrund des iOS-App-Icons (Assets.xcassets/AppIcon.appiconset/8.png). -->
+    <color name="ic_launcher_background">#E3E8E8</color>
+</resources>
