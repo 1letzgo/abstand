@@ -1,9 +1,12 @@
 package de.letzgo.abstand.ui.home
 
-import de.letzgo.abstand.ui.components.AbstandStaticPill
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Arrangement
+import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.AppType
+import androidx.compose.material3.Text
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -59,8 +62,8 @@ import de.letzgo.abstand.ui.components.AbstandIconButton
 /**
  * iOS: `HomeTabRootView` + `StartDashboardView` — Offline-Schalter in der Toolbar, darunter alle
  * eingeschalteten Regale (Continue listening als Hero-Karten, alle anderen als Kompaktkarten),
- * Pull-to-Refresh. Android: Kopfzeile wie Books/Podcasts — statische Pill ([AbstandStaticPill],
- * ohne Dropdown) zeigt das Regal oben in der Liste (iOS: `showsStrip: false`).
+ * Pull-to-Refresh. Android: Kopfzeile in der Höhe der Bereichsleisten der anderen Tabs mit der
+ * festen Überschrift „abstand“, ohne Buttons (iOS: `showsStrip: false`).
  */
 @Composable
 fun HomeTabRoot(model: AppModel = AppModel.shared) {
@@ -98,26 +101,20 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
         HomeShelfLogic.shelvesForHomeBrowseSection(continueId, categoryList, shelves, disabled)
             .filter(HomeShelfLogic::shelfHasVisibleContent)
     val listState = rememberLazyListState()
-    // Pill zeigt das Regal oben in der Liste; am Listenende das letzte sichtbare.
-    val currentShelfKey by remember(visibleShelves) {
-        derivedStateOf {
-            val index = if (!listState.canScrollForward && listState.canScrollBackward) {
-                listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: listState.firstVisibleItemIndex
-            } else {
-                listState.firstVisibleItemIndex
-            }
-            (visibleShelves.getOrNull(index) ?: visibleShelves.firstOrNull())?.let(::homeShelfKey).orEmpty()
-        }
-    }
     AbstandFixedBrowseStripSectionsLayout(
         title = MainTab.start.label,
         selection = continueId,
         showsStrip = true,
         strip = {
-            // Kein Dropdown: statische Pill im Stil der Bereichs-Pills mit dem Regal, das gerade oben steht.
-            val currentTitle = visibleShelves.firstOrNull { homeShelfKey(it) == currentShelfKey }?.displayTitle ?: MainTab.start.label
-            Box(Modifier.padding(start = AppTheme.Layout.tabPaddingH, top = AppTheme.ExpandingDock.verticalPadding, bottom = AppTheme.ExpandingDock.verticalPadding)) {
-                AbstandStaticPill(currentTitle, SF.houseFill)
+            // Keine Buttons: feste Überschrift „abstand“ in der Höhe der Bereichs-Buttons der anderen Tabs.
+            Box(
+                Modifier
+                    .padding(start = AppTheme.Layout.tabPaddingH, top = AppTheme.ExpandingDock.verticalPadding, bottom = AppTheme.ExpandingDock.verticalPadding)
+                    .height(AppTheme.ExpandingDock.activeHeight)
+                    .semantics { heading() },
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text("abstand", style = AppType.titleLarge, color = Theme.palette.textPrimary, maxLines = 1)
             }
         },
         listState = listState,

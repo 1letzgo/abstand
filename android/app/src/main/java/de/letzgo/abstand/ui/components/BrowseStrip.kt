@@ -1,5 +1,10 @@
 package de.letzgo.abstand.ui.components
 
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.Surface
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.layout.Column
@@ -332,9 +337,10 @@ private fun CompactIconTab(item: AbstandBrowseStripItem, isSelected: Boolean, on
 }
 
 /**
- * iOS: `AbstandExpandingDockBrowseStrip` / `SettingsIconStrip` — Bereichs-Buttons im Pill-Stil:
- * der aktive Bereich als Akzent-Kapsel mit Symbol + Label, alle anderen als runde Symbol-Buttons
- * (gleiche Höhe). Horizontal scrollbar, der aktive Bereich wird ins Bild gescrollt.
+ * iOS: `AbstandExpandingDockBrowseStrip` / `SettingsIconStrip` — Bereichs-Buttons: alle in derselben
+ * eckigen Form (abgerundetes Rechteck, gleiche Höhe); inaktiv nur Symbol auf tonaler Fläche, der
+ * aktive Bereich farblich markiert (Akzent) mit Symbol + Label. Horizontal scrollbar, der aktive
+ * Bereich wird ins Bild gescrollt.
  */
 @Composable
 fun AbstandDockButtons(
@@ -358,19 +364,45 @@ fun AbstandDockButtons(
     ) {
         items(items.size, key = { items[it].id }) { i ->
             val item = items[i]
-            if (item.id == selectionId) {
-                AbstandDockChip(item.label, item.icon, selected = true, onClick = {}, checkmarkWhenSelected = false)
-            } else {
-                AbstandIconButton(
-                    item.icon, item.label,
-                    onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onSelect(item.id)
-                    },
-                    style = AbstandIconButtonStyle.Tonal,
-                    size = dock.activeHeight,
-                )
+            DockSectionButton(item, item.id == selectionId) {
+                if (item.id != selectionId) {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSelect(item.id)
+                }
             }
+        }
+    }
+}
+
+/** Ein Bereichs-Button: eckige Fläche, aktiv in Akzentfarbe mit Label, inaktiv nur Symbol. */
+@Composable
+private fun DockSectionButton(item: AbstandBrowseStripItem, isSelected: Boolean, onClick: () -> Unit) {
+    val dock = AppTheme.ExpandingDock
+    val palette = Theme.palette
+    val container = if (isSelected) Theme.accent else palette.scheme.secondaryContainer
+    val content = if (isSelected) Theme.onAccent else palette.scheme.onSecondaryContainer
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(AppTheme.Layout.cornerSmall),
+        color = container,
+        contentColor = content,
+        modifier = Modifier
+            .height(dock.activeHeight)
+            .widthIn(min = dock.activeHeight)
+            .animateContentSize()
+            .semantics {
+                selected = isSelected
+                role = Role.Tab
+                contentDescription = item.label
+            },
+    ) {
+        Row(
+            Modifier.padding(horizontal = if (isSelected) dock.activeLeadingPadding else 0.dp),
+            horizontalArrangement = Arrangement.spacedBy(dock.iconLabelSpacing, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(item.icon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
+            if (isSelected) Text(item.label, style = AppType.labelLarge, maxLines = 1)
         }
     }
 }
