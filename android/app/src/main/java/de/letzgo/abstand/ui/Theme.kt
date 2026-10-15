@@ -30,7 +30,7 @@ import kotlin.math.PI
 import kotlin.math.ceil
 
 /**
- * iOS: `AppTheme` — zentrale Farben und Abstände. Werte 1:1 aus AppTheme.swift (pt → dp).
+ * iOS: `AppTheme` — zentrale Farben und Abstände. Farben 1:1 aus AppTheme.swift, Abstände mit iOS-Namen und Material-3-Werten ([Layout]).
  * Farben in Views **nicht** von hier, sondern über [Theme.palette] / [Theme.accent] lesen
  * (die statischen iOS-Felder `AppTheme.card/textPrimary/…` haben hier kein Gegenstück).
  */
@@ -500,7 +500,7 @@ object Theme {
 /**
  * iOS: `.preferredColorScheme` + `.tint` + `themeAccentFromAppModel` am Root. Baut das
  * Material-ColorScheme aus der abstand-Palette (Dark: feste Grauflächen, Light: akzentgetönt),
- * setzt die iOS-Typografie und die Statusleisten-Icons passend zum Modus.
+ * setzt die M3-Typeskala ([AppType]) und die Statusleisten-Icons passend zum Modus.
  */
 @Composable
 fun AbstandTheme(content: @Composable () -> Unit) {

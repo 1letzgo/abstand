@@ -4,8 +4,9 @@ abstand Android — UI-Vorlagen-Inventar
 Bestandsaufnahme der wiederkehrenden UI-Muster vor der Vereinheitlichung (Stand c85a3bb,
 Dateipfade relativ zu app/src/main/java/de/letzgo/abstand/) und die Vorlage, die sie jetzt
 ersetzt. Alle Vorlagen liegen in ui/components/; UiTemplateLintTest verhindert neue rohe
-Material-Menüs/-Dialoge/-Sheets/-Buttons/-Chips/-Fortschrittsanzeigen außerhalb davon und
-Color(0x…)-Literale außerhalb von Theme.kt/Palette.kt.
+Material-Menüs/-Dialoge/-Sheets/-Buttons/-Chips/-Fortschrittsanzeigen außerhalb davon,
+Color(0x…)-Literale außerhalb von Theme.kt/Palette.kt, .dp-Literale abseits des 4-dp-Rasters
+und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt „Material 3 metrics“.
 
 ## Menüs (DropdownMenu/DropdownMenuItem, Sort-/Filter-/Overflow-/Kontext-/Picker-/Speed-/Sleep-/EQ-Menüs)
    → Vorlage: AbstandMenu { item/section/picker/divider } · AbstandMenuButton · AbstandMenuBox · AbstandPickerMenu · AbstandPickerValueMenu · AbstandDropdownPill
@@ -309,6 +310,60 @@ Color(0x…)-Literale außerhalb von Theme.kt/Palette.kt.
    AbstandDivider: 3
    AbstandCapsLabel: 4
    AbstandInsetTextField: 3
+
+## Material 3 metrics (Android-Maße; Token-Namen bleiben wie iOS)
+   Quelle: m3.material.io + Compose-Material3-Defaults/Tokens (ListTokens, MenuDefaults,
+   ButtonDefaults, IconButtonTokens, FilterChipTokens, TopAppBarDefaults, NavigationBarTokens,
+   DialogTokens, SheetDefaults, ProgressIndicatorDefaults, OutlinedTextFieldTokens, SearchBarDefaults,
+   SegmentedButtonDefaults). Werte in dp/sp; „iOS/vorher“ = bisheriger 1:1-Port aus AppTheme.swift.
+
+   Komponente / Token                         M3-Wert                  vorher (iOS)       jetzt (Android)
+   ----------------------------------------   ----------------------   ----------------   -------------------------------
+   Raster                                     4 dp                     frei (3/5/6/7/…)   4 dp (UiTemplateLintTest)
+   Rand Screen/Tab (tabPaddingH)              16 compact / 24 medium+  16                 16, ab 600 dp Breite 24
+   Touch-Ziel (minTapTarget)                  48                       44                 48
+   Icon-Button (iconButtonSize)               40 Container, 24 Icon    40 / 44 plain      40 Container + 48 Ziel, Icon 24
+   kompakter Icon-Button                      — (32 XS)                36                 32 Container, Ziel 48
+   Top App Bar                                64, Titel titleLarge     64, title2.bold    64, titleLarge, fix (kein Collapse)
+   Navigation Bar                             80, Indicator 64×32      Material-Default   unverändert (NavigationBar)
+   Listenzeile 1/2/3-zeilig                   56 / 72 / 88             50 (listRowMin)    56 / 72 (mit Untertitel)
+   Listenzeile Innenabstand/Gap               16 seitl., 8 vert., 16   16 / 8 / 12        16 / 8 / 16 (rowSpacing)
+   Listen-Icons leading/trailing              24 / 24                  22 / 18            24 / 24
+   Karte Ecke (cardCornerRadius)              12 (medium)              14                 12
+   Hero-Karte Ecke                            16 (large)               16                 16
+   Karten-Innenabstand (cardPadding)          16                       14                 16
+   Karten-Elevation                           Level 1 = 1 dp           3 / 6              Standard 1, Hero 3
+   Cover-Ecken                                8 (small)                11                 8
+   Button (Primary/Prominent)                 40 hoch, voll rund, 24   ~48, 14er Ecke     40, CircleShape, 24 seitl., labelLarge
+   Text-Button                                40 hoch, 12 seitl.       Default, body      Default (12), labelLarge
+   Button-/Chip-Icon                          18                       20                 18 (smallIconSize)
+   Play-Pille                                 Button 40 / XS 32        ~30–34             40 mit Text, 32 nur Symbol
+   Chip (AbstandChip)                         32 hoch, 8 Ecke, 16/8    44, Kapsel         32, 8er Ecke, 16 (8 mit Icon), Ziel 48
+   Dock-Chip (Expanding Dock)                 Chip 32–40, Gap 8        46, Gap 10         40, Gap 8, Icon 20, Cover 24/32
+   Menü-Eintrag                               48 hoch, 12 seitl.       44, 16 seitl.      48, 12, Icon 24, labelLarge
+   Menü Breite / Ecke / Elevation             112–280 / 4 / Level 2    ≥200 / 14 / 6      112–280 / 4 / 3
+   Dialog Ecke / Innenabstand / Titel         28 / 24 / headlineSmall  20 / – / headline  28 / 24 / headlineSmall
+   Bottom Sheet Ecke / Griff                  28 / 32×4                20 / 36×5          28 / 32×4
+   Textfeld / Suchfeld                        56 hoch, 16, Ecke 4/voll 12er Padding/Ecke  16 Padding (56), Ecke 4; Suche 56 voll rund
+   Segmented Button                           40 hoch, labelLarge      Default, subhead.  Default (40), labelLarge
+   Spinner groß / Linear-Progress             48×4 / 4                 36×3,5 / 4         48×4 / 4 (Small 20, Regular 32)
+   Mini-Player                                64 hoch (üblich)         48+16, Cover 32    64, Cover 48, Ecke 16, Play 56×40
+   Vollplayer Play / Transport                72–96 / ≥48              72×44 / 44         96×56 / 48, Symbole 32/36
+   Sektionsabstand (sectionSpacing)           Vielfache von 8          22                 24 (Home-Regale 32)
+   withinSectionSpacing / compactSpacing      8 / 4                    10 / 6             8 / 4
+   Typografie                                 M3 Type Scale (Roboto)   iOS Dynamic Type   AppType = MaterialTheme.typography
+
+   Typo-Abbildung (AppType, KDoc in ui/Typography.kt):
+   largeTitle→headlineMedium · title→headlineSmall · title2/title3→titleLarge · headline→titleMedium ·
+   body/callout→bodyLarge · subheadline→bodyMedium · footnote/caption→bodySmall · caption2→labelSmall ·
+   subheadline.semibold→titleSmall · body.medium/semibold→titleMedium · caption.semibold→labelMedium ·
+   Versalien-Labels→labelMedium · Sektionstitel (TabContentSectionTitle)→titleLarge · Dialogtitel→headlineSmall.
+
+   Bewusst abweichend: AppTheme.Layout.hairlineSpacing 2 dp (= M3 SegmentedGap), Strichstärken 2 dp
+   (boldStrokeWidth, Ring), Fortschritts-/Kartenkanten 1 dp; Cover-/Karussell-Breiten aus Viewport-
+   Formeln (iOS-Logik) und libraryRowCoverSide 100 dp (Cover-Maß); Detail-Play/Neben-Aktionen 56 dp
+   (FAB-Höhe) statt 40-dp-Button, weil sie die Hauptaktion der Seite sind; Dock-Strip behält die
+   „Expanding Dock“-Optik (Kreis → Kapsel) mit M3-Chip-Maßen.
 
 ## Bewusst nicht vereinheitlicht
    - DetailHeroPrimaryButton / DetailHeroCircularButton (Fortschritts-Kapsel mit Füllung) — Einzelstück der Detail-Hero.

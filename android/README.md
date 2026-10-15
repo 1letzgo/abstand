@@ -13,9 +13,12 @@ What is language-neutral is shared 1:1:
 - **Golden files:** `../shared/fixtures/` holds JSON samples and logic cases both platforms decode;
   the Android unit tests read them as test resources.
 
-**Goal: behave and look as close to the iOS app as possible** — same tabs, order, labels (English
-UI), defaults, spacing (`AppTheme.Layout` → `Tokens`). Android-native widgets (Material 3: top app
-bars, navigation bar, cards, sheets) with the iOS structure. When porting a screen, read the Swift
+**Goal: behave like the iOS app, look like a standard Material 3 app** — same tabs, order, labels
+(English UI), defaults, features, palette/accent and screen structure as iOS; dimensions, spacing,
+typography and component sizes follow **Material 3** (4-dp grid, 48-dp touch targets, M3 type
+scale). The token *names* stay the iOS ones (`AppTheme.Layout.rowSpacing`, `cardPadding`, …) so call
+sites remain comparable; only their Android values differ (table: `UI_TEMPLATES.txt` → "Material 3
+metrics"). Android-native widgets (top app bars, navigation bar, cards, sheets) with the iOS structure. When porting a screen, read the Swift
 view first and mirror its structure; name the iOS counterpart in the KDoc (`/** iOS: BookDetailView */`).
 
 ## Build
@@ -188,6 +191,16 @@ abstand.debug.password=…
   server origin, bearer for the active server) and `ApiClient` for API calls.
 - Colours only from the palette (`Theme.palette`, accent); spacing only from the tokens. `Color(0x…)`
   literals live only in `ui/Theme.kt` / `ui/Palette.kt` (`UiTemplateLintTest` fails otherwise).
+- **Material 3 metrics:** `AppTheme.Layout` keeps the iOS token names but carries M3 values (margins
+  16 dp compact / 24 dp from 600 dp width via `tabPaddingH`, touch targets 48, list rows 56/72/88,
+  cards 12-dp corners, chips 32, buttons 40, menus 48-dp items, dialogs/sheets 28-dp corners, top app
+  bar 64, mini player 64) plus M3-only tokens (`cornerExtraSmall…cornerExtraLarge`, `iconSize`,
+  `smallIconSize`, `buttonHeight`, `chipHeight`, `menuItemHeight`, `listItem*Height`, …). Screen-local
+  `*Metrics` objects use multiples of 4 dp; `UiTemplateLintTest` fails on off-grid `.dp` literals
+  outside `ui/components/`/`Theme.kt` (hairlines 0.5/1 dp allowed).
+- **Typography:** `AppType` (`ui/Typography.kt`) = the M3 type scale (`MaterialTheme.typography`,
+  Roboto); the KDoc maps each iOS Dynamic-Type role (`.headline` → `titleMedium`, `.subheadline` →
+  `bodyMedium`, …). No `fontSize =`/`NN.sp` literals outside `Typography.kt` (lint).
 - **UI templates — never hand-build menus, sheets or dialogs.** Every recurring element comes from
   `ui/components/` (inventory with former call sites: `android/UI_TEMPLATES.txt`). Material 3 widgets are
   used only inside those templates; `UiTemplateLintTest` fails on raw `DropdownMenu`, `AlertDialog`,
@@ -197,12 +210,12 @@ abstand.debug.password=…
     anchors `AbstandMenuButton(icon, description) { … }` (toolbar ⋮/sort/filter) and `AbstandMenuBox(anchor = { open -> … }) { … }`
     (pill/text/long-press anchors), one-liner pickers `AbstandPickerMenu` / `AbstandPickerValueMenu`,
     browse/library pills `AbstandDropdownPill`. Card surface, card corners, hero shadow, hairline edge,
-    44 dp rows, accent checkmark for the selection, `AppTheme.danger` for destructive items.
+    M3 metrics (48-dp items, 12-dp padding, 4-dp corners), accent checkmark for the selection, `AppTheme.danger` for destructive items.
   - Dialogs: `AbstandAlert(title, onDismiss, message)` (OK only), `AbstandConfirmDialog(title, confirmLabel, onConfirm, onDismiss, message, destructive = true)`,
     `AbstandDialog(…) { content }` for inputs (e.g. `AbstandInsetTextField`), `AbstandBlockingProgressDialog(text)`.
   - Sheets: `AbstandSheet(title, onDismiss, onConfirm, cancelLabel)` (bottom sheet with grabber), `MetadataSheetScaffold` (full-screen forms).
   - Buttons: `AbstandPrimaryButton`, `AbstandProminentButton` (`destructive`), `AbstandIconButton` (Plain/Tonal/Filled,
-    sizes `minTapTarget`/`iconButtonSize`/`compactIconButtonSize`), `AbstandTextButton`, `AbstandPlayPill`.
+    container `iconButtonSize` 40 / `compactIconButtonSize` 32, always ≥ 48-dp touch target), `AbstandTextButton`, `AbstandPlayPill`.
   - Pills/badges/chips: `AbstandCoverPill(Icon|Text)`, `AbstandCoverCornerBadge`, `AbstandCoverDownloadBadge`, `AbstandStatusBadges`,
     `AbstandBadge` (Neutral/Accent), `AbstandChip` (filter/category), `AbstandDockChip` (expanding dock).
   - Progress/state: `AbstandProgressBar`, `AbstandCardBottomProgress`, `AbstandProgressRing`, `AbstandInlineSpinner`, `AbstandLoadingSpinner`,
