@@ -8,7 +8,9 @@ import org.junit.Test
  * „Lint“ für das Design-System (android/README.md, android/UI_TEMPLATES.txt): Menüs, Dialoge,
  * Sheets, Icon-/Text-Buttons, Chips, Segment-Umschalter und Fortschrittsanzeigen werden nur in
  * `ui/components/` aus Material-Widgets gebaut — überall sonst die `Abstand*`-Vorlagen nutzen.
- * Rohe `Color(0x…)`-Literale gehören nur in Theme.kt/Palette.kt.
+ * Rohe `Color(0x…)`-Literale gehören nur in Theme.kt/Palette.kt. Maße folgen dem Material-3-
+ * 4-dp-Raster (`.dp`-Literale außerhalb von ui/components/Theme nur als Vielfache von 4, Haarlinien
+ * 0,5/1 dp ausgenommen), Schriftgrößen nur aus `AppType` (keine `fontSize = 17`/`17.sp`-Literale).
  */
 class UiTemplateLintTest {
 
@@ -30,6 +32,12 @@ class UiTemplateLintTest {
 
     private val widgetCall = Regex("(?<![A-Za-z0-9_])(${templateOnlyWidgets.joinToString("|")})\\s*\\(")
     private val colorHexLiteral = Regex("(?<![A-Za-z0-9_])Color\\(\\s*0x")
+    private val dpLiteral = Regex("(?<![A-Za-z0-9_.])(\\d+(?:\\.\\d+)?)\\.dp\\b")
+    private val spLiteral = Regex("(?<![A-Za-z0-9_.])\\d+(?:\\.\\d+)?\\.sp\\b")
+    private val fontSizeLiteral = Regex("fontSize\\s*=\\s*\\d")
+
+    /** Haarlinien (Trenner/Konturen) und 0 dp dürfen vom 4-dp-Raster abweichen. */
+    private val allowedOffGridDp = setOf(0.0, 0.5, 1.0)
 
     private fun kotlinFiles(): List<File> = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
 
@@ -90,6 +98,42 @@ class UiTemplateLintTest {
             }
         assertTrue(
             "Color(0x…)-Literale außerhalb von Theme.kt/Palette.kt — Farbe in AppTheme/Palette definieren:\n" + violations.joinToString("\n"),
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun dpLiteralsFollowMaterialGrid() {
+        val exempt = listOf("de/letzgo/abstand/ui/components/", "de/letzgo/abstand/ui/Theme.kt")
+        val violations = kotlinFiles()
+            .filterNot { f -> exempt.any { relative(f).startsWith(it) } }
+            .flatMap { file ->
+                codeLines(file).flatMap { (line, text) ->
+                    dpLiteral.findAll(text).mapNotNull { m ->
+                        val v = m.groupValues[1].toDouble()
+                        if (v in allowedOffGridDp || v % 4.0 == 0.0) null else "${relative(file)}:$line → ${m.value}"
+                    }.toList()
+                }
+            }
+        assertTrue(
+            ".dp-Literale außerhalb des M3-4-dp-Rasters — Token aus AppTheme.Layout nehmen oder auf ein Vielfaches von 4 runden:\n" +
+                violations.joinToString("\n"),
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun fontSizesOnlyFromTypeScale() {
+        val allowed = setOf("de/letzgo/abstand/ui/Typography.kt")
+        val violations = kotlinFiles()
+            .filterNot { relative(it) in allowed }
+            .flatMap { file ->
+                codeLines(file).mapNotNull { (line, text) ->
+                    if (fontSizeLiteral.containsMatchIn(text) || spLiteral.containsMatchIn(text)) "${relative(file)}:$line" else null
+                }
+            }
+        assertTrue(
+            "Schriftgrößen-Literale außerhalb von Typography.kt — AppType (M3-Typeskala) nutzen:\n" + violations.joinToString("\n"),
             violations.isEmpty(),
         )
     }

@@ -111,27 +111,31 @@ class AppearanceColorTest {
         assertEquals(0.78f, secondaryOnDark.alpha, 0.005f)
     }
 
-    @Test fun layoutTokensMatchIos() {
+    /** Android-Werte nach Material 3 (Namen wie iOS `AppTheme.Layout`, Tabelle in UI_TEMPLATES.txt). */
+    @Test fun layoutTokensFollowMaterial3() {
         val l = AppTheme.Layout
-        assertEquals(12.dp, l.rowSpacing)
+        assertEquals(16.dp, l.rowSpacing)
         assertEquals(8.dp, l.stackSpacing)
         assertEquals(4.dp, l.tightSpacing)
-        assertEquals(10.dp, l.withinSectionSpacing)
-        assertEquals(22.dp, l.sectionSpacing)
+        assertEquals(8.dp, l.withinSectionSpacing)
+        assertEquals(24.dp, l.sectionSpacing)
         assertEquals(32.dp, l.homeSectionSpacing)
-        assertEquals(14.dp, l.cardPadding)
+        assertEquals(16.dp, l.cardPadding)
         assertEquals(16.dp, l.screenPadding)
-        // 8 + 44 + 2 + 20 + 8 + 34 + 10
-        assertEquals(126.dp, l.continueHeroMetadataBlockHeight)
-        assertEquals(302.dp, l.continueHeroCardTotalHeight)
-        assertEquals(84.dp, l.libraryHeroMetadataBlockHeight)
+        assertEquals(48.dp, l.minTapTarget)
+        assertEquals(56.dp, l.listRowMinHeight)
+        assertEquals(12.dp, l.cardCornerRadius)
+        // 12 + 48 + 4 + 20 + 8 + 40 + 12
+        assertEquals(144.dp, l.continueHeroMetadataBlockHeight)
+        assertEquals(320.dp, l.continueHeroCardTotalHeight)
+        assertEquals(96.dp, l.libraryHeroMetadataBlockHeight)
     }
 
-    @Test fun carouselWidthsMatchIos() {
+    @Test fun carouselWidthsMatchIosFormula() {
         val l = AppTheme.Layout
-        // Compact: (390 − 10·1) / 1.5 ≈ 253.33, keine Max-Kappe.
-        assertEquals(253.33f, l.continueHeroCardWidth(390.dp).value, 0.01f)
-        // Regular (+2 → 3.5 Karten): (1024 − 10·3) / 3.5 = 284 → Kappe 220.
+        // Compact: (390 − 8·1) / 1.5 ≈ 254.67, keine Max-Kappe.
+        assertEquals(254.67f, l.continueHeroCardWidth(390.dp).value, 0.01f)
+        // Regular (+2 → 3.5 Karten): (1024 − 8·3) / 3.5 ≈ 285.7 → Kappe 220.
         assertEquals(220f, l.continueHeroCardWidth(1024.dp, isRegular = true).value, 0.01f)
         assertEquals(l.continueHeroCardWidth, l.continueHeroCardWidth(0.dp))
         // Kompaktkarte: 390·¾ = 292.5 (zwischen 240 und 400).
