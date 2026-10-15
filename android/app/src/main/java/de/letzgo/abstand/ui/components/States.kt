@@ -36,8 +36,8 @@ fun TabContentSectionTitle(title: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * Die eine Abschnittsüberschrift der App (M3-Listen-Subheader: `titleSmall` in Akzentfarbe, an der
- * Karteninnenkante eingerückt). Genutzt von [TabContentSectionTitle] (Home-Regale, Stats, Bereiche)
+ * Die eine Abschnittsüberschrift der App (M3-Listen-Subheader: `titleSmall` in Akzentfarbe, bündig
+ * mit der Kartenkante). Genutzt von [TabContentSectionTitle] (Home-Regale, Stats, Bereiche)
  * und `ServerAdminSection` (Settings) — alle Ansichten haben so dieselben Überschriften.
  */
 @Composable
@@ -48,7 +48,8 @@ fun AbstandSectionHeader(title: String, modifier: Modifier = Modifier) {
         color = Theme.accent,
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = AppTheme.Layout.stackSpacing, start = AppTheme.Layout.settingsCardInsetHPadding)
+            // Bündig mit der Kartenkante (nicht mehr auf die Karteninnenkante eingerückt).
+            .padding(top = AppTheme.Layout.stackSpacing)
             .semantics { heading() },
     )
 }

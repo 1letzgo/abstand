@@ -38,6 +38,7 @@ import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
 import de.letzgo.abstand.ui.components.AbstandPinnedBrowseStrip
 import de.letzgo.abstand.ui.components.AbstandSectionEmptyState
 import de.letzgo.abstand.ui.components.AbstandSpinnerSize
+import de.letzgo.abstand.ui.components.TabContentSectionTitle
 import de.letzgo.abstand.ui.components.TabRootScaffold
 import kotlinx.coroutines.launch
 
@@ -104,6 +105,9 @@ fun PodcastsTabRoot(model: AppModel = AppModel.shared) {
         selectedShowId, newEpisodes, filtered, byShow, episodeSortField, episodeSortDescending,
         reachable, offline, offlineAuto, actionsRevision,
     ) { store.podcastEpisodesForPodcastsTab(selectedShowId) }
+    val sectionTitle = selectedShowId?.let { sid ->
+        shows.firstOrNull { it.id == sid }?.displayTitle?.trim()?.ifEmpty { null } ?: "Episodes"
+    } ?: "New episodes"
     val listLoading = if (isNewView) isLoadingPodcasts && episodes.isEmpty() else isLoadingShowEpisodes && episodes.isEmpty()
     val activeLibraries = remember(activeIds, libraries) { session.activePodcastLibraries }
 
@@ -174,7 +178,7 @@ fun PodcastsTabRoot(model: AppModel = AppModel.shared) {
                 contentPadding = padding,
                 verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing),
             ) {
-                // Keine Überschrift: das Tab-Label (Sendung bzw. „New“) nennt den Abschnitt schon.
+                item(key = "title") { TabContentSectionTitle(sectionTitle) }
                 if (listLoading) {
                     item(key = "loading") { AbstandLoadingSpinner() }
                 } else if (episodes.isEmpty()) {
