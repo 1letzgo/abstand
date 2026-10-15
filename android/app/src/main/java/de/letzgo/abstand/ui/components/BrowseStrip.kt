@@ -1,5 +1,9 @@
 package de.letzgo.abstand.ui.components
 
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.Tab
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -403,6 +407,55 @@ private fun DockSectionButton(item: AbstandBrowseStripItem, isSelected: Boolean,
         ) {
             Icon(item.icon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
             if (isSelected) Text(item.label, style = AppType.labelLarge, maxLines = 1)
+        }
+    }
+}
+
+/**
+ * Standard-Material-3-Tabs (`PrimaryScrollableTabRow`, Text-Tabs, 48 dp — gleiche Höhe wie die
+ * Pill-Leisten der anderen Tabs) als Bereichsumschalter in der Kopfzeile. Akzent für das aktive
+ * Label und den Indikator, kein Trenner (die Kopfzeile hat keinen).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AbstandMaterialTabs(
+    items: List<AbstandBrowseStripItem>,
+    selectionId: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (items.isEmpty()) return
+    val haptics = LocalHapticFeedback.current
+    val accent = Theme.accent
+    val selectedIndex = items.indexOfFirst { it.id == selectionId }.coerceAtLeast(0)
+    PrimaryScrollableTabRow(
+        selectedTabIndex = selectedIndex,
+        modifier = modifier.fillMaxWidth(),
+        containerColor = Theme.palette.background,
+        contentColor = accent,
+        edgePadding = AppTheme.Layout.tabPaddingH,
+        indicator = {
+            TabRowDefaults.PrimaryIndicator(
+                Modifier.tabIndicatorOffset(selectedIndex, matchContentSize = true),
+                width = Dp.Unspecified,
+                color = accent,
+            )
+        },
+        divider = {},
+    ) {
+        items.forEachIndexed { index, item ->
+            Tab(
+                selected = index == selectedIndex,
+                onClick = {
+                    if (item.id != selectionId) {
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onSelect(item.id)
+                    }
+                },
+                text = { Text(item.label, style = AppType.titleSmall, maxLines = 1) },
+                selectedContentColor = accent,
+                unselectedContentColor = Theme.palette.textSecondary,
+            )
         }
     }
 }

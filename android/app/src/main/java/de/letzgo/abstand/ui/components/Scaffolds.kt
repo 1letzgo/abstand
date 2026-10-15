@@ -1,6 +1,7 @@
 package de.letzgo.abstand.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -121,6 +122,8 @@ fun TabRootScaffold(
                         .fillMaxWidth()
                         .background(palette.background)
                         .windowInsetsPadding(WindowInsets.statusBars)
+                        // Gleiche Kopfzeilenhöhe in allen Tabs (Pills, Tabs, Überschrift, Aktionen).
+                        .heightIn(min = AppTheme.Layout.minTapTarget)
                         .padding(end = if (actions != null) AppTheme.Layout.tightSpacing else AppTheme.Layout.tabPaddingH - AppTheme.Layout.stackSpacing)
                         .semantics { heading(); contentDescription = title },
                     verticalAlignment = Alignment.CenterVertically,

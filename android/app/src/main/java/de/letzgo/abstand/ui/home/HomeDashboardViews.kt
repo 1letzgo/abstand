@@ -119,7 +119,6 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
         },
         listState = listState,
         fullBleed = true,
-        sectionSpacing = AppTheme.Layout.homeSectionSpacing,
         actions = {
             HomeGoOfflineToolbarButton(offline) {
                 if (offline) session.exitOfflineHomeUI() else showOfflineConfirmation = true
