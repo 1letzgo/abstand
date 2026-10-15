@@ -2,9 +2,7 @@ package de.letzgo.abstand.ui.player
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
@@ -13,20 +11,21 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -34,15 +33,21 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.util.lerp
 import de.letzgo.abstand.data.AbsBook
 import de.letzgo.abstand.model.PlayerWiring
+import de.letzgo.abstand.ui.AppTheme
+import de.letzgo.abstand.ui.Theme
 import kotlinx.coroutines.launch
 
 /**
- * iOS: `NowPlayingZoomPresenter` + `FullScreenOverlayPresenter` — Vollbild-Player über den Tabs
- * (inkl. Navigationsleiste), wächst aus der Mini-Player-Leiste ([NowPlayingZoomSource]) und schrumpft
- * beim Schließen dorthin zurück. Schließen: nach unten ziehen (überall, in Listen erst ab ihrem
- * Anfang — iOS: `interactiveDismissShouldBegin`), System-Zurück oder Griff antippen.
+ * iOS: `NowPlayingZoomPresenter` + `FullScreenOverlayPresenter` — Vollbild-Player über den Tabs.
+ * Android: Material-3-**Container-Transform**: der Container der Mini-Player-Leiste
+ * ([NowPlayingZoomSource]) wächst mit Emphasized-Easing zum Vollbild (Ecken → 0, Farbe Karte →
+ * Hintergrund), der Vollbild-Inhalt blendet per Fade-Through ein. Schließen: nach unten ziehen —
+ * die Oberkante folgt dem Finger und der Container schrumpft kontinuierlich zurück in die Leiste
+ * (in Listen erst ab ihrem Anfang — iOS: `interactiveDismissShouldBegin`), System-Zurück oder
+ * Griff antippen.
  *
  * Immer komponiert lassen (außerhalb des Tab-Baums); der Inhalt wird nur während Sichtbarkeit/
  * Animation aufgebaut.
@@ -54,113 +59,127 @@ fun NowPlayingOverlay(
     onOpenEbook: ((AbsBook) -> Unit)? = null,
 ) {
     val presented by wiring.nowPlayingPresented.collectAsState()
-    val progress = remember { Animatable(0f) }
-    var dragOffset by remember { mutableFloatStateOf(0f) }
+    // 0 = eingeklappt (Rahmen der Mini-Player-Leiste), 1 = Vollbild.
+    val expand = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
-    val thresholdPx = with(LocalDensity.current) { MiniPlayerMetrics.dismissDragThreshold.toPx() }
+    val density = LocalDensity.current
+    val thresholdPx = with(density) { MiniPlayerMetrics.dismissDragThreshold.toPx() }
+    val cornerPx = with(density) { MiniPlayerMetrics.accessoryCornerRadius.toPx() }
+    val fallbackInsetPx = with(density) { AppTheme.Layout.screenPadding.toPx() }
+    val fallbackHeightPx = with(density) { MiniPlayerMetrics.barHeight.toPx() }
+    val palette = Theme.palette
 
     LaunchedEffect(presented) {
-        if (presented) {
-            dragOffset = 0f
-            progress.animateTo(1f, spring(dampingRatio = PRESENT_DAMPING, stiffness = Spring.StiffnessMediumLow))
-        } else {
-            val from = dragOffset
-            launch { animate(from, 0f, animationSpec = tween(DISMISS_MS)) { v, _ -> dragOffset = v } }
-            progress.animateTo(0f, tween(DISMISS_MS))
-        }
+        if (presented) expand.animateTo(1f, tween(ENTER_MS, easing = EmphasizedEasing))
+        else expand.animateTo(0f, tween(EXIT_MS, easing = EmphasizedAccelerateEasing))
     }
     BackHandler(enabled = presented) { wiring.dismissNowPlaying() }
-    if (!presented && progress.value == 0f) return
-
-    fun settle(velocityY: Float) {
-        if (dragOffset > thresholdPx || velocityY > DISMISS_VELOCITY) {
-            wiring.dismissNowPlaying()
-        } else {
-            val from = dragOffset
-            scope.launch { animate(from, 0f, animationSpec = spring()) { v, _ -> dragOffset = v } }
-        }
-    }
-
-    val dragState = rememberDraggableState { delta -> dragOffset = (dragOffset + delta).coerceAtLeast(0f) }
-    // Listen (Kapitel, Bookmarks, Teleprompter): erst ziehen, wenn die Liste oben angekommen ist.
-    val nested = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (dragOffset > 0f && available.y < 0f) {
-                    val used = maxOf(available.y, -dragOffset)
-                    dragOffset += used
-                    return Offset(0f, used)
-                }
-                return Offset.Zero
-            }
-
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && available.y > 0f) {
-                    dragOffset += available.y
-                    return Offset(0f, available.y)
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPreFling(available: Velocity): Velocity {
-                if (dragOffset > 0f) {
-                    settle(available.y)
-                    return available
-                }
-                return Velocity.Zero
-            }
-        }
-    }
+    if (!presented && expand.value == 0f) return
 
     BoxWithConstraints(Modifier.fillMaxSize().semantics { traversalIndex = -1f }) {
         val w = constraints.maxWidth.toFloat().coerceAtLeast(1f)
         val h = constraints.maxHeight.toFloat().coerceAtLeast(1f)
         val src = NowPlayingZoomSource.bounds
-        val p = progress.value
-        val startScale = src?.let { (it.width / w).coerceIn(MIN_START_SCALE, 1f) } ?: FALLBACK_START_SCALE
-        val scale = startScale + (1f - startScale) * p
-        val origin = src?.let { TransformOrigin((it.center.x / w).coerceIn(0f, 1f), (it.center.y / h).coerceIn(0f, 1f)) }
-            ?: TransformOrigin(0.5f, 1f)
-        val dragFraction = (dragOffset / h).coerceIn(0f, 1f)
+            ?: Rect(fallbackInsetPx, h - fallbackHeightPx * 2, w - fallbackInsetPx, h - fallbackHeightPx)
+        // Weg, den die Oberkante beim Ziehen bis zum vollständigen Einklappen zurücklegt.
+        val collapseDistance = src.top.coerceAtLeast(1f)
 
-        // Abdunkeln des Hintergrunds während Ein-/Ausblenden und Ziehen.
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = SCRIM_ALPHA * p * (1f - dragFraction))))
+        fun dragBy(deltaY: Float) {
+            val next = (expand.value - deltaY / collapseDistance).coerceIn(0f, 1f)
+            scope.launch { expand.snapTo(next) }
+        }
+
+        fun settle(velocityY: Float) {
+            val draggedPx = (1f - expand.value) * collapseDistance
+            if (draggedPx > thresholdPx || velocityY > DISMISS_VELOCITY) {
+                wiring.dismissNowPlaying()
+            } else {
+                scope.launch { expand.animateTo(1f, tween(SETTLE_MS, easing = EmphasizedDecelerateEasing)) }
+            }
+        }
+
+        val dragState = rememberDraggableState { delta -> dragBy(delta) }
+        // Listen (Kapitel, Bookmarks, Teleprompter): erst ziehen, wenn die Liste oben angekommen ist.
+        val nested = remember(collapseDistance) {
+            object : NestedScrollConnection {
+                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                    if (expand.value < 1f && available.y < 0f) {
+                        val draggedPx = (1f - expand.value) * collapseDistance
+                        val used = maxOf(available.y, -draggedPx)
+                        dragBy(used)
+                        return Offset(0f, used)
+                    }
+                    return Offset.Zero
+                }
+
+                override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                    if (source == NestedScrollSource.UserInput && available.y > 0f) {
+                        dragBy(available.y)
+                        return Offset(0f, available.y)
+                    }
+                    return Offset.Zero
+                }
+
+                override suspend fun onPreFling(available: Velocity): Velocity {
+                    if (expand.value < 1f) {
+                        settle(available.y)
+                        return available
+                    }
+                    return Velocity.Zero
+                }
+            }
+        }
+
+        val f = expand.value
+        val left = lerp(src.left, 0f, f)
+        val top = lerp(src.top, 0f, f)
+        val right = lerp(src.right, w, f)
+        val bottom = lerp(src.bottom, h, f)
+        val radius = lerp(cornerPx, 0f, f)
+        val containerShape = remember(left, top, right, bottom, radius) {
+            GenericShape { _, _ -> addRoundRect(RoundRect(left, top, right, bottom, CornerRadius(radius))) }
+        }
+        // Fade-Through: Inhalt erst ab ~35 % sichtbar, damit die Leiste nicht „leer“ aufgezogen wird.
+        val contentAlpha = ((f - FADE_THROUGH_START) / (1f - FADE_THROUGH_START)).coerceIn(0f, 1f)
+        // Ausgehender Inhalt (Mini-Player darunter) bleibt im ersten Abschnitt sichtbar: der Container
+        // deckt erst allmählich ab, statt sofort eine leere Leiste zu zeigen.
+        val containerAlpha = (f / FADE_OUT_END).coerceIn(0f, 1f)
+
+        // Scrim hinter dem Container (M3: Abdunkeln proportional zum Fortschritt).
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = SCRIM_ALPHA * f)))
         Box(
             Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = scale * (1f - dragFraction * DRAG_SHRINK)
-                    scaleY = scale * (1f - dragFraction * DRAG_SHRINK)
-                    transformOrigin = origin
-                    translationY = dragOffset
-                    alpha = (p * ALPHA_RAMP).coerceAtMost(1f)
-                    clip = true
-                    shape = RoundedCornerShape(percent = (CORNER_PERCENT * (1f - p + dragFraction)).toInt().coerceIn(0, MAX_CORNER_PERCENT))
-                }
+                .graphicsLayer { clip = true; shape = containerShape }
+                .background(lerp(palette.card, palette.background, f).copy(alpha = containerAlpha))
                 .nestedScroll(nested)
                 .draggable(dragState, Orientation.Vertical, onDragStopped = { v -> settle(v) }),
         ) {
-            NowPlayingScreen(
-                wiring = wiring,
-                onDismiss = { wiring.dismissNowPlaying() },
-                readAlong = readAlong,
-                onOpenEbook = onOpenEbook?.let { open -> { book: AbsBook -> wiring.dismissNowPlaying(); open(book) } },
-            )
+            // Inhalt in voller Größe, an der Container-Oberkante verankert und vom Container beschnitten.
+            Box(Modifier.fillMaxSize().graphicsLayer { translationY = top; alpha = contentAlpha }) {
+                NowPlayingScreen(
+                    wiring = wiring,
+                    onDismiss = { wiring.dismissNowPlaying() },
+                    readAlong = readAlong,
+                    onOpenEbook = onOpenEbook?.let { open -> { book: AbsBook -> wiring.dismissNowPlaying(); open(book) } },
+                )
+            }
         }
     }
 }
 
-private const val PRESENT_DAMPING = 0.86f
-private const val DISMISS_MS = 320
+// M3-Motion-Tokens (m3.material.io → Styles → Motion → Easing and duration).
+private val EmphasizedEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+private val EmphasizedDecelerateEasing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+private val EmphasizedAccelerateEasing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
+/** `long2` — Container-Transform beim Öffnen. */
+private const val ENTER_MS = 500
+/** `short4` — Schließen (Emphasized Accelerate). */
+private const val EXIT_MS = 200
+/** `medium2` — Zurückschnappen nach abgebrochenem Ziehen. */
+private const val SETTLE_MS = 300
 /** px/s nach unten, ab der ein kurzes Wischen schließt. */
 private const val DISMISS_VELOCITY = 1_800f
-private const val MIN_START_SCALE = 0.2f
-private const val FALLBACK_START_SCALE = 0.9f
-private const val SCRIM_ALPHA = 0.35f
-/** Inhalt wird schneller sichtbar als er wächst (sonst wirkt die Leiste „leer“). */
-private const val ALPHA_RAMP = 2.5f
-/** Beim Ziehen leicht verkleinern (iOS-Zoom-Dismiss). */
-private const val DRAG_SHRINK = 0.25f
-/** Eckenradius in Prozent der kürzeren Seite (am Anfang/Ende der Zoom-Animation). */
-private const val CORNER_PERCENT = 8f
-private const val MAX_CORNER_PERCENT = 50
+private const val SCRIM_ALPHA = 0.32f
+private const val FADE_THROUGH_START = 0.35f
+private const val FADE_OUT_END = 0.3f
