@@ -47,7 +47,6 @@ import de.letzgo.abstand.ui.components.SettingsCardNavRow
 import de.letzgo.abstand.ui.components.SettingsSubpageScaffold
 import de.letzgo.abstand.ui.components.abstandCardListRowFrame
 import de.letzgo.abstand.ui.formatPlaybackTime
-import de.letzgo.abstand.ui.medium
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -126,7 +125,7 @@ private fun ServerUserListRow(user: AbsAdminUserSummary, isOnline: Boolean) {
             Modifier.size(ServerAdminLayoutMetrics.userStatusDotSize).clip(CircleShape)
                 .background(if (isOnline) AppTheme.success else palette.textSecondary.copy(alpha = 0.35f)),
         )
-        Text(user.username, style = AppType.bodyLarge.medium, color = palette.textPrimary)
+        Text(user.username, style = AppType.titleMedium, color = palette.textPrimary)
         if (user.isRoot) {
             AbstandBadge("root", tone = AbstandBadgeTone.Accent)
         } else {
@@ -285,7 +284,7 @@ fun ServerUserListeningSessionsScreen(userId: String, navigator: TabNavigator, a
                 item(key = s.id) {
                     AbstandGroupedCard {
                         Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-                            Text(s.libraryItemId.ifEmpty { s.id }, style = AppType.bodyMedium.medium, color = palette.textPrimary)
+                            Text(s.libraryItemId.ifEmpty { s.id }, style = AppType.titleSmall, color = palette.textPrimary)
                             Text("${formatPlaybackTime(s.startTime)} → ${formatPlaybackTime(s.currentTime)}", style = AppType.bodySmall, color = palette.textSecondary)
                         }
                     }

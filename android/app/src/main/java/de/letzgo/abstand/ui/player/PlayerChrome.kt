@@ -1,5 +1,6 @@
 package de.letzgo.abstand.ui.player
 
+import de.letzgo.abstand.ui.AppTheme
 import android.os.SystemClock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
@@ -18,66 +19,71 @@ import kotlinx.coroutines.flow.flow
 import java.text.NumberFormat
 import kotlin.math.abs
 
-/** iOS: `MiniPlayerMetrics` / `PlayerChromeLayout` / `FullPlayerUtilityBarLayout` — benannte Player-Maße. */
+/**
+ * iOS: `MiniPlayerMetrics` / `PlayerChromeLayout` / `FullPlayerUtilityBarLayout` — benannte
+ * Player-Maße. Android: Material-3-Raster (64-dp-Mini-Player, 48-dp-Touch-Ziele, Shape-Skala).
+ */
 object MiniPlayerMetrics {
-    /** iOS: `PlayerChromeLayout.tabAccessoryCover`. */
-    val tabAccessoryCover = 32.dp
-    /** iOS: `TabAccessoryMiniPlayer.rowMinHeight` (+ äußere Marge 16). */
-    val rowMinHeight = 48.dp
-    val rowMinHeightOuterMargin = 16.dp
-    /** iOS: `accessoryTransportSide`. */
-    val accessoryTransportSide = 44.dp
-    /** iOS: Play-Kapsel der Leiste 52 × 36. */
-    val accessoryPlayWidth = 52.dp
-    val accessoryPlayHeight = 36.dp
-    /** iOS: `accessoryHorizontalPaddingCompact`. */
-    val accessoryHorizontalPadding = 12.dp
-    /** Android: Kapsel-Ecke der schwebenden Leiste (iOS: System-Tab-Accessory-Kapsel). */
-    val accessoryCornerRadius = 22.dp
-    /** Android: Schatten der schwebenden Leiste. */
-    val accessoryShadowElevation = 6.dp
-    /** Android: Fortschrittslinie am Fuß der Leiste. */
-    val accessoryProgressHeight = 2.dp
+    /** Cover in der Leiste (M3-Listen-Bild: 48 dp in 64-dp-Zeile; iOS 32 pt). */
+    val tabAccessoryCover = 48.dp
+    /** Höhe der Mini-Player-Leiste (M3: 64 dp; iOS 48 pt + 16 Marge). */
+    val barHeight = 64.dp
+    /** Tippbare Fläche der Zeile (M3-Touch-Ziel). */
+    val rowMinHeight = AppTheme.Layout.minTapTarget
+    /** Transport-Knöpfe der Leiste (Touch-Ziel). */
+    val accessoryTransportSide = AppTheme.Layout.minTapTarget
+    /** Play-Kapsel der Leiste (iOS 52 × 36; M3-Raster 56 × 40). */
+    val accessoryPlayWidth = 56.dp
+    val accessoryPlayHeight = AppTheme.Layout.buttonHeight
+    /** Innenabstand: (64 − 48) / 2 = 8 dp um das Cover. */
+    val accessoryHorizontalPadding = AppTheme.Layout.stackSpacing
+    /** Ecke der schwebenden Leiste (M3 large). */
+    val accessoryCornerRadius = AppTheme.Layout.cornerLarge
+    /** Schatten der schwebenden Leiste (M3 Level 2). */
+    val accessoryShadowElevation = AppTheme.CardElevation.Hero.shadowElevation
+    /** Fortschrittslinie am Fuß der Leiste (M3 Linear Progress). */
+    val accessoryProgressHeight = 4.dp
     /** Abstand der Leiste zur Navigationsleiste. */
-    val accessoryBottomGap = 6.dp
+    val accessoryBottomGap = AppTheme.Layout.stackSpacing
 
     /** iOS: `fullPlayerCoverInset`. */
     val fullPlayerCoverInset = 20.dp
     /** iOS: `fullPlayerCoverCardMargin`. */
-    val fullPlayerCoverCardMargin = 28.dp
+    val fullPlayerCoverCardMargin = 24.dp
     /** iOS: `titleToScrubberSpacing`. */
     val titleToScrubberSpacing = 8.dp
-    /** iOS: `playPauseButtonWidth`. */
-    val playPauseButtonWidth = 72.dp
-    /** iOS: `dismissGrabberWidth`/`Height`. */
-    val dismissGrabberWidth = 36.dp
-    val dismissGrabberHeight = 5.dp
+    /** Play/Pause-Kapsel im Vollplayer (iOS 72 pt × Touch-Höhe; M3: 96 × 56 dp). */
+    val playPauseButtonWidth = 96.dp
+    val playPauseButtonHeight = AppTheme.Layout.fabSize
+    /** Griff zum Schließen (M3-Drag-Handle 32 × 4; iOS 36 × 5). */
+    val dismissGrabberWidth = AppTheme.Layout.dragHandleWidth
+    val dismissGrabberHeight = AppTheme.Layout.dragHandleHeight
     /** iOS: `fullPlayerContentMaxWidth`. */
     val fullPlayerContentMaxWidth = 800.dp
-    /** iOS: `DetailHeroLayoutMetrics.coverCornerRadius` für das große Cover. */
-    val coverCornerRadius = 12.dp
-    /** iOS: `FullPlayerCoverOverlayMetrics.coverSurfaceCornerRadius`. */
-    val coverSurfaceCornerRadius = 24.dp
-    /** iOS: `FullPlayerTransportLayout.auxiliarySymbolFont` (30 pt). */
-    val transportSymbolSize = 30.dp
-    /** iOS: `.largeTitle`-Symbol im Play-Knopf. */
-    val playSymbolSize = 34.dp
+    /** Großes Cover (M3 medium). */
+    val coverCornerRadius = AppTheme.Layout.cornerMedium
+    /** iOS: `FullPlayerCoverOverlayMetrics.coverSurfaceCornerRadius` (M3 extra-large). */
+    val coverSurfaceCornerRadius = AppTheme.Layout.cornerExtraLarge
+    /** Symbole der Neben-Transportknöpfe (iOS 30 pt). */
+    val transportSymbolSize = 32.dp
+    /** Symbol im Play-Knopf (iOS `.largeTitle`). */
+    val playSymbolSize = 36.dp
     /** iOS: `FullPlayerTransportLayout`. */
     val scrubberVerticalSpacing = 20.dp
     val spacingAbovePlayRow = 24.dp
     val spacingBelowPlayRow = 8.dp
-    /** iOS: `FullPlayerUtilityBarLayout`. */
-    val utilityPrimaryRowHeight = 44.dp
+    /** iOS: `FullPlayerUtilityBarLayout` — Zeilenhöhe = M3-Touch-Ziel. */
+    val utilityPrimaryRowHeight = AppTheme.Layout.minTapTarget
     val utilityRowSpacing = 4.dp
     /** iOS: `FullPlayerProgressLayout` / `FullPlayerScrubberLayout`. */
-    val progressRowHeight = 14.dp
+    val progressRowHeight = 16.dp
     val progressTrackHeight = 12.dp
     val scrubThumbDiameter = 16.dp
-    val scrubberBlockSpacing = 10.dp
-    val scrubberPaddingAboveBar = 6.dp
-    val scrubberBarToTimeSpacing = 2.dp
-    /** iOS: `FullPlayerCoverOverlayMetrics.panelControlButtonSize`. */
-    val panelControlButtonSize = 44.dp
+    val scrubberBlockSpacing = 8.dp
+    val scrubberPaddingAboveBar = 8.dp
+    val scrubberBarToTimeSpacing = 4.dp
+    /** Panel-Knöpfe über dem Cover (M3-Icon-Button-Container 40 dp, Ziel 48 dp). */
+    val panelControlButtonSize = AppTheme.Layout.iconButtonSize
     /** Wischweg zum Schließen (iOS: interaktiver Zoom-Dismiss). */
     val dismissDragThreshold = 120.dp
 }

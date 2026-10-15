@@ -57,7 +57,6 @@ import de.letzgo.abstand.ui.components.abstandHeroCardOutline
 import de.letzgo.abstand.ui.destinations.BookDetailDestination
 import de.letzgo.abstand.ui.destinations.EpisodeDestination
 import de.letzgo.abstand.ui.formatPlaybackDurationShortHuman
-import de.letzgo.abstand.ui.semibold
 import de.letzgo.abstand.ui.components.AbstandCoverDownloadBadge
 import de.letzgo.abstand.ui.components.AbstandCoverPillIcon
 import de.letzgo.abstand.ui.components.AbstandPlayPill
@@ -164,7 +163,7 @@ fun ContinueListeningHeroMetadataBlock(
     ) {
         Text(
             title,
-            style = AppType.titleMedium.semibold,
+            style = AppType.titleMedium,
             color = readable?.first ?: palette.textPrimary,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,

@@ -31,7 +31,6 @@ import androidx.compose.ui.window.DialogProperties
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.semibold
 
 // Dialoge und Sheets (iOS: `.alert`, `.confirmationDialog`, `.sheet`). Nie rohes `AlertDialog`,
 // `Dialog` oder `ModalBottomSheet` außerhalb von ui/components bauen.
@@ -157,7 +156,7 @@ fun AbstandBlockingProgressDialog(text: String) {
                 color = Theme.accent, strokeWidth = AbstandSpinnerSize.Large.strokeWidth,
                 modifier = Modifier.size(AbstandSpinnerSize.Large.diameter),
             )
-            Text(text, style = AppType.titleMedium.semibold, color = palette.textPrimary, textAlign = TextAlign.Center)
+            Text(text, style = AppType.titleMedium, color = palette.textPrimary, textAlign = TextAlign.Center)
         }
     }
 }

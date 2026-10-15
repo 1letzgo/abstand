@@ -52,7 +52,6 @@ import de.letzgo.abstand.ui.components.SettingsSubpageScaffold
 import de.letzgo.abstand.ui.components.SquareCoverImage
 import de.letzgo.abstand.ui.components.TabContentSectionTitle
 import de.letzgo.abstand.ui.formatPlaybackDurationShortHuman
-import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
@@ -345,7 +344,7 @@ private fun StatsLibraryRowCard(
             ) {
                 Text(title, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 1)
                 Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
-                    Text("Author", style = AppType.bodySmall.semibold, color = palette.textSecondary)
+                    Text("Author", style = AppType.labelMedium, color = palette.textSecondary)
                     val line = authorLine.trim()
                     Text(
                         if (line.isEmpty()) "—" else line, style = AppType.bodySmall,

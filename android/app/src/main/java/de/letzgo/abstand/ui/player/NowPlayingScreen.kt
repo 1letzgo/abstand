@@ -192,13 +192,13 @@ private fun ReadAlongDownloadWarning(onDismiss: () -> Unit) {
     AbstandAlert("Download required", onDismiss = onDismiss, message = "Read along and recap only work when the audiobook or podcast is fully downloaded.")
 }
 
-/** iOS: Sheet-Drag-Griff (36 × 5) — Tippen schließt. */
+/** Drag-Griff (M3 32 × 4 in 48-dp-Zeile; iOS 36 × 5) — Tippen schließt. */
 @Composable
 private fun DismissGrabber(onDismiss: () -> Unit) {
     Box(
         Modifier
             .fillMaxWidth()
-            .height(AppTheme.Layout.minTapTarget / 2)
+            .height(AppTheme.Layout.minTapTarget)
             .clickable(onClick = onDismiss)
             .semantics { contentDescription = "Close player" },
         contentAlignment = Alignment.Center,
@@ -282,9 +282,9 @@ private fun TitleArea(wiring: PlayerWiring, book: AbsBook) {
         Modifier.fillMaxWidth().padding(bottom = MiniPlayerMetrics.titleToScrubberSpacing),
         verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing),
     ) {
-        Text(book.displayTitle, style = AppType.titleLarge.bold, color = palette.textPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        Text(book.displayTitle, style = AppType.headlineSmall, color = palette.textPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis)
         if (secondary.isNotEmpty() && secondary != "—") {
-            Text(secondary, style = AppType.titleLarge, color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(secondary, style = AppType.titleMedium, color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

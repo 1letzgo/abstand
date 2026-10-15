@@ -35,7 +35,6 @@ import de.letzgo.abstand.ui.components.AbstandCardBottomProgress
 import de.letzgo.abstand.ui.components.LibraryRowCollapsedMetaLine
 import de.letzgo.abstand.ui.components.SquareCoverImage
 import de.letzgo.abstand.ui.formatPlaybackTime
-import de.letzgo.abstand.ui.semibold
 import de.letzgo.abstand.ui.components.AbstandStatusBadges
 import de.letzgo.abstand.ui.library.LibraryRowLayout
 
@@ -86,7 +85,7 @@ fun HomeCompactCard(
             ) {
                 Text(
                     title,
-                    style = AppType.titleMedium.semibold,
+                    style = AppType.titleMedium,
                     color = palette.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

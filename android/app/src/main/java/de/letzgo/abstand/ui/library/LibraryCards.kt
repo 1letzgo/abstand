@@ -62,7 +62,6 @@ import de.letzgo.abstand.ui.components.SquareCoverImage
 import de.letzgo.abstand.ui.components.abstandCardChrome
 import de.letzgo.abstand.ui.detail.BookDetailDestination
 import de.letzgo.abstand.ui.formatPlaybackTime
-import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -91,8 +90,8 @@ object LibraryRowLayout {
 
 /** iOS: `FacetBrowseTileMetrics`. */
 private object FacetTileMetrics {
-    val tileHeight = 93.dp
-    val iconSize = 22.dp
+    val tileHeight = 96.dp
+    val iconSize = AppTheme.Layout.iconSize
 }
 
 /** Cover-Revision wie iOS `coverImageCacheRevision(forItemUpdatedAt:)` (globaler Zähler + `updatedAt`-Sekunden). */
@@ -238,7 +237,7 @@ fun BookRowCard(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
                             Text(
-                                book.displayTitle, style = AppType.titleMedium.semibold, color = palette.textPrimary, maxLines = 1,
+                                book.displayTitle, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 1,
                                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).alpha(fade),
                             )
                             AbstandStatusBadges(
@@ -336,7 +335,7 @@ fun LibraryHeroBookCard(
                 verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.continueHeroMetadataTitleDetailSpacing),
             ) {
                 Text(
-                    book.displayTitle, style = AppType.titleMedium.semibold, color = palette.textPrimary, maxLines = 2,
+                    book.displayTitle, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 2,
                     minLines = 2, overflow = TextOverflow.Ellipsis,
                 )
                 LibraryRowCollapsedMetaLine("Author", authorLine, valueMaxLines = 1)
@@ -482,7 +481,7 @@ fun BrowseEntityRowCard(
             Modifier.weight(1f).fillMaxSize().padding(top = LibraryRowLayout.textInset, end = LibraryRowLayout.textInset, bottom = LibraryRowLayout.textInset),
             verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing),
         ) {
-            Text(title, style = AppType.titleMedium.semibold, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (authorLine != null) LibraryRowCollapsedMetaLine("Author", authorLine, valueMaxLines = 1)
             Spacer(Modifier.weight(1f))
             LibraryRowCollapsedMetaLine(detailLabel, detailValue)
@@ -509,7 +508,7 @@ fun FacetBrowseTileCard(kind: BooksBrowseSection, title: String, count: Int?, on
         Box(Modifier.fillMaxSize()) {
             Icon(kind.icon, null, tint = Theme.accent, modifier = Modifier.padding(AbstandCoverPillMetrics.inset).size(FacetTileMetrics.iconSize))
             Text(
-                title, style = AppType.titleMedium.semibold, color = palette.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                title, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.BottomStart).padding(AppTheme.Layout.cardPadding),
             )
             if (count != null && count > 0) {
@@ -523,6 +522,6 @@ fun FacetBrowseTileCard(kind: BooksBrowseSection, title: String, count: Int?, on
 fun authorCoverScopeId(authorId: String): String = CoverImageCache.scopeId("author:$authorId", CoverImageTier.thumbnail)
 
 /** Status-Symbole auf Hero-Karten (iOS: `.caption`). */
-private val HeroStatusIconSize = 14.dp
+private val HeroStatusIconSize = 16.dp
 /** Platzhalter-Symbol in Entity-Zeilen ohne Cover. */
 private val EntityPlaceholderIconSize = 36.dp

@@ -66,7 +66,7 @@ fun TranscriptRecapContent(controller: PlayerLiveTranscriptionController, modifi
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
             Text(
                 "LAST 5 MINUTES",
-                style = AppType.bodySmall.copy(fontWeight = FontWeight.Bold, letterSpacing = RecapTitleTracking),
+                style = AppType.labelMedium,
                 color = palette.textSecondary,
             )
             if (showsTranscript) {
@@ -119,4 +119,3 @@ private fun NoticeText(notice: String) {
 
 private val RecapMinHeight = 220.dp
 private val RecapMaxHeight = 520.dp
-private val RecapTitleTracking = 0.6.sp

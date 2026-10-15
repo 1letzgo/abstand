@@ -55,7 +55,6 @@ import de.letzgo.abstand.ui.components.MetadataSheetScaffold
 import de.letzgo.abstand.ui.components.MetadataSheetSearchButton
 import de.letzgo.abstand.ui.components.MetadataSheetSection
 import de.letzgo.abstand.ui.components.MetadataSheetTextField
-import de.letzgo.abstand.ui.medium
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -273,7 +272,7 @@ private fun EditMetadataForm(itemId: String, book: AbsBook, onDismiss: () -> Uni
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(SF.plusCircle, contentDescription = null, tint = Theme.accent, modifier = Modifier.width(AppTheme.Layout.coverBadgeSize))
-                        Text("Add series", style = AppType.bodySmall.medium, color = Theme.accent)
+                        Text("Add series", style = AppType.labelMedium, color = Theme.accent)
                     }
                 }
                 MetadataSheetTextField("Description", descriptionText, { descriptionText = it }, minLines = 3, maxLines = 8)

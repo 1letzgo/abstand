@@ -33,8 +33,6 @@ import de.letzgo.abstand.ui.components.ServerAdminSection
 import de.letzgo.abstand.ui.components.SettingsCardActionRow
 import de.letzgo.abstand.ui.components.SettingsSubpageScaffold
 import de.letzgo.abstand.ui.components.abstandCardListRowFrame
-import de.letzgo.abstand.ui.medium
-import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
 import de.letzgo.abstand.ui.components.AbstandTextButton
 
@@ -129,10 +127,10 @@ private fun M4BJobRow(job: ServerM4BEncodeJob, percent: Double?, onCancel: () ->
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-            Text(job.title, style = AppType.bodyLarge.medium, color = palette.textPrimary, maxLines = 2)
+            Text(job.title, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 2)
             Text(job.author, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1)
             Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing), verticalAlignment = Alignment.CenterVertically) {
-                Text(M4BLogic.statusLabel(job, percent), style = AppType.bodySmall.semibold, color = statusColor(job))
+                Text(M4BLogic.statusLabel(job, percent), style = AppType.labelMedium, color = statusColor(job))
                 val message = job.message
                 if (!job.isActive && !message.isNullOrEmpty() && message != "Done") {
                     Text(message, style = AppType.labelSmall, color = palette.textSecondary)

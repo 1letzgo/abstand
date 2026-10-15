@@ -63,22 +63,23 @@ import de.letzgo.abstand.ui.components.AbstandCapsLabel
 object DetailHeroLayoutMetrics {
     val coverTopPadding: Dp = AppTheme.Layout.tightSpacing
     val squareCoverMaxWidth = 280.dp
-    val coverCornerRadius = 8.dp
+    val coverCornerRadius = AppTheme.Layout.cornerMedium
     val titleTopSpacing: Dp = AppTheme.Layout.detailMetaAfterPlaySpacing
-    val heroInfoLineSpacing = 5.dp
-    val sideControlSize = 52.dp
-    val compactSideControlSize = 46.dp
-    val primaryControlHeight = 52.dp
-    val compactPrimaryControlHeight = 48.dp
+    val heroInfoLineSpacing = AppTheme.Layout.tightSpacing
+    /** Runde Nebenaktionen und Play-Kapsel (M3: 56 dp wie FAB; kompakt 48 dp = Touch-Ziel). */
+    val sideControlSize = AppTheme.Layout.fabSize
+    val compactSideControlSize = AppTheme.Layout.minTapTarget
+    val primaryControlHeight = AppTheme.Layout.fabSize
+    val compactPrimaryControlHeight = AppTheme.Layout.minTapTarget
     const val singlePrimaryWidthFraction = 0.54f
     val actionRowSpacing = 16.dp
     val compactActionRowSpacing: Dp = AppTheme.Layout.withinSectionSpacing
-    val borderWidth = 1.5.dp
+    val borderWidth = AppTheme.Layout.hairlineWidth
 }
 
 /** iOS: `DetailMetaLayoutMetrics`. */
 object DetailMetaLayoutMetrics {
-    val thumbnailSize = 44.dp
+    val thumbnailSize = 48.dp
     val labelToContentSpacing: Dp = AppTheme.Layout.compactSpacing
     val linkRowSpacing: Dp = AppTheme.Layout.withinSectionSpacing
     val disclosureContentTopPadding: Dp = AppTheme.Layout.compactSpacing
@@ -123,20 +124,20 @@ fun DetailHeroInfoSection(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(DetailHeroLayoutMetrics.heroInfoLineSpacing),
     ) {
-        Text(title, style = AppType.headlineSmall.bold, color = palette.textPrimary, textAlign = TextAlign.Center)
+        Text(title, style = AppType.headlineSmall, color = palette.textPrimary, textAlign = TextAlign.Center)
         if (authorLinks.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.Center) {
                 authorLinks.forEachIndexed { idx, (id, name) ->
-                    if (idx > 0) Text(", ", style = AppType.titleLarge, color = palette.textPrimary)
+                    if (idx > 0) Text(", ", style = AppType.titleMedium, color = palette.textPrimary)
                     Text(
-                        name, style = AppType.titleLarge, color = Theme.accent,
+                        name, style = AppType.titleMedium, color = Theme.accent,
                         modifier = Modifier.clickable(enabled = onAuthorTap != null) { onAuthorTap?.invoke(id, name) },
                     )
                 }
             }
         } else {
             subtitle?.trim()?.takeIf { it.isNotEmpty() && it != "—" }?.let {
-                Text(it, style = AppType.titleLarge, color = palette.textPrimary, textAlign = TextAlign.Center)
+                Text(it, style = AppType.titleMedium, color = palette.textPrimary, textAlign = TextAlign.Center)
             }
         }
         if (tertiaryLine.isNotEmpty()) {
@@ -210,7 +211,7 @@ fun DetailHeroPrimaryButton(
     val onAccent = Theme.onAccent
     val fill = if (isFinished) 1f else progress01.toFloat().coerceIn(0f, 1f)
     val height = if (compact) DetailHeroLayoutMetrics.compactPrimaryControlHeight else DetailHeroLayoutMetrics.primaryControlHeight
-    val textStyle = if (compact) AppType.bodyMedium.semibold else AppType.titleMedium
+    val textStyle = if (compact) AppType.titleSmall else AppType.titleMedium
     val stateText = when {
         isFinished -> "Finished"
         fill < 0.001f -> "Not started"
@@ -412,4 +413,4 @@ fun RowScope.DetailToolbarDownloadItem(storageId: String, onStartDownload: () ->
 }
 
 /** Symbol in Hero-Knopf-Labels und Disclosure-Chevrons. */
-private val HeroLabelIconSize = 18.dp
+private val HeroLabelIconSize = AppTheme.Layout.smallIconSize

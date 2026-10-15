@@ -46,11 +46,11 @@ private object AchievementCardMetrics {
     val compactIconSlotWidth = AppTheme.Layout.compactIconColumnWidth
     val compactBadgeEdge = 28.dp
     val regularBadgeEdge = 36.dp
-    val regularIconSize = 21.dp
-    val compactIconSize = 17.dp
+    val regularIconSize = 20.dp
+    val compactIconSize = 16.dp
     /** iOS: `DetailHeroLayoutMetrics.coverCornerRadius`. */
     val compactBadgeCorner = 8.dp
-    val badgeBorderWidth = 1.5.dp
+    val badgeBorderWidth = AppTheme.Layout.boldStrokeWidth
 }
 
 /** iOS: `ListeningAchievementTier.adaptiveTint(accent:palette:)`. */

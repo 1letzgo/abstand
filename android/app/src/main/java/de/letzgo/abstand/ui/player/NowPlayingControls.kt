@@ -61,7 +61,6 @@ import de.letzgo.abstand.ui.components.AbstandMenu
 import de.letzgo.abstand.ui.components.AbstandPickerMenu
 import de.letzgo.abstand.ui.components.AbstandProgressBar
 import de.letzgo.abstand.ui.formatPlaybackTime
-import de.letzgo.abstand.ui.medium
 import kotlin.math.max
 import kotlinx.coroutines.delay
 
@@ -242,7 +241,7 @@ fun FullPlayerTransportRow(wiring: PlayerWiring, modifier: Modifier = Modifier) 
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
             Box(
                 Modifier
-                    .size(MiniPlayerMetrics.playPauseButtonWidth, AppTheme.Layout.minTapTarget)
+                    .size(MiniPlayerMetrics.playPauseButtonWidth, MiniPlayerMetrics.playPauseButtonHeight)
                     .clip(CircleShape)
                     .background(Theme.accent)
                     .clickable(enabled = hasBook) { player.togglePlayPause() }
@@ -303,7 +302,7 @@ private val AudioEQPreset.icon: ImageVector
         AudioEQPreset.trebleBoost -> SF.speakerWave3
     }
 
-/** Spalte der Leiste: Primärzeile (Symbol/Text, 44 hoch) + Beschriftung (`caption2`). */
+/** Spalte der Leiste: Primärzeile (Symbol/Text, 48 hoch) + Beschriftung (`labelSmall`). */
 @Composable
 private fun androidx.compose.foundation.layout.RowScope.UtilityColumn(
     caption: String,
@@ -317,7 +316,7 @@ private fun androidx.compose.foundation.layout.RowScope.UtilityColumn(
         Column(
             Modifier
                 .fillMaxWidth()
-                .clip(androidx.compose.foundation.shape.RoundedCornerShape(AppTheme.Layout.fieldCornerRadius))
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(AppTheme.Layout.cornerMedium))
                 .clickable(enabled = onClick != null) { onClick?.invoke() }
                 .semantics { contentDescription = accessibilityLabel },
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -360,7 +359,7 @@ fun FullPlayerUtilityBar(wiring: PlayerWiring, modifier: Modifier = Modifier) {
         UtilityColumn("Tempo", "Playback speed, ${formatPlaybackRate(rate)}", onClick = { rateMenu = true }, menu = {
             AbstandPickerMenu(rateMenu, { rateMenu = false }, PlaybackController.playbackRatePresets, rate, { formatPlaybackRate(it) }, { player.setPlaybackRate(it) })
         }) {
-            Text(formatPlaybackRate(rate), style = AppType.bodyMedium.medium, color = palette.textPrimary, maxLines = 1)
+            Text(formatPlaybackRate(rate), style = AppType.titleSmall, color = palette.textPrimary, maxLines = 1)
         }
 
         SleepTimerColumn(wiring)
@@ -426,7 +425,7 @@ private fun androidx.compose.foundation.layout.RowScope.SleepTimerColumn(wiring:
     }) {
         val s = seconds
         if (s != null && s > 0) {
-            Text(formatPlaybackTime(s), style = AppType.bodyMedium.medium, color = accent, maxLines = 1)
+            Text(formatPlaybackTime(s), style = AppType.titleSmall, color = accent, maxLines = 1)
         } else {
             Icon(SF.moon, contentDescription = null, tint = if (mode == SleepTimerMode.Off) palette.textPrimary else accent)
         }

@@ -64,7 +64,6 @@ import de.letzgo.abstand.ui.components.AbstandSegmentedControl
 import de.letzgo.abstand.ui.components.AbstandTextButton
 import de.letzgo.abstand.ui.components.CoverImage
 import de.letzgo.abstand.ui.components.abstandScrollBottomPadding
-import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
 
 // MARK: - Sort-Menü (iOS: `AbstandCatalogSortToolbarMenu`)
@@ -381,14 +380,14 @@ internal fun PodcastDirectoryHitRow(
 
 /** Einheitlicher „In library“-Status (Icon + Text im Akzent). */
 @Composable
-internal fun PodcastInLibraryLabel(style: androidx.compose.ui.text.TextStyle = AppType.bodySmall.semibold) {
+internal fun PodcastInLibraryLabel(style: androidx.compose.ui.text.TextStyle = AppType.labelMedium) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
         Icon(SF.checkmarkCircleFill, contentDescription = null, tint = Theme.accent, modifier = Modifier.size(InLibraryIconSize))
         Text("In library", style = style, color = Theme.accent)
     }
 }
 
-private val InLibraryIconSize = 14.dp
+private val InLibraryIconSize = 16.dp
 
 /** Genres + Explicit aus dem Verzeichnis (iOS: `contextLine`). */
 private fun directoryHitContextLine(hit: AbsPodcastDirectorySearchHit): String? {

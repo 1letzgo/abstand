@@ -44,7 +44,6 @@ import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.medium
-import de.letzgo.abstand.ui.semibold
 
 /** iOS: `MetadataSheetMetrics` — Maße der Admin-Metadaten-Sheets. */
 object MetadataSheetMetrics {
@@ -126,7 +125,7 @@ fun Modifier.metadataSheetFieldChrome(
 fun MetadataSheetFieldLabel(title: String, hint: String? = null) {
     val palette = Theme.palette
     Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = AppType.bodySmall.medium, color = palette.textSecondary)
+        Text(title, style = AppType.labelMedium, color = palette.textSecondary)
         if (hint != null) Text(hint, style = AppType.labelSmall, color = palette.textSecondary.copy(alpha = 0.7f))
     }
 }

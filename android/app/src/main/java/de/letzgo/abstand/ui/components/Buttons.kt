@@ -45,7 +45,6 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.semibold
 
 /** iOS: `AbstandPrimaryButtonStyle.fillOpacity` — deaktiviert 35 % Akzent. */
 private const val DisabledFillOpacity = 0.35f
@@ -337,7 +336,7 @@ fun AbstandTextButton(
     ) {
         Text(
             text,
-            style = if (emphasized) AppType.labelLarge.semibold else AppType.labelLarge,
+            style = if (emphasized) AppType.labelLarge else AppType.labelLarge,
             color = if (enabled) base else Theme.palette.textSecondary.copy(alpha = 0.5f),
             maxLines = 1,
         )

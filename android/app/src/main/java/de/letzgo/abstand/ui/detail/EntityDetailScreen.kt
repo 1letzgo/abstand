@@ -50,7 +50,6 @@ import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.components.AbstandInlineSpinner
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
 import de.letzgo.abstand.ui.components.AbstandSectionEmptyState
@@ -61,7 +60,6 @@ import de.letzgo.abstand.ui.components.LocalCoverEnvironment
 import de.letzgo.abstand.ui.components.SquareCoverImage
 import de.letzgo.abstand.ui.library.LibraryBookListCard
 import de.letzgo.abstand.ui.library.coverRevisionFor
-import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
 import de.letzgo.abstand.ui.components.AbstandCapsLabel
 
@@ -164,8 +162,8 @@ private fun EntityHeader(nav: BooksEntityDetailNav, state: EntityDetailState, mo
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { EntityCover(nav, state, model) }
         }
         Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
-            Text(nav.title, style = AppType.titleLarge.bold, color = palette.textPrimary, modifier = Modifier.fillMaxWidth())
-            Text(nav.filterSummaryPrefix, style = AppType.bodyMedium.semibold, color = Theme.accent)
+            Text(nav.title, style = AppType.headlineSmall, color = palette.textPrimary, modifier = Modifier.fillMaxWidth())
+            Text(nav.filterSummaryPrefix, style = AppType.titleSmall, color = Theme.accent)
             CatalogLogic.bookCountLabel(count)?.let { Text(it, style = AppType.bodyMedium, color = palette.textSecondary) }
         }
     }
@@ -213,7 +211,7 @@ private fun EntityDescription(state: EntityDetailState) {
     }
     val text = absPlainText(state.description).ifEmpty { "—" }
     Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing)) {
-        Text("DESCRIPTION", style = AppType.bodySmall.bold, color = palette.textSecondary, modifier = Modifier.width(AppTheme.Layout.metaLabelColumnWidth))
+        Text("DESCRIPTION", style = AppType.labelMedium, color = palette.textSecondary, modifier = Modifier.width(AppTheme.Layout.metaLabelColumnWidth))
         Text(text, style = AppType.bodyMedium, color = palette.textPrimary, modifier = Modifier.weight(1f))
     }
 }

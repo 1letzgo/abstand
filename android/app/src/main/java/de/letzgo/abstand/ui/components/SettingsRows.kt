@@ -50,8 +50,6 @@ import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.bold
-import de.letzgo.abstand.ui.medium
-import de.letzgo.abstand.ui.semibold
 
 // iOS: Settings-Zeilen-Set aus ServerAdminViews.swift (dort `private`, hier öffentlich, damit
 // Settings-, Admin- und Stats-Screens dieselben Zeilen nutzen). Zeilen liegen in einer
@@ -126,7 +124,7 @@ private fun SettingsRow(
 private fun RowTitles(title: String, subtitle: String?, titleColor: Color, titleMedium: Boolean, modifier: Modifier, subtitleMaxLines: Int = Int.MAX_VALUE) {
     val palette = Theme.palette
     Column(modifier) {
-        Text(title, style = if (titleMedium) AppType.bodyLarge.medium else AppType.bodyLarge, color = titleColor)
+        Text(title, style = if (titleMedium) AppType.titleMedium else AppType.bodyLarge, color = titleColor)
         if (subtitle != null) {
             Text(subtitle, style = AppType.bodyMedium, color = palette.textSecondary, maxLines = subtitleMaxLines, overflow = TextOverflow.Ellipsis)
         }

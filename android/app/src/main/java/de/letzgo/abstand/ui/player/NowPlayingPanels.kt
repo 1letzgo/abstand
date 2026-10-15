@@ -47,7 +47,6 @@ import de.letzgo.abstand.ui.components.AbstandInsetTextField
 import de.letzgo.abstand.ui.components.AbstandProminentButton
 import de.letzgo.abstand.ui.detail.ListeningHistorySessionList
 import de.letzgo.abstand.ui.formatPlaybackTime
-import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.launch
 import de.letzgo.abstand.ui.components.AbstandListRow
 import de.letzgo.abstand.ui.components.AbstandIconButtonStyle
@@ -145,7 +144,7 @@ fun ChaptersPanel(wiring: PlayerWiring) {
             ) {
                 Text(
                     c.title.trim().ifEmpty { "Chapter ${i + 1}" },
-                    style = if (active) AppType.bodyLarge.semibold else AppType.bodyLarge,
+                    style = if (active) AppType.titleMedium else AppType.bodyLarge,
                     color = if (active) Theme.accent else palette.textPrimary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,

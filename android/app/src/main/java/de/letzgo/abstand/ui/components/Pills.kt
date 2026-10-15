@@ -48,8 +48,6 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.medium
-import de.letzgo.abstand.ui.semibold
 import de.letzgo.abstand.ui.library.LibraryRowLayout
 
 // Pillen, Badges und Chips — Cover-Overlays, Status-Labels, Filter-/Browse-Chips.
@@ -89,7 +87,7 @@ fun AbstandCoverPillIcon(icon: ImageVector, contentDescription: String?, modifie
 @Composable
 fun AbstandCoverPillText(text: String, modifier: Modifier = Modifier) {
     AbstandCoverPill(modifier) {
-        Text(text, style = AppType.labelSmall.semibold, color = AppTheme.coverOverlayForeground, maxLines = 1)
+        Text(text, style = AppType.labelSmall, color = AppTheme.coverOverlayForeground, maxLines = 1)
     }
 }
 
@@ -187,7 +185,7 @@ fun AbstandBadge(
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing),
     ) {
         if (icon != null) Icon(icon, contentDescription = null, tint = foreground, modifier = Modifier.size(AbstandCoverPillMetrics.iconSize))
-        Text(text, style = AppType.labelSmall.medium, color = foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(text, style = AppType.labelSmall, color = foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -247,6 +245,8 @@ fun AbstandDockChip(
 ) {
     val dock = AppTheme.ExpandingDock
     val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
+    // Inaktiv: Symbol bzw. Cover mittig im 40-dp-Kreis.
+    val inactiveInset = if (coverItemId != null) (dock.circleSize - dock.inactiveCoverSize) / 2 else dock.inactiveIconSideInset
     Surface(
         onClick = onClick,
         shape = CircleShape,
@@ -265,14 +265,14 @@ fun AbstandDockChip(
     ) {
         Row(
             Modifier.padding(
-                start = if (selected) dock.activeLeadingPadding else dock.inactiveIconSideInset,
-                end = if (selected) dock.activeTrailingPadding else dock.inactiveIconSideInset,
+                start = if (selected) dock.activeLeadingPadding else inactiveInset,
+                end = if (selected) dock.activeTrailingPadding else inactiveInset,
             ).fillMaxHeight(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(dock.iconLabelSpacing),
         ) {
             if (coverItemId != null) {
-                Box(Modifier.size(if (selected) dock.activeCoverSize else dock.iconSize).clip(CircleShape)) {
+                Box(Modifier.size(if (selected) dock.activeCoverSize else dock.inactiveCoverSize).clip(CircleShape)) {
                     CoverImage(itemId = coverItemId, modifier = Modifier.fillMaxSize())
                 }
             } else {

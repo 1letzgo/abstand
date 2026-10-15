@@ -41,7 +41,6 @@ import de.letzgo.abstand.ui.components.SettingsCardInfoRow
 import de.letzgo.abstand.ui.components.SettingsCardNavRow
 import de.letzgo.abstand.ui.components.SettingsCardToggleRow
 import de.letzgo.abstand.ui.components.SettingsSubpageScaffold
-import de.letzgo.abstand.ui.medium
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -272,7 +271,7 @@ private fun DownloadManageActiveRow(storageId: String, progress: Double, isQueue
     AbstandListRow(
         title = entry?.title?.ifEmpty { null } ?: if (isQueued) "Waiting…" else "Downloading…",
         subtitle = entry?.subtitle,
-        titleStyle = AppType.bodyLarge.medium,
+        titleStyle = AppType.titleMedium,
         titleMaxLines = 2,
         verticalPadding = AppTheme.Layout.rowVerticalPadding,
         leading = {
@@ -305,7 +304,7 @@ private fun DownloadManageSavedRow(row: DownloadManageRow, onDelete: () -> Unit)
     AbstandListRow(
         title = row.title,
         subtitle = row.author,
-        titleStyle = AppType.bodyLarge.medium,
+        titleStyle = AppType.titleMedium,
         titleMaxLines = 2,
         verticalPadding = AppTheme.Layout.rowVerticalPadding,
         leading = { DownloadCover(row.libraryItemId) },

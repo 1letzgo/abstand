@@ -56,7 +56,6 @@ import de.letzgo.abstand.ui.components.AbstandMenu
 import de.letzgo.abstand.ui.components.AbstandProgressBar
 import de.letzgo.abstand.ui.components.CoverImage
 import de.letzgo.abstand.ui.formatPlaybackDurationShortHuman
-import de.letzgo.abstand.ui.medium
 import kotlinx.coroutines.launch
 
 /**
@@ -164,7 +163,7 @@ fun MiniPlayerDock(
 
 /** Höhe, die die Leiste über dem Inhalt belegt (für [de.letzgo.abstand.ui.LocalScrollBottomInset]). */
 val miniPlayerDockHeight: Dp
-    get() = MiniPlayerMetrics.rowMinHeight + MiniPlayerMetrics.rowMinHeightOuterMargin + MiniPlayerMetrics.accessoryBottomGap
+    get() = MiniPlayerMetrics.barHeight + MiniPlayerMetrics.accessoryBottomGap
 
 /** iOS: `TabAccessoryMiniPlayer` — Cover, „Autor – Titel“, Restzeit, −Sekunden, Play/Pause. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -184,7 +183,7 @@ private fun MiniPlayerBar(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring, mo
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = MiniPlayerMetrics.rowMinHeight + MiniPlayerMetrics.rowMinHeightOuterMargin)
+                    .heightIn(min = MiniPlayerMetrics.barHeight)
                     .padding(horizontal = MiniPlayerMetrics.accessoryHorizontalPadding),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -202,7 +201,7 @@ private fun MiniPlayerBar(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring, mo
                         Box(
                             Modifier
                                 .size(MiniPlayerMetrics.tabAccessoryCover)
-                                .clip(RoundedCornerShape(MiniPlayerMetrics.coverCornerRadius / 2))
+                                .clip(RoundedCornerShape(AppTheme.Layout.cornerSmall))
                                 .combinedClickable(onClick = { wiring.openNowPlaying() }, onLongClick = { menuOpen = true }),
                         ) {
                             if (id != null) CoverImage(itemId = id, modifier = Modifier.size(MiniPlayerMetrics.tabAccessoryCover))
@@ -213,18 +212,17 @@ private fun MiniPlayerBar(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring, mo
                         }
                     }
                     Column(
-                        Modifier.weight(1f).padding(start = AppTheme.Layout.withinSectionSpacing),
-                        verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing),
+                        Modifier.weight(1f).padding(start = AppTheme.Layout.rowSpacing),
                     ) {
                         Text(
                             snapshot.primaryLine,
-                            style = AppType.bodySmall.medium,
+                            style = AppType.titleSmall,
                             color = palette.textPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         snapshot.subtitleText?.let {
-                            Text(it, style = AppType.bodySmall.medium, color = palette.textSecondary, maxLines = 1)
+                            Text(it, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1)
                         }
                     }
                 }
@@ -239,18 +237,17 @@ private fun MiniPlayerBar(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring, mo
 private fun MiniTransport(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring) {
     val palette = Theme.palette
     val busy = snapshot.isBuffering
-    Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing), verticalAlignment = Alignment.CenterVertically) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
         AbstandIconButton(
             SF.gobackward(snapshot.skipBackwardSeconds),
             PlaybackSkipDefaults.accessibilityLabel(true, snapshot.skipBackwardSeconds),
             onClick = { wiring.player.skipBackward() },
             enabled = !busy,
-            size = MiniPlayerMetrics.accessoryTransportSide,
             tint = palette.textPrimary,
         )
         Box(
             Modifier
-                .size(MiniPlayerMetrics.accessoryTransportSide)
+                .size(MiniPlayerMetrics.accessoryPlayWidth + AppTheme.Layout.stackSpacing, MiniPlayerMetrics.accessoryTransportSide)
                 .clickable(enabled = snapshot.canTogglePlayback) { wiring.player.togglePlayPause() }
                 .semantics { contentDescription = if (snapshot.isPlaying) "Pause" else "Play" },
             contentAlignment = Alignment.Center,
@@ -264,7 +261,7 @@ private fun MiniTransport(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring) {
                 if (busy) {
                     AbstandInlineSpinner(
                         color = Theme.onAccent,
-                        size = MiniPlayerMetrics.tabAccessoryCover / 2,
+                        size = AppTheme.Layout.iconSize,
                         strokeWidth = AppTheme.Layout.boldStrokeWidth,
                     )
                 } else {

@@ -38,7 +38,6 @@ import de.letzgo.abstand.ui.components.MetadataSheetSection
 import de.letzgo.abstand.ui.components.MetadataSheetTextField
 import de.letzgo.abstand.ui.components.MetadataSheetToggleRow
 import de.letzgo.abstand.ui.formatPlaybackTime
-import de.letzgo.abstand.ui.medium
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -151,7 +150,7 @@ fun ChaptersEditorSheet(itemId: String, onDismiss: () -> Unit) {
                     }
                 }
                 MetadataSheetCard(spacing = AppTheme.Layout.withinSectionSpacing) {
-                    Text(if (preview.size == 1) "1 chapter" else "${preview.size} chapters", style = AppType.bodySmall.medium, color = palette.textSecondary)
+                    Text(if (preview.size == 1) "1 chapter" else "${preview.size} chapters", style = AppType.labelMedium, color = palette.textSecondary)
                     Column {
                         preview.forEachIndexed { idx, ch ->
                             Row(

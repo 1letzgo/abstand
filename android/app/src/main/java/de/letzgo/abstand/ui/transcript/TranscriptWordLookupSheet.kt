@@ -39,7 +39,6 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.components.AbstandPrimaryButton
 import de.letzgo.abstand.ui.components.AbstandProminentButton
 import de.letzgo.abstand.ui.components.AbstandSheet
@@ -60,7 +59,7 @@ fun TranscriptWordLookupSheet(selection: PlayerTranscriptWordLookupSelection, on
     val samePair = TranslationTargetLanguage.sameLanguage(selection.sourceLocale, target)
 
     AbstandSheet(title = "Look up & translate", onDismiss = onDismiss, onConfirm = onDismiss, confirmLabel = "Done") {
-        Text(selection.term, style = AppType.titleLarge.bold, color = palette.textPrimary, modifier = Modifier.fillMaxWidth())
+        Text(selection.term, style = AppType.headlineSmall, color = palette.textPrimary, modifier = Modifier.fillMaxWidth())
 
         selection.sourceLocale?.let { source ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
@@ -117,7 +116,7 @@ fun TranscriptWordLookupSheet(selection: PlayerTranscriptWordLookupSelection, on
     }
 }
 
-private val LookupIconSize = 18.dp
+private val LookupIconSize = AppTheme.Layout.smallIconSize
 
 /** Übersetzer-App (`ACTION_TRANSLATE`, API 29+), sonst Google Translate im Browser. */
 private fun openTranslate(context: Context, term: String, source: String?, target: String) {

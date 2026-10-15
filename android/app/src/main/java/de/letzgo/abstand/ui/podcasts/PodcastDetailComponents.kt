@@ -37,20 +37,18 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.components.AbstandCard
 import de.letzgo.abstand.ui.components.AbstandProminentButton
-import de.letzgo.abstand.ui.semibold
 import de.letzgo.abstand.ui.components.AbstandIconButton
 import de.letzgo.abstand.ui.components.AbstandProgressBar
 
 /** iOS: `DetailHeroLayoutMetrics` / `DetailMetaLayoutMetrics` (Ausschnitt für Podcast-Details). */
 internal object PodcastDetailMetrics {
     val squareCoverMaxWidth = 280.dp
-    val coverCornerRadius = 8.dp
-    val heroInfoLineSpacing = 5.dp
-    val sideControlSize = 52.dp
-    val primaryControlHeight = 52.dp
+    val coverCornerRadius = AppTheme.Layout.cornerMedium
+    val heroInfoLineSpacing = AppTheme.Layout.tightSpacing
+    val sideControlSize = AppTheme.Layout.fabSize
+    val primaryControlHeight = AppTheme.Layout.fabSize
     const val singlePrimaryWidthFraction = 0.54f
     val actionRowSpacing = 16.dp
     val labelToContentSpacing = AppTheme.Layout.compactSpacing
@@ -58,7 +56,7 @@ internal object PodcastDetailMetrics {
     val sectionCardSpacing = AppTheme.Layout.withinSectionSpacing
     const val descriptionCollapsedLineLimit = 4
     const val descriptionExpandCharacterThreshold = 200
-    val primaryProgressHeight = 3.dp
+    val primaryProgressHeight = AppTheme.Layout.libraryRowBottomProgressHeight
 }
 
 /** iOS: `DetailHeroCoverFrame` — quadratisches Cover, max. 280 dp breit, mittig. */
@@ -93,13 +91,13 @@ internal fun PodcastDetailHeroInfo(
         verticalArrangement = Arrangement.spacedBy(PodcastDetailMetrics.heroInfoLineSpacing),
     ) {
         Text(
-            title, style = AppType.headlineSmall.bold, color = palette.textPrimary, textAlign = TextAlign.Center,
+            title, style = AppType.headlineSmall, color = palette.textPrimary, textAlign = TextAlign.Center,
             modifier = Modifier.semantics { heading() },
         )
         if (!subtitle.isNullOrEmpty()) {
             Text(
                 subtitle,
-                style = AppType.titleLarge,
+                style = AppType.titleMedium,
                 color = if (onSubtitleClick != null) Theme.accent else palette.textSecondary,
                 textAlign = TextAlign.Center,
                 modifier = if (onSubtitleClick != null) Modifier.clickable(onClick = onSubtitleClick) else Modifier,
@@ -179,7 +177,7 @@ internal fun PodcastDetailMetaField(title: String, icon: ImageVector? = null, co
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(PodcastDetailMetrics.labelToContentSpacing)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
             if (icon != null) Icon(icon, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(MetaIconSize))
-            Text(title, style = AppType.bodyMedium.semibold, color = palette.textSecondary)
+            Text(title, style = AppType.titleSmall, color = palette.textSecondary)
         }
         content()
     }
@@ -206,7 +204,7 @@ internal fun PodcastDetailExpandableText(text: String, expanded: MutableState<Bo
         if (canExpand) {
             Text(
                 if (expanded.value) "Less" else "More",
-                style = AppType.bodyMedium.semibold,
+                style = AppType.titleSmall,
                 color = Theme.accent,
                 modifier = Modifier.clickable { expanded.value = !expanded.value },
             )
@@ -223,7 +221,7 @@ internal fun PodcastDetailDisclosure(title: String, expanded: MutableState<Boole
             Modifier.fillMaxWidth().clickable { expanded.value = !expanded.value },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(title, style = AppType.bodyMedium.semibold, color = palette.textSecondary, modifier = Modifier.weight(1f))
+            Text(title, style = AppType.titleSmall, color = palette.textSecondary, modifier = Modifier.weight(1f))
             Icon(
                 if (expanded.value) SF.chevronDown else SF.chevronRight,
                 contentDescription = if (expanded.value) "Collapse" else "Expand",

@@ -51,8 +51,6 @@ import de.letzgo.abstand.ui.components.SettingsCardDivider
 import de.letzgo.abstand.ui.components.SettingsSubpageScaffold
 import de.letzgo.abstand.ui.components.abstandCardListRowFrame
 import de.letzgo.abstand.ui.formatPlaybackDurationShortHuman
-import de.letzgo.abstand.ui.medium
-import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -159,7 +157,7 @@ private fun ServerLibraryListRow(library: AbsLibrary, isScanning: Boolean, admin
             Icon(if (library.isPodcastLibrary) SF.micFill else SF.booksVerticalFill, contentDescription = null, tint = Theme.accent)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-            Text(library.name, style = AppType.bodyLarge.medium, color = palette.textPrimary)
+            Text(library.name, style = AppType.titleMedium, color = palette.textPrimary)
             Text(subtitle, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 2)
         }
         if (isScanning || (stats == null && !statsFailed)) {
@@ -318,7 +316,7 @@ fun ServerLibraryDetailScreen(library: AbsLibrary, navigator: TabNavigator, admi
                                     rows.forEachIndexed { index, row ->
                                         if (index > 0) SettingsCardDivider()
                                         Column(Modifier.abstandCardListRowFrame(), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing, Alignment.CenterVertically)) {
-                                            Text(row.episodeDisplayTitle ?: "Episode", style = AppType.bodyLarge.medium, color = palette.textPrimary, maxLines = 2)
+                                            Text(row.episodeDisplayTitle ?: "Episode", style = AppType.titleMedium, color = palette.textPrimary, maxLines = 2)
                                             Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing)) {
                                                 row.podcastTitle?.takeIf { it.isNotEmpty() }?.let {
                                                     Text(it, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
@@ -326,7 +324,7 @@ fun ServerLibraryDetailScreen(library: AbsLibrary, navigator: TabNavigator, admi
                                                 Box(Modifier.weight(1f))
                                                 Text(
                                                     AdminLibraryLogic.episodeDownloadStatus(row, episodeDownloads),
-                                                    style = AppType.bodySmall.semibold, color = palette.textSecondary,
+                                                    style = AppType.labelMedium, color = palette.textSecondary,
                                                 )
                                             }
                                         }
@@ -354,7 +352,7 @@ private fun RankedCard(title: String, rows: List<Pair<String, String>>, valueSma
                     horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing),
                 ) {
                     Text(name, style = AppType.bodyLarge, color = palette.textPrimary, maxLines = if (valueSmall) 2 else 1, modifier = Modifier.weight(1f))
-                    Text(value, style = if (valueSmall) AppType.bodySmall.semibold else AppType.bodyMedium.semibold, color = palette.textSecondary)
+                    Text(value, style = if (valueSmall) AppType.labelMedium else AppType.titleSmall, color = palette.textSecondary)
                 }
             }
         }
@@ -366,7 +364,7 @@ private fun MetaRow(title: String, value: String) {
     val palette = Theme.palette
     Row(Modifier.abstandCardListRowFrame(), horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing), verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = AppType.bodyMedium, color = palette.textSecondary, modifier = Modifier.width(ServerAdminLayoutMetrics.compactMetaLabelColumnWidth))
-        Text(value, style = AppType.bodyMedium.medium, color = palette.textPrimary, modifier = Modifier.weight(1f))
+        Text(value, style = AppType.titleSmall, color = palette.textPrimary, modifier = Modifier.weight(1f))
     }
 }
 

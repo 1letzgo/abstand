@@ -46,7 +46,6 @@ import de.letzgo.abstand.ui.components.AbstandLabeledTextField
 import de.letzgo.abstand.ui.components.AbstandSectionEmptyState
 import de.letzgo.abstand.ui.components.MetadataSheetScaffold
 import de.letzgo.abstand.ui.formatPlaybackTime
-import de.letzgo.abstand.ui.semibold
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.delay
@@ -121,7 +120,7 @@ fun AudiobookBookmarkList(libraryItemId: String, onJump: (AbsAudioBookmark) -> U
                     title = mark.title.trim().ifEmpty { "—" },
                     subtitle = formatPlaybackTime(mark.time.toDouble()),
                     onClick = { onJump(mark) },
-                    titleStyle = AppType.bodyMedium.semibold,
+                    titleStyle = AppType.titleSmall,
                     verticalPadding = AppTheme.Layout.rowVerticalPadding,
                 ) {
                     if (reachable) {
@@ -205,7 +204,7 @@ fun ListeningHistoryRow(session: AbsListeningSession, onJump: (AbsListeningSessi
     Column(Modifier.fillMaxWidth().padding(vertical = AppTheme.Layout.tightSpacing), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing)) {
-                Text(started, style = AppType.bodyMedium.semibold, color = palette.textPrimary)
+                Text(started, style = AppType.titleSmall, color = palette.textPrimary)
                 Text(
                     "Listened ${formatPlaybackTime(session.timeListening.toDouble())} · ${formatPlaybackTime(session.startTime)} → ${formatPlaybackTime(session.currentTime)}",
                     style = AppType.bodySmall, color = palette.textSecondary,
@@ -251,4 +250,4 @@ fun ListeningHistorySessionList(
 
 /** iOS: `ListeningHistoryRow` — Sprung-Symbol und Höhe des Bereichsbalkens. */
 private val HistoryJumpIconSize = 28.dp
-private val HistoryRangeBarHeight = 7.dp
+private val HistoryRangeBarHeight = 8.dp

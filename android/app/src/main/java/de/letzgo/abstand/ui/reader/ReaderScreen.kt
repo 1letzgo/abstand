@@ -97,7 +97,6 @@ import de.letzgo.abstand.ui.components.AbstandInlineSpinner
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
 import de.letzgo.abstand.ui.components.AbstandMenuBox
 import de.letzgo.abstand.ui.components.AbstandProminentButton
-import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
@@ -119,7 +118,7 @@ import de.letzgo.abstand.ui.components.AbstandTextButton
 /** iOS: `ReaderChromeMetrics` + Reader-Farben (feste Lesefarben wie Readium, nicht App-Palette). */
 internal object ReaderMetrics {
     /** Höhe des dünnen passiven Lesefortschrittsbalkens. */
-    val passiveProgressBarHeight = 3.dp
+    val passiveProgressBarHeight = 4.dp
     /** Max. Breite des Hinweis-Overlays für die Reading-Controls. */
     val chromeHintMaxWidth = 320.dp
     /** Mindestbreite der Rand-Tap-Zonen (iOS: 80 pt). */
@@ -645,7 +644,7 @@ private fun ReaderTopChrome(session: EbookReaderSession, foreground: Color, seco
     ) {
         ChromeIconButton(SF.xmarkCircleFill, "Close", foreground, onClick = onClose)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing)) {
-            Text(session.title, style = AppType.bodyMedium.semibold, color = foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(session.title, style = AppType.titleSmall, color = foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (session.author.isNotEmpty()) {
                 Text(session.author, style = AppType.bodySmall, color = secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -820,7 +819,7 @@ private fun EbookServerPositionBanner(
                 modifier = Modifier.padding(top = AppTheme.Layout.hairlineSpacing).size(AppTheme.Layout.compactIconColumnWidth),
             )
             Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-                Text("You've read further elsewhere", style = AppType.bodyMedium.semibold, color = foreground)
+                Text("You've read further elsewhere", style = AppType.titleSmall, color = foreground)
                 Text(
                     "Your synced position is at ${percent(offer.serverFraction)}, this device is at ${percent(offer.localFraction)}.",
                     style = AppType.bodySmall, color = secondary,

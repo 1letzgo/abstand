@@ -54,7 +54,6 @@ import de.letzgo.abstand.ui.components.CoverImage
 import de.letzgo.abstand.ui.components.CoverImageContentMode
 import de.letzgo.abstand.ui.components.DetailScaffold
 import de.letzgo.abstand.ui.formatPlaybackDurationShortHuman
-import de.letzgo.abstand.ui.semibold
 import java.text.DateFormat
 import java.time.LocalDate
 import java.time.ZoneId
@@ -186,7 +185,7 @@ fun PodcastDirectoryShowView(hit: AbsPodcastDirectorySearchHit, onBack: () -> Un
                         verticalArrangement = Arrangement.spacedBy(PodcastDetailMetrics.linkRowSpacing),
                     ) {
                         if (isInLibrary) {
-                            PodcastInLibraryLabel(AppType.bodyMedium.semibold)
+                            PodcastInLibraryLabel(AppType.titleSmall)
                         } else {
                             val hasFeed = !hit.feedUrl.isNullOrBlank()
                             AbstandPrimaryButton(
@@ -251,7 +250,7 @@ fun PodcastDirectoryShowView(hit: AbsPodcastDirectorySearchHit, onBack: () -> Un
                             PodcastDetailMetaField("Links") {
                                 Text(
                                     "Open in Apple Podcasts",
-                                    style = AppType.bodyLarge.semibold,
+                                    style = AppType.titleMedium,
                                     color = Theme.accent,
                                     modifier = Modifier.clickable {
                                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(pageUrl))) }
@@ -285,7 +284,7 @@ fun PodcastDirectoryShowView(hit: AbsPodcastDirectorySearchHit, onBack: () -> Un
                                 if (preview.episodes.size > InitialEpisodeCount) {
                                     Text(
                                         if (showsAllEpisodes) "Show fewer episodes" else "Show all ${preview.episodes.size} episodes",
-                                        style = AppType.bodyMedium.semibold,
+                                        style = AppType.titleSmall,
                                         color = Theme.accent,
                                         modifier = Modifier.padding(top = PodcastDetailMetrics.linkRowSpacing).clickable { showsAllEpisodes = !showsAllEpisodes },
                                     )
@@ -326,7 +325,7 @@ private fun FeedEpisodeRow(
             Modifier.weight(1f).clickable(onClick = onToggleExpanded),
             verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing),
         ) {
-            Text(episode.title, style = AppType.bodyMedium.semibold, color = palette.textPrimary)
+            Text(episode.title, style = AppType.titleSmall, color = palette.textPrimary)
             feedEpisodeMetaLine(episode)?.let { Text(it, style = AppType.bodySmall, color = palette.textSecondary) }
             (episode.descriptionPlain ?: episode.subtitle)?.let {
                 Text(it, style = AppType.bodySmall, color = palette.textSecondary, maxLines = if (expanded) Int.MAX_VALUE else 2)

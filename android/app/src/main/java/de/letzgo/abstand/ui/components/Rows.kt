@@ -31,7 +31,6 @@ import androidx.compose.ui.unit.sp
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.medium
 import de.letzgo.abstand.ui.semibold
 
 // Listenzeilen, Trenner, Versalien-Labels und Segment-Umschalter.

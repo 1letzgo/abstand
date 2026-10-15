@@ -50,7 +50,6 @@ import de.letzgo.abstand.ui.components.MetadataSheetSearchButton
 import de.letzgo.abstand.ui.components.MetadataSheetSection
 import de.letzgo.abstand.ui.components.MetadataSheetTextField
 import de.letzgo.abstand.ui.components.MetadataSheetToggleRow
-import de.letzgo.abstand.ui.semibold
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import de.letzgo.abstand.ui.components.AbstandBadge
@@ -186,7 +185,7 @@ fun MatchMetadataSheet(itemId: String, onDismiss: () -> Unit) {
             ) {
                 MetadataSheetSection("Match") {
                     MetadataSheetCard(spacing = AppTheme.Layout.tightSpacing) {
-                        Text(match.title ?: "—", style = AppType.bodyMedium.semibold, color = Theme.palette.textPrimary)
+                        Text(match.title ?: "—", style = AppType.titleSmall, color = Theme.palette.textPrimary)
                         match.displayAuthors?.let { Text(it, style = AppType.bodySmall, color = Theme.palette.textSecondary) }
                     }
                 }
@@ -233,7 +232,7 @@ private fun MatchCard(match: AbsMetadataMatch, onClick: () -> Unit) {
                     }
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-                    Text(match.title ?: "—", style = AppType.bodyMedium.semibold, color = palette.textPrimary, maxLines = 2)
+                    Text(match.title ?: "—", style = AppType.titleSmall, color = palette.textPrimary, maxLines = 2)
                     match.displayAuthors?.let { Text(it, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1) }
                     match.displayNarrator?.let { Text("Narrated by $it", style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1) }
                     Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {

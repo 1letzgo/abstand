@@ -46,8 +46,6 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.medium
-import de.letzgo.abstand.ui.semibold
 
 /**
  * iOS: `ServerCustomHeadersEditor` — je Zeile Name + Wert (verdeckt), Entfernen-Button, „Add header“
@@ -88,7 +86,7 @@ fun ServerCustomHeadersEditor(headers: List<ServerHTTPHeader>, onHeadersChange: 
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(SF.plusCircleFill, contentDescription = null, tint = Theme.accent)
-            Text("Add header", style = AppType.bodyLarge.medium, color = Theme.accent)
+            Text("Add header", style = AppType.titleMedium, color = Theme.accent)
         }
 
         Text(
@@ -165,8 +163,8 @@ fun ServerCustomHeadersDisclosure(headers: List<ServerHTTPHeader>, onHeadersChan
             horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Custom headers", style = AppType.bodySmall.medium, color = palette.textSecondary)
-            if (usableCount > 0) Text("$usableCount", style = AppType.labelSmall.semibold, color = palette.textSecondary)
+            Text("Custom headers", style = AppType.labelMedium, color = palette.textSecondary)
+            if (usableCount > 0) Text("$usableCount", style = AppType.labelSmall, color = palette.textSecondary)
             Spacer(Modifier.weight(1f))
             Icon(SF.chevronDown, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(ChevronSize).rotate(chevronRotation))
         }

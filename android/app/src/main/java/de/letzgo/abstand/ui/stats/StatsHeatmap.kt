@@ -48,7 +48,6 @@ import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.components.AbstandGroupedCard
 import de.letzgo.abstand.ui.components.abstandCardListRowFrame
-import de.letzgo.abstand.ui.semibold
 import java.time.LocalDate
 import de.letzgo.abstand.ui.components.AbstandIconButton
 import de.letzgo.abstand.ui.components.AbstandCapsLabel
@@ -139,7 +138,7 @@ private fun CalendarCard(
                         else m.semantics { heading() }
                     }
                     Text(
-                        heatmap.monthTitle, style = AppType.titleLarge.bold, color = palette.textPrimary,
+                        heatmap.monthTitle, style = AppType.titleLarge, color = palette.textPrimary,
                         maxLines = 1, textAlign = TextAlign.Center, modifier = titleModifier,
                     )
                     NavButton(SF.chevronRight, "Next month", canGoForward, onForward)
@@ -148,7 +147,7 @@ private fun CalendarCard(
                 Row(Modifier.width(layout.gridWidth.dp), horizontalArrangement = Arrangement.spacedBy(colGap)) {
                     (0 until 7).forEach { col ->
                         Text(
-                            layout.weekdayLabel(col), style = AppType.labelSmall.semibold, color = palette.textSecondary,
+                            layout.weekdayLabel(col), style = AppType.labelSmall, color = palette.textSecondary,
                             textAlign = TextAlign.Center, maxLines = 1,
                             modifier = Modifier.width(block).height(HeatmapMetrics.WEEKDAY_HEADER_HEIGHT.dp),
                         )

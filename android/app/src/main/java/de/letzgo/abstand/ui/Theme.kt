@@ -88,6 +88,8 @@ object AppTheme {
         val circleSize = 40.dp
         val iconSize = 20.dp
         val activeCoverSize = 24.dp
+        /** Cover im inaktiven Kreis (Podcast-Shows). */
+        val inactiveCoverSize = 32.dp
         val activeHeight = 40.dp
         val activeLeadingPadding = 12.dp
         val activeTrailingPadding = 16.dp
