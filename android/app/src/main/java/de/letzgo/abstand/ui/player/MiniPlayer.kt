@@ -153,10 +153,8 @@ fun MiniPlayerDock(
         MiniPlayerBar(
             snapshot = snapshot,
             wiring = wiring,
-            modifier = Modifier
-                .padding(horizontal = AppTheme.Layout.screenPadding)
-                .padding(bottom = MiniPlayerMetrics.accessoryBottomGap)
-                .onGloballyPositioned { NowPlayingZoomSource.bounds = it.boundsInRoot() },
+            // Fest über der Navigation Bar angedockt: volle Breite, keine Ecken, kein Schatten.
+            modifier = Modifier.onGloballyPositioned { NowPlayingZoomSource.bounds = it.boundsInRoot() },
         )
     }
 }
@@ -228,7 +226,7 @@ private fun MiniPlayerBar(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring, mo
                 }
                 if (snapshot.canTogglePlayback || snapshot.isBuffering) MiniTransport(snapshot, wiring)
             }
-            MiniProgressLine(wiring, Modifier.align(Alignment.BottomCenter).padding(horizontal = MiniPlayerMetrics.accessoryCornerRadius))
+            MiniProgressLine(wiring, Modifier.align(Alignment.TopCenter).fillMaxWidth())
         }
     }
 }

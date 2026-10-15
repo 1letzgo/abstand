@@ -1,6 +1,17 @@
 package de.letzgo.abstand.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -88,6 +99,8 @@ fun AbstandBackButton(onBack: () -> Unit, tint: Color = Theme.palette.textPrimar
  * Inhalt, unterer Mini-Player-Inset) und soll es an seine `LazyColumn`/`LazyVerticalGrid` geben.
  * Die NavigationBar gehört der Tab-Shell; hier keine Bottom-Insets.
  */
+private const val TAB_BAR_DIVIDER_ALPHA = 0.2f
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TabRootScaffold(
@@ -105,7 +118,26 @@ fun TabRootScaffold(
         contentColor = palette.textPrimary,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            Column(Modifier.background(palette.background)) {
+            if (header != null) {
+                // Wie stashy `NativeTabStrip`: die Bereichs-Tabs SIND die Top-Leiste (kein Titel —
+                // der Tab-Name steht in der Navigation Bar), Aktionen rechts in derselben Zeile.
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(palette.background)
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .semantics { heading(); contentDescription = title },
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { header() }
+                        CompositionLocalProvider(LocalContentColor provides Theme.accent) {
+                            Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+                        }
+                        Spacer(Modifier.width(AppTheme.Layout.tightSpacing))
+                    }
+                    HorizontalDivider(thickness = AppTheme.Layout.hairlineWidth, color = palette.textSecondary.copy(alpha = TAB_BAR_DIVIDER_ALPHA))
+                }
+            } else {
                 TopAppBar(
                     title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     actions = actions,
@@ -117,8 +149,6 @@ fun TabRootScaffold(
                         actionIconContentColor = Theme.accent,
                     ),
                 )
-                // Tabs direkt unter der App Bar (M3), ohne Zusatzabstand.
-                if (header != null) header()
             }
         },
     ) { inner ->
