@@ -117,14 +117,8 @@ fun TabRootScaffold(
                         actionIconContentColor = Theme.accent,
                     ),
                 )
-                if (header != null) {
-                    Box(
-                        Modifier.fillMaxWidth().padding(
-                            top = AppTheme.Layout.horizontalBrowseStripToTitleSpacing,
-                            bottom = AppTheme.Layout.horizontalBrowseStripToContentSpacing,
-                        ),
-                    ) { header() }
-                }
+                // Tabs direkt unter der App Bar (M3), ohne Zusatzabstand.
+                if (header != null) header()
             }
         },
     ) { inner ->
@@ -132,7 +126,7 @@ fun TabRootScaffold(
             PaddingValues(
                 start = AppTheme.Layout.tabPaddingH,
                 end = AppTheme.Layout.tabPaddingH,
-                top = inner.calculateTopPadding() + if (header == null) AppTheme.Layout.tabTitleToHeaderBlockSpacing else 0.dp,
+                top = inner.calculateTopPadding() + AppTheme.Layout.tabTitleToHeaderBlockSpacing,
                 bottom = abstandScrollBottomPadding(),
             ),
         )

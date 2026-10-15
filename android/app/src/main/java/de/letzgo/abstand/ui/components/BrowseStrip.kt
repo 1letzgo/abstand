@@ -18,6 +18,14 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.Tab
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,9 +58,65 @@ data class AbstandBrowseStripItem(
 )
 
 /**
- * iOS: `AbstandExpandingDockBrowseStrip` — inaktive Kategorien als Kreis-Symbole, die aktive als
- * wachsende Kapsel mit Label (Material: tonale Kreise + Akzent-Kapsel, horizontal scrollend).
- * [pinnedLeadingItem] bleibt links stehen, der Rest scrollt darunter durch (Podcast „New“).
+ * Android: Bereichsumschalter unter der Top App Bar als Material-3-**scrollbare Primary-Tabs**
+ * (48 dp, Text-Labels, Akzent-Indikator unter dem Label). Ersetzt den iOS-Expanding-Dock
+ * (`AbstandExpandingDockBrowseStrip`: Kreis-Symbole + wachsende Kapsel), der auf Android zu viel
+ * Höhe kostet. [leading] = optionales Element links vor den Tabs (z. B. Bibliotheks-Picker).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AbstandBrowseTabs(
+    items: List<AbstandBrowseStripItem>,
+    selectionId: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    leading: (@Composable () -> Unit)? = null,
+) {
+    if (items.isEmpty()) return
+    val haptics = LocalHapticFeedback.current
+    val palette = Theme.palette
+    val accent = Theme.accent
+    val selectedIndex = items.indexOfFirst { it.id == selectionId }.coerceAtLeast(0)
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (leading != null) Box(Modifier.padding(start = AppTheme.Layout.tabPaddingH)) { leading() }
+        PrimaryScrollableTabRow(
+            selectedTabIndex = selectedIndex,
+            modifier = Modifier.weight(1f),
+            containerColor = palette.background,
+            contentColor = accent,
+            edgePadding = AppTheme.Layout.tabPaddingH,
+            indicator = {
+                TabRowDefaults.PrimaryIndicator(
+                    Modifier.tabIndicatorOffset(selectedIndex, matchContentSize = true),
+                    width = Dp.Unspecified,
+                    color = accent,
+                )
+            },
+            divider = { HorizontalDivider(color = palette.textSecondary.copy(alpha = TAB_DIVIDER_ALPHA)) },
+        ) {
+            items.forEachIndexed { index, item ->
+                Tab(
+                    selected = index == selectedIndex,
+                    onClick = {
+                        if (item.id != selectionId) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onSelect(item.id)
+                        }
+                    },
+                    text = { Text(item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    selectedContentColor = accent,
+                    unselectedContentColor = palette.textSecondary,
+                )
+            }
+        }
+    }
+}
+
+private const val TAB_DIVIDER_ALPHA = 0.2f
+
+/**
+ * iOS: `AbstandExpandingDockBrowseStrip`. Android: [AbstandBrowseTabs]; [pinnedLeadingItem]
+ * (Podcast „New“) wird zum ersten Tab.
  */
 @Composable
 fun AbstandExpandingDockBrowseStrip(
@@ -60,74 +124,15 @@ fun AbstandExpandingDockBrowseStrip(
     selectionId: String,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
-    appliesLeadingPadding: Boolean = true,
     pinnedLeadingItem: AbstandBrowseStripItem? = null,
 ) {
-    val haptics = LocalHapticFeedback.current
-    val select: (String) -> Unit = { id ->
-        if (id != selectionId) {
-            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            onSelect(id)
-        }
-    }
-    val dock = AppTheme.ExpandingDock
-    // M3-Rand wie der Inhalt darunter (16 dp Compact, 24 dp ab Medium).
-    val margin = AppTheme.Layout.tabPaddingH
-    val leading = if (appliesLeadingPadding) margin else 0.dp
-    if (pinnedLeadingItem != null) {
-        val background = Theme.palette.background
-        val scrolling = items.filter { it.id != pinnedLeadingItem.id }
-        Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.padding(start = leading, top = dock.verticalPadding, bottom = dock.verticalPadding)) {
-                ExpandingDockChip(pinnedLeadingItem, pinnedLeadingItem.id == selectionId) { select(pinnedLeadingItem.id) }
-            }
-            Box(Modifier.weight(1f)) {
-                LazyRow(
-                    contentPadding = PaddingValues(
-                        start = dock.pinnedChipFadeWidth, end = margin,
-                        top = dock.verticalPadding, bottom = dock.verticalPadding,
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(dock.itemSpacing),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    items(scrolling, key = { it.id }) { item -> ExpandingDockChip(item, item.id == selectionId) { select(item.id) } }
-                }
-                // Überblendung zum fixierten Chip hin.
-                Box(
-                    Modifier
-                        .align(Alignment.CenterStart)
-                        .width(dock.pinnedChipFadeWidth)
-                        .height(dock.activeHeight + dock.verticalPadding * 2)
-                        .background(Brush.horizontalGradient(listOf(background, background.copy(alpha = 0f)))),
-                )
-            }
-        }
-        return
-    }
-    val centered = items.size < dock.centerWhenFewThreshold
-    LazyRow(
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(start = leading, end = margin, top = dock.verticalPadding, bottom = dock.verticalPadding),
-        horizontalArrangement = if (centered) {
-            Arrangement.spacedBy(dock.itemSpacing, Alignment.CenterHorizontally)
-        } else {
-            Arrangement.spacedBy(dock.itemSpacing)
-        },
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        items(items, key = { it.id }) { item -> ExpandingDockChip(item, item.id == selectionId) { select(item.id) } }
-    }
-}
-
-/** Dock-Chip eines Browse-Eintrags ([AbstandDockChip]). */
-@Composable
-private fun ExpandingDockChip(item: AbstandBrowseStripItem, isSelected: Boolean, onClick: () -> Unit) {
-    AbstandDockChip(item.label, item.icon, isSelected, onClick, coverItemId = item.coverItemId)
+    val ordered = if (pinnedLeadingItem == null) items else listOf(pinnedLeadingItem) + items.filter { it.id != pinnedLeadingItem.id }
+    AbstandBrowseTabs(ordered, selectionId, onSelect, modifier)
 }
 
 /**
- * iOS: `AbstandPinnedBrowseStrip` — bei mehreren Bibliotheken zwei Dropdown-Pills (50/50:
- * Bibliothek | Sektion), sonst der scrollende Expanding-Dock-Streifen.
+ * iOS: `AbstandPinnedBrowseStrip` — Android: [AbstandBrowseTabs]; bei mehreren Bibliotheken steht
+ * ein kompakter Bibliotheks-Picker links vor den Tabs.
  */
 @Composable
 fun AbstandPinnedBrowseStrip(
@@ -139,25 +144,22 @@ fun AbstandPinnedBrowseStrip(
     libraryPickerSelectionId: String = "",
     onSelectLibrary: ((String) -> Unit)? = null,
     pinnedLeadingItem: AbstandBrowseStripItem? = null,
-    secondaryAccessibilityLabel: String = "Browse",
+    @Suppress("UNUSED_PARAMETER") secondaryAccessibilityLabel: String = "Browse",
 ) {
-    if (onSelectLibrary != null && libraryPickerItems.size > 1) {
-        Row(
-            modifier.fillMaxWidth().padding(horizontal = AppTheme.Layout.tabPaddingH, vertical = AppTheme.ExpandingDock.verticalPadding),
-            horizontalArrangement = Arrangement.spacedBy(AppTheme.ExpandingDock.itemSpacing),
-        ) {
-            AbstandDropdownPill(libraryPickerItems, libraryPickerSelectionId, onSelectLibrary, Modifier.weight(1f), SF.booksVerticalFill, "Library")
-            AbstandDropdownPill(secondaryItems, secondarySelectionId, onSelectSecondary, Modifier.weight(1f), SF.squareGrid2x2, secondaryAccessibilityLabel)
+    val ordered = if (pinnedLeadingItem == null) secondaryItems
+    else listOf(pinnedLeadingItem) + secondaryItems.filter { it.id != pinnedLeadingItem.id }
+    // Mehrere Bibliotheken: kompakter Bibliotheks-Picker links vor den Tabs (iOS: 50/50-Pills).
+    val leading: (@Composable () -> Unit)? = if (onSelectLibrary != null && libraryPickerItems.size > 1) {
+        {
+            AbstandDropdownPill(
+                libraryPickerItems, libraryPickerSelectionId, onSelectLibrary,
+                Modifier.widthIn(max = AppTheme.Layout.browseLibraryPickerMaxWidth), SF.booksVerticalFill, "Library",
+            )
         }
     } else {
-        AbstandExpandingDockBrowseStrip(
-            items = secondaryItems,
-            selectionId = secondarySelectionId,
-            onSelect = onSelectSecondary,
-            modifier = modifier,
-            pinnedLeadingItem = pinnedLeadingItem,
-        )
+        null
     }
+    AbstandBrowseTabs(ordered, secondarySelectionId, onSelectSecondary, modifier, leading)
 }
 
 /**

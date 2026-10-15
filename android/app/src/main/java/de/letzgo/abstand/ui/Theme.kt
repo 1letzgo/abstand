@@ -270,6 +270,8 @@ object AppTheme {
 
         /** Abstand Strip ↔ Top-App-Bar oben. */
         val horizontalBrowseStripToTitleSpacing = 4.dp
+        /** Höchstbreite des Bibliotheks-Pickers links vor den Bereichs-Tabs (mehrere Bibliotheken). */
+        val browseLibraryPickerMaxWidth = 160.dp
         /** Abstand Strip ↔ Scroll-Inhalt unten. */
         val horizontalBrowseStripToContentSpacing = 8.dp
         val horizontalBrowseStripVerticalPadding = 4.dp
