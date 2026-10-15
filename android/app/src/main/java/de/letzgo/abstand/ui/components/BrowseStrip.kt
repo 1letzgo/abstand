@@ -42,8 +42,8 @@ data class AbstandBrowseStripItem(
 
 /**
  * Bereichsumschalter unter der Titelzeile mit den Dropdown-Pills aus iOS `AbstandPinnedBrowseStrip`:
- * eigene Zeile über die volle Breite, links die Bibliothek, rechts der Bereich (50/50) — **immer**
- * beide, auch bei nur einer aktiven Bibliothek (die Pill zeigt dann deren Namen). Ohne
+ * links die Bibliothek als kompakte Pill (nur Symbol + Chevron, Namen im Menü), daneben der Bereich
+ * über die restliche Breite — **immer** beide, auch bei nur einer aktiven Bibliothek. Ohne
  * Bibliotheksauswahl (Settings) füllt die Bereichs-Pill die Zeile allein.
  */
 @Composable
@@ -74,7 +74,8 @@ fun AbstandBrowsePills(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (onSelectLibrary != null && libraryItems.isNotEmpty()) {
-            AbstandDropdownPill(libraryItems, librarySelectionId, onSelectLibrary, Modifier.weight(1f), SF.booksVerticalFill, "Library")
+            // Bibliothek kompakt (nur Symbol), der Bereich bekommt die restliche Breite.
+            AbstandDropdownPill(libraryItems, librarySelectionId, onSelectLibrary, Modifier, SF.booksVerticalFill, "Library", iconOnly = true)
             AbstandDropdownPill(items, selectionId, select, Modifier.weight(1f), SF.squareGrid2x2, sectionAccessibilityLabel)
         } else {
             AbstandDropdownPill(items, selectionId, select, Modifier.weight(1f), SF.squareGrid2x2, sectionAccessibilityLabel)

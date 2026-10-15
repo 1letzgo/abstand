@@ -306,20 +306,22 @@ fun AbstandDropdownPill(
     modifier: Modifier = Modifier,
     fallbackIcon: ImageVector = SF.booksVerticalFill,
     accessibilityLabel: String = "Menu",
+    /** Kompakt: nur Symbol + Chevron, Breite nach Inhalt (Bibliotheks-Pill); Namen stehen im Menü. */
+    iconOnly: Boolean = false,
 ) {
     val dock = AppTheme.ExpandingDock
     val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
     val current = items.firstOrNull { it.id == selectionId } ?: items.firstOrNull()
     var expanded by remember { mutableStateOf(false) }
     BoxWithConstraints(modifier) {
-        val showLeadingIcon = maxWidth >= AppTheme.Layout.dropdownPillIconMinWidth
+        val showLeadingIcon = iconOnly || maxWidth >= AppTheme.Layout.dropdownPillIconMinWidth
         Surface(
             onClick = { expanded = true },
             shape = RoundedCornerShape(percent = 50),
             color = colors.activeBackground,
             contentColor = colors.activeForeground,
             shadowElevation = AppTheme.CardElevation.Subtle.shadowElevation,
-            modifier = Modifier.fillMaxWidth().height(dock.activeHeight).semantics {
+            modifier = (if (iconOnly) Modifier else Modifier.fillMaxWidth()).height(dock.activeHeight).semantics {
                 contentDescription = "$accessibilityLabel: ${current?.label.orEmpty()}"
             },
         ) {
@@ -330,10 +332,12 @@ fun AbstandDropdownPill(
             ) {
                 // Schmale Pill (zwei Pills + Aktionen in einer Zeile): Symbol weglassen, damit das Label passt.
                 if (showLeadingIcon) Icon(current?.icon ?: fallbackIcon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
-                Text(
-                    current?.label ?: accessibilityLabel, style = AppType.labelLarge, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-                )
+                if (!iconOnly) {
+                    Text(
+                        current?.label ?: accessibilityLabel, style = AppType.labelLarge, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                    )
+                }
                 Icon(SF.chevronUpChevronDown, contentDescription = null, modifier = Modifier.size(dock.iconSize))
             }
         }
