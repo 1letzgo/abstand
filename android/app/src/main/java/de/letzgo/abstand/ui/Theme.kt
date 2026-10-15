@@ -270,6 +270,8 @@ object AppTheme {
 
         /** Abstand Strip ↔ Top-App-Bar oben. */
         val horizontalBrowseStripToTitleSpacing = 4.dp
+        /** Ab dieser Breite zeigt eine Dropdown-Pill ihr führendes Symbol (sonst nur Label + Chevron). */
+        val dropdownPillIconMinWidth = 152.dp
         /** Abstand Strip ↔ Scroll-Inhalt unten. */
         val horizontalBrowseStripToContentSpacing = 8.dp
         val horizontalBrowseStripVerticalPadding = 4.dp

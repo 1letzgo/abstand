@@ -1,6 +1,14 @@
 package de.letzgo.abstand.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -93,7 +101,7 @@ fun AbstandBackButton(onBack: () -> Unit, tint: Color = Theme.palette.textPrimar
 fun TabRootScaffold(
     title: String,
     modifier: Modifier = Modifier,
-    actions: @Composable RowScope.() -> Unit = {},
+    actions: (@Composable RowScope.() -> Unit)? = null,
     header: (@Composable () -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
@@ -105,10 +113,29 @@ fun TabRootScaffold(
         contentColor = palette.textPrimary,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            Column(Modifier.background(palette.background)) {
+            if (header != null) {
+                // Keine Titelzeile (der Tab-Name steht in der Navigation Bar): die Bereichs-Pills sind
+                // die Top-Leiste, die Aktionen (Filter, Sortieren, …) stehen rechts in derselben Zeile.
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(palette.background)
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .padding(end = if (actions != null) AppTheme.Layout.tightSpacing else AppTheme.Layout.tabPaddingH - AppTheme.Layout.stackSpacing)
+                        .semantics { heading(); contentDescription = title },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.weight(1f)) { header() }
+                    if (actions != null) {
+                        CompositionLocalProvider(LocalContentColor provides Theme.accent) {
+                            Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+                        }
+                    }
+                }
+            } else {
                 TopAppBar(
                     title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    actions = actions,
+                    actions = actions ?: {},
                     scrollBehavior = scrollBehavior,
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = palette.background,
@@ -117,8 +144,6 @@ fun TabRootScaffold(
                         actionIconContentColor = Theme.accent,
                     ),
                 )
-                // Bereichs-Pills als eigene Zeile direkt unter der Titelzeile.
-                if (header != null) header()
             }
         },
     ) { inner ->

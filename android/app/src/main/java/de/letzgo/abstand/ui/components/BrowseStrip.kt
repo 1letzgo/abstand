@@ -69,7 +69,7 @@ fun AbstandBrowsePills(
     Row(
         modifier
             .fillMaxWidth()
-            .padding(horizontal = AppTheme.Layout.tabPaddingH, vertical = dock.verticalPadding),
+            .padding(start = AppTheme.Layout.tabPaddingH, end = AppTheme.Layout.stackSpacing, top = dock.verticalPadding, bottom = dock.verticalPadding),
         horizontalArrangement = Arrangement.spacedBy(dock.itemSpacing),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -142,7 +142,7 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
     selection: ID,
     modifier: Modifier = Modifier,
     showsStrip: Boolean = true,
-    actions: @Composable RowScope.() -> Unit = {},
+    actions: (@Composable RowScope.() -> Unit)? = null,
     scrollToTopTrigger: Any? = null,
     onRefresh: (suspend () -> Unit)? = null,
     strip: @Composable () -> Unit = {},

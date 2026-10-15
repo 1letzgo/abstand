@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -310,7 +311,8 @@ fun AbstandDropdownPill(
     val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
     val current = items.firstOrNull { it.id == selectionId } ?: items.firstOrNull()
     var expanded by remember { mutableStateOf(false) }
-    Box(modifier) {
+    BoxWithConstraints(modifier) {
+        val showLeadingIcon = maxWidth >= AppTheme.Layout.dropdownPillIconMinWidth
         Surface(
             onClick = { expanded = true },
             shape = RoundedCornerShape(percent = 50),
@@ -326,7 +328,8 @@ fun AbstandDropdownPill(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(dock.iconLabelSpacing),
             ) {
-                Icon(current?.icon ?: fallbackIcon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
+                // Schmale Pill (zwei Pills + Aktionen in einer Zeile): Symbol weglassen, damit das Label passt.
+                if (showLeadingIcon) Icon(current?.icon ?: fallbackIcon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
                 Text(
                     current?.label ?: accessibilityLabel, style = AppType.labelLarge, maxLines = 1,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
