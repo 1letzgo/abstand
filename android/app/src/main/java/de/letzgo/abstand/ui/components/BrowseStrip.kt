@@ -1,62 +1,37 @@
 package de.letzgo.abstand.ui.components
 
-import androidx.compose.foundation.background
-import de.letzgo.abstand.ui.AppType
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.draw.clip
-import androidx.compose.material3.Icon
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.clickable
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.material3.Text
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
-import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Tab
-import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.SF
-import de.letzgo.abstand.ui.Theme
 import kotlinx.coroutines.launch
 
 /** iOS: `AbstandBrowseStripItem` — Eintrag im Browse-Streifen (Symbol oder Cover). */
@@ -69,139 +44,51 @@ data class AbstandBrowseStripItem(
 )
 
 /**
- * Android (wie stashy `NativeTabStrip`): Bereichsumschalter **als Top-Leiste** — sitzt direkt unter
- * der Statusleiste (der Tab-Root hat keine Titelzeile, der Tab-Name steht in der Navigation Bar).
- * Icon-Tabs: nur Symbol, der aktive Tab Symbol + Label mit Akzent-Indikator; Einträge mit Cover
- * statt Symbol (Podcast-Sendungen) als Text-Tabs ([PrimaryScrollableTabRow]). [pinFirst]: erster
- * Eintrag bleibt links stehen (iOS `pinnedItemID`), [leading] = z. B. Bibliotheks-Picker.
- * Ersetzt den iOS-Expanding-Dock (`AbstandExpandingDockBrowseStrip`).
+ * Bereichsumschalter als Top-Leiste (kein Titel — der Tab-Name steht in der Navigation Bar) mit
+ * den Dropdown-Pills aus iOS `AbstandPinnedBrowseStrip`: links die Bibliothek (nur bei mehreren
+ * aktiven Bibliotheken), daneben der Bereich — gemeinsam über die Breite bis zu den Aktionen
+ * (Vorlage = die Variante mit zwei Bibliotheken); mit einer Bibliothek füllt die Bereichs-Pill sie
+ * allein. Aktionen des Screens stehen rechts daneben (siehe `TabRootScaffold`).
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AbstandBrowseTabs(
+fun AbstandBrowsePills(
     items: List<AbstandBrowseStripItem>,
     selectionId: String,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
-    leading: (@Composable () -> Unit)? = null,
-    pinFirst: Boolean = false,
+    libraryItems: List<AbstandBrowseStripItem> = emptyList(),
+    librarySelectionId: String = "",
+    onSelectLibrary: ((String) -> Unit)? = null,
+    sectionAccessibilityLabel: String = "Browse",
 ) {
     if (items.isEmpty()) return
     val haptics = LocalHapticFeedback.current
-    val palette = Theme.palette
-    val accent = Theme.accent
-    val selectedIndex = items.indexOfFirst { it.id == selectionId }.coerceAtLeast(0)
-    val select: (AbstandBrowseStripItem) -> Unit = { item ->
-        if (item.id != selectionId) {
+    val dock = AppTheme.ExpandingDock
+    val select: (String) -> Unit = { id ->
+        if (id != selectionId) {
             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            onSelect(item.id)
+            onSelect(id)
         }
     }
-    Row(modifier.fillMaxWidth().heightIn(min = AppTheme.Layout.minTapTarget), verticalAlignment = Alignment.CenterVertically) {
-        if (leading != null) Box(Modifier.padding(start = AppTheme.Layout.tabPaddingH)) { leading() }
-        if (items.none { it.coverItemId != null }) {
-            CompactIconTabs(items, selectedIndex, select, pinFirst && items.size > 1, Modifier.weight(1f))
-        } else {
-            PrimaryScrollableTabRow(
-                selectedTabIndex = selectedIndex,
-                modifier = Modifier.weight(1f),
-                containerColor = Color.Transparent,
-                contentColor = accent,
-                edgePadding = AppTheme.Layout.stackSpacing,
-                indicator = {
-                    TabRowDefaults.PrimaryIndicator(
-                        Modifier.tabIndicatorOffset(selectedIndex, matchContentSize = true),
-                        width = Dp.Unspecified,
-                        color = accent,
-                    )
-                },
-                divider = {},
-            ) {
-                items.forEachIndexed { index, item ->
-                    Tab(
-                        selected = index == selectedIndex,
-                        onClick = { select(item) },
-                        text = { Text(item.label, style = AppType.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        selectedContentColor = accent,
-                        unselectedContentColor = palette.textSecondary,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Icon-Tabs (stashy `CompactIconTabs`): eigene Zeile statt `ScrollableTabRow`, weil diese jedem
- * Tab 90 dp Mindestbreite gibt und reine Symbol-Tabs weit auseinanderzieht.
- */
-@Composable
-private fun CompactIconTabs(
-    items: List<AbstandBrowseStripItem>,
-    selectedIndex: Int,
-    onSelect: (AbstandBrowseStripItem) -> Unit,
-    pinFirst: Boolean,
-    modifier: Modifier,
-) {
-    val scrolling = if (pinFirst) items.drop(1) else items
-    val offset = if (pinFirst) 1 else 0
-    val scrollIndex = (selectedIndex - offset).takeIf { it >= 0 }
-    val state = rememberLazyListState()
-    LaunchedEffect(scrollIndex) { scrollIndex?.let { state.animateScrollToItem((it - 1).coerceAtLeast(0)) } }
-    Row(modifier.heightIn(min = AppTheme.Layout.minTapTarget), verticalAlignment = Alignment.CenterVertically) {
-        if (pinFirst) {
-            Spacer(Modifier.width(AppTheme.Layout.stackSpacing))
-            CompactIconTab(items[0], selectedIndex == 0, onSelect)
-        }
-        LazyRow(
-            Modifier.weight(1f).heightIn(min = AppTheme.Layout.minTapTarget),
-            state = state,
-            contentPadding = PaddingValues(horizontal = AppTheme.Layout.stackSpacing),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            items(scrolling.size, key = { scrolling[it].id }) { i ->
-                CompactIconTab(scrolling[i], i + offset == selectedIndex, onSelect)
-            }
-        }
-    }
-}
-
-@Composable
-private fun CompactIconTab(item: AbstandBrowseStripItem, isSelected: Boolean, onSelect: (AbstandBrowseStripItem) -> Unit) {
-    val accent = Theme.accent
-    val color = if (isSelected) accent else Theme.palette.textSecondary
-    Box(
-        Modifier
-            .heightIn(min = AppTheme.Layout.minTapTarget)
-            .clip(RoundedCornerShape(AppTheme.Layout.cornerMedium))
-            .clickable(role = Role.Tab) { onSelect(item) }
-            .semantics { selected = isSelected }
-            .padding(horizontal = AppTheme.Layout.rowSpacing),
-        contentAlignment = Alignment.Center,
+    Row(
+        modifier
+            .fillMaxWidth()
+            .padding(start = AppTheme.Layout.tabPaddingH, end = AppTheme.Layout.stackSpacing, top = dock.verticalPadding, bottom = dock.verticalPadding),
+        horizontalArrangement = Arrangement.spacedBy(dock.itemSpacing),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier.padding(vertical = AppTheme.Layout.compactSpacing).animateContentSize(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing),
-        ) {
-            Icon(item.icon, if (isSelected) null else item.label, tint = color, modifier = Modifier.size(AppTheme.Layout.iconSize))
-            if (isSelected) Text(item.label, style = AppType.titleSmall, color = color, maxLines = 1)
-        }
-        if (isSelected) {
-            Box(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .width(AppTheme.Layout.browseTabIndicatorWidth)
-                    .height(AppTheme.Layout.browseTabIndicatorHeight)
-                    .background(accent, RoundedCornerShape(topStart = AppTheme.Layout.browseTabIndicatorHeight, topEnd = AppTheme.Layout.browseTabIndicatorHeight)),
-            )
+        if (onSelectLibrary != null && libraryItems.size > 1) {
+            AbstandDropdownPill(libraryItems, librarySelectionId, onSelectLibrary, Modifier.weight(1f), SF.booksVerticalFill, "Library")
+            AbstandDropdownPill(items, selectionId, select, Modifier.weight(1f), SF.squareGrid2x2, sectionAccessibilityLabel)
+        } else {
+            AbstandDropdownPill(items, selectionId, select, Modifier.weight(1f), SF.squareGrid2x2, sectionAccessibilityLabel)
         }
     }
 }
 
 /**
- * iOS: `AbstandExpandingDockBrowseStrip`. Android: [AbstandBrowseTabs]; [pinnedLeadingItem]
- * (Podcast „New“) wird zum ersten Tab.
+ * iOS: `AbstandExpandingDockBrowseStrip`. Android: [AbstandBrowsePills]; [pinnedLeadingItem]
+ * (Podcast „New“) steht als erster Eintrag im Menü.
  */
 @Composable
 fun AbstandExpandingDockBrowseStrip(
@@ -212,12 +99,11 @@ fun AbstandExpandingDockBrowseStrip(
     pinnedLeadingItem: AbstandBrowseStripItem? = null,
 ) {
     val ordered = if (pinnedLeadingItem == null) items else listOf(pinnedLeadingItem) + items.filter { it.id != pinnedLeadingItem.id }
-    AbstandBrowseTabs(ordered, selectionId, onSelect, modifier, pinFirst = pinnedLeadingItem != null)
+    AbstandBrowsePills(ordered, selectionId, onSelect, modifier)
 }
 
 /**
- * iOS: `AbstandPinnedBrowseStrip` — Android: [AbstandBrowseTabs]; bei mehreren Bibliotheken steht
- * ein kompakter Bibliotheks-Picker links vor den Tabs.
+ * iOS: `AbstandPinnedBrowseStrip` — zwei Dropdown-Pills (Bibliothek | Bereich), siehe [AbstandBrowsePills].
  */
 @Composable
 fun AbstandPinnedBrowseStrip(
@@ -229,22 +115,20 @@ fun AbstandPinnedBrowseStrip(
     libraryPickerSelectionId: String = "",
     onSelectLibrary: ((String) -> Unit)? = null,
     pinnedLeadingItem: AbstandBrowseStripItem? = null,
-    @Suppress("UNUSED_PARAMETER") secondaryAccessibilityLabel: String = "Browse",
+    secondaryAccessibilityLabel: String = "Browse",
 ) {
     val ordered = if (pinnedLeadingItem == null) secondaryItems
     else listOf(pinnedLeadingItem) + secondaryItems.filter { it.id != pinnedLeadingItem.id }
-    // Mehrere Bibliotheken: kompakter Bibliotheks-Picker links vor den Tabs (iOS: 50/50-Pills).
-    val leading: (@Composable () -> Unit)? = if (onSelectLibrary != null && libraryPickerItems.size > 1) {
-        {
-            AbstandDropdownPill(
-                libraryPickerItems, libraryPickerSelectionId, onSelectLibrary,
-                Modifier.widthIn(max = AppTheme.Layout.browseLibraryPickerMaxWidth), SF.booksVerticalFill, "Library",
-            )
-        }
-    } else {
-        null
-    }
-    AbstandBrowseTabs(ordered, secondarySelectionId, onSelectSecondary, modifier, leading, pinFirst = pinnedLeadingItem != null)
+    AbstandBrowsePills(
+        items = ordered,
+        selectionId = secondarySelectionId,
+        onSelect = onSelectSecondary,
+        modifier = modifier,
+        libraryItems = libraryPickerItems,
+        librarySelectionId = libraryPickerSelectionId,
+        onSelectLibrary = onSelectLibrary,
+        sectionAccessibilityLabel = secondaryAccessibilityLabel,
+    )
 }
 
 /**
