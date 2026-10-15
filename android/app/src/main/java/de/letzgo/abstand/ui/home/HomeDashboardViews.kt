@@ -1,12 +1,10 @@
 package de.letzgo.abstand.ui.home
 
-import de.letzgo.abstand.ui.components.AbstandBrowseStripItem
-import de.letzgo.abstand.ui.components.AbstandBrowsePills
-import kotlinx.coroutines.launch
+import de.letzgo.abstand.ui.components.AbstandStaticPill
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -61,8 +59,8 @@ import de.letzgo.abstand.ui.components.AbstandIconButton
 /**
  * iOS: `HomeTabRootView` + `StartDashboardView` — Offline-Schalter in der Toolbar, darunter alle
  * eingeschalteten Regale (Continue listening als Hero-Karten, alle anderen als Kompaktkarten),
- * Pull-to-Refresh. Android: Kopfzeile wie Books/Podcasts — Bereichs-Pill ([AbstandBrowsePills])
- * zeigt das aktuelle Regal und springt per Menü zu jedem Regal (iOS: `showsStrip: false`).
+ * Pull-to-Refresh. Android: Kopfzeile wie Books/Podcasts — statische Pill ([AbstandStaticPill],
+ * ohne Dropdown) zeigt das Regal oben in der Liste (iOS: `showsStrip: false`).
  */
 @Composable
 fun HomeTabRoot(model: AppModel = AppModel.shared) {
@@ -100,7 +98,6 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
         HomeShelfLogic.shelvesForHomeBrowseSection(continueId, categoryList, shelves, disabled)
             .filter(HomeShelfLogic::shelfHasVisibleContent)
     val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
     // Pill zeigt das Regal oben in der Liste; am Listenende das letzte sichtbare.
     val currentShelfKey by remember(visibleShelves) {
         derivedStateOf {
@@ -117,15 +114,11 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
         selection = continueId,
         showsStrip = true,
         strip = {
-            AbstandBrowsePills(
-                items = visibleShelves.map { AbstandBrowseStripItem(homeShelfKey(it), it.displayTitle, SF.squareGrid2x2) },
-                selectionId = currentShelfKey,
-                onSelect = { key ->
-                    val index = visibleShelves.indexOfFirst { homeShelfKey(it) == key }
-                    if (index >= 0) scope.launch { listState.animateScrollToItem(index) }
-                },
-                sectionAccessibilityLabel = "Shelves",
-            )
+            // Kein Dropdown: statische Pill im Stil der Bereichs-Pills mit dem Regal, das gerade oben steht.
+            val currentTitle = visibleShelves.firstOrNull { homeShelfKey(it) == currentShelfKey }?.displayTitle ?: MainTab.start.label
+            Box(Modifier.padding(start = AppTheme.Layout.tabPaddingH, top = AppTheme.ExpandingDock.verticalPadding, bottom = AppTheme.ExpandingDock.verticalPadding)) {
+                AbstandStaticPill(currentTitle, SF.houseFill)
+            }
         },
         listState = listState,
         fullBleed = true,

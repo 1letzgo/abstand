@@ -75,14 +75,7 @@ private val ColorPreviewSize = 56.dp
 @Composable
 fun ServerAdminSection(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing)) {
-        // M3-Listen-Subheader: titleSmall in primary.
-        Text(
-            title,
-            style = AppType.titleSmall,
-            color = Theme.accent,
-            modifier = Modifier.fillMaxWidth().padding(top = AppTheme.Layout.stackSpacing, start = AppTheme.Layout.settingsCardInsetHPadding)
-                .semantics { heading() },
-        )
+        AbstandSectionHeader(title)
         content()
     }
 }

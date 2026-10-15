@@ -330,3 +330,47 @@ private fun CompactIconTab(item: AbstandBrowseStripItem, isSelected: Boolean, on
         }
     }
 }
+
+/**
+ * iOS: `AbstandExpandingDockBrowseStrip` / `SettingsIconStrip` — Bereichs-Buttons im Pill-Stil:
+ * der aktive Bereich als Akzent-Kapsel mit Symbol + Label, alle anderen als runde Symbol-Buttons
+ * (gleiche Höhe). Horizontal scrollbar, der aktive Bereich wird ins Bild gescrollt.
+ */
+@Composable
+fun AbstandDockButtons(
+    items: List<AbstandBrowseStripItem>,
+    selectionId: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (items.isEmpty()) return
+    val haptics = LocalHapticFeedback.current
+    val dock = AppTheme.ExpandingDock
+    val state = rememberLazyListState()
+    val selectedIndex = items.indexOfFirst { it.id == selectionId }
+    LaunchedEffect(selectedIndex) { if (selectedIndex >= 0) state.animateScrollToItem((selectedIndex - 1).coerceAtLeast(0)) }
+    LazyRow(
+        modifier.fillMaxWidth(),
+        state = state,
+        contentPadding = PaddingValues(start = AppTheme.Layout.tabPaddingH, end = AppTheme.Layout.stackSpacing, top = dock.verticalPadding, bottom = dock.verticalPadding),
+        horizontalArrangement = Arrangement.spacedBy(dock.itemSpacing),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        items(items.size, key = { items[it].id }) { i ->
+            val item = items[i]
+            if (item.id == selectionId) {
+                AbstandDockChip(item.label, item.icon, selected = true, onClick = {}, checkmarkWhenSelected = false)
+            } else {
+                AbstandIconButton(
+                    item.icon, item.label,
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onSelect(item.id)
+                    },
+                    style = AbstandIconButtonStyle.Tonal,
+                    size = dock.activeHeight,
+                )
+            }
+        }
+    }
+}

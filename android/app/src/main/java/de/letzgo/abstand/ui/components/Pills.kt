@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
@@ -250,6 +251,8 @@ fun AbstandDockChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     coverItemId: String? = null,
+    /** Aktiver Chip: Häkchen statt Symbol (Filter-Chip-Stil); `false` = Symbol bleibt (Dock-Buttons). */
+    checkmarkWhenSelected: Boolean = true,
 ) {
     val dock = AppTheme.ExpandingDock
     val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
@@ -279,7 +282,7 @@ fun AbstandDockChip(
                 coverItemId != null -> Box(Modifier.size(dock.activeCoverSize).clip(CircleShape)) {
                     CoverImage(itemId = coverItemId, modifier = Modifier.fillMaxSize())
                 }
-                selected -> Icon(SF.checkmark, contentDescription = null, modifier = Modifier.size(dock.iconSize))
+                selected && checkmarkWhenSelected -> Icon(SF.checkmark, contentDescription = null, modifier = Modifier.size(dock.iconSize))
                 else -> Icon(icon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
             }
             Text(label, style = AppType.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -337,6 +340,31 @@ fun AbstandDropdownPill(
             items.forEach { entry ->
                 item(entry.label, onClick = { if (entry.id != selectionId) onSelect(entry.id) }, icon = entry.icon, selected = entry.id == selectionId)
             }
+        }
+    }
+}
+
+/**
+ * Statische Akzent-Pill im Stil der Dropdown-Pills (Symbol + Label, ohne Chevron und Menü) —
+ * Kopfzeile von Screens ohne Bereichsauswahl (Home).
+ */
+@Composable
+fun AbstandStaticPill(label: String, icon: ImageVector, modifier: Modifier = Modifier) {
+    val dock = AppTheme.ExpandingDock
+    val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
+    Surface(
+        shape = RoundedCornerShape(percent = 50),
+        color = colors.activeBackground,
+        contentColor = colors.activeForeground,
+        modifier = modifier.height(dock.activeHeight).semantics(mergeDescendants = true) { heading() },
+    ) {
+        Row(
+            Modifier.padding(start = dock.activeLeadingPadding, end = dock.activeTrailingPadding),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(dock.iconLabelSpacing),
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
+            Text(label, style = AppType.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

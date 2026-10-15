@@ -32,11 +32,24 @@ import de.letzgo.abstand.ui.Theme
  */
 @Composable
 fun TabContentSectionTitle(title: String, modifier: Modifier = Modifier) {
+    AbstandSectionHeader(title, modifier)
+}
+
+/**
+ * Die eine Abschnittsüberschrift der App (M3-Listen-Subheader: `titleSmall` in Akzentfarbe, an der
+ * Karteninnenkante eingerückt). Genutzt von [TabContentSectionTitle] (Home-Regale, Stats, Bereiche)
+ * und `ServerAdminSection` (Settings) — alle Ansichten haben so dieselben Überschriften.
+ */
+@Composable
+fun AbstandSectionHeader(title: String, modifier: Modifier = Modifier) {
     Text(
         title,
-        style = AppType.titleLarge,
-        color = Theme.palette.textPrimary,
-        modifier = modifier.fillMaxWidth().semantics { heading() },
+        style = AppType.titleSmall,
+        color = Theme.accent,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = AppTheme.Layout.stackSpacing, start = AppTheme.Layout.settingsCardInsetHPadding)
+            .semantics { heading() },
     )
 }
 

@@ -81,8 +81,14 @@ enum class StatsCategory(val title: String, val icon: androidx.compose.ui.graphi
  * Sessions als Karten. Für den Stats-Bereich im Settings-Hub (Daten lädt der Hub).
  */
 fun LazyListScope.statsHubSections() {
-    item(key = "stats/banner") { StatsOfflineBannerIfNeeded() }
-    item(key = "stats/level") { StatsLevelSection() }
+    // Banner im selben Eintrag wie „Level“: ein leerer eigener Eintrag würde online einen
+    // zusätzlichen Listenabstand erzeugen (Überschrift tiefer als in den anderen Bereichen).
+    item(key = "stats/level") {
+        Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.sectionSpacing)) {
+            StatsOfflineBannerIfNeeded()
+            StatsLevelSection()
+        }
+    }
     item(key = "stats/timeline") { StatsTimelineSection() }
     StatsCategory.entries.forEach { category ->
         item(key = "stats/${category.name}") {
