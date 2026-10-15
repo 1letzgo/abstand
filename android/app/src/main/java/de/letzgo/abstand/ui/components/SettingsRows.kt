@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,14 +40,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.bold
@@ -61,12 +61,12 @@ import de.letzgo.abstand.ui.semibold
 private val InputFieldMaxWidth = 180.dp
 /** iOS: `.opacity(isEnabled ? 1 : 0.45)` deaktivierter Zeilen. */
 private const val DisabledRowOpacity = 0.45f
-/** Symbolgröße in Settings-Zeilen (iOS: SF-Symbol in `.body.weight(.semibold)`). */
-private val RowIconSize = 22.dp
-/** Kleines Trailing-Symbol (Chevron, Statussymbol). */
-private val TrailingIconSize = 18.dp
+/** Symbolgröße in Settings-Zeilen (M3-Listen-Leading-Icon: 24 dp). */
+private val RowIconSize = AppTheme.Layout.iconSize
+/** Trailing-Symbol (Chevron, Statussymbol; M3: 24 dp). */
+private val TrailingIconSize = AppTheme.Layout.iconSize
 /** Farbfeld im Farbwähler. */
-private val ColorSwatchSize = 28.dp
+private val ColorSwatchSize = 32.dp
 private val ColorPreviewSize = 56.dp
 
 /**
@@ -94,20 +94,27 @@ fun SettingsCardIcon(icon: ImageVector, tint: Color? = null) {
 fun SettingsCardDivider(modifier: Modifier = Modifier) {
     HorizontalDivider(
         modifier.padding(vertical = AppTheme.Layout.settingsCardDividerSpacing),
-        thickness = AppTheme.Layout.hairlineStrokeWidth,
+        thickness = AppTheme.Layout.hairlineWidth,
         color = Theme.palette.textSecondary.copy(alpha = 0.25f),
     )
 }
 
-/** Gemeinsame Zeilenhülle: Icon-Spalte + Inhalt, `rowSpacing`, Mindesthöhe `listRowMinHeight`. */
+/**
+ * Gemeinsame Zeilenhülle = M3-Listenzeile: Icon-Spalte + Inhalt, 16 dp Abstand, 8 dp oben/unten,
+ * Mindesthöhe 56 dp (einzeilig) bzw. 72 dp ([twoLine], mit Untertitel).
+ */
 @Composable
 private fun SettingsRow(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    twoLine: Boolean = false,
     content: @Composable RowScope.() -> Unit,
 ) {
     Row(
-        modifier.abstandCardListRowFrame().alpha(if (enabled) 1f else DisabledRowOpacity),
+        modifier.abstandCardListRowFrame()
+            .heightIn(min = if (twoLine) AppTheme.Layout.listItemTwoLineHeight else AppTheme.Layout.listItemOneLineHeight)
+            .padding(vertical = AppTheme.Layout.rowVerticalPadding)
+            .alpha(if (enabled) 1f else DisabledRowOpacity),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
         content = content,
@@ -118,10 +125,10 @@ private fun SettingsRow(
 @Composable
 private fun RowTitles(title: String, subtitle: String?, titleColor: Color, titleMedium: Boolean, modifier: Modifier, subtitleMaxLines: Int = Int.MAX_VALUE) {
     val palette = Theme.palette
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(if (subtitle == null) 0.dp else AppTheme.Layout.tightSpacing)) {
-        Text(title, style = if (titleMedium) IosType.body.medium else IosType.body, color = titleColor)
+    Column(modifier) {
+        Text(title, style = if (titleMedium) AppType.bodyLarge.medium else AppType.bodyLarge, color = titleColor)
         if (subtitle != null) {
-            Text(subtitle, style = IosType.caption, color = palette.textSecondary, maxLines = subtitleMaxLines, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = AppType.bodyMedium, color = palette.textSecondary, maxLines = subtitleMaxLines, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -129,7 +136,7 @@ private fun RowTitles(title: String, subtitle: String?, titleColor: Color, title
 /** iOS: `ServerAdminNavRow` — Navigationszeile (Symbol, Titel/Untertitel, Chevron) zu einer Unterseite. */
 @Composable
 fun SettingsCardNavRow(icon: ImageVector, title: String, onClick: () -> Unit, subtitle: String? = null) {
-    SettingsRow(Modifier.clickable(onClick = onClick)) {
+    SettingsRow(Modifier.clickable(onClick = onClick), twoLine = subtitle != null) {
         SettingsCardIcon(icon)
         RowTitles(title, subtitle, Theme.palette.textPrimary, titleMedium = true, modifier = Modifier.weight(1f))
         Icon(SF.chevronRight, contentDescription = null, tint = Theme.palette.textSecondary, modifier = Modifier.size(TrailingIconSize))
@@ -149,6 +156,7 @@ fun SettingsCardToggleRow(
     SettingsRow(
         Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange),
         enabled = enabled,
+        twoLine = subtitle != null,
     ) {
         SettingsCardIcon(icon)
         RowTitles(title, subtitle, Theme.palette.textPrimary, titleMedium = false, modifier = Modifier.weight(1f))
@@ -184,7 +192,7 @@ fun <T> SettingsCardPickerRow(
     var expanded by remember { mutableStateOf(false) }
     SettingsRow(Modifier.clickable(enabled = enabled) { expanded = true }, enabled = enabled) {
         SettingsCardIcon(icon)
-        Text(title, style = IosType.body, color = Theme.palette.textPrimary, modifier = Modifier.weight(1f))
+        Text(title, style = AppType.bodyLarge, color = Theme.palette.textPrimary, modifier = Modifier.weight(1f))
         AbstandPickerValueMenu(selection, options, label, onSelect, expanded) { expanded = it }
     }
 }
@@ -205,12 +213,12 @@ fun <T> SettingsCardSegmentedRow(
 ) {
     val palette = Theme.palette
     Column(
-        Modifier.abstandCardListRowFrame().padding(vertical = AppTheme.Layout.compactSpacing),
-        verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing),
+        Modifier.abstandCardListRowFrame().padding(vertical = AppTheme.Layout.rowVerticalPadding),
+        verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing)) {
             SettingsCardIcon(icon)
-            Text(title, style = IosType.body, color = palette.textPrimary)
+            Text(title, style = AppType.bodyLarge, color = palette.textPrimary)
         }
         AbstandSegmentedControl(options, selection, label, onSelect)
     }
@@ -232,7 +240,7 @@ fun SettingsCardColorPickerRow(
     var open by remember { mutableStateOf(false) }
     SettingsRow(Modifier.clickable { open = true }) {
         SettingsCardIcon(icon)
-        Text(title, style = IosType.body, color = Theme.palette.textPrimary, modifier = Modifier.weight(1f))
+        Text(title, style = AppType.bodyLarge, color = Theme.palette.textPrimary, modifier = Modifier.weight(1f))
         Box(
             Modifier.size(ColorSwatchSize).background(color, CircleShape)
                 .border(AppTheme.Layout.hairlineWidth, Theme.palette.textSecondary.copy(alpha = 0.4f), CircleShape),
@@ -270,12 +278,12 @@ private fun AbstandColorDialog(title: String, initial: Color, onDismiss: () -> U
 @Composable
 private fun ChannelSlider(label: String, value: Float, onChange: (Float) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing)) {
-        Text(label, style = IosType.footnote, color = Theme.palette.textSecondary, modifier = Modifier.width(AppTheme.Layout.metaValueColumnMinWidth / 2))
+        Text(label, style = AppType.bodySmall, color = Theme.palette.textSecondary, modifier = Modifier.width(AppTheme.Layout.metaValueColumnMinWidth / 2))
         Slider(
             value = value, onValueChange = onChange, modifier = Modifier.weight(1f),
             colors = SliderDefaults.colors(thumbColor = Theme.accent, activeTrackColor = Theme.accent),
         )
-        Text("${(value * 255).toInt()}", style = IosType.footnote, color = Theme.palette.textSecondary, textAlign = TextAlign.End,
+        Text("${(value * 255).toInt()}", style = AppType.bodySmall, color = Theme.palette.textSecondary, textAlign = TextAlign.End,
             modifier = Modifier.width(AppTheme.Layout.compactIconButtonSize))
     }
 }
@@ -292,14 +300,14 @@ fun SettingsCardSecureFieldRow(
     val palette = Theme.palette
     SettingsRow {
         SettingsCardIcon(icon)
-        Text(title, style = IosType.body, color = palette.textPrimary, modifier = Modifier.weight(1f))
+        Text(title, style = AppType.bodyLarge, color = palette.textPrimary, modifier = Modifier.weight(1f))
         Box(Modifier.widthIn(max = InputFieldMaxWidth), contentAlignment = Alignment.CenterEnd) {
-            if (value.isEmpty()) Text(placeholder, style = IosType.body, color = palette.textSecondary.copy(alpha = 0.55f))
+            if (value.isEmpty()) Text(placeholder, style = AppType.bodyLarge, color = palette.textSecondary.copy(alpha = 0.55f))
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = true,
-                textStyle = IosType.body.copy(color = palette.textPrimary, textAlign = TextAlign.End),
+                textStyle = AppType.bodyLarge.copy(color = palette.textPrimary, textAlign = TextAlign.End),
                 cursorBrush = SolidColor(Theme.accent),
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
@@ -326,9 +334,9 @@ fun SettingsCardStepperRow(
     val palette = Theme.palette
     SettingsRow {
         SettingsCardIcon(icon)
-        Text(title, style = IosType.body, color = palette.textPrimary, modifier = Modifier.weight(1f))
+        Text(title, style = AppType.bodyLarge, color = palette.textPrimary, modifier = Modifier.weight(1f))
         Text(
-            valueLabel, style = IosType.subheadline.copy(fontFeatureSettings = "tnum"), color = palette.textSecondary,
+            valueLabel, style = AppType.bodyMedium.copy(fontFeatureSettings = "tnum"), color = palette.textSecondary,
             textAlign = TextAlign.End, modifier = Modifier.widthIn(min = AppTheme.Layout.metaValueColumnMinWidth),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
@@ -360,7 +368,7 @@ fun SettingsCardActionRow(
     isBusy: Boolean = false,
 ) {
     val palette = Theme.palette
-    SettingsRow(Modifier.clickable(enabled = enabled && !isBusy, onClick = onClick), enabled = enabled) {
+    SettingsRow(Modifier.clickable(enabled = enabled && !isBusy, onClick = onClick), enabled = enabled, twoLine = subtitle != null) {
         SettingsCardIcon(icon, tint)
         RowTitles(title, subtitle, tint ?: palette.textPrimary, titleMedium = true, modifier = Modifier.weight(1f))
         if (isBusy) {
@@ -381,7 +389,7 @@ fun SettingsCardInfoRow(
     trailingTint: Color? = null,
 ) {
     val palette = Theme.palette
-    SettingsRow {
+    SettingsRow(twoLine = subtitle != null) {
         SettingsCardIcon(icon)
         RowTitles(title, subtitle, palette.textPrimary, titleMedium = true, modifier = Modifier.weight(1f), subtitleMaxLines = 2)
         if (trailingIcon != null) {
@@ -396,7 +404,7 @@ fun SettingsMetricCard(icon: ImageVector, title: String, value: String, modifier
     val palette = Theme.palette
     AbstandGroupedCard(modifier) {
         Row(
-            Modifier.abstandCardListRowFrame(),
+            Modifier.abstandCardListRowFrame().padding(vertical = AppTheme.Layout.rowVerticalPadding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
         ) {
@@ -404,8 +412,8 @@ fun SettingsMetricCard(icon: ImageVector, title: String, value: String, modifier
                 Icon(icon, contentDescription = null, tint = tint ?: Theme.accent)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-                Text(title, style = IosType.caption.semibold, color = palette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(value.ifEmpty { "—" }, style = IosType.headline.bold, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, style = AppType.labelMedium, color = palette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(value.ifEmpty { "—" }, style = AppType.titleMedium.bold, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -421,8 +429,8 @@ fun ServerAdminMetricTile(value: String, label: String, modifier: Modifier = Mod
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing),
         ) {
-            Text(value.ifEmpty { "—" }, style = IosType.title2.copy(fontWeight = FontWeight.Bold), color = valueColor ?: palette.textPrimary, maxLines = 1)
-            Text(label, style = IosType.caption, color = palette.textSecondary, textAlign = TextAlign.Center, maxLines = 2)
+            Text(value.ifEmpty { "—" }, style = AppType.titleLarge.bold, color = valueColor ?: palette.textPrimary, maxLines = 1)
+            Text(label, style = AppType.bodySmall, color = palette.textSecondary, textAlign = TextAlign.Center, maxLines = 2)
         }
     }
 }

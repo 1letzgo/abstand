@@ -71,7 +71,9 @@ fun AbstandExpandingDockBrowseStrip(
         }
     }
     val dock = AppTheme.ExpandingDock
-    val leading = if (appliesLeadingPadding) dock.horizontalPadding else 0.dp
+    // M3-Rand wie der Inhalt darunter (16 dp Compact, 24 dp ab Medium).
+    val margin = AppTheme.Layout.tabPaddingH
+    val leading = if (appliesLeadingPadding) margin else 0.dp
     if (pinnedLeadingItem != null) {
         val background = Theme.palette.background
         val scrolling = items.filter { it.id != pinnedLeadingItem.id }
@@ -82,7 +84,7 @@ fun AbstandExpandingDockBrowseStrip(
             Box(Modifier.weight(1f)) {
                 LazyRow(
                     contentPadding = PaddingValues(
-                        start = dock.pinnedChipFadeWidth, end = dock.horizontalPadding,
+                        start = dock.pinnedChipFadeWidth, end = margin,
                         top = dock.verticalPadding, bottom = dock.verticalPadding,
                     ),
                     horizontalArrangement = Arrangement.spacedBy(dock.itemSpacing),
@@ -105,7 +107,7 @@ fun AbstandExpandingDockBrowseStrip(
     val centered = items.size < dock.centerWhenFewThreshold
     LazyRow(
         modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(start = leading, end = dock.horizontalPadding, top = dock.verticalPadding, bottom = dock.verticalPadding),
+        contentPadding = PaddingValues(start = leading, end = margin, top = dock.verticalPadding, bottom = dock.verticalPadding),
         horizontalArrangement = if (centered) {
             Arrangement.spacedBy(dock.itemSpacing, Alignment.CenterHorizontally)
         } else {

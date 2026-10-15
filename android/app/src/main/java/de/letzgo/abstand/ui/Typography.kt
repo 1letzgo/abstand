@@ -3,50 +3,64 @@ package de.letzgo.abstand.ui
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 
 /**
- * iOS: Dynamic-Type-Stile (`Font.largeTitle` … `.caption2`) in der Standardgröße „Large“
- * (pt → sp, Zeilenhöhe wie iOS). Views nutzen diese Namen, damit Port und Original dieselbe
- * Rolle tragen: `Font.title3.bold()` → `IosType.title3.bold`. Systemskalierung läuft über sp.
+ * Typografie der App = **Material-3-Typeskala** (Roboto/Systemschrift, Größen und Zeilenhöhen
+ * aus `Typography()`), dieselben Stile wie `MaterialTheme.typography`. Views lesen nur von hier
+ * (statisch, auch außerhalb von Composables nutzbar) — keine `fontSize = …`-Literale
+ * (`UiTemplateLintTest`).
+ *
+ * Abbildung der iOS-Dynamic-Type-Rollen (Swift → Kotlin), damit Port und Original vergleichbar
+ * bleiben:
+ *
+ * | iOS (pt)              | Android M3 (sp)                     |
+ * |-----------------------|-------------------------------------|
+ * | `.largeTitle` 34      | [headlineMedium] 28/36              |
+ * | `.title` 28           | [headlineSmall] 24/32               |
+ * | `.title2` 22          | [titleLarge] 22/28                  |
+ * | `.title3` 20          | [titleLarge] 22/28                  |
+ * | `.headline` 17 sb     | [titleMedium] 16/24 medium          |
+ * | `.body` 17            | [bodyLarge] 16/24                   |
+ * | `.callout` 16         | [bodyLarge] 16/24                   |
+ * | `.subheadline` 15     | [bodyMedium] 14/20                  |
+ * | `.footnote` 13        | [bodySmall] 12/16                   |
+ * | `.caption` 12         | [bodySmall] 12/16                   |
+ * | `.caption2` 11        | [labelSmall] 11/16 medium           |
+ *
+ * Gewichte wie iOS über [bold]/[semibold]/[medium] (`Font.title3.bold()` → `AppType.titleLarge.bold`).
+ * Systemskalierung läuft über sp.
  */
-object IosType {
-    val largeTitle = TextStyle(fontSize = 34.sp, lineHeight = 41.sp)
-    val title = TextStyle(fontSize = 28.sp, lineHeight = 34.sp)
-    val title2 = TextStyle(fontSize = 22.sp, lineHeight = 28.sp)
-    val title3 = TextStyle(fontSize = 20.sp, lineHeight = 25.sp)
-    /** iOS: `.headline` (17 pt semibold). */
-    val headline = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
-    val body = TextStyle(fontSize = 17.sp, lineHeight = 22.sp)
-    val callout = TextStyle(fontSize = 16.sp, lineHeight = 21.sp)
-    val subheadline = TextStyle(fontSize = 15.sp, lineHeight = 20.sp)
-    val footnote = TextStyle(fontSize = 13.sp, lineHeight = 18.sp)
-    val caption = TextStyle(fontSize = 12.sp, lineHeight = 16.sp)
-    val caption2 = TextStyle(fontSize = 11.sp, lineHeight = 13.sp)
+object AppType {
+    /** `MaterialTheme.typography` (M3-Standard, unverändert). */
+    val material: Typography = Typography()
 
-    /**
-     * Material-Typografie aus den iOS-Größen, damit auch Material-Komponenten (TopAppBar,
-     * NavigationBar, Buttons, Dialoge) die iOS-Maße tragen.
-     */
-    val material: Typography = Typography().let { m ->
-        Typography(
-            displayLarge = m.displayLarge,
-            displayMedium = m.displayMedium,
-            displaySmall = m.displaySmall,
-            headlineLarge = largeTitle.bold,
-            headlineMedium = title.bold,
-            headlineSmall = title2.bold,
-            titleLarge = title3.semibold,
-            titleMedium = headline,
-            titleSmall = subheadline.semibold,
-            bodyLarge = body,
-            bodyMedium = subheadline,
-            bodySmall = footnote,
-            labelLarge = subheadline.medium,
-            labelMedium = caption.medium,
-            labelSmall = caption2.medium,
-        )
-    }
+    val displayLarge: TextStyle get() = material.displayLarge
+    val displayMedium: TextStyle get() = material.displayMedium
+    val displaySmall: TextStyle get() = material.displaySmall
+    /** iOS: — (größer als `.largeTitle`). */
+    val headlineLarge: TextStyle get() = material.headlineLarge
+    /** iOS: `.largeTitle`. */
+    val headlineMedium: TextStyle get() = material.headlineMedium
+    /** iOS: `.title`. */
+    val headlineSmall: TextStyle get() = material.headlineSmall
+    /** iOS: `.title2` / `.title3` — Sektionstitel, Top-App-Bar-Titel. */
+    val titleLarge: TextStyle get() = material.titleLarge
+    /** iOS: `.headline` — Karten-/Zeilentitel. */
+    val titleMedium: TextStyle get() = material.titleMedium
+    /** iOS: `.subheadline.weight(.semibold)` als Label (Chips, kompakte Titel). */
+    val titleSmall: TextStyle get() = material.titleSmall
+    /** iOS: `.body` / `.callout`. */
+    val bodyLarge: TextStyle get() = material.bodyLarge
+    /** iOS: `.subheadline` — Untertitel/Supporting Text in Listen. */
+    val bodyMedium: TextStyle get() = material.bodyMedium
+    /** iOS: `.footnote` / `.caption`. */
+    val bodySmall: TextStyle get() = material.bodySmall
+    /** Buttons, Tabs, Menü-Labels (M3 label large). */
+    val labelLarge: TextStyle get() = material.labelLarge
+    /** Kleine Labels, Badges (M3 label medium). */
+    val labelMedium: TextStyle get() = material.labelMedium
+    /** iOS: `.caption2`. */
+    val labelSmall: TextStyle get() = material.labelSmall
 }
 
 /** iOS: `.bold()`. */

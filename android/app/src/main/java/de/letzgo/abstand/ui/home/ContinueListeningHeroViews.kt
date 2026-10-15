@@ -44,7 +44,7 @@ import de.letzgo.abstand.data.AbsUserMediaProgress
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.NowPlayingState
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.LocalAbstandCardShadowEnabled
 import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.SF
@@ -164,7 +164,7 @@ fun ContinueListeningHeroMetadataBlock(
     ) {
         Text(
             title,
-            style = IosType.headline.semibold,
+            style = AppType.titleMedium.semibold,
             color = readable?.first ?: palette.textPrimary,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -195,8 +195,6 @@ fun ContinueHeroPlayPill(itemId: String, episodeId: String?, caption: String, is
         isPlaying = nowPlaying.isPlaying(itemId, episodeId),
         onClick = { continueHeroPlayPillToggle(nowPlaying, itemId, episodeId, isFinished) },
         caption = caption,
-        captionStyle = IosType.caption.semibold,
-        horizontalPadding = AppTheme.Layout.rowSpacing,
     )
 }
 

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,7 +45,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.medium
@@ -56,12 +57,12 @@ import de.letzgo.abstand.ui.library.LibraryRowLayout
 /** iOS: `ContinueListeningHeroCoverPillMetrics` + `LibraryCoverCornerBadge`. */
 object AbstandCoverPillMetrics {
     /** Abstand der Pille zum Cover-Rand. */
-    val inset = 8.dp
+    val inset = AppTheme.Layout.inlineSpacing
     val iconSize = 12.dp
     /** Fortschrittsring eines laufenden Downloads. */
-    val spinnerSize = 13.dp
+    val spinnerSize = 12.dp
     /** Symbol im runden Eck-Badge ([AbstandCoverCornerBadge]). */
-    val cornerBadgeIconSize = 11.dp
+    val cornerBadgeIconSize = 12.dp
 }
 
 /** iOS: `ContinueListeningHeroCoverPill` — dunkle Kapsel auf Covern (Typ, Download, Anzahl). */
@@ -71,7 +72,7 @@ fun AbstandCoverPill(modifier: Modifier = Modifier, content: @Composable () -> U
         modifier
             .padding(AbstandCoverPillMetrics.inset)
             .background(Theme.palette.coverPlayBadgeBackground, CircleShape)
-            .padding(horizontal = AppTheme.Layout.compactSpacing, vertical = AppTheme.Layout.pillVerticalPadding),
+            .padding(horizontal = AppTheme.Layout.inlineSpacing, vertical = AppTheme.Layout.pillVerticalPadding),
         contentAlignment = Alignment.Center,
     ) { content() }
 }
@@ -88,7 +89,7 @@ fun AbstandCoverPillIcon(icon: ImageVector, contentDescription: String?, modifie
 @Composable
 fun AbstandCoverPillText(text: String, modifier: Modifier = Modifier) {
     AbstandCoverPill(modifier) {
-        Text(text, style = IosType.caption2.semibold, color = AppTheme.coverOverlayForeground, maxLines = 1)
+        Text(text, style = AppType.labelSmall.semibold, color = AppTheme.coverOverlayForeground, maxLines = 1)
     }
 }
 
@@ -123,8 +124,8 @@ fun AbstandCoverDownloadBadge(isDownloaded: Boolean, isDownloading: Boolean, dow
     }
 }
 
-/** Symbolgröße der Status-Badges (iOS: `.font(.caption)` ≈ 14 pt). */
-private val StatusBadgeIconSize = 14.dp
+/** Symbolgröße der Status-Badges (iOS: `.font(.caption)` ≈ 14 pt; M3-Raster 16 dp). */
+private val StatusBadgeIconSize = 16.dp
 /** iOS: `LibraryRowLayout.finishedContentOpacity` — „fertig“ zurückgenommen. */
 private const val FinishedBadgeOpacity = 0.35f
 
@@ -181,18 +182,19 @@ fun AbstandBadge(
     Row(
         modifier
             .background(container, CircleShape)
-            .padding(horizontal = AppTheme.Layout.inlineSpacing, vertical = AppTheme.Layout.badgeSpacing),
+            .padding(horizontal = AppTheme.Layout.inlineSpacing, vertical = AppTheme.Layout.tightSpacing),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing),
     ) {
         if (icon != null) Icon(icon, contentDescription = null, tint = foreground, modifier = Modifier.size(AbstandCoverPillMetrics.iconSize))
-        Text(text, style = IosType.caption2.medium, color = foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(text, style = AppType.labelSmall.medium, color = foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 /**
- * Text-Chip in Kapselform für Filter- und Kategorie-Leisten (iOS: Dock-Farben — aktiv Akzent,
- * inaktiv `palette.card`). Mindesthöhe `minTapTarget`.
+ * Filter-/Kategorie-Chip (iOS: Dock-Farben — aktiv Akzent, inaktiv `palette.card`). M3 Filter
+ * Chip: 32 dp hoch, 8-dp-Ecken, 16 dp seitlich (8 dp mit Symbol), 18-dp-Symbole, `labelLarge`;
+ * Trefferfläche 48 dp.
  */
 @Composable
 fun AbstandChip(
@@ -208,22 +210,27 @@ fun AbstandChip(
     val foreground = if (selected) colors.activeForeground else colors.inactiveForeground
     Row(
         modifier
-            .heightIn(min = AppTheme.Layout.minTapTarget)
-            .clip(CircleShape)
+            .minimumInteractiveComponentSize()
+            .height(AppTheme.Layout.chipHeight)
+            .clip(AbstandChipShape)
             .background(if (selected) colors.activeBackground else colors.inactiveBackground)
             .clickable(enabled = enabled, role = Role.Tab, onClick = onClick)
             .semantics { this.selected = selected }
-            .padding(horizontal = AppTheme.ExpandingDock.horizontalPadding),
+            .padding(
+                start = if (icon != null) AppTheme.Layout.inlineSpacing else AppTheme.Layout.screenPadding,
+                end = if (trailingIcon != null) AppTheme.Layout.inlineSpacing else AppTheme.Layout.screenPadding,
+            ),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing),
+        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing),
     ) {
         if (icon != null) Icon(icon, contentDescription = null, tint = foreground, modifier = Modifier.size(AbstandChipIconSize))
-        Text(label, style = IosType.subheadline.semibold, color = foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, style = AppType.labelLarge, color = foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (trailingIcon != null) Icon(trailingIcon, contentDescription = null, tint = foreground, modifier = Modifier.size(AbstandChipIconSize))
     }
 }
 
-private val AbstandChipIconSize = 18.dp
+private val AbstandChipIconSize = AppTheme.Layout.smallIconSize
+private val AbstandChipShape = RoundedCornerShape(AppTheme.Layout.cornerSmall)
 
 /**
  * iOS: `AbstandExpandingDockChip` — inaktiv runder Symbol-/Cover-Knopf, aktiv wachsende
@@ -280,7 +287,7 @@ fun AbstandDockChip(
                 enter = fadeIn() + expandHorizontally(),
                 exit = fadeOut() + shrinkHorizontally(),
             ) {
-                Text(label, style = IosType.subheadline.semibold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(label, style = AppType.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -321,7 +328,7 @@ fun AbstandDropdownPill(
             ) {
                 Icon(current?.icon ?: fallbackIcon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
                 Text(
-                    current?.label ?: accessibilityLabel, style = IosType.subheadline.semibold, maxLines = 1,
+                    current?.label ?: accessibilityLabel, style = AppType.labelLarge, maxLines = 1,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                 )
                 Icon(SF.chevronUpChevronDown, contentDescription = null, modifier = Modifier.size(dock.iconSize))

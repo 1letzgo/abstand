@@ -86,7 +86,7 @@ import de.letzgo.abstand.store.EbookLocalStore
 import de.letzgo.abstand.store.EpubReaderSettings
 import de.letzgo.abstand.store.EpubReaderTheme
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandAlert
@@ -645,9 +645,9 @@ private fun ReaderTopChrome(session: EbookReaderSession, foreground: Color, seco
     ) {
         ChromeIconButton(SF.xmarkCircleFill, "Close", foreground, onClick = onClose)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing)) {
-            Text(session.title, style = IosType.subheadline.semibold, color = foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(session.title, style = AppType.bodyMedium.semibold, color = foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (session.author.isNotEmpty()) {
-                Text(session.author, style = IosType.caption, color = secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(session.author, style = AppType.bodySmall, color = secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -693,7 +693,7 @@ private fun ReaderBottomChrome(
                 colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent, inactiveTrackColor = secondary.copy(alpha = 0.3f)),
                 modifier = Modifier.semantics { contentDescription = "Reading progress" },
             )
-            Text(caption, style = IosType.caption, color = secondary, maxLines = 1)
+            Text(caption, style = AppType.bodySmall, color = secondary, maxLines = 1)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing)) {
             if (format == AbsEbookFormat.epub) {
@@ -781,10 +781,10 @@ private fun ReaderChromeHint(foreground: Color, secondary: Color, surface: Color
             verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing),
         ) {
             Icon(SF.handTap, contentDescription = null, tint = Theme.accent)
-            Text("Reading controls", style = IosType.headline, color = foreground)
+            Text("Reading controls", style = AppType.titleMedium, color = foreground)
             Text(
                 "Tap the middle of the page to show reading controls and progress.",
-                style = IosType.subheadline, color = secondary, textAlign = TextAlign.Center,
+                style = AppType.bodyMedium, color = secondary, textAlign = TextAlign.Center,
             )
             AbstandProminentButton(text = "Got it", onClick = onDismiss)
         }
@@ -820,10 +820,10 @@ private fun EbookServerPositionBanner(
                 modifier = Modifier.padding(top = AppTheme.Layout.hairlineSpacing).size(AppTheme.Layout.compactIconColumnWidth),
             )
             Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-                Text("You've read further elsewhere", style = IosType.subheadline.semibold, color = foreground)
+                Text("You've read further elsewhere", style = AppType.bodyMedium.semibold, color = foreground)
                 Text(
                     "Your synced position is at ${percent(offer.serverFraction)}, this device is at ${percent(offer.localFraction)}.",
-                    style = IosType.caption, color = secondary,
+                    style = AppType.bodySmall, color = secondary,
                 )
             }
         }

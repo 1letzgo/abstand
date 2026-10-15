@@ -32,7 +32,7 @@ import de.letzgo.abstand.logic.ListeningAchievementState
 import de.letzgo.abstand.logic.ListeningAchievementTier
 import de.letzgo.abstand.ui.AppColorPalette
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.bold
@@ -82,11 +82,11 @@ fun ListeningAchievementCard(achievement: ListeningAchievementState, modifier: M
                     Row(verticalAlignment = Alignment.Top) {
                         AchievementIcon(achievement, tint, AchievementCardMetrics.compactIconSize, AchievementCardMetrics.compactIconSlotWidth)
                         Spacer(Modifier.weight(1f))
-                        LevelBadge(achievement.tier, tint, AchievementCardMetrics.compactBadgeEdge, IosType.headline.bold, AchievementCardMetrics.compactBadgeCorner)
+                        LevelBadge(achievement.tier, tint, AchievementCardMetrics.compactBadgeEdge, AppType.titleMedium.bold, AchievementCardMetrics.compactBadgeCorner)
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing)) {
-                        Text(achievement.kind.title, style = IosType.headline, color = palette.textPrimary, maxLines = 2)
-                        Text(achievement.valueLine, style = IosType.caption, color = palette.textSecondary, maxLines = 2)
+                        Text(achievement.kind.title, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 2)
+                        Text(achievement.valueLine, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 2)
                     }
                 }
                 Spacer(Modifier.weight(1f))
@@ -100,10 +100,10 @@ fun ListeningAchievementCard(achievement: ListeningAchievementState, modifier: M
             ) {
                 AchievementIcon(achievement, tint, AchievementCardMetrics.regularIconSize, AchievementCardMetrics.iconSlotWidth)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing)) {
-                    Text(achievement.kind.title, style = IosType.headline, color = palette.textPrimary, maxLines = 1)
-                    Text(achievement.valueLine, style = IosType.subheadline, color = palette.textSecondary, maxLines = 1)
+                    Text(achievement.kind.title, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 1)
+                    Text(achievement.valueLine, style = AppType.bodyMedium, color = palette.textSecondary, maxLines = 1)
                 }
-                LevelBadge(achievement.tier, tint, AchievementCardMetrics.regularBadgeEdge, IosType.title3.bold, AppTheme.Layout.achievementBadgeCornerRadius)
+                LevelBadge(achievement.tier, tint, AchievementCardMetrics.regularBadgeEdge, AppType.titleLarge.bold, AppTheme.Layout.achievementBadgeCornerRadius)
             }
             AbstandCardBottomProgress(progress)
         }

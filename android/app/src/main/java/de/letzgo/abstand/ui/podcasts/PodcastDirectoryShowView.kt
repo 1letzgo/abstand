@@ -39,7 +39,7 @@ import de.letzgo.abstand.data.swiftTrim
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.PodcastStore
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
@@ -186,7 +186,7 @@ fun PodcastDirectoryShowView(hit: AbsPodcastDirectorySearchHit, onBack: () -> Un
                         verticalArrangement = Arrangement.spacedBy(PodcastDetailMetrics.linkRowSpacing),
                     ) {
                         if (isInLibrary) {
-                            PodcastInLibraryLabel(IosType.subheadline.semibold)
+                            PodcastInLibraryLabel(AppType.bodyMedium.semibold)
                         } else {
                             val hasFeed = !hit.feedUrl.isNullOrBlank()
                             AbstandPrimaryButton(
@@ -208,7 +208,7 @@ fun PodcastDirectoryShowView(hit: AbsPodcastDirectorySearchHit, onBack: () -> Un
                                     !reachable -> "Connect to your server to add this show."
                                     else -> "Adds the show to your Audiobookshelf library and downloads new episodes automatically."
                                 },
-                                style = IosType.caption, color = palette.textSecondary, textAlign = TextAlign.Center,
+                                style = AppType.bodySmall, color = palette.textSecondary, textAlign = TextAlign.Center,
                             )
                         }
                     }
@@ -251,7 +251,7 @@ fun PodcastDirectoryShowView(hit: AbsPodcastDirectorySearchHit, onBack: () -> Un
                             PodcastDetailMetaField("Links") {
                                 Text(
                                     "Open in Apple Podcasts",
-                                    style = IosType.body.semibold,
+                                    style = AppType.bodyLarge.semibold,
                                     color = Theme.accent,
                                     modifier = Modifier.clickable {
                                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(pageUrl))) }
@@ -285,7 +285,7 @@ fun PodcastDirectoryShowView(hit: AbsPodcastDirectorySearchHit, onBack: () -> Un
                                 if (preview.episodes.size > InitialEpisodeCount) {
                                     Text(
                                         if (showsAllEpisodes) "Show fewer episodes" else "Show all ${preview.episodes.size} episodes",
-                                        style = IosType.subheadline.semibold,
+                                        style = AppType.bodyMedium.semibold,
                                         color = Theme.accent,
                                         modifier = Modifier.padding(top = PodcastDetailMetrics.linkRowSpacing).clickable { showsAllEpisodes = !showsAllEpisodes },
                                     )
@@ -326,10 +326,10 @@ private fun FeedEpisodeRow(
             Modifier.weight(1f).clickable(onClick = onToggleExpanded),
             verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing),
         ) {
-            Text(episode.title, style = IosType.subheadline.semibold, color = palette.textPrimary)
-            feedEpisodeMetaLine(episode)?.let { Text(it, style = IosType.caption, color = palette.textSecondary) }
+            Text(episode.title, style = AppType.bodyMedium.semibold, color = palette.textPrimary)
+            feedEpisodeMetaLine(episode)?.let { Text(it, style = AppType.bodySmall, color = palette.textSecondary) }
             (episode.descriptionPlain ?: episode.subtitle)?.let {
-                Text(it, style = IosType.caption, color = palette.textSecondary, maxLines = if (expanded) Int.MAX_VALUE else 2)
+                Text(it, style = AppType.bodySmall, color = palette.textSecondary, maxLines = if (expanded) Int.MAX_VALUE else 2)
             }
         }
         trailing()

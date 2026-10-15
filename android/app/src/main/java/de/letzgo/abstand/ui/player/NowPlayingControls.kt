@@ -53,7 +53,7 @@ import de.letzgo.abstand.player.PlaybackSkipDefaults
 import de.letzgo.abstand.player.SleepTimerMetrics
 import de.letzgo.abstand.player.SleepTimerMode
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandInlineSpinner
@@ -157,16 +157,16 @@ private fun ProgressTrack(
 private fun TimesRow(elapsed: Double, remaining: Double, caption: String, showTimes: Boolean = true) {
     val palette = Theme.palette
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(if (showTimes) formatPlaybackTime(elapsed) else "", style = IosType.caption, color = palette.textSecondary)
+        Text(if (showTimes) formatPlaybackTime(elapsed) else "", style = AppType.bodySmall, color = palette.textSecondary)
         Text(
             caption,
-            style = IosType.caption,
+            style = AppType.bodySmall,
             color = palette.textPrimary,
             maxLines = 1,
             textAlign = TextAlign.Center,
             modifier = Modifier.weight(1f).padding(horizontal = AppTheme.Layout.stackSpacing),
         )
-        Text(if (showTimes) formatPlaybackTime(remaining) else "", style = IosType.caption, color = palette.textSecondary)
+        Text(if (showTimes) formatPlaybackTime(remaining) else "", style = AppType.bodySmall, color = palette.textSecondary)
     }
 }
 
@@ -324,7 +324,7 @@ private fun androidx.compose.foundation.layout.RowScope.UtilityColumn(
             verticalArrangement = Arrangement.spacedBy(MiniPlayerMetrics.utilityRowSpacing),
         ) {
             Box(Modifier.fillMaxWidth().height(MiniPlayerMetrics.utilityPrimaryRowHeight), contentAlignment = Alignment.Center) { primary() }
-            Text(caption, style = IosType.caption2, color = palette.textSecondary)
+            Text(caption, style = AppType.labelSmall, color = palette.textSecondary)
         }
         menu?.invoke()
     }
@@ -360,7 +360,7 @@ fun FullPlayerUtilityBar(wiring: PlayerWiring, modifier: Modifier = Modifier) {
         UtilityColumn("Tempo", "Playback speed, ${formatPlaybackRate(rate)}", onClick = { rateMenu = true }, menu = {
             AbstandPickerMenu(rateMenu, { rateMenu = false }, PlaybackController.playbackRatePresets, rate, { formatPlaybackRate(it) }, { player.setPlaybackRate(it) })
         }) {
-            Text(formatPlaybackRate(rate), style = IosType.subheadline.medium, color = palette.textPrimary, maxLines = 1)
+            Text(formatPlaybackRate(rate), style = AppType.bodyMedium.medium, color = palette.textPrimary, maxLines = 1)
         }
 
         SleepTimerColumn(wiring)
@@ -426,7 +426,7 @@ private fun androidx.compose.foundation.layout.RowScope.SleepTimerColumn(wiring:
     }) {
         val s = seconds
         if (s != null && s > 0) {
-            Text(formatPlaybackTime(s), style = IosType.subheadline.medium, color = accent, maxLines = 1)
+            Text(formatPlaybackTime(s), style = AppType.bodyMedium.medium, color = accent, maxLines = 1)
         } else {
             Icon(SF.moon, contentDescription = null, tint = if (mode == SleepTimerMode.Off) palette.textPrimary else accent)
         }

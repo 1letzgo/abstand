@@ -132,7 +132,7 @@ private fun CoverPlaceholder(modifier: Modifier) {
 }
 
 /** iOS: `.font(.title3)` des Platzhalter-Symbols (~20 pt). */
-private val PlaceholderIconSize = 22.dp
+private val PlaceholderIconSize = 24.dp
 
 /**
  * iOS: `SquareCoverImageView` — 1:1-Cover, Bild zentriert (`.fit`), Letterboxing mit [tint].

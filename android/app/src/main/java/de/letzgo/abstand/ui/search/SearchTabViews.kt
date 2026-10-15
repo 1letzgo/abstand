@@ -22,7 +22,7 @@ import de.letzgo.abstand.model.SearchResults
 import de.letzgo.abstand.model.SearchSection
 import de.letzgo.abstand.model.SearchStatus
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabNavigator
@@ -105,7 +105,7 @@ fun SearchTabRoot(model: AppModel = AppModel.shared) {
 private fun SearchStatusText(text: String) {
     Text(
         text,
-        style = IosType.subheadline,
+        style = AppType.bodyMedium,
         color = Theme.palette.textSecondary,
         textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth().padding(AppTheme.Layout.blockSpacing),

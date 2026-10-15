@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -35,20 +37,21 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.medium
 
-/** iOS: `.padding(12)` in Feld- und Suchfeld-Chrome. */
-private val FieldInnerPadding = 12.dp
+/** M3-Textfeld: 16 dp Innenabstand (mit `bodyLarge` 56 dp hoch; iOS: 12 pt). */
+private val FieldInnerPadding = 16.dp
 
 /**
- * iOS: `abstandSearchFieldChrome()` — Karte (`palette.card`) mit `fieldCornerRadius` und
- * 12 dp Innenabstand um selbst gebaute Eingabezeilen (Symbol + Feld).
+ * iOS: `abstandSearchFieldChrome()` — Android: M3 Search Bar (`palette.card`, volle Rundung,
+ * 56 dp hoch, 16 dp seitlich) um selbst gebaute Eingabezeilen (Symbol + Feld).
  */
 fun Modifier.abstandSearchFieldChrome(): Modifier = composed {
-    clip(AbstandFieldShape).background(Theme.palette.card).padding(FieldInnerPadding)
+    heightIn(min = AppTheme.Layout.searchFieldHeight).clip(CircleShape).background(Theme.palette.card)
+        .padding(horizontal = FieldInnerPadding)
 }
 
 /**
@@ -72,7 +75,7 @@ fun AbstandLabeledTextField(
     val palette = Theme.palette
     var revealed by rememberSaveable { mutableStateOf(false) }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
-        Text(title, style = IosType.caption.medium, color = palette.textSecondary)
+        Text(title, style = AppType.labelMedium, color = palette.textSecondary)
         Row(
             Modifier.fillMaxWidth().clip(AbstandFieldShape).background(palette.card),
             verticalAlignment = Alignment.CenterVertically,
@@ -82,7 +85,7 @@ fun AbstandLabeledTextField(
                 onValueChange = onValueChange,
                 enabled = enabled,
                 singleLine = true,
-                textStyle = IosType.body.copy(color = palette.textPrimary),
+                textStyle = AppType.bodyLarge.copy(color = palette.textPrimary),
                 cursorBrush = SolidColor(Theme.accent),
                 visualTransformation = if (isSecure && !revealed) PasswordVisualTransformation() else VisualTransformation.None,
                 keyboardOptions = KeyboardOptions(
@@ -122,16 +125,16 @@ fun AbstandSearchField(
     Row(
         modifier.fillMaxWidth().abstandSearchFieldChrome(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing),
+        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
     ) {
         Icon(SF.magnifyingglass, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(SearchIconSize))
         Box(Modifier.weight(1f)) {
-            if (query.isEmpty()) Text(placeholder, style = IosType.body, color = palette.textSecondary)
+            if (query.isEmpty()) Text(placeholder, style = AppType.bodyLarge, color = palette.textSecondary)
             BasicTextField(
                 value = query,
                 onValueChange = onQueryChange,
                 singleLine = true,
-                textStyle = IosType.body.copy(color = palette.textPrimary),
+                textStyle = AppType.bodyLarge.copy(color = palette.textPrimary),
                 cursorBrush = SolidColor(Theme.accent),
                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSubmit?.invoke() }),
@@ -143,7 +146,6 @@ fun AbstandSearchField(
                 SF.xmarkCircleFill,
                 "Clear",
                 onClick = { onQueryChange("") },
-                size = AppTheme.Layout.compactIconButtonSize,
                 iconSize = SearchIconSize,
                 tint = palette.textSecondary,
             )
@@ -151,6 +153,6 @@ fun AbstandSearchField(
     }
 }
 
-/** Symbolgröße im Suchfeld (iOS: SF-Symbol in `.body`). */
-private val SearchIconSize = 20.dp
+/** Symbolgröße im Suchfeld (M3 Search Bar: 24 dp). */
+private val SearchIconSize = AppTheme.Layout.iconSize
 

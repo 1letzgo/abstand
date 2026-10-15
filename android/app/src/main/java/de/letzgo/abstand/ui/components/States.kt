@@ -23,19 +23,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.bold
 
 /**
  * iOS: `TabContentSectionTitle` — **die** Sektionsüberschrift für Tabs, Settings und Details
- * (`.title3.bold()`, `textPrimary`, als Überschrift ausgezeichnet).
+ * (M3 `titleLarge`, `textPrimary`, als Überschrift ausgezeichnet; iOS: `.title3.bold()`).
  */
 @Composable
 fun TabContentSectionTitle(title: String, modifier: Modifier = Modifier) {
     Text(
         title,
-        style = IosType.title3.bold,
+        style = AppType.titleLarge,
         color = Theme.palette.textPrimary,
         modifier = modifier.fillMaxWidth().semantics { heading() },
     )
@@ -49,7 +48,7 @@ fun TabContentSectionTitle(title: String, modifier: Modifier = Modifier) {
 fun AbstandSectionEmptyState(text: String, modifier: Modifier = Modifier, isStandalone: Boolean = false) {
     Text(
         text,
-        style = IosType.subheadline,
+        style = AppType.bodyMedium,
         color = Theme.palette.textSecondary,
         modifier = modifier.fillMaxWidth().padding(
             vertical = if (isStandalone) AppTheme.Layout.emptyStateVerticalPadding else AppTheme.Layout.rowVerticalPadding,
@@ -65,8 +64,8 @@ fun AbstandCardEmptyState(title: String, modifier: Modifier = Modifier, message:
         modifier.abstandCardListRowFrame(),
         verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing, Alignment.CenterVertically),
     ) {
-        Text(title, style = IosType.body, color = palette.textPrimary)
-        if (message != null) Text(message, style = IosType.caption, color = palette.textSecondary)
+        Text(title, style = AppType.bodyLarge, color = palette.textPrimary)
+        if (message != null) Text(message, style = AppType.bodySmall, color = palette.textSecondary)
     }
 }
 
@@ -93,13 +92,13 @@ fun AbstandEmptyScreen(
             Box(Modifier.padding(top = AppTheme.Layout.stackSpacing))
         }
         Text(
-            title, style = IosType.title2.bold, color = palette.textPrimary, textAlign = TextAlign.Center,
+            title, style = AppType.headlineSmall, color = palette.textPrimary, textAlign = TextAlign.Center,
             modifier = Modifier.semantics { heading() },
         )
         if (description != null) {
             Text(
-                description, style = IosType.callout, color = palette.textSecondary, textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = AppTheme.Layout.tightSpacing),
+                description, style = AppType.bodyMedium, color = palette.textSecondary, textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = AppTheme.Layout.stackSpacing),
             )
         }
         if (actions != null) {
@@ -121,17 +120,20 @@ private val EmptyScreenIconSize = 48.dp
 fun AbstandInlineNotice(text: String, modifier: Modifier = Modifier, isError: Boolean = false) {
     Text(
         text,
-        style = IosType.footnote,
+        style = AppType.bodySmall,
         color = if (isError) AppTheme.danger else Theme.palette.textSecondary,
         modifier = modifier.fillMaxWidth(),
     )
 }
 
-/** iOS: `ControlSize` von `ProgressView` (small/regular/large ≈ 16/20/37 pt). */
+/**
+ * Spinner-Größen (iOS: `ControlSize` von `ProgressView` 16/20/37 pt). Android: M3-Raster —
+ * Large = M3-Standard (48 dp, 4 dp Strich).
+ */
 enum class AbstandSpinnerSize(val diameter: Dp, val strokeWidth: Dp) {
-    Small(16.dp, 2.dp),
-    Regular(20.dp, 2.5.dp),
-    Large(36.dp, 3.5.dp),
+    Small(20.dp, 2.dp),
+    Regular(32.dp, 3.dp),
+    Large(48.dp, 4.dp),
 }
 
 /**
@@ -189,7 +191,7 @@ fun AbstandLabeledLoadingState(
     ) {
         CircularProgressIndicator(color = Theme.accent, strokeWidth = size.strokeWidth, modifier = Modifier.size(size.diameter))
         if (text.isNotEmpty()) {
-            Text(text, style = IosType.subheadline, color = Theme.palette.textSecondary, textAlign = TextAlign.Center)
+            Text(text, style = AppType.bodyMedium, color = Theme.palette.textSecondary, textAlign = TextAlign.Center)
         }
     }
 }

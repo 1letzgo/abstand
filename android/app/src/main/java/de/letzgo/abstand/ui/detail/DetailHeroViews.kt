@@ -47,7 +47,7 @@ import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.DetailMetaLabelIcon
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.bold
@@ -123,24 +123,24 @@ fun DetailHeroInfoSection(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(DetailHeroLayoutMetrics.heroInfoLineSpacing),
     ) {
-        Text(title, style = IosType.title.bold, color = palette.textPrimary, textAlign = TextAlign.Center)
+        Text(title, style = AppType.headlineSmall.bold, color = palette.textPrimary, textAlign = TextAlign.Center)
         if (authorLinks.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.Center) {
                 authorLinks.forEachIndexed { idx, (id, name) ->
-                    if (idx > 0) Text(", ", style = IosType.title3, color = palette.textPrimary)
+                    if (idx > 0) Text(", ", style = AppType.titleLarge, color = palette.textPrimary)
                     Text(
-                        name, style = IosType.title3, color = Theme.accent,
+                        name, style = AppType.titleLarge, color = Theme.accent,
                         modifier = Modifier.clickable(enabled = onAuthorTap != null) { onAuthorTap?.invoke(id, name) },
                     )
                 }
             }
         } else {
             subtitle?.trim()?.takeIf { it.isNotEmpty() && it != "—" }?.let {
-                Text(it, style = IosType.title3, color = palette.textPrimary, textAlign = TextAlign.Center)
+                Text(it, style = AppType.titleLarge, color = palette.textPrimary, textAlign = TextAlign.Center)
             }
         }
         if (tertiaryLine.isNotEmpty()) {
-            Text(tertiaryLine, style = IosType.subheadline, color = palette.textSecondary, textAlign = TextAlign.Center)
+            Text(tertiaryLine, style = AppType.bodyMedium, color = palette.textSecondary, textAlign = TextAlign.Center)
         }
     }
 }
@@ -210,7 +210,7 @@ fun DetailHeroPrimaryButton(
     val onAccent = Theme.onAccent
     val fill = if (isFinished) 1f else progress01.toFloat().coerceIn(0f, 1f)
     val height = if (compact) DetailHeroLayoutMetrics.compactPrimaryControlHeight else DetailHeroLayoutMetrics.primaryControlHeight
-    val textStyle = if (compact) IosType.subheadline.semibold else IosType.headline
+    val textStyle = if (compact) AppType.bodyMedium.semibold else AppType.titleMedium
     val stateText = when {
         isFinished -> "Finished"
         fill < 0.001f -> "Not started"
@@ -314,7 +314,7 @@ fun DetailMetaField(title: String, content: @Composable ColumnScope.() -> Unit) 
 /** iOS: `DetailMetaTextBlock`. */
 @Composable
 fun DetailMetaTextBlock(text: String) {
-    Text(text, style = IosType.body, color = Theme.palette.textPrimary, modifier = Modifier.fillMaxWidth())
+    Text(text, style = AppType.bodyLarge, color = Theme.palette.textPrimary, modifier = Modifier.fillMaxWidth())
 }
 
 /** iOS: `DetailMetaExpandableTextBlock` — vier Zeilen, dann „More"/„Less". */
@@ -326,7 +326,7 @@ fun DetailMetaExpandableTextBlock(text: String, expanded: Boolean, onToggle: () 
     }
     Column(Modifier.fillMaxWidth().animateContentSize(), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
         Text(
-            text, style = IosType.body, color = Theme.palette.textPrimary,
+            text, style = AppType.bodyLarge, color = Theme.palette.textPrimary,
             maxLines = if (expanded) Int.MAX_VALUE else DetailMetaLayoutMetrics.descriptionCollapsedLineLimit,
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         )
@@ -340,7 +340,7 @@ fun DetailMetaExpandableTextBlock(text: String, expanded: Boolean, onToggle: () 
 @Composable
 fun DetailMetaLink(title: String, onClick: () -> Unit) {
     Text(
-        title, style = IosType.body, color = Theme.accent,
+        title, style = AppType.bodyLarge, color = Theme.accent,
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = AppTheme.Layout.hairlineSpacing),
     )
 }

@@ -19,7 +19,7 @@ import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.HomeShelfLogic
 import de.letzgo.abstand.model.StartCategoryRow
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
@@ -90,7 +90,7 @@ private fun HomeShelfSettingsCard(
                 Modifier.weight(1f).toggleable(value = enabled, role = Role.Switch, onValueChange = onToggle),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(row.label, style = IosType.body, color = palette.textPrimary, modifier = Modifier.weight(1f))
+                Text(row.label, style = AppType.bodyLarge, color = palette.textPrimary, modifier = Modifier.weight(1f))
                 Switch(checked = enabled, onCheckedChange = null, colors = abstandSwitchColors())
             }
             if (!isContinue) {

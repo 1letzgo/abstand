@@ -33,7 +33,7 @@ import de.letzgo.abstand.data.AbsPodcastEpisodeDownload
 import de.letzgo.abstand.model.AdminStore
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
@@ -103,7 +103,7 @@ fun ServerLibrariesListScreen(navigator: TabNavigator, model: AppModel = AppMode
                     )
                 }
             } else {
-                scanMessage?.let { msg -> item(key = "scanMessage") { Text(msg, style = IosType.caption, color = Theme.palette.textSecondary) } }
+                scanMessage?.let { msg -> item(key = "scanMessage") { Text(msg, style = AppType.bodySmall, color = Theme.palette.textSecondary) } }
                 item(key = "libraries") {
                     ServerAdminSection("Libraries") {
                         Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
@@ -159,8 +159,8 @@ private fun ServerLibraryListRow(library: AbsLibrary, isScanning: Boolean, admin
             Icon(if (library.isPodcastLibrary) SF.micFill else SF.booksVerticalFill, contentDescription = null, tint = Theme.accent)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-            Text(library.name, style = IosType.body.medium, color = palette.textPrimary)
-            Text(subtitle, style = IosType.caption, color = palette.textSecondary, maxLines = 2)
+            Text(library.name, style = AppType.bodyLarge.medium, color = palette.textPrimary)
+            Text(subtitle, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 2)
         }
         if (isScanning || (stats == null && !statsFailed)) {
             AbstandInlineSpinner()
@@ -257,7 +257,7 @@ fun ServerLibraryDetailScreen(library: AbsLibrary, navigator: TabNavigator, admi
                 )
             },
         ) {
-            scanMessage?.let { msg -> item(key = "scan") { Text(msg, style = IosType.caption, color = palette.textSecondary) } }
+            scanMessage?.let { msg -> item(key = "scan") { Text(msg, style = AppType.bodySmall, color = palette.textSecondary) } }
             val s = stats
             when {
                 loading && s == null && detail == null -> item(key = "loading") { AbstandLoadingSpinner() }
@@ -318,15 +318,15 @@ fun ServerLibraryDetailScreen(library: AbsLibrary, navigator: TabNavigator, admi
                                     rows.forEachIndexed { index, row ->
                                         if (index > 0) SettingsCardDivider()
                                         Column(Modifier.abstandCardListRowFrame(), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing, Alignment.CenterVertically)) {
-                                            Text(row.episodeDisplayTitle ?: "Episode", style = IosType.body.medium, color = palette.textPrimary, maxLines = 2)
+                                            Text(row.episodeDisplayTitle ?: "Episode", style = AppType.bodyLarge.medium, color = palette.textPrimary, maxLines = 2)
                                             Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing)) {
                                                 row.podcastTitle?.takeIf { it.isNotEmpty() }?.let {
-                                                    Text(it, style = IosType.caption, color = palette.textSecondary, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                                                    Text(it, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
                                                 }
                                                 Box(Modifier.weight(1f))
                                                 Text(
                                                     AdminLibraryLogic.episodeDownloadStatus(row, episodeDownloads),
-                                                    style = IosType.caption.semibold, color = palette.textSecondary,
+                                                    style = AppType.bodySmall.semibold, color = palette.textSecondary,
                                                 )
                                             }
                                         }
@@ -353,8 +353,8 @@ private fun RankedCard(title: String, rows: List<Pair<String, String>>, valueSma
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing),
                 ) {
-                    Text(name, style = IosType.body, color = palette.textPrimary, maxLines = if (valueSmall) 2 else 1, modifier = Modifier.weight(1f))
-                    Text(value, style = if (valueSmall) IosType.caption.semibold else IosType.subheadline.semibold, color = palette.textSecondary)
+                    Text(name, style = AppType.bodyLarge, color = palette.textPrimary, maxLines = if (valueSmall) 2 else 1, modifier = Modifier.weight(1f))
+                    Text(value, style = if (valueSmall) AppType.bodySmall.semibold else AppType.bodyMedium.semibold, color = palette.textSecondary)
                 }
             }
         }
@@ -365,8 +365,8 @@ private fun RankedCard(title: String, rows: List<Pair<String, String>>, valueSma
 private fun MetaRow(title: String, value: String) {
     val palette = Theme.palette
     Row(Modifier.abstandCardListRowFrame(), horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = IosType.subheadline, color = palette.textSecondary, modifier = Modifier.width(ServerAdminLayoutMetrics.compactMetaLabelColumnWidth))
-        Text(value, style = IosType.subheadline.medium, color = palette.textPrimary, modifier = Modifier.weight(1f))
+        Text(title, style = AppType.bodyMedium, color = palette.textSecondary, modifier = Modifier.width(ServerAdminLayoutMetrics.compactMetaLabelColumnWidth))
+        Text(value, style = AppType.bodyMedium.medium, color = palette.textPrimary, modifier = Modifier.weight(1f))
     }
 }
 

@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.medium
 import de.letzgo.abstand.ui.semibold
@@ -38,7 +38,8 @@ import de.letzgo.abstand.ui.semibold
 
 /**
  * Generische Listenzeile: [leading] (Cover/Symbol) · Titel + Untertitel · [trailing]
- * (Aktion, Status). Mindesthöhe `listRowMinHeight`, Abstände `rowSpacing`/`tightSpacing`.
+ * (Aktion, Status). M3-Liste: Mindesthöhe 56 dp (mit Untertitel 72 dp), Titel `bodyLarge`,
+ * Untertitel `bodyMedium`, 16 dp zwischen Leading/Text/Trailing, 8 dp oben/unten.
  * Für Zeilen in Settings-Karten die `SettingsCard*Row`s nehmen.
  */
 @Composable
@@ -47,11 +48,11 @@ fun AbstandListRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     onClick: (() -> Unit)? = null,
-    titleStyle: TextStyle = IosType.body,
+    titleStyle: TextStyle = AppType.bodyLarge,
     titleColor: Color = Color.Unspecified,
     titleMaxLines: Int = 1,
     subtitleMaxLines: Int = 1,
-    verticalPadding: Dp = 0.dp,
+    verticalPadding: Dp = AppTheme.Layout.rowVerticalPadding,
     leading: (@Composable () -> Unit)? = null,
     below: (@Composable () -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
@@ -60,21 +61,21 @@ fun AbstandListRow(
     Row(
         modifier
             .fillMaxWidth()
-            .heightIn(min = AppTheme.Layout.listRowMinHeight)
+            .heightIn(min = if (subtitle.isNullOrEmpty()) AppTheme.Layout.listItemOneLineHeight else AppTheme.Layout.listItemTwoLineHeight)
             .let { if (onClick != null) it.clickable(onClick = onClick) else it }
             .padding(vertical = verticalPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
     ) {
         leading?.invoke()
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing)) {
             Text(
                 title, style = titleStyle,
                 color = if (titleColor != Color.Unspecified) titleColor else palette.textPrimary,
                 maxLines = titleMaxLines, overflow = TextOverflow.Ellipsis,
             )
             if (!subtitle.isNullOrEmpty()) {
-                Text(subtitle, style = IosType.caption, color = palette.textSecondary, maxLines = subtitleMaxLines, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, style = AppType.bodyMedium, color = palette.textSecondary, maxLines = subtitleMaxLines, overflow = TextOverflow.Ellipsis)
             }
             below?.invoke()
         }
@@ -85,14 +86,14 @@ fun AbstandListRow(
 /** Hairline-Trenner zwischen Listenzeilen (ohne Abstand; Settings-Karten: [SettingsCardDivider]). */
 @Composable
 fun AbstandDivider(modifier: Modifier = Modifier, opacity: Float = 0.2f) {
-    HorizontalDivider(modifier, thickness = AppTheme.Layout.hairlineStrokeWidth, color = Theme.palette.textSecondary.copy(alpha = opacity))
+    HorizontalDivider(modifier, thickness = AppTheme.Layout.hairlineWidth, color = Theme.palette.textSecondary.copy(alpha = opacity))
 }
 
 /** Symbolgröße in [AbstandCapsLabel] (iOS: `.caption2.weight(.semibold)`). */
-private val CapsLabelIconSize = 12.dp
+private val CapsLabelIconSize = 16.dp
 
 /**
- * Versalien-Überschrift (`footnote.semibold`, Laufweite 0,6, `textSecondary`) mit optionalem
+ * Versalien-Überschrift (M3 `labelMedium`, `textSecondary`) mit optionalem
  * Symbol — Meta-Labels in Details, Metadata-Sheets, Entity-Listen und Stats-Kacheln.
  */
 @Composable
@@ -111,7 +112,7 @@ fun AbstandCapsLabel(
     ) {
         if (icon != null) Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(CapsLabelIconSize))
         Text(
-            title.uppercase(), style = IosType.footnote.semibold.copy(letterSpacing = 0.6.sp), color = tint,
+            title.uppercase(), style = AppType.labelMedium, color = tint,
             maxLines = maxLines, overflow = TextOverflow.Ellipsis,
         )
     }
@@ -136,14 +137,14 @@ fun LibraryRowCollapsedMetaLine(
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
         Text(
             label.uppercase(),
-            style = IosType.footnote.semibold,
+            style = AppType.labelMedium,
             color = labelColor ?: palette.textSecondary,
             maxLines = 1,
             modifier = Modifier.alignByBaseline(),
         )
         Text(
             if (empty) "—" else line,
-            style = IosType.footnote,
+            style = AppType.bodySmall,
             color = if (empty) labelColor ?: palette.textSecondary else valueColor ?: palette.textPrimary,
             maxLines = valueMaxLines,
             overflow = TextOverflow.Ellipsis,
@@ -153,8 +154,8 @@ fun LibraryRowCollapsedMetaLine(
 }
 
 /**
- * iOS: `Picker(.segmented)` — **der** Segment-Umschalter (Material-Segmented-Buttons in
- * Akzentfarbe, volle Breite).
+ * iOS: `Picker(.segmented)` — **der** Segment-Umschalter (M3 Segmented Buttons, 40 dp hoch,
+ * `labelLarge`, in Akzentfarbe, volle Breite).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -181,7 +182,7 @@ fun <T> AbstandSegmentedControl(
                     inactiveBorderColor = palette.textSecondary.copy(alpha = 0.35f),
                 ),
                 icon = {},
-            ) { Text(label(option), style = IosType.subheadline.medium, maxLines = 1) }
+            ) { Text(label(option), style = AppType.labelLarge, maxLines = 1) }
         }
     }
 }

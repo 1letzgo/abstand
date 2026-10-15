@@ -34,7 +34,7 @@ import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.CatalogStore
 import de.letzgo.abstand.model.LibraryBookCardStyle
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
@@ -233,7 +233,7 @@ internal fun BooksBrowseSectionPane(section: BooksBrowseSection, catalog: Catalo
 private fun BrowseOfflineHint() {
     Text(
         "Connect to the network to load this list.",
-        style = IosType.subheadline,
+        style = AppType.bodyMedium,
         color = Theme.palette.textSecondary,
         modifier = Modifier.padding(vertical = AppTheme.Layout.rowVerticalPadding),
     )
@@ -278,7 +278,7 @@ private fun CatalogFilterBanner(summary: String?, onShowAll: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing),
     ) {
         Icon(SF.line3HorizontalDecreaseCircle, null, tint = palette.textSecondary)
-        Text(summary ?: "Library filtered", style = IosType.body, color = palette.textPrimary, maxLines = 2, modifier = Modifier.weight(1f))
+        Text(summary ?: "Library filtered", style = AppType.bodyLarge, color = palette.textPrimary, maxLines = 2, modifier = Modifier.weight(1f))
         AbstandTextButton("Show all", onShowAll, emphasized = true, compact = true)
     }
 }

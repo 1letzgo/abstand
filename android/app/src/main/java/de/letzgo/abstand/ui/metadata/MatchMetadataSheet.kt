@@ -31,7 +31,7 @@ import de.letzgo.abstand.data.AbsMatchField
 import de.letzgo.abstand.data.AbsMetadataMatch
 import de.letzgo.abstand.data.AbsMetadataProvider
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandAlert
@@ -186,8 +186,8 @@ fun MatchMetadataSheet(itemId: String, onDismiss: () -> Unit) {
             ) {
                 MetadataSheetSection("Match") {
                     MetadataSheetCard(spacing = AppTheme.Layout.tightSpacing) {
-                        Text(match.title ?: "—", style = IosType.subheadline.semibold, color = Theme.palette.textPrimary)
-                        match.displayAuthors?.let { Text(it, style = IosType.footnote, color = Theme.palette.textSecondary) }
+                        Text(match.title ?: "—", style = AppType.bodyMedium.semibold, color = Theme.palette.textPrimary)
+                        match.displayAuthors?.let { Text(it, style = AppType.bodySmall, color = Theme.palette.textSecondary) }
                     }
                 }
                 MetadataSheetSection("Fields") {
@@ -233,17 +233,17 @@ private fun MatchCard(match: AbsMetadataMatch, onClick: () -> Unit) {
                     }
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-                    Text(match.title ?: "—", style = IosType.subheadline.semibold, color = palette.textPrimary, maxLines = 2)
-                    match.displayAuthors?.let { Text(it, style = IosType.footnote, color = palette.textSecondary, maxLines = 1) }
-                    match.displayNarrator?.let { Text("Narrated by $it", style = IosType.footnote, color = palette.textSecondary, maxLines = 1) }
+                    Text(match.title ?: "—", style = AppType.bodyMedium.semibold, color = palette.textPrimary, maxLines = 2)
+                    match.displayAuthors?.let { Text(it, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1) }
+                    match.displayNarrator?.let { Text("Narrated by $it", style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1) }
                     Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
                         match.displayYear?.let { AbstandBadge(it, containerColor = Theme.palette.background) }
                         match.publisher?.trim()?.takeIf { it.isNotEmpty() }?.let { AbstandBadge(it, containerColor = Theme.palette.background) }
                     }
                 }
             }
-            match.displaySeries?.let { Text(it, style = IosType.caption, color = palette.textSecondary, maxLines = 1) }
-            match.displayDescription?.let { Text(it, style = IosType.caption, color = palette.textSecondary, maxLines = 2) }
+            match.displaySeries?.let { Text(it, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1) }
+            match.displayDescription?.let { Text(it, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 2) }
         }
     }
 }

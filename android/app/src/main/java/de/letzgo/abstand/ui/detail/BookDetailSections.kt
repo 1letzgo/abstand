@@ -38,7 +38,7 @@ import de.letzgo.abstand.logic.BookDetailLogic
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.player.PlaybackController
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandDialog
@@ -66,7 +66,7 @@ fun BookChapterRow(chapter: AbsChapter, playState: BookChapterPlayState, onPlay:
         title = chapter.title,
         subtitle = "${formatPlaybackTime(chapter.start)} – ${formatPlaybackTime(chapter.end)}",
         onClick = onPlay,
-        titleStyle = IosType.headline,
+        titleStyle = AppType.titleMedium,
         titleMaxLines = Int.MAX_VALUE,
         verticalPadding = AppTheme.Layout.withinSectionSpacing,
     ) {
@@ -112,7 +112,7 @@ fun AudiobookBookmarkList(libraryItemId: String, onJump: (AbsAudioBookmark) -> U
     if (marks.isEmpty()) {
         Text(
             if (reachable) "No bookmarks for this audiobook yet. Set one while playing." else "Bookmarks are unavailable offline.",
-            style = IosType.body, color = palette.textSecondary, modifier = Modifier.fillMaxWidth(),
+            style = AppType.bodyLarge, color = palette.textSecondary, modifier = Modifier.fillMaxWidth(),
         )
     } else {
         Column(Modifier.fillMaxWidth()) {
@@ -121,7 +121,7 @@ fun AudiobookBookmarkList(libraryItemId: String, onJump: (AbsAudioBookmark) -> U
                     title = mark.title.trim().ifEmpty { "—" },
                     subtitle = formatPlaybackTime(mark.time.toDouble()),
                     onClick = { onJump(mark) },
-                    titleStyle = IosType.subheadline.semibold,
+                    titleStyle = AppType.bodyMedium.semibold,
                     verticalPadding = AppTheme.Layout.rowVerticalPadding,
                 ) {
                     if (reachable) {
@@ -188,7 +188,7 @@ fun AddBookmarkTitleSheet(libraryItemId: String, onDismiss: () -> Unit, model: A
         isBusy = saving,
     ) {
         AbstandLabeledTextField(title = "Title", value = title, onValueChange = { title = it })
-        Text("Position: ${formatPlaybackTime(timeSeconds.toDouble())}", style = IosType.footnote, color = Theme.palette.textSecondary)
+        Text("Position: ${formatPlaybackTime(timeSeconds.toDouble())}", style = AppType.bodySmall, color = Theme.palette.textSecondary)
     }
 }
 
@@ -205,10 +205,10 @@ fun ListeningHistoryRow(session: AbsListeningSession, onJump: (AbsListeningSessi
     Column(Modifier.fillMaxWidth().padding(vertical = AppTheme.Layout.tightSpacing), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing)) {
-                Text(started, style = IosType.subheadline.semibold, color = palette.textPrimary)
+                Text(started, style = AppType.bodyMedium.semibold, color = palette.textPrimary)
                 Text(
                     "Listened ${formatPlaybackTime(session.timeListening.toDouble())} · ${formatPlaybackTime(session.startTime)} → ${formatPlaybackTime(session.currentTime)}",
-                    style = IosType.caption, color = palette.textSecondary,
+                    style = AppType.bodySmall, color = palette.textSecondary,
                 )
             }
             AbstandIconButton(
@@ -239,7 +239,7 @@ fun ListeningHistorySessionList(
     if (sessions.isEmpty()) {
         Text(
             if (isNetworkReachable) emptyOnlineText else emptyOfflineText,
-            style = IosType.caption, color = Theme.palette.textSecondary,
+            style = AppType.bodySmall, color = Theme.palette.textSecondary,
             modifier = Modifier.fillMaxWidth().padding(vertical = AppTheme.Layout.compactSpacing),
         )
     } else {

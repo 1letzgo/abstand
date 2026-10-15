@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.Theme
 
 // Fortschrittsanzeigen: ein Balken ([AbstandProgressBar]) für Karten, Zeilen, Downloads und
@@ -30,8 +31,8 @@ object AbstandProgressMetrics {
     val barHeight = 4.dp
     /** Strichstärke des Download-Rings. */
     val ringStrokeWidth = 2.dp
-    /** Standard-Ringgröße in Toolbars/Zeilen (iOS: SF-Symbol-Größe). */
-    val ringSize = 20.dp
+    /** Standard-Ringgröße in Toolbars/Zeilen (= M3-Symbol 24 dp). */
+    val ringSize = AppTheme.Layout.iconSize
     /** Deckkraft der Ring-Spur relativ zur Ringfarbe. */
     const val ringTrackOpacity = 0.25f
 }

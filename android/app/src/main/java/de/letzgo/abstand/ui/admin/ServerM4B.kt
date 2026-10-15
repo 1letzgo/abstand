@@ -20,7 +20,7 @@ import de.letzgo.abstand.data.ServerM4BEncodeJob
 import de.letzgo.abstand.model.AdminStore
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
@@ -129,13 +129,13 @@ private fun M4BJobRow(job: ServerM4BEncodeJob, percent: Double?, onCancel: () ->
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-            Text(job.title, style = IosType.body.medium, color = palette.textPrimary, maxLines = 2)
-            Text(job.author, style = IosType.caption, color = palette.textSecondary, maxLines = 1)
+            Text(job.title, style = AppType.bodyLarge.medium, color = palette.textPrimary, maxLines = 2)
+            Text(job.author, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1)
             Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing), verticalAlignment = Alignment.CenterVertically) {
-                Text(M4BLogic.statusLabel(job, percent), style = IosType.caption.semibold, color = statusColor(job))
+                Text(M4BLogic.statusLabel(job, percent), style = AppType.bodySmall.semibold, color = statusColor(job))
                 val message = job.message
                 if (!job.isActive && !message.isNullOrEmpty() && message != "Done") {
-                    Text(message, style = IosType.caption2, color = palette.textSecondary)
+                    Text(message, style = AppType.labelSmall, color = palette.textSecondary)
                 }
             }
         }

@@ -53,7 +53,7 @@ import de.letzgo.abstand.transcript.PlaybackTranscription
 import de.letzgo.abstand.transcript.PlayerLiveTranscriptionController
 import de.letzgo.abstand.transcript.SpeechModelOffer
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandLabeledLoadingState
@@ -163,7 +163,7 @@ fun TranscriptTeleprompter(
         fallbackNotice?.let { notice ->
             Text(
                 notice,
-                style = IosType.caption,
+                style = AppType.bodySmall,
                 color = Theme.palette.textSecondary,
                 maxLines = 2,
                 modifier = Modifier
@@ -316,11 +316,11 @@ private fun SpeechModelOfferCard(offer: SpeechModelOffer, onDownload: () -> Unit
         verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.screenPadding, Alignment.CenterVertically),
     ) {
         Icon(Icons.Outlined.GraphicEq, contentDescription = null, tint = Theme.accent, modifier = Modifier.size(OverlayIconSize))
-        Text("Speech model needed", style = IosType.headline, color = palette.textPrimary, textAlign = TextAlign.Center)
+        Text("Speech model needed", style = AppType.titleMedium, color = palette.textPrimary, textAlign = TextAlign.Center)
         Text(
             "Read along transcribes the audiobook on this device. It needs the ${offer.languageName} speech model " +
                 "(${offer.sizeText}), downloaded once.",
-            style = IosType.subheadline,
+            style = AppType.bodyMedium,
             color = palette.textSecondary,
             textAlign = TextAlign.Center,
         )
@@ -338,9 +338,9 @@ private fun DownloadingOverlay(progress: Double) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing, Alignment.CenterVertically),
     ) {
-        Text("Downloading speech model…", style = IosType.subheadline, color = palette.textSecondary)
+        Text("Downloading speech model…", style = AppType.bodyMedium, color = palette.textSecondary)
         AbstandProgressBar(progress, trackColor = palette.card, contentDescription = "Speech model download")
-        Text("${(progress * 100).roundToInt()} %", style = IosType.caption, color = palette.textSecondary)
+        Text("${(progress * 100).roundToInt()} %", style = AppType.bodySmall, color = palette.textSecondary)
     }
 }
 
@@ -351,7 +351,7 @@ private fun ErrorOverlay(message: String, onRetry: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.screenPadding, Alignment.CenterVertically),
     ) {
-        Text(message, style = IosType.subheadline, color = AppTheme.danger, textAlign = TextAlign.Center)
+        Text(message, style = AppType.bodyMedium, color = AppTheme.danger, textAlign = TextAlign.Center)
         AbstandProminentButton(text = "Try again", onClick = onRetry)
     }
 }
@@ -372,7 +372,7 @@ private fun IdleOverlay(downloadReady: Boolean, hasBook: Boolean, onStart: () ->
                 !downloadReady -> "Download the audiobook to read along."
                 else -> "Read along with the narration."
             },
-            style = IosType.subheadline,
+            style = AppType.bodyMedium,
             color = palette.textSecondary,
             textAlign = TextAlign.Center,
         )

@@ -19,6 +19,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,20 +42,17 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.semibold
 
 /** iOS: `AbstandPrimaryButtonStyle.fillOpacity` — deaktiviert 35 % Akzent. */
 private const val DisabledFillOpacity = 0.35f
-/** Icon-Größe in Button-Labels (iOS: SF-Symbol in `.body`). */
-private val ButtonIconSize = 20.dp
-/** iOS: `.padding(.vertical, 14)` im Primary-Style. */
-private val PrimaryVerticalPadding = 14.dp
-/** iOS: `.padding(.horizontal, 14)` / `.padding(.vertical, 8)` im Prominent-Style. */
-private val ProminentHorizontalPadding = 14.dp
-private val ProminentVerticalPadding = 8.dp
+/** Icon-Größe in Button-Labels (M3: 18 dp). */
+private val ButtonIconSize = AppTheme.Layout.smallIconSize
+/** M3 Filled Button: 24 dp seitlich, Höhe [AppTheme.Layout.buttonHeight] (40 dp). */
+private val ButtonContentPadding = PaddingValues(horizontal = AppTheme.Layout.buttonHorizontalPadding)
 
 /** Akzent- bzw. bei [destructive] Danger-Fläche (iOS: `.environment(\.themeAccent, AppTheme.danger)`). */
 @Composable
@@ -71,8 +69,8 @@ private fun accentButtonColors(destructive: Boolean = false): androidx.compose.m
 
 /**
  * iOS: `AbstandPrimaryButtonStyle` — vollbreite Primäraktion (Login, Bestätigen) in
- * Akzentfarbe, `body.semibold`, Ecken `cardCornerRadius`. Material-`Button` mit Ripple
- * statt iOS-Druckskalierung.
+ * Akzentfarbe. Android: M3 Filled Button (40 dp hoch, volle Rundung, `labelLarge`, 24 dp
+ * seitlich), Ripple statt iOS-Druckskalierung.
  */
 @Composable
 fun AbstandPrimaryButton(
@@ -85,11 +83,11 @@ fun AbstandPrimaryButton(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
         enabled = enabled,
-        shape = RoundedCornerShape(AppTheme.Layout.cardCornerRadius),
+        shape = CircleShape,
         colors = accentButtonColors(),
-        contentPadding = PaddingValues(horizontal = AppTheme.Layout.cardPadding, vertical = PrimaryVerticalPadding),
+        contentPadding = ButtonContentPadding,
     ) {
-        ProvideTextStyle(IosType.body.semibold) { content() }
+        ProvideTextStyle(AppType.labelLarge) { content() }
     }
 }
 
@@ -125,13 +123,11 @@ fun AbstandProminentButton(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
-        shape = if (capsule) CircleShape else RoundedCornerShape(AppTheme.Layout.cardCornerRadius),
+        shape = CircleShape,
         colors = accentButtonColors(destructive),
-        contentPadding = if (capsule) PaddingValues(0.dp) else PaddingValues(
-            horizontal = ProminentHorizontalPadding, vertical = ProminentVerticalPadding,
-        ),
+        contentPadding = if (capsule) PaddingValues(0.dp) else ButtonContentPadding,
     ) {
-        ProvideTextStyle(IosType.body.semibold) { content() }
+        ProvideTextStyle(AppType.labelLarge) { content() }
     }
 }
 
@@ -179,15 +175,16 @@ enum class AbstandIconButtonStyle {
 
 /** Standardmaße für [AbstandIconButton]. */
 object AbstandIconButtonDefaults {
-    /** Symbolgröße (Material-Standard, iOS: SF-Symbol in `.title3`). */
-    val iconSize = 24.dp
+    /** Symbolgröße (M3: 24 dp, iOS: SF-Symbol in `.title3`). */
+    val iconSize = AppTheme.Layout.iconSize
     /** Deckkraft deaktivierter Symbole. */
     const val disabledOpacity = 0.35f
 }
 
 /**
- * **Der** Icon-Button der App. [size] = Trefferfläche (`minTapTarget`, `iconButtonSize`,
- * `compactIconButtonSize`); [tint] `Unspecified` = Toolbar-/Inhaltsfarbe (Plain), Akzent (Tonal),
+ * **Der** Icon-Button der App (M3: 40-dp-Container, 24-dp-Symbol). [size] = sichtbarer Container
+ * (`iconButtonSize`, `compactIconButtonSize`, größere Player-Knöpfe); die Trefferfläche ist immer
+ * mindestens `minTapTarget` (48 dp, `minimumInteractiveComponentSize`). [tint] `Unspecified` = Toolbar-/Inhaltsfarbe (Plain), Akzent (Tonal),
  * `onAccent` (Filled). [containerColor] überschreibt die Tonal-Fläche (Standard `palette.card`).
  * Deaktiviert: Symbol mit 35 % Deckkraft.
  */
@@ -199,7 +196,7 @@ fun AbstandIconButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     style: AbstandIconButtonStyle = AbstandIconButtonStyle.Plain,
-    size: Dp = if (style == AbstandIconButtonStyle.Plain) AppTheme.Layout.minTapTarget else AppTheme.Layout.iconButtonSize,
+    size: Dp = AppTheme.Layout.iconButtonSize,
     iconSize: Dp = AbstandIconButtonDefaults.iconSize,
     tint: Color = Color.Unspecified,
     containerColor: Color = Color.Unspecified,
@@ -217,7 +214,7 @@ fun AbstandIconButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     style: AbstandIconButtonStyle = AbstandIconButtonStyle.Plain,
-    size: Dp = if (style == AbstandIconButtonStyle.Plain) AppTheme.Layout.minTapTarget else AppTheme.Layout.iconButtonSize,
+    size: Dp = AppTheme.Layout.iconButtonSize,
     tint: Color = Color.Unspecified,
     containerColor: Color = Color.Unspecified,
     content: @Composable () -> Unit,
@@ -238,6 +235,7 @@ fun AbstandIconButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
+            .minimumInteractiveComponentSize()
             .size(size)
             .clip(CircleShape)
             .background(container)
@@ -255,8 +253,8 @@ fun AbstandIconButton(
 
 /** Maße der [AbstandPlayPill]. */
 object AbstandPlayPillMetrics {
-    /** Play/Pause-Symbol in der Pille. */
-    val iconSize = 14.dp
+    /** Play/Pause-Symbol in der Pille (M3-Button-Symbol). */
+    val iconSize = AppTheme.Layout.smallIconSize
     /** iOS: Rückfall auf den echten Player-Zustand nach optimistischem Umschalten. */
     const val optimisticResetMillis = 2_500L
 }
@@ -264,7 +262,9 @@ object AbstandPlayPillMetrics {
 /**
  * iOS: `LibraryRowPlayPill` / `ContinueHeroPlayPillButton` — Akzent-Kapsel mit Play/Pause und
  * optionalem [caption] (Restzeit). [isPlaying] = echter Zustand; der Tap schaltet sofort
- * optimistisch um und fällt nach 2,5 s auf [isPlaying] zurück. [height] `null` = Inhaltshöhe.
+ * optimistisch um und fällt nach 2,5 s auf [isPlaying] zurück. Android: M3-Button-Maße — mit
+ * [caption] 40 dp hoch (`labelLarge`, 18-dp-Symbol, 8 dp Abstand), nur Symbol 32 dp
+ * (kompakte Zeilen). [height] überschreibt die Höhe.
  */
 @Composable
 fun AbstandPlayPill(
@@ -272,9 +272,9 @@ fun AbstandPlayPill(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     caption: String? = null,
-    height: Dp? = null,
-    captionStyle: androidx.compose.ui.text.TextStyle = IosType.subheadline.semibold,
-    horizontalPadding: Dp = AppTheme.Layout.cardPadding,
+    height: Dp = if (caption != null) AppTheme.Layout.buttonHeight else AppTheme.Layout.compactIconButtonSize,
+    captionStyle: androidx.compose.ui.text.TextStyle = AppType.labelLarge,
+    horizontalPadding: Dp = if (caption != null) AppTheme.Layout.screenPadding else AppTheme.Layout.menuItemHorizontalPadding,
 ) {
     var optimistic by remember { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(isPlaying) { optimistic = null }
@@ -288,7 +288,7 @@ fun AbstandPlayPill(
     val onAccent = Theme.onAccent
     Row(
         modifier
-            .let { if (height != null) it.height(height) else it }
+            .height(height)
             .clip(CircleShape)
             .background(Theme.accent)
             .clickable(role = Role.Button) {
@@ -299,9 +299,9 @@ fun AbstandPlayPill(
                 contentDescription = if (showsPause) "Pause" else "Play"
                 if (caption != null) stateDescription = if (showsPause) "Playing" else "$caption left"
             }
-            .padding(horizontal = horizontalPadding, vertical = if (height == null) AppTheme.Layout.stackSpacing else 0.dp),
+            .padding(horizontal = horizontalPadding),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing),
+        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing),
     ) {
         Icon(if (showsPause) SF.pauseFill else SF.playFill, contentDescription = null, tint = onAccent, modifier = Modifier.size(AbstandPlayPillMetrics.iconSize))
         if (caption != null) Text(caption, style = captionStyle, color = onAccent, maxLines = 1)
@@ -312,8 +312,8 @@ fun AbstandPlayPill(
 
 /**
  * Text-Knopf ohne Fläche (Dialog-/Toolbar-Aktionen, „Show all“): Akzent, [destructive] = danger,
- * [emphasized] = semibold, [compact] = `subheadline` statt `body` (Aktionen im Inhalt).
- * Ersetzt rohes `TextButton { Text(…) }`.
+ * [emphasized] = semibold, [compact] = schmalerer Innenabstand (8 dp) für Aktionen im Inhalt.
+ * M3 Text Button: `labelLarge`, 12 dp seitlich, 40 dp hoch. Ersetzt rohes `TextButton { Text(…) }`.
  */
 @Composable
 fun AbstandTextButton(
@@ -331,10 +331,13 @@ fun AbstandTextButton(
         destructive -> AppTheme.danger
         else -> Theme.accent
     }
-    androidx.compose.material3.TextButton(onClick = onClick, enabled = enabled, modifier = modifier) {
+    androidx.compose.material3.TextButton(
+        onClick = onClick, enabled = enabled, modifier = modifier,
+        contentPadding = if (compact) PaddingValues(horizontal = AppTheme.Layout.inlineSpacing) else ButtonDefaults.TextButtonContentPadding,
+    ) {
         Text(
             text,
-            style = (if (compact) IosType.subheadline else IosType.body).let { if (emphasized) it.semibold else it },
+            style = if (emphasized) AppType.labelLarge.semibold else AppType.labelLarge,
             color = if (enabled) base else Theme.palette.textSecondary.copy(alpha = 0.5f),
             maxLines = 1,
         )

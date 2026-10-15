@@ -36,7 +36,7 @@ import de.letzgo.abstand.transcript.PlayerTranscriptWordLookupSelection
 import de.letzgo.abstand.transcript.TranslationTargetLanguage
 import de.letzgo.abstand.transcript.WordLookupLinks
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.bold
@@ -60,12 +60,12 @@ fun TranscriptWordLookupSheet(selection: PlayerTranscriptWordLookupSelection, on
     val samePair = TranslationTargetLanguage.sameLanguage(selection.sourceLocale, target)
 
     AbstandSheet(title = "Look up & translate", onDismiss = onDismiss, onConfirm = onDismiss, confirmLabel = "Done") {
-        Text(selection.term, style = IosType.title2.bold, color = palette.textPrimary, modifier = Modifier.fillMaxWidth())
+        Text(selection.term, style = AppType.titleLarge.bold, color = palette.textPrimary, modifier = Modifier.fillMaxWidth())
 
         selection.sourceLocale?.let { source ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
-                Text("FROM", style = IosType.caption.copy(fontWeight = FontWeight.SemiBold), color = palette.textSecondary)
-                Text(TranslationTargetLanguage.displayName(source.language), style = IosType.subheadline, color = palette.textPrimary)
+                Text("FROM", style = AppType.bodySmall.copy(fontWeight = FontWeight.SemiBold), color = palette.textSecondary)
+                Text(TranslationTargetLanguage.displayName(source.language), style = AppType.bodyMedium, color = palette.textPrimary)
             }
         }
         Column(
@@ -89,7 +89,7 @@ fun TranscriptWordLookupSheet(selection: PlayerTranscriptWordLookupSelection, on
         if (samePair) {
             Text(
                 "Source and target language are the same — translation is not needed.",
-                style = IosType.caption,
+                style = AppType.bodySmall,
                 color = palette.textSecondary,
             )
         } else {
@@ -111,7 +111,7 @@ fun TranscriptWordLookupSheet(selection: PlayerTranscriptWordLookupSelection, on
         }
         Text(
             "There is no on-device dictionary on Android — translation and search open in another app.",
-            style = IosType.caption,
+            style = AppType.bodySmall,
             color = palette.textSecondary,
         )
     }

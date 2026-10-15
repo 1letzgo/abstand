@@ -35,7 +35,7 @@ import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.AbsBook
 import de.letzgo.abstand.data.AbsItemMediaMetadataPatch
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandAlert
@@ -273,7 +273,7 @@ private fun EditMetadataForm(itemId: String, book: AbsBook, onDismiss: () -> Uni
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(SF.plusCircle, contentDescription = null, tint = Theme.accent, modifier = Modifier.width(AppTheme.Layout.coverBadgeSize))
-                        Text("Add series", style = IosType.footnote.medium, color = Theme.accent)
+                        Text("Add series", style = AppType.bodySmall.medium, color = Theme.accent)
                     }
                 }
                 MetadataSheetTextField("Description", descriptionText, { descriptionText = it }, minLines = 3, maxLines = 8)
@@ -371,7 +371,7 @@ private fun SeriesSuggestionsList(names: List<String>, onPick: (String) -> Unit)
     ) {
         names.forEachIndexed { index, name ->
             Text(
-                name, style = IosType.subheadline, color = palette.textPrimary,
+                name, style = AppType.bodyMedium, color = palette.textPrimary,
                 modifier = Modifier.fillMaxWidth().clickable { onPick(name) }
                     .padding(horizontal = MetadataSheetMetrics.fieldInsetH, vertical = AppTheme.Layout.rowVerticalPadding),
             )

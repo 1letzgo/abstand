@@ -29,7 +29,7 @@ import de.letzgo.abstand.data.AbsBook
 import de.letzgo.abstand.data.AbsPodcastEpisodeListItem
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCardBottomProgress
 import de.letzgo.abstand.ui.components.LibraryRowCollapsedMetaLine
@@ -86,7 +86,7 @@ fun HomeCompactCard(
             ) {
                 Text(
                     title,
-                    style = IosType.headline.semibold,
+                    style = AppType.titleMedium.semibold,
                     color = palette.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -109,7 +109,7 @@ fun HomeCompactCard(
 /** Fußzeile (Laufzeit/Lesefortschritt) — `subheadline`, monospaced-Ziffern-Rolle, `textSecondary`. */
 @Composable
 fun HomeCompactFooterText(text: String) {
-    Text(text, style = IosType.subheadline, color = Theme.palette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Text(text, style = AppType.bodyMedium, color = Theme.palette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 

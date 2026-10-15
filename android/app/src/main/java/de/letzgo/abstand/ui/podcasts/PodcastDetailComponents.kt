@@ -34,7 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.bold
@@ -93,13 +93,13 @@ internal fun PodcastDetailHeroInfo(
         verticalArrangement = Arrangement.spacedBy(PodcastDetailMetrics.heroInfoLineSpacing),
     ) {
         Text(
-            title, style = IosType.title.bold, color = palette.textPrimary, textAlign = TextAlign.Center,
+            title, style = AppType.headlineSmall.bold, color = palette.textPrimary, textAlign = TextAlign.Center,
             modifier = Modifier.semantics { heading() },
         )
         if (!subtitle.isNullOrEmpty()) {
             Text(
                 subtitle,
-                style = IosType.title3,
+                style = AppType.titleLarge,
                 color = if (onSubtitleClick != null) Theme.accent else palette.textSecondary,
                 textAlign = TextAlign.Center,
                 modifier = if (onSubtitleClick != null) Modifier.clickable(onClick = onSubtitleClick) else Modifier,
@@ -107,7 +107,7 @@ internal fun PodcastDetailHeroInfo(
         }
         val tertiary = tertiaryParts.filter { it.isNotEmpty() }.joinToString(" · ")
         if (tertiary.isNotEmpty()) {
-            Text(tertiary, style = IosType.subheadline, color = palette.textSecondary, textAlign = TextAlign.Center)
+            Text(tertiary, style = AppType.bodyMedium, color = palette.textSecondary, textAlign = TextAlign.Center)
         }
     }
 }
@@ -179,7 +179,7 @@ internal fun PodcastDetailMetaField(title: String, icon: ImageVector? = null, co
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(PodcastDetailMetrics.labelToContentSpacing)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
             if (icon != null) Icon(icon, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(MetaIconSize))
-            Text(title, style = IosType.subheadline.semibold, color = palette.textSecondary)
+            Text(title, style = AppType.bodyMedium.semibold, color = palette.textSecondary)
         }
         content()
     }
@@ -188,7 +188,7 @@ internal fun PodcastDetailMetaField(title: String, icon: ImageVector? = null, co
 /** iOS: `DetailMetaTextBlock`. */
 @Composable
 internal fun PodcastDetailMetaText(text: String) {
-    Text(text, style = IosType.body, color = Theme.palette.textPrimary, modifier = Modifier.fillMaxWidth())
+    Text(text, style = AppType.bodyLarge, color = Theme.palette.textPrimary, modifier = Modifier.fillMaxWidth())
 }
 
 /** iOS: `DetailMetaExpandableTextBlock` — 4 Zeilen, „More“/„Less“ ab ~200 Zeichen. */
@@ -198,7 +198,7 @@ internal fun PodcastDetailExpandableText(text: String, expanded: MutableState<Bo
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
         Text(
             text,
-            style = IosType.body,
+            style = AppType.bodyLarge,
             color = Theme.palette.textPrimary,
             maxLines = if (expanded.value || !canExpand) Int.MAX_VALUE else PodcastDetailMetrics.descriptionCollapsedLineLimit,
             overflow = TextOverflow.Ellipsis,
@@ -206,7 +206,7 @@ internal fun PodcastDetailExpandableText(text: String, expanded: MutableState<Bo
         if (canExpand) {
             Text(
                 if (expanded.value) "Less" else "More",
-                style = IosType.subheadline.semibold,
+                style = AppType.bodyMedium.semibold,
                 color = Theme.accent,
                 modifier = Modifier.clickable { expanded.value = !expanded.value },
             )
@@ -223,7 +223,7 @@ internal fun PodcastDetailDisclosure(title: String, expanded: MutableState<Boole
             Modifier.fillMaxWidth().clickable { expanded.value = !expanded.value },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(title, style = IosType.subheadline.semibold, color = palette.textSecondary, modifier = Modifier.weight(1f))
+            Text(title, style = AppType.bodyMedium.semibold, color = palette.textSecondary, modifier = Modifier.weight(1f))
             Icon(
                 if (expanded.value) SF.chevronDown else SF.chevronRight,
                 contentDescription = if (expanded.value) "Collapse" else "Expand",

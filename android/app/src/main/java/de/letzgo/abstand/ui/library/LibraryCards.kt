@@ -47,7 +47,7 @@ import de.letzgo.abstand.model.LibraryBookCardStyle
 import de.letzgo.abstand.player.PlaybackController
 import de.letzgo.abstand.store.CoverImageCache
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.LocalAbstandCardShadowEnabled
 import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.SF
@@ -238,7 +238,7 @@ fun BookRowCard(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
                             Text(
-                                book.displayTitle, style = IosType.headline.semibold, color = palette.textPrimary, maxLines = 1,
+                                book.displayTitle, style = AppType.titleMedium.semibold, color = palette.textPrimary, maxLines = 1,
                                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).alpha(fade),
                             )
                             AbstandStatusBadges(
@@ -255,7 +255,7 @@ fun BookRowCard(
                                 val label = if (ebookMetrics) LibraryRowLiveState.ebookProgressLabel(live.ebookFraction)
                                 else formatPlaybackTime(book.media.duration ?: 0.0)
                                 if (label != null) {
-                                    Text(label, style = IosType.subheadline.copy(fontFamily = FontFamily.Default), color = palette.textSecondary, maxLines = 1)
+                                    Text(label, style = AppType.bodyMedium.copy(fontFamily = FontFamily.Default), color = palette.textSecondary, maxLines = 1)
                                 }
                             }
                             if (showsPlaybackControls && book.isPlayableAudiobook && !ebookMetrics) {
@@ -336,7 +336,7 @@ fun LibraryHeroBookCard(
                 verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.continueHeroMetadataTitleDetailSpacing),
             ) {
                 Text(
-                    book.displayTitle, style = IosType.headline.semibold, color = palette.textPrimary, maxLines = 2,
+                    book.displayTitle, style = AppType.titleMedium.semibold, color = palette.textPrimary, maxLines = 2,
                     minLines = 2, overflow = TextOverflow.Ellipsis,
                 )
                 LibraryRowCollapsedMetaLine("Author", authorLine, valueMaxLines = 1)
@@ -350,7 +350,7 @@ fun LibraryHeroBookCard(
                     Row(Modifier.padding(top = AppTheme.Layout.continueHeroMetadataPlayPillTopPadding), verticalAlignment = Alignment.CenterVertically) {
                         val label = if (ebookMetrics) LibraryRowLiveState.ebookProgressLabel(live.ebookFraction) ?: formatPlaybackTime(0.0)
                         else formatPlaybackTime(totalDuration)
-                        Text(label, style = IosType.subheadline, color = palette.textSecondary, modifier = Modifier.weight(1f))
+                        Text(label, style = AppType.bodyMedium, color = palette.textSecondary, modifier = Modifier.weight(1f))
                         if (isFinished) Icon(SF.checkmarkCircleFill, "Finished", tint = Theme.accent, modifier = Modifier.size(HeroStatusIconSize))
                         if (showsDownloadStatus && live.isDownloaded) {
                             Icon(SF.arrowDownCircleFill, "Saved offline", tint = Theme.accent, modifier = Modifier.size(HeroStatusIconSize))
@@ -482,7 +482,7 @@ fun BrowseEntityRowCard(
             Modifier.weight(1f).fillMaxSize().padding(top = LibraryRowLayout.textInset, end = LibraryRowLayout.textInset, bottom = LibraryRowLayout.textInset),
             verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing),
         ) {
-            Text(title, style = IosType.headline.semibold, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = AppType.titleMedium.semibold, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (authorLine != null) LibraryRowCollapsedMetaLine("Author", authorLine, valueMaxLines = 1)
             Spacer(Modifier.weight(1f))
             LibraryRowCollapsedMetaLine(detailLabel, detailValue)
@@ -509,7 +509,7 @@ fun FacetBrowseTileCard(kind: BooksBrowseSection, title: String, count: Int?, on
         Box(Modifier.fillMaxSize()) {
             Icon(kind.icon, null, tint = Theme.accent, modifier = Modifier.padding(AbstandCoverPillMetrics.inset).size(FacetTileMetrics.iconSize))
             Text(
-                title, style = IosType.headline.semibold, color = palette.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                title, style = AppType.titleMedium.semibold, color = palette.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.BottomStart).padding(AppTheme.Layout.cardPadding),
             )
             if (count != null && count > 0) {

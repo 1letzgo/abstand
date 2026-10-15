@@ -18,7 +18,7 @@ import de.letzgo.abstand.data.ServerHTTPHeader
 import de.letzgo.abstand.model.AdminStore
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
@@ -99,7 +99,7 @@ fun SettingsChangePasswordScreen(onBack: () -> Unit, model: AppModel = AppModel.
                     },
                 )
                 status?.let { (text, isError) ->
-                    Text(text, style = IosType.footnote, color = if (isError) AppTheme.danger else AppTheme.success, modifier = Modifier.fillMaxWidth())
+                    Text(text, style = AppType.bodySmall, color = if (isError) AppTheme.danger else AppTheme.success, modifier = Modifier.fillMaxWidth())
                 }
             }
         }

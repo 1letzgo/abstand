@@ -42,7 +42,7 @@ import de.letzgo.abstand.logic.StatsLogic
 import de.letzgo.abstand.logic.StatsLogic.HeatmapMetrics
 import de.letzgo.abstand.ui.AppColorPalette
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.bold
@@ -139,7 +139,7 @@ private fun CalendarCard(
                         else m.semantics { heading() }
                     }
                     Text(
-                        heatmap.monthTitle, style = IosType.title2.bold, color = palette.textPrimary,
+                        heatmap.monthTitle, style = AppType.titleLarge.bold, color = palette.textPrimary,
                         maxLines = 1, textAlign = TextAlign.Center, modifier = titleModifier,
                     )
                     NavButton(SF.chevronRight, "Next month", canGoForward, onForward)
@@ -148,7 +148,7 @@ private fun CalendarCard(
                 Row(Modifier.width(layout.gridWidth.dp), horizontalArrangement = Arrangement.spacedBy(colGap)) {
                     (0 until 7).forEach { col ->
                         Text(
-                            layout.weekdayLabel(col), style = IosType.caption2.semibold, color = palette.textSecondary,
+                            layout.weekdayLabel(col), style = AppType.labelSmall.semibold, color = palette.textSecondary,
                             textAlign = TextAlign.Center, maxLines = 1,
                             modifier = Modifier.width(block).height(HeatmapMetrics.WEEKDAY_HEADER_HEIGHT.dp),
                         )
@@ -202,7 +202,7 @@ private fun DayCell(
         .size(blockSize.dp)
         .alpha(if (inMonth) 1f else OutOfMonthAlpha)
         .background(HeatmapColors.fill(shownLevel, palette, accent), CircleShape)
-        .border(AppTheme.Layout.hairlineStrokeWidth, HeatmapColors.outline(shownLevel, palette, accent), CircleShape)
+        .border(AppTheme.Layout.hairlineWidth, HeatmapColors.outline(shownLevel, palette, accent), CircleShape)
     if (isSelected) m = m.border(AppTheme.Layout.boldStrokeWidth, accent, CircleShape)
     if (cell != null && cell.isInDisplayedMonth) {
         m = m.clickable { onSelect(cell.id) }.semantics {
@@ -231,18 +231,18 @@ private fun HeatmapLegend(blockSize: Double, palette: AppColorPalette, accent: C
     val dot = minOf(9.0, maxOf(5.0, blockSize * 0.45)).dp
     Row(
         Modifier.fillMaxWidth().padding(top = HeatmapMetrics.LEGEND_TOP_PADDING.dp),
-        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.badgeSpacing, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Less", style = IosType.caption2, color = palette.textSecondary)
+        Text("Less", style = AppType.labelSmall, color = palette.textSecondary)
         (0 until 5).forEach { level ->
             Box(
                 Modifier.size(dot)
                     .background(HeatmapColors.fill(level, palette, accent), CircleShape)
-                    .border(AppTheme.Layout.hairlineStrokeWidth, HeatmapColors.outline(level, palette, accent), CircleShape),
+                    .border(AppTheme.Layout.hairlineWidth, HeatmapColors.outline(level, palette, accent), CircleShape),
             )
         }
-        Text("More", style = IosType.caption2, color = palette.textSecondary)
+        Text("More", style = AppType.labelSmall, color = palette.textSecondary)
     }
 }
 
@@ -274,7 +274,7 @@ fun StatsTimelineMetricCard(title: String, value: String, accessibility: String,
     AbstandGroupedCard(modifier.semantics { contentDescription = accessibility }) {
         Column(Modifier.abstandCardListRowFrame(), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing, Alignment.CenterVertically)) {
             AbstandCapsLabel(title, maxLines = 2)
-            Text(value, style = IosType.headline.bold, color = palette.textPrimary, maxLines = 1)
+            Text(value, style = AppType.titleMedium.bold, color = palette.textPrimary, maxLines = 1)
         }
     }
 }

@@ -46,7 +46,7 @@ import de.letzgo.abstand.data.CoverImageTier
 import de.letzgo.abstand.data.swiftTrim
 import de.letzgo.abstand.model.PlayerWiring
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.bold
@@ -282,9 +282,9 @@ private fun TitleArea(wiring: PlayerWiring, book: AbsBook) {
         Modifier.fillMaxWidth().padding(bottom = MiniPlayerMetrics.titleToScrubberSpacing),
         verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing),
     ) {
-        Text(book.displayTitle, style = IosType.title2.bold, color = palette.textPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        Text(book.displayTitle, style = AppType.titleLarge.bold, color = palette.textPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis)
         if (secondary.isNotEmpty() && secondary != "—") {
-            Text(secondary, style = IosType.title3, color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(secondary, style = AppType.titleLarge, color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

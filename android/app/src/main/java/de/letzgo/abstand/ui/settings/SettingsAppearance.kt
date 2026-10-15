@@ -32,7 +32,7 @@ import de.letzgo.abstand.model.LibraryCardStyle
 import de.letzgo.abstand.ui.Appearance
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppearanceMode
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
@@ -210,7 +210,7 @@ private fun HomeShelfCard(
             horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
         ) {
             SettingsCardIcon(SF.named(AbsStartShelfLocalization.stripSystemImage(category)) ?: SF.rectangleStack)
-            Text(title, style = IosType.body, color = palette.textPrimary, modifier = Modifier.weight(1f))
+            Text(title, style = AppType.bodyLarge, color = palette.textPrimary, modifier = Modifier.weight(1f))
             Switch(checked = enabled, onCheckedChange = onEnabledChange, colors = abstandSwitchColors())
             if (!isContinueListening) {
                 Box(

@@ -37,7 +37,7 @@ import de.letzgo.abstand.data.AbsListeningSession
 import de.letzgo.abstand.data.absPlainText
 import de.letzgo.abstand.model.PlayerWiring
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCardEmptyState
@@ -112,7 +112,7 @@ fun DescriptionPanel(book: AbsBook) {
     }
     Text(
         text,
-        style = IosType.body,
+        style = AppType.bodyLarge,
         color = palette.textPrimary,
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(AppTheme.Layout.cardPadding),
     )
@@ -145,13 +145,13 @@ fun ChaptersPanel(wiring: PlayerWiring) {
             ) {
                 Text(
                     c.title.trim().ifEmpty { "Chapter ${i + 1}" },
-                    style = if (active) IosType.body.semibold else IosType.body,
+                    style = if (active) AppType.bodyLarge.semibold else AppType.bodyLarge,
                     color = if (active) Theme.accent else palette.textPrimary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Text(formatPlaybackTime(c.start), style = IosType.footnote, color = palette.textSecondary)
+                Text(formatPlaybackTime(c.start), style = AppType.bodySmall, color = palette.textSecondary)
             }
         }
     }

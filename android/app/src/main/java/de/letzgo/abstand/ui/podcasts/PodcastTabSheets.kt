@@ -46,7 +46,7 @@ import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.PodcastLogic
 import de.letzgo.abstand.model.PodcastStore
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
@@ -352,19 +352,19 @@ internal fun PodcastDirectoryHitRow(
                     .padding(end = AppTheme.Layout.libraryRowTextInset),
                 verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing),
             ) {
-                Text(hit.title, style = IosType.headline, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(hit.title, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 hit.artistName?.takeIf { it.isNotEmpty() }?.let {
-                    Text(it, style = IosType.subheadline, color = palette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(it, style = AppType.bodyMedium, color = palette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 directoryHitContextLine(hit)?.let {
-                    Text(it, style = IosType.caption, color = palette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(it, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Spacer(Modifier.weight(1f))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val n = hit.trackCount ?: 0
                     Text(
                         if (n > 0) (if (n == 1) "1 episode" else "$n episodes") else "",
-                        style = IosType.subheadline, color = palette.textSecondary, modifier = Modifier.weight(1f),
+                        style = AppType.bodyMedium, color = palette.textSecondary, modifier = Modifier.weight(1f),
                     )
                     if (isInLibrary) {
                         PodcastInLibraryLabel()
@@ -381,8 +381,8 @@ internal fun PodcastDirectoryHitRow(
 
 /** Einheitlicher „In library“-Status (Icon + Text im Akzent). */
 @Composable
-internal fun PodcastInLibraryLabel(style: androidx.compose.ui.text.TextStyle = IosType.caption.semibold) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.badgeSpacing)) {
+internal fun PodcastInLibraryLabel(style: androidx.compose.ui.text.TextStyle = AppType.bodySmall.semibold) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
         Icon(SF.checkmarkCircleFill, contentDescription = null, tint = Theme.accent, modifier = Modifier.size(InLibraryIconSize))
         Text("In library", style = style, color = Theme.accent)
     }

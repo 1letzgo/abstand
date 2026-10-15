@@ -29,28 +29,28 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.semibold
 
 // Dialoge und Sheets (iOS: `.alert`, `.confirmationDialog`, `.sheet`). Nie rohes `AlertDialog`,
 // `Dialog` oder `ModalBottomSheet` außerhalb von ui/components bauen.
 
-/** Maße der Overlay-Chromes. */
+/** Maße der Overlay-Chromes (Material 3). */
 object AbstandOverlayMetrics {
-    /** Ecken von Dialogen (iOS-Alert ≈ 14 pt, Material 28 dp — dazwischen, passend zu Sheets). */
-    val dialogShape: Shape = RoundedCornerShape(AppTheme.Layout.overlayPadding)
-    /** Obere Ecken von Bottom-Sheets. */
-    val sheetShape: Shape = RoundedCornerShape(topStart = AppTheme.Layout.overlayPadding, topEnd = AppTheme.Layout.overlayPadding)
-    /** iOS: Sheet-Griff 36 × 5. */
-    val grabberWidth = 36.dp
-    val grabberHeight = 5.dp
+    /** M3-Dialog: Ecken extra-large (28 dp). */
+    val dialogShape: Shape = RoundedCornerShape(AppTheme.Layout.cornerExtraLarge)
+    /** M3-Bottom-Sheet: obere Ecken extra-large (28 dp). */
+    val sheetShape: Shape = RoundedCornerShape(topStart = AppTheme.Layout.cornerExtraLarge, topEnd = AppTheme.Layout.cornerExtraLarge)
+    /** M3-Griff 32 × 4 dp (iOS: 36 × 5). */
+    val grabberWidth = AppTheme.Layout.dragHandleWidth
+    val grabberHeight = AppTheme.Layout.dragHandleHeight
     const val grabberOpacity = 0.4f
 }
 
 /**
- * Basis-Dialog im App-Stil: Karte (`palette.card`), Titel `headline`, Text `subheadline`/
- * `textSecondary`, Aktionen als [AbstandTextButton] (Bestätigen semibold in Akzent bzw. danger bei
+ * Basis-Dialog im App-Stil (M3: 28-dp-Ecken, 24 dp Innenabstand): Karte (`palette.card`), Titel
+ * `headlineSmall`, Text `bodyMedium`/`textSecondary`, Aktionen als [AbstandTextButton] (Bestätigen semibold in Akzent bzw. danger bei
  * [destructive], Abbrechen in `textPrimary`). [content] ersetzt/ergänzt den Text (Eingabefeld,
  * Regler). [dismissOnConfirm] = `false` lässt den Dialog nach Bestätigen offen (z. B. bis eine
  * Server-Antwort da ist). [neutralLabel] = dritte Aktion links neben Abbrechen.
@@ -78,11 +78,11 @@ fun AbstandDialog(
         tonalElevation = 0.dp,
         titleContentColor = palette.textPrimary,
         textContentColor = palette.textSecondary,
-        title = { Text(title, style = IosType.headline, color = palette.textPrimary, modifier = Modifier.semantics { heading() }) },
+        title = { Text(title, style = AppType.headlineSmall, color = palette.textPrimary, modifier = Modifier.semantics { heading() }) },
         text = if (message != null || content != null) {
             {
                 Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing)) {
-                    if (message != null) Text(message, style = IosType.subheadline, color = palette.textSecondary)
+                    if (message != null) Text(message, style = AppType.bodyMedium, color = palette.textSecondary)
                     content?.invoke(this)
                 }
             }
@@ -149,20 +149,20 @@ fun AbstandBlockingProgressDialog(text: String) {
         Column(
             Modifier
                 .abstandCardChrome(palette.card, AbstandOverlayMetrics.dialogShape, AppTheme.CardElevation.Hero)
-                .padding(horizontal = AppTheme.Layout.modalHorizontalPadding, vertical = AppTheme.Layout.blockSpacing),
+                .padding(AppTheme.Layout.dialogPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing),
+            verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.screenPadding),
         ) {
             CircularProgressIndicator(
                 color = Theme.accent, strokeWidth = AbstandSpinnerSize.Large.strokeWidth,
                 modifier = Modifier.size(AbstandSpinnerSize.Large.diameter),
             )
-            Text(text, style = IosType.headline.semibold, color = palette.textPrimary, textAlign = TextAlign.Center)
+            Text(text, style = AppType.titleMedium.semibold, color = palette.textPrimary, textAlign = TextAlign.Center)
         }
     }
 }
 
-/** iOS: Sheet-Griff (36 × 5, `textSecondary` 40 %). */
+/** Sheet-Griff (M3 32 × 4 dp, iOS 36 × 5; `textSecondary` 40 %). */
 @Composable
 fun AbstandSheetGrabber(modifier: Modifier = Modifier) {
     Box(
@@ -200,7 +200,7 @@ fun AbstandSheet(
         contentColor = palette.textPrimary,
         tonalElevation = 0.dp,
         dragHandle = {
-            Box(Modifier.padding(vertical = AppTheme.Layout.stackSpacing)) { AbstandSheetGrabber() }
+            Box(Modifier.padding(vertical = AppTheme.Layout.screenPadding)) { AbstandSheetGrabber() }
         },
     ) {
         Column(
@@ -214,7 +214,7 @@ fun AbstandSheet(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (cancelLabel != null) AbstandTextButton(cancelLabel, onDismiss, color = palette.textPrimary)
                 Text(
-                    title, style = IosType.headline, color = palette.textPrimary,
+                    title, style = AppType.titleLarge, color = palette.textPrimary,
                     textAlign = if (cancelLabel != null) TextAlign.Center else TextAlign.Start,
                     modifier = Modifier.weight(1f).semantics { heading() },
                 )

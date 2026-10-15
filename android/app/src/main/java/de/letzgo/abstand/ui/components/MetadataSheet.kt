@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppTheme.CardElevation
 import de.letzgo.abstand.ui.DetailMetaLabelIcon
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.medium
@@ -49,10 +49,10 @@ import de.letzgo.abstand.ui.semibold
 /** iOS: `MetadataSheetMetrics` — Maße der Admin-Metadaten-Sheets. */
 object MetadataSheetMetrics {
     /** Abstand zwischen Formularzeilen innerhalb einer Karte. */
-    val fieldSpacing = 14.dp
-    /** Innenabstand eingelassener Felder. */
-    val fieldInsetH = 12.dp
-    val fieldInsetV = 10.dp
+    val fieldSpacing = 16.dp
+    /** Innenabstand eingelassener Felder (M3-Textfeld: 16 dp → 56 dp Höhe mit `bodyLarge`). */
+    val fieldInsetH = 16.dp
+    val fieldInsetV = 16.dp
     /** Hairline um eingelassene Felder. */
     const val fieldBorderOpacity = 0.18f
     /** Kartenform (wie Detail-Sektionskarte). */
@@ -60,13 +60,12 @@ object MetadataSheetMetrics {
     /** Form eingelassener Felder. */
     val fieldShape: Shape = RoundedCornerShape(AppTheme.Layout.fieldCornerRadius)
     /** iOS: `DetailMetaLayoutMetrics.labelIconSpacing` / `labelToContentSpacing`. */
-    val labelIconSpacing = 5.dp
+    val labelIconSpacing = AppTheme.Layout.tightSpacing
     val labelToContentSpacing = AppTheme.Layout.compactSpacing
 }
 
 /**
- * iOS: `MetadataSheetSectionLabel` — Versalien-Überschrift (`footnote.semibold`, Laufweite 0,6,
- * `textSecondary`) mit optionalem Symbol aus [DetailMetaLabelIcon].
+ * iOS: `MetadataSheetSectionLabel` — Versalien-Überschrift (`labelMedium`, `textSecondary`) mit optionalem Symbol aus [DetailMetaLabelIcon].
  */
 @Composable
 fun MetadataSheetSectionLabel(title: String, modifier: Modifier = Modifier) {
@@ -127,8 +126,8 @@ fun Modifier.metadataSheetFieldChrome(
 fun MetadataSheetFieldLabel(title: String, hint: String? = null) {
     val palette = Theme.palette
     Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = IosType.caption.medium, color = palette.textSecondary)
-        if (hint != null) Text(hint, style = IosType.caption2, color = palette.textSecondary.copy(alpha = 0.7f))
+        Text(title, style = AppType.bodySmall.medium, color = palette.textSecondary)
+        if (hint != null) Text(hint, style = AppType.labelSmall, color = palette.textSecondary.copy(alpha = 0.7f))
     }
 }
 
@@ -157,7 +156,7 @@ fun MetadataSheetTextField(
         MetadataSheetFieldLabel(title, hint)
         Box(Modifier.metadataSheetFieldChrome()) {
             if (value.isEmpty() && placeholder != null) {
-                Text(placeholder, style = IosType.body, color = palette.textSecondary.copy(alpha = 0.55f))
+                Text(placeholder, style = AppType.bodyLarge, color = palette.textSecondary.copy(alpha = 0.55f))
             }
             BasicTextField(
                 value = value,
@@ -165,7 +164,7 @@ fun MetadataSheetTextField(
                 singleLine = maxLines == 1,
                 minLines = minLines,
                 maxLines = maxLines,
-                textStyle = IosType.body.copy(color = palette.textPrimary),
+                textStyle = AppType.bodyLarge.copy(color = palette.textPrimary),
                 cursorBrush = SolidColor(Theme.accent),
                 keyboardOptions = KeyboardOptions(
                     capitalization = capitalization, autoCorrectEnabled = autoCorrect,
@@ -198,12 +197,12 @@ fun AbstandInsetTextField(
         modifier.metadataSheetFieldChrome(horizontalPadding = if (centered) AppTheme.Layout.inlineSpacing else MetadataSheetMetrics.fieldInsetH),
         contentAlignment = if (centered) Alignment.Center else Alignment.CenterStart,
     ) {
-        if (value.isEmpty()) Text(placeholder, style = IosType.body, color = palette.textSecondary.copy(alpha = 0.55f))
+        if (value.isEmpty()) Text(placeholder, style = AppType.bodyLarge, color = palette.textSecondary.copy(alpha = 0.55f))
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
-            textStyle = IosType.body.copy(color = palette.textPrimary, textAlign = if (centered) TextAlign.Center else TextAlign.Start),
+            textStyle = AppType.bodyLarge.copy(color = palette.textPrimary, textAlign = if (centered) TextAlign.Center else TextAlign.Start),
             cursorBrush = SolidColor(Theme.accent),
             keyboardOptions = KeyboardOptions(capitalization = capitalization, autoCorrectEnabled = false, keyboardType = keyboardType),
             modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
@@ -230,7 +229,7 @@ fun <T> MetadataSheetMenuPicker(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
     ) {
-        Text(title, style = IosType.body, color = Theme.palette.textPrimary, modifier = Modifier.weight(1f))
+        Text(title, style = AppType.bodyLarge, color = Theme.palette.textPrimary, modifier = Modifier.weight(1f))
         AbstandPickerValueMenu(selection, options, label, onSelect, expanded) { expanded = it }
     }
 }
@@ -257,8 +256,8 @@ fun MetadataSheetToggleRow(
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing)) {
-            Text(title, style = IosType.body, color = palette.textPrimary)
-            if (subtitle != null) Text(subtitle, style = IosType.caption, color = palette.textSecondary, maxLines = subtitleMaxLines)
+            Text(title, style = AppType.bodyLarge, color = palette.textPrimary)
+            if (subtitle != null) Text(subtitle, style = AppType.bodySmall, color = palette.textSecondary, maxLines = subtitleMaxLines)
         }
         Switch(checked = checked, onCheckedChange = null, colors = abstandSwitchColors())
     }

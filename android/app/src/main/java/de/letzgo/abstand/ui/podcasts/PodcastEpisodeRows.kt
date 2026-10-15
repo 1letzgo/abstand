@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.AbsPodcastEpisodeListItem
 import de.letzgo.abstand.data.AbsUserMediaProgress
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCard
 import de.letzgo.abstand.ui.components.AbstandCardBottomProgress
@@ -96,7 +96,7 @@ internal fun PodcastEpisodeRowCard(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
                     Text(
                         episode.episodeTitle,
-                        style = IosType.headline,
+                        style = AppType.titleMedium,
                         color = palette.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -106,7 +106,7 @@ internal fun PodcastEpisodeRowCard(
                 }
                 Text(
                     episode.showTitle.ifBlank { "—" },
-                    style = IosType.subheadline,
+                    style = AppType.bodyMedium,
                     color = palette.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -116,7 +116,7 @@ internal fun PodcastEpisodeRowCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         formatPlaybackTime(total),
-                        style = IosType.subheadline,
+                        style = AppType.bodyMedium,
                         color = palette.textSecondary,
                         modifier = Modifier.weight(1f).alpha(contentAlpha),
                     )
@@ -155,7 +155,7 @@ internal fun PodcastPlayPill(isPlaying: Boolean, onClick: () -> Unit, modifier: 
 internal fun PodcastRowMetaLine(label: String, value: String) {
     Text(
         "$label: $value",
-        style = IosType.subheadline,
+        style = AppType.bodyMedium,
         color = Theme.palette.textSecondary,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,

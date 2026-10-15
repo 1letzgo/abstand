@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.AbsAudibleChaptersResponse
 import de.letzgo.abstand.data.AbsItemChaptersPayload
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandAlert
@@ -151,7 +151,7 @@ fun ChaptersEditorSheet(itemId: String, onDismiss: () -> Unit) {
                     }
                 }
                 MetadataSheetCard(spacing = AppTheme.Layout.withinSectionSpacing) {
-                    Text(if (preview.size == 1) "1 chapter" else "${preview.size} chapters", style = IosType.caption.medium, color = palette.textSecondary)
+                    Text(if (preview.size == 1) "1 chapter" else "${preview.size} chapters", style = AppType.bodySmall.medium, color = palette.textSecondary)
                     Column {
                         preview.forEachIndexed { idx, ch ->
                             Row(
@@ -159,10 +159,10 @@ fun ChaptersEditorSheet(itemId: String, onDismiss: () -> Unit) {
                                 horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing),
                                 verticalAlignment = Alignment.Top,
                             ) {
-                                Text("${idx + 1}", style = IosType.caption, color = palette.textSecondary, modifier = Modifier.width(IndexColumnWidth))
+                                Text("${idx + 1}", style = AppType.bodySmall, color = palette.textSecondary, modifier = Modifier.width(IndexColumnWidth))
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing)) {
-                                    Text(ch.title.ifEmpty { "Chapter ${idx + 1}" }, style = IosType.subheadline, color = palette.textPrimary, maxLines = 2)
-                                    Text("${formatPlaybackTime(ch.start)} – ${formatPlaybackTime(ch.end)}", style = IosType.caption, color = palette.textSecondary)
+                                    Text(ch.title.ifEmpty { "Chapter ${idx + 1}" }, style = AppType.bodyMedium, color = palette.textPrimary, maxLines = 2)
+                                    Text("${formatPlaybackTime(ch.start)} – ${formatPlaybackTime(ch.end)}", style = AppType.bodySmall, color = palette.textSecondary)
                                 }
                             }
                             if (idx < preview.lastIndex) MetadataSheetCardDivider()

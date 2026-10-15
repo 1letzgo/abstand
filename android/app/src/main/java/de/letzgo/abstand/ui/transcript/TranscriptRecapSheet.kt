@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.letzgo.abstand.transcript.PlayerLiveTranscriptionController
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
@@ -66,13 +66,13 @@ fun TranscriptRecapContent(controller: PlayerLiveTranscriptionController, modifi
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
             Text(
                 "LAST 5 MINUTES",
-                style = IosType.caption.copy(fontWeight = FontWeight.Bold, letterSpacing = RecapTitleTracking),
+                style = AppType.bodySmall.copy(fontWeight = FontWeight.Bold, letterSpacing = RecapTitleTracking),
                 color = palette.textSecondary,
             )
             if (showsTranscript) {
                 Text(
                     "transcript",
-                    style = IosType.caption2.copy(fontWeight = FontWeight.Medium),
+                    style = AppType.labelSmall.copy(fontWeight = FontWeight.Medium),
                     color = palette.textSecondary,
                     modifier = Modifier
                         .background(palette.card.copy(alpha = 0.9f), CircleShape)
@@ -84,7 +84,7 @@ fun TranscriptRecapContent(controller: PlayerLiveTranscriptionController, modifi
             generating -> AbstandLabeledLoadingState(text = "Creating on-device recap…", modifier = Modifier.heightIn(min = RecapMinHeight))
             !text.isNullOrEmpty() -> {
                 SelectionContainer(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                    Text(text!!, style = IosType.body, color = palette.textPrimary, modifier = Modifier.fillMaxWidth())
+                    Text(text!!, style = AppType.bodyLarge, color = palette.textPrimary, modifier = Modifier.fillMaxWidth())
                 }
                 notice?.let { NoticeText(it) }
             }
@@ -107,7 +107,7 @@ private fun NoticeText(notice: String) {
     val palette = Theme.palette
     Text(
         notice,
-        style = IosType.caption,
+        style = AppType.bodySmall,
         color = palette.textSecondary,
         maxLines = 3,
         modifier = Modifier

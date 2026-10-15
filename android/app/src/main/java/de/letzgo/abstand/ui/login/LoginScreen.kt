@@ -35,7 +35,7 @@ import de.letzgo.abstand.data.ServerHTTPHeader
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.SessionStore
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.components.AbstandLabeledTextField
@@ -147,12 +147,12 @@ private fun LoginForm(session: SessionStore, addAccountMode: Boolean, onFinished
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.blockSpacing)) {
         Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
             if (!addAccountMode) {
-                Text("Abstand", style = IosType.largeTitle.bold, color = palette.textPrimary)
-                Text("Audiobookshelf", style = IosType.title3.semibold, color = Theme.accent)
+                Text("Abstand", style = AppType.headlineMedium.bold, color = palette.textPrimary)
+                Text("Audiobookshelf", style = AppType.titleLarge.semibold, color = Theme.accent)
             }
             Text(
                 if (addAccountMode) "Sign in with another Audiobookshelf account." else "Sign in with your Audiobookshelf account.",
-                style = IosType.subheadline,
+                style = AppType.bodyMedium,
                 color = palette.textSecondary,
             )
         }
@@ -174,7 +174,7 @@ private fun LoginForm(session: SessionStore, addAccountMode: Boolean, onFinished
         }
 
         val err = if (addAccountMode) addAccountError else globalError
-        if (!err.isNullOrEmpty()) Text(err, style = IosType.footnote, color = AppTheme.danger)
+        if (!err.isNullOrEmpty()) Text(err, style = AppType.bodySmall, color = AppTheme.danger)
 
         AbstandPrimaryButton(
             text = if (addAccountMode) "Add account" else "Sign in",

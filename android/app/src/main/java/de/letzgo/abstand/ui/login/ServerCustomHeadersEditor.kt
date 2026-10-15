@@ -43,7 +43,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.ServerHTTPHeader
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.medium
@@ -67,7 +67,7 @@ fun ServerCustomHeadersEditor(headers: List<ServerHTTPHeader>, onHeadersChange: 
                     HeaderField("Value", header.value, isSecure = true) { v ->
                         onHeadersChange(headers.map { if (it.id == header.id) it.copy(value = v) else it })
                     }
-                    headerProblem(header)?.let { Text(it, style = IosType.caption, color = AppTheme.danger) }
+                    headerProblem(header)?.let { Text(it, style = AppType.bodySmall, color = AppTheme.danger) }
                 }
                 Box(
                     Modifier
@@ -88,12 +88,12 @@ fun ServerCustomHeadersEditor(headers: List<ServerHTTPHeader>, onHeadersChange: 
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(SF.plusCircleFill, contentDescription = null, tint = Theme.accent)
-            Text("Add header", style = IosType.body.medium, color = Theme.accent)
+            Text("Add header", style = AppType.bodyLarge.medium, color = Theme.accent)
         }
 
         Text(
             "Sent with every request to this server, e.g. for SSO or a reverse proxy that needs its own token. Stored encrypted on this device.",
-            style = IosType.footnote,
+            style = AppType.bodySmall,
             color = palette.textSecondary,
         )
     }
@@ -109,12 +109,12 @@ private fun HeaderField(placeholder: String, value: String, isSecure: Boolean, o
             .background(palette.card)
             .padding(AppTheme.Layout.rowSpacing),
     ) {
-        if (value.isEmpty()) Text(placeholder, style = IosType.body, color = palette.textSecondary.copy(alpha = 0.55f))
+        if (value.isEmpty()) Text(placeholder, style = AppType.bodyLarge, color = palette.textSecondary.copy(alpha = 0.55f))
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
-            textStyle = IosType.body.copy(
+            textStyle = AppType.bodyLarge.copy(
                 color = palette.textPrimary,
                 fontFamily = if (isSecure) null else FontFamily.Monospace,
             ),
@@ -165,8 +165,8 @@ fun ServerCustomHeadersDisclosure(headers: List<ServerHTTPHeader>, onHeadersChan
             horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Custom headers", style = IosType.caption.medium, color = palette.textSecondary)
-            if (usableCount > 0) Text("$usableCount", style = IosType.caption2.semibold, color = palette.textSecondary)
+            Text("Custom headers", style = AppType.bodySmall.medium, color = palette.textSecondary)
+            if (usableCount > 0) Text("$usableCount", style = AppType.labelSmall.semibold, color = palette.textSecondary)
             Spacer(Modifier.weight(1f))
             Icon(SF.chevronDown, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(ChevronSize).rotate(chevronRotation))
         }

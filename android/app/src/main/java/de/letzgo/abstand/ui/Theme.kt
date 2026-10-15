@@ -9,6 +9,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -18,6 +19,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -61,45 +63,38 @@ object AppTheme {
         1f to Color.Black.copy(alpha = 0.45f),
     )
 
-    /** iOS: `AppTheme.CardElevation` — Schatten-Metriken (Farbe aus [AppColorPalette]). */
-    enum class CardElevation(val radius: Dp, val y: Dp) {
-        /** Browse-Icon-Kacheln, kleine Chips. */
-        Subtle(Layout.cardShadowRadiusSubtle, Layout.cardShadowYSubtle),
-        /** Library-Zeilen, Achievements, Stats-Karten. */
-        Standard(Layout.cardShadowRadius, Layout.cardShadowY),
-        /** Continue-Hero-Karten. */
-        Hero(Layout.heroCardShadowRadius, Layout.heroCardShadowY);
-
-        /**
-         * Android-Schatten kennt nur eine Höhe statt Radius + y-Versatz → Material-Elevation-Stufen
-         * (Level 1/2/3 = 1/3/6 dp), optisch am nächsten an den iOS-Schatten.
-         */
-        val shadowElevation: Dp get() = when (this) {
-            Subtle -> 1.dp
-            Standard -> 3.dp
-            Hero -> 6.dp
-        }
+    /**
+     * iOS: `AppTheme.CardElevation` (Schatten-Radius + y-Versatz). Android: Material-3-Elevation-
+     * Stufen, Schattenfarbe aus [AppColorPalette].
+     */
+    enum class CardElevation(val shadowElevation: Dp) {
+        /** Browse-Icon-Kacheln, kleine Chips (M3 Level 1). */
+        Subtle(1.dp),
+        /** Library-Zeilen, Achievements, Stats-Karten (M3 Elevated Card: Level 1). */
+        Standard(1.dp),
+        /** Continue-Hero-Karten, Menüs (M3 Level 2). */
+        Hero(3.dp),
     }
 
-    /** iOS: `AppTheme.ExpandingDock` — Home-Browse „Expanding Dock“. */
+    /**
+     * iOS: `AppTheme.ExpandingDock` — Home-Browse „Expanding Dock“. Android: Maße eines M3-Chips
+     * (40 dp hoch, 8-dp-Abstände, 20-dp-Symbol, 24-dp-Avatar) statt der iOS-Kapsel (46 pt).
+     */
     object ExpandingDock {
         const val inactiveIconOpacity = 0.72f
-        val itemSpacing = 10.dp
-        val horizontalPadding = 18.dp
+        val itemSpacing = 8.dp
+        val horizontalPadding = 16.dp
         val verticalPadding = 4.dp
-        val circleSize = 46.dp
-        val iconSize = 21.dp
-        val activeCoverSize = 28.dp
-        val activeHeight = 46.dp
-        val activeLeadingPadding = 14.dp
-        val activeTrailingPadding = 18.dp
-        val iconLabelSpacing = 9.dp
+        val circleSize = 40.dp
+        val iconSize = 20.dp
+        val activeCoverSize = 24.dp
+        val activeHeight = 40.dp
+        val activeLeadingPadding = 12.dp
+        val activeTrailingPadding = 16.dp
+        val iconLabelSpacing = 8.dp
         const val centerWhenFewThreshold = 4
         /** Überblendung am fixierten ersten Chip; zugleich Abstand zum ersten scrollenden Chip. */
         val pinnedChipFadeWidth = 12.dp
-        /** Zweiseitiger Media-Kind-Umschalter (Audiobooks ↔ Podcasts) in der Library-Leiste. */
-        val binarySwitchInnerPadding = 4.dp
-        val binarySwitchSegmentWidth = 42.dp
         /** iOS: `.spring(response: 0.32, dampingFraction: 0.72)` → Steifigkeit (2π/response)². */
         val selectionAnimation: SpringSpec<Float> =
             spring(dampingRatio = 0.72f, stiffness = ((2 * PI / 0.32) * (2 * PI / 0.32)).toFloat())
@@ -125,111 +120,160 @@ object AppTheme {
         }
     }
 
-    /** iOS: `AppTheme.Layout` — Raster für Tabs, Listen und Karten. Namen und Werte identisch. */
+    /**
+     * iOS: `AppTheme.Layout`. **Namen** wie iOS (Aufrufstellen bleiben lesbar und vergleichbar),
+     * **Werte** nach Material 3: 4-dp-Raster, 16-dp-Rand (Compact) bzw. 24 dp ab Medium-Breite,
+     * 48-dp-Touch-Ziele, Listenzeilen 56/72/88 dp, Ecken nach der M3-Shape-Skala
+     * (4/8/12/16/28). Tabelle M3-Wert ↔ iOS-Wert: `android/UI_TEMPLATES.txt` („Material 3 metrics“).
+     */
     object Layout {
-        /** Tab-Inhalt horizontal. */
-        val tabPaddingH = 16.dp
+        // MARK: Material-3-Grundmaße (ohne iOS-Gegenstück)
+
+        /** M3 Window-Size-Class: ab 600 dp Breite „Medium“ (24-dp-Ränder). */
+        const val mediumWidthBreakpointDp = 600
+        /** M3-Shape-Skala. */
+        val cornerExtraSmall = 4.dp
+        val cornerSmall = 8.dp
+        val cornerMedium = 12.dp
+        val cornerLarge = 16.dp
+        val cornerExtraLarge = 28.dp
+        /** M3-Standard-Symbolgröße (Listen, Toolbars, Menüs). */
+        val iconSize = 24.dp
+        /** M3-Symbol in Buttons, Chips, Segmented Buttons. */
+        val smallIconSize = 18.dp
+        /** M3 Top App Bar (small/center-aligned). */
+        val topAppBarHeight = 64.dp
+        /** M3 Common Buttons (Filled/Tonal/Text). */
+        val buttonHeight = 40.dp
+        /** M3 Button-Innenabstand horizontal (Text-Button: [buttonTextHorizontalPadding]). */
+        val buttonHorizontalPadding = 24.dp
+        val buttonTextHorizontalPadding = 12.dp
+        /** M3 Chips (Assist/Filter/Input/Suggestion). */
+        val chipHeight = 32.dp
+        /** M3 Menü-Eintrag: 48 dp hoch, 12 dp seitlich, Menü min. 112 / max. 280 dp breit. */
+        val menuItemHeight = 48.dp
+        val menuItemHorizontalPadding = 12.dp
+        val menuMinWidth = 112.dp
+        val menuMaxWidth = 280.dp
+        /** M3 Listen: ein-/zwei-/dreizeilig. */
+        val listItemOneLineHeight = 56.dp
+        val listItemTwoLineHeight = 72.dp
+        val listItemThreeLineHeight = 88.dp
+        /** M3 Dialog: Innenabstand 24 dp, Ecken extra-large. */
+        val dialogPadding = 24.dp
+        /** M3 Bottom-Sheet-Griff (32 × 4 dp). */
+        val dragHandleWidth = 32.dp
+        val dragHandleHeight = 4.dp
+        /** M3 Floating Action Button / großer Play-Knopf. */
+        val fabSize = 56.dp
+        val largeFabSize = 96.dp
+
+        // MARK: Ränder und Abstände (iOS-Namen)
+
+        /**
+         * Tab-Inhalt horizontal = M3-Rand: 16 dp Compact, 24 dp ab [mediumWidthBreakpointDp]
+         * (Medium/Expanded).
+         */
+        val tabPaddingH: Dp
+            @Composable @ReadOnlyComposable
+            get() = if (LocalConfiguration.current.screenWidthDp >= mediumWidthBreakpointDp) 24.dp else 16.dp
         /** Abstand von der oberen Safe Area zum ersten fixen Element. */
-        val tabPaddingTop = 16.dp
-        /** Abstand unter dem Großtitel zur nächsten Kopfzeile. */
-        val tabTitleToHeaderBlockSpacing = 16.dp
+        val tabPaddingTop = 8.dp
+        /** Abstand unter der Top-App-Bar zur nächsten Kopfzeile. */
+        val tabTitleToHeaderBlockSpacing = 8.dp
         /** Zwischen Hauptblöcken (Regale, Suchbereich ↔ Liste). */
-        val sectionSpacing = 22.dp
+        val sectionSpacing = 24.dp
         /** Home-Dashboard: Abstand zwischen Kategorie-Regalen. */
         val homeSectionSpacing = 32.dp
-        /** Kategoriezeile ↔ erste Zeile / Karten innerhalb eines Blocks. */
-        val withinSectionSpacing = 10.dp
+        /** Kategoriezeile ↔ erste Zeile / Karten innerhalb eines Blocks; Karten-Abstand in Reihen. */
+        val withinSectionSpacing = 8.dp
 
-        // Basis-Abstände: rowSpacing (Icon ↔ Text), stackSpacing (untereinander), tightSpacing (Titel ↔ Untertitel).
-        /** Horizontal in einer Zeile: Icon/Cover ↔ Textspalte ↔ Trailing-Control. */
-        val rowSpacing = 12.dp
+        /** Horizontal in einer Zeile: Icon/Cover ↔ Textspalte ↔ Trailing-Control (M3-Listen: 16). */
+        val rowSpacing = 16.dp
         /** Vertikal zwischen eng zusammengehörigen Elementen. */
         val stackSpacing = 8.dp
         /** Horizontal zwischen eng zusammengehörigen Elementen einer Zeile (Status + Text). */
         val inlineSpacing = 8.dp
-        /** Titel ↔ direkt zugehöriger Untertitel/Wert. */
+        /** Titel ↔ direkt zugehöriger Untertitel/Wert; Badge-Innenabstand. */
         val tightSpacing = 4.dp
-        /** Kleinster Abstand: Badge-Innenabstand, Icon ↔ Zahl. */
+        /** Kleinster Abstand (M3 `SegmentedGap`): Icon ↔ Zahl, Titel ↔ Detail in Karten. */
         val hairlineSpacing = 2.dp
         /** Chips, Pills, kompakte Meta-Zeilen. */
-        val compactSpacing = 6.dp
-        /** Innenabstand von Karten (rundum). */
-        val cardPadding = 14.dp
+        val compactSpacing = 4.dp
+        /** Innenabstand von Karten (rundum, M3: 16). */
+        val cardPadding = 16.dp
         /** Standard-Innenabstand von Screens/Sheets außerhalb der Tab-Roots. */
         val screenPadding = 16.dp
         /** Großer Abstand zwischen unabhängigen Blöcken in Sheets/Overlays. */
         val blockSpacing = 24.dp
-        /** Haarlinien-Versatz (Trenner). */
+        /** Trenner und Konturlinien (M3 Divider/Outline: 1 dp). */
         val hairlineWidth = 1.dp
-        /** Dünne Konturlinie (Karten-/Kreis-Umrandung). */
-        val hairlineStrokeWidth = 0.5.dp
         /** Kräftigere Konturlinie (aktiver Zustand). */
         val boldStrokeWidth = 2.dp
-        /** Abstand/Innenabstand in Mini-Badges und Legenden-Punkten. */
-        val badgeSpacing = 3.dp
         /** Vertikaler Innenabstand von Pills auf Covern. */
-        val pillVerticalPadding = 5.dp
-        /** Innenabstand von Overlay-Karten über Vollbild-Inhalten. */
-        val overlayPadding = 20.dp
-        /** Horizontaler Außenabstand modaler Popups. */
-        val modalHorizontalPadding = 28.dp
+        val pillVerticalPadding = 4.dp
+        /** Innenabstand von Overlay-Karten über Vollbild-Inhalten (= M3-Dialog-Innenabstand). */
+        val overlayPadding = 24.dp
+        /** Horizontaler Außenabstand modaler Popups / Leerzustände. */
+        val modalHorizontalPadding = 24.dp
         /** Vertikaler Innenabstand ganzseitiger Lade-/Leerzustände. */
         val loadingVerticalPadding = 48.dp
 
-        // Feste Maße
-        /** Mindestgröße für Touch-Ziele; auch quadratische Cover-Thumbs in Zeilen. */
-        val minTapTarget = 44.dp
-        /** Runde Icon-Buttons im Overlay-Chrome. */
+        // MARK: Feste Maße
+
+        /** M3-Mindest-Touch-Ziel (48 dp); auch Plain-Icon-Buttons. */
+        val minTapTarget = 48.dp
+        /** M3-Icon-Button-Container (40 dp, 24-dp-Symbol, liegt in einem 48-dp-Ziel). */
         val iconButtonSize = 40.dp
-        /** Kompakte Icon-Buttons / Breite kleiner Download-Fortschrittsbalken. */
-        val compactIconButtonSize = 36.dp
+        /** Kompakte Icon-Buttons (Stepper, Feld-Löschen) / Breite kleiner Download-Balken. */
+        val compactIconButtonSize = 32.dp
         /** Icon-Spalte in kompakten Zeilen. */
-        val compactIconColumnWidth = 22.dp
+        val compactIconColumnWidth = 24.dp
         /** Kreis-Badges auf Covern (Play, eBook). */
-        val coverBadgeSize = 18.dp
+        val coverBadgeSize = 20.dp
         /** Höhe des Gradient-Scrims am Cover-Fuß. */
         val coverScrimHeight = 72.dp
         /** Label-Spalte in Meta-Zeilen. */
         val metaLabelColumnWidth = 112.dp
         /** Trailing-Wertespalte in Meta-/Aktionszeilen. */
         val metaValueColumnMinWidth = 88.dp
-        /** Vertikaler Innenabstand einer Inhaltszeile ohne Kartenrahmen. */
+        /** Vertikaler Innenabstand einer Inhaltszeile ohne Kartenrahmen (M3-Listen: 8). */
         val rowVerticalPadding = 8.dp
-        /** Icon-Spalte in Settings-/Admin-Kartenzeilen. */
-        val settingsIconColumnWidth = 28.dp
+        /** Icon-Spalte in Settings-/Admin-Kartenzeilen (= M3-Listen-Symbol 24 dp). */
+        val settingsIconColumnWidth = 24.dp
         /** Leerzustand innerhalb eines Scroll-Bereichs (vertikal). */
         val emptyStateVerticalPadding = 32.dp
         /** Detail: Titelblock → Play. */
-        val detailPlayButtonTopPadding = 10.dp
+        val detailPlayButtonTopPadding = 12.dp
         /** Detail: Play → Metadaten. */
         val detailPlayButtonBottomPadding = 12.dp
         /** Detail: Play → erster Meta-Block. */
-        val detailMetaAfterPlaySpacing = 18.dp
+        val detailMetaAfterPlaySpacing = 16.dp
         /** Innenabstand Detail-Sektionskarten. */
-        val detailSectionCardPadding = 14.dp
-        val detailSectionCardCornerRadius = 12.dp
+        val detailSectionCardPadding = 16.dp
+        val detailSectionCardCornerRadius = cornerMedium
         /** Zusatz unter Scroll-Inhalten vor dem Mini-Player ([LocalScrollBottomInset] kommt dazu). */
         val scrollBottomInsetBase = 24.dp
 
-        /** Kompakte Kachel in der Podcast-„Shows“-Leiste. */
-        val podcastShelfCoverCorner = 12.dp
-        /** Textfelder, Suchfeld-Chrome und kleine Control-Karten. */
-        val fieldCornerRadius = podcastShelfCoverCorner
-        /** Kleine Cover-Thumbs / Chips in Metadata-Sheets. */
-        val chipCornerRadius = 6.dp
+        /** Textfelder (M3 Outlined/Filled: extra-small). Suchfeld: [searchFieldHeight], volle Rundung. */
+        val fieldCornerRadius = cornerExtraSmall
+        /** M3 Search Bar / Textfeld-Mindesthöhe. */
+        val searchFieldHeight = 56.dp
+        /** Kleine Cover-Thumbs / Chips in Metadata-Sheets (M3-Chip-Ecke). */
+        val chipCornerRadius = cornerSmall
         /** Reader-Chrome-Hinweis. */
-        val readerChromeCornerRadius = 20.dp
+        val readerChromeCornerRadius = cornerLarge
         /** Level-Badge auf Achievement-Karten. */
-        val achievementBadgeCornerRadius = 10.dp
+        val achievementBadgeCornerRadius = cornerSmall
 
-        /** Abstand Strip ↔ Großtitel oben. */
+        /** Abstand Strip ↔ Top-App-Bar oben. */
         val horizontalBrowseStripToTitleSpacing = 4.dp
         /** Abstand Strip ↔ Scroll-Inhalt unten. */
-        val horizontalBrowseStripToContentSpacing = 10.dp
+        val horizontalBrowseStripToContentSpacing = 8.dp
         val horizontalBrowseStripVerticalPadding = 4.dp
 
-        /** „Continue listening“-Karten. */
-        val continueHeroCardCornerRadius = 16.dp
+        /** „Continue listening“-Karten (M3 large). */
+        val continueHeroCardCornerRadius = cornerLarge
         /** Fallback-Breite, bis die Viewport-Messung steht. */
         val continueHeroCardWidth = 176.dp
         /** Compact (Phone): 1½ Karten sichtbar. */
@@ -255,15 +299,16 @@ object AppTheme {
         val homeCompactCardCoverSide = 80.dp
 
         /** Abstand Titel ↔ Autor/Show. */
-        val continueHeroMetadataTitleDetailSpacing = 2.dp
-        val continueHeroMetadataVerticalPadding = 8.dp
-        /** Genau zwei Zeilen `headline`. */
-        val continueHeroMetadataTitleFixedHeight = 44.dp
-        /** Eine Zeile `.footnote` für Autor/Show. */
+        val continueHeroMetadataTitleDetailSpacing = 4.dp
+        val continueHeroMetadataVerticalPadding = 12.dp
+        /** Genau zwei Zeilen `titleMedium` (2 × 24 sp). */
+        val continueHeroMetadataTitleFixedHeight = 48.dp
+        /** Eine Zeile `bodySmall` für Autor/Show (16 sp + Luft). */
         val continueHeroMetadataDetailFixedHeight = 20.dp
         val continueHeroMetadataPlayPillTopPadding = 8.dp
-        val continueHeroMetadataPlayPillIntrinsicHeight = 34.dp
-        val continueHeroMetadataExtraBottomPadding = 10.dp
+        /** Play-Pille = M3-Button-Höhe. */
+        val continueHeroMetadataPlayPillIntrinsicHeight = buttonHeight
+        val continueHeroMetadataExtraBottomPadding = 12.dp
         /** Fester Textblock unter dem Cover — alle Continue-Hero-Karten gleich hoch. */
         val continueHeroMetadataBlockHeight: Dp = continueHeroMetadataVerticalPadding +
             continueHeroMetadataTitleFixedHeight + continueHeroMetadataTitleDetailSpacing +
@@ -276,33 +321,28 @@ object AppTheme {
             continueHeroMetadataTitleFixedHeight + continueHeroMetadataTitleDetailSpacing +
             continueHeroMetadataDetailFixedHeight + continueHeroMetadataExtraBottomPadding
 
-        val cardCornerRadius = 14.dp
-        /** Karten-Schatten (siehe [CardElevation]). */
-        val cardShadowRadiusSubtle = 6.dp
-        val cardShadowYSubtle = 2.dp
-        val cardShadowRadius = 10.dp
-        val cardShadowY = 4.dp
-        val heroCardShadowRadius = 14.dp
-        val heroCardShadowY = 6.dp
-        /** Mindesthöhe für Zeilen in gruppierten Karten. */
-        val listRowMinHeight = 50.dp
-        /** Horizontaler Innenabstand in Settings-Karten. */
+        /** M3-Karten: medium (12 dp). */
+        val cardCornerRadius = cornerMedium
+        /** Mindesthöhe für Zeilen in gruppierten Karten (M3 einzeilige Liste). */
+        val listRowMinHeight = listItemOneLineHeight
+        /** Horizontaler Innenabstand in Settings-Karten (M3-Listen: 16). */
         val settingsCardInsetHPadding = 16.dp
         /** Vertikaler Innenabstand in Settings-Karten. */
         val settingsCardInsetVPadding = 8.dp
-        /** Vertikaler Abstand um Trennlinien zwischen Settings-Zeilen. */
-        val settingsCardDividerSpacing = 6.dp
-        /** Library-Zeilen — gleiche Abrundung wie Browse-/Podcast-Icon-Kacheln. */
-        val libraryRowCornerRadius = podcastShelfCoverCorner
-        val coverCornerRadius = 11.dp
+        /** Vertikaler Abstand um Trennlinien zwischen Settings-Zeilen (M3: Zeilen tragen die Höhe). */
+        val settingsCardDividerSpacing = 0.dp
+        /** Library-Zeilen — gleiche Abrundung wie Karten. */
+        val libraryRowCornerRadius = cornerMedium
+        /** Cover-Ecken (M3 small). */
+        val coverCornerRadius = cornerSmall
 
         /** Cover in Library-Zeilen: festes 1:1. */
         val libraryRowCoverSide = 100.dp
         /** Abstand Cover ↔ Textspalte in Library-Zeilen. */
-        val libraryRowCardInset = 10.dp
+        val libraryRowCardInset = 12.dp
         /** Titel oben / Laufzeit unten. */
-        val libraryRowTextInset = 6.dp
-        /** Höhe des Fortschrittsstreifens am unteren Kartenrand. */
+        val libraryRowTextInset = 8.dp
+        /** Höhe des Fortschrittsstreifens am unteren Kartenrand (M3 Linear Progress: 4). */
         val libraryRowBottomProgressHeight = 4.dp
 
         /** Max. Breite für Formulare (Login, Sheets) auf großen Screens. */
@@ -311,7 +351,6 @@ object AppTheme {
         val homeBrowseBootstrapMinHeight = 220.dp
         /** iOS: `facetTileGridColumns` (`GridItem(.adaptive(minimum: 160))`) → `GridCells.Adaptive(facetTileMinWidth)`. */
         val facetTileMinWidth = 160.dp
-
         /** iOS: `homeCompactCardWidth(forViewportWidth:)`. */
         fun homeCompactCardWidth(viewport: Dp): Dp {
             if (viewport <= 1.dp) return homeCompactCardFallbackWidth
@@ -507,7 +546,7 @@ fun AbstandTheme(content: @Composable () -> Unit) {
     }
 
     CompositionLocalProvider(LocalResolvedAppearance provides ResolvedAppearance(palette, accent, systemDark)) {
-        MaterialTheme(colorScheme = scheme, typography = IosType.material, content = content)
+        MaterialTheme(colorScheme = scheme, typography = AppType.material, content = content)
     }
 }
 

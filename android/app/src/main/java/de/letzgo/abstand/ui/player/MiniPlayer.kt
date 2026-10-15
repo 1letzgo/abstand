@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.Dp
 import de.letzgo.abstand.model.PlayerWiring
 import de.letzgo.abstand.player.PlaybackSkipDefaults
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandIconButton
@@ -218,13 +218,13 @@ private fun MiniPlayerBar(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring, mo
                     ) {
                         Text(
                             snapshot.primaryLine,
-                            style = IosType.footnote.medium,
+                            style = AppType.bodySmall.medium,
                             color = palette.textPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         snapshot.subtitleText?.let {
-                            Text(it, style = IosType.caption.medium, color = palette.textSecondary, maxLines = 1)
+                            Text(it, style = AppType.bodySmall.medium, color = palette.textSecondary, maxLines = 1)
                         }
                     }
                 }

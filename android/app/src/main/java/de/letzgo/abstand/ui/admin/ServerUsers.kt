@@ -28,7 +28,7 @@ import de.letzgo.abstand.data.AbsAdminUserSummary
 import de.letzgo.abstand.data.AbsListeningSession
 import de.letzgo.abstand.model.AdminStore
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
@@ -126,11 +126,11 @@ private fun ServerUserListRow(user: AbsAdminUserSummary, isOnline: Boolean) {
             Modifier.size(ServerAdminLayoutMetrics.userStatusDotSize).clip(CircleShape)
                 .background(if (isOnline) AppTheme.success else palette.textSecondary.copy(alpha = 0.35f)),
         )
-        Text(user.username, style = IosType.body.medium, color = palette.textPrimary)
+        Text(user.username, style = AppType.bodyLarge.medium, color = palette.textPrimary)
         if (user.isRoot) {
             AbstandBadge("root", tone = AbstandBadgeTone.Accent)
         } else {
-            user.typeLabel?.let { Text(it, style = IosType.caption2, color = palette.textSecondary) }
+            user.typeLabel?.let { Text(it, style = AppType.labelSmall, color = palette.textSecondary) }
         }
         Box(Modifier.weight(1f))
         Icon(SF.chevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(ChevronSize))
@@ -213,7 +213,7 @@ private fun UserHeaderBlock(detail: AbsAdminUserDetail) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing),
     ) {
-        Text(detail.lastSeenCaption(), style = IosType.subheadline, color = palette.textSecondary)
+        Text(detail.lastSeenCaption(), style = AppType.bodyMedium, color = palette.textSecondary)
         detail.typeLabel?.let { type ->
             AbstandBadge(type)
         }
@@ -235,12 +235,12 @@ private fun AdminProgressRowCard(row: AbsAdminMediaProgressRow) {
                 Modifier.weight(1f).height(side).padding(vertical = AppTheme.Layout.libraryRowTextInset).padding(end = AppTheme.Layout.libraryRowTextInset),
                 verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing),
             ) {
-                Text(row.resolvedDisplayTitle, style = IosType.headline, color = palette.textPrimary, maxLines = 1)
-                Text(row.resolvedDisplayAuthor, style = IosType.footnote, color = palette.textSecondary, maxLines = 1)
+                Text(row.resolvedDisplayTitle, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 1)
+                Text(row.resolvedDisplayAuthor, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1)
                 Box(Modifier.weight(1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing)) {
-                    Text(row.progressCaption, style = IosType.subheadline, color = if (row.isFinished) AppTheme.success else Theme.accent)
-                    Text(row.timeCaption(), style = IosType.subheadline, color = palette.textSecondary, maxLines = 1)
+                    Text(row.progressCaption, style = AppType.bodyMedium, color = if (row.isFinished) AppTheme.success else Theme.accent)
+                    Text(row.timeCaption(), style = AppType.bodyMedium, color = palette.textSecondary, maxLines = 1)
                 }
             }
         }
@@ -285,8 +285,8 @@ fun ServerUserListeningSessionsScreen(userId: String, navigator: TabNavigator, a
                 item(key = s.id) {
                     AbstandGroupedCard {
                         Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
-                            Text(s.libraryItemId.ifEmpty { s.id }, style = IosType.subheadline.medium, color = palette.textPrimary)
-                            Text("${formatPlaybackTime(s.startTime)} → ${formatPlaybackTime(s.currentTime)}", style = IosType.caption, color = palette.textSecondary)
+                            Text(s.libraryItemId.ifEmpty { s.id }, style = AppType.bodyMedium.medium, color = palette.textPrimary)
+                            Text("${formatPlaybackTime(s.startTime)} → ${formatPlaybackTime(s.currentTime)}", style = AppType.bodySmall, color = palette.textSecondary)
                         }
                     }
                 }

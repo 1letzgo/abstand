@@ -36,7 +36,7 @@ import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.StatsLogicExt
 import de.letzgo.abstand.model.StatsStore
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
@@ -153,7 +153,7 @@ fun StatsOfflineCacheBanner(fetchedAtMillis: Long) {
     AbstandGroupedCard(horizontalPadding = BannerPadding, verticalPadding = BannerPadding) {
         Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing), verticalAlignment = Alignment.Top) {
             Icon(SF.icloudSlash, contentDescription = null, tint = Theme.accent)
-            Text("Offline — cached $formatted.", style = IosType.caption, color = palette.textSecondary)
+            Text("Offline — cached $formatted.", style = AppType.bodySmall, color = palette.textSecondary)
         }
     }
 }
@@ -343,19 +343,19 @@ private fun StatsLibraryRowCard(
                 Modifier.weight(1f).height(side).padding(top = inset, bottom = inset, end = inset),
                 verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing),
             ) {
-                Text(title, style = IosType.headline, color = palette.textPrimary, maxLines = 1)
+                Text(title, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 1)
                 Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
-                    Text("Author", style = IosType.footnote.semibold, color = palette.textSecondary)
+                    Text("Author", style = AppType.bodySmall.semibold, color = palette.textSecondary)
                     val line = authorLine.trim()
                     Text(
-                        if (line.isEmpty()) "—" else line, style = IosType.footnote,
+                        if (line.isEmpty()) "—" else line, style = AppType.bodySmall,
                         color = if (line.isEmpty() || line == "—") palette.textSecondary else palette.textPrimary, maxLines = 2,
                     )
                 }
                 Box(Modifier.weight(1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing)) {
-                    Text(listened, style = IosType.subheadline, color = Theme.accent)
-                    if (trailing.isNotEmpty()) Text(trailing, style = IosType.subheadline, color = palette.textSecondary, maxLines = 1)
+                    Text(listened, style = AppType.bodyMedium, color = Theme.accent)
+                    if (trailing.isNotEmpty()) Text(trailing, style = AppType.bodyMedium, color = palette.textSecondary, maxLines = 1)
                 }
             }
         }

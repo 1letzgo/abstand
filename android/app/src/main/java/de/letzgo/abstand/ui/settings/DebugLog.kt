@@ -20,7 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCardEmptyState
@@ -122,7 +122,7 @@ fun DebugLogSection() {
                     entries.takeLast(LAST_VISIBLE).forEach { entry ->
                         Text(
                             entry.message,
-                            style = IosType.caption.copy(fontFamily = FontFamily.Monospace),
+                            style = AppType.bodySmall.copy(fontFamily = FontFamily.Monospace),
                             color = palette.textSecondary,
                             modifier = Modifier.fillMaxWidth(),
                         )

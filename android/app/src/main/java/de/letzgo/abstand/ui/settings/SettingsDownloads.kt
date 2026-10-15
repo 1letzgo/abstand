@@ -24,7 +24,7 @@ import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.AppSettings
 import de.letzgo.abstand.model.SessionStore
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.LocalTabNavigator
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
@@ -272,7 +272,7 @@ private fun DownloadManageActiveRow(storageId: String, progress: Double, isQueue
     AbstandListRow(
         title = entry?.title?.ifEmpty { null } ?: if (isQueued) "Waiting…" else "Downloading…",
         subtitle = entry?.subtitle,
-        titleStyle = IosType.body.medium,
+        titleStyle = AppType.bodyLarge.medium,
         titleMaxLines = 2,
         verticalPadding = AppTheme.Layout.rowVerticalPadding,
         leading = {
@@ -280,10 +280,10 @@ private fun DownloadManageActiveRow(storageId: String, progress: Double, isQueue
         },
         below = {
             when {
-                isQueued -> Text("Queued", style = IosType.caption2, color = Theme.accent)
+                isQueued -> Text("Queued", style = AppType.labelSmall, color = Theme.accent)
                 // Balken nur bei Hörbüchern — Podcast-Folgen springen meist von 0 auf fertig.
                 entry?.isPodcastEpisode != true -> AbstandProgressBar(progress, Modifier.padding(top = AppTheme.Layout.hairlineWidth), contentDescription = "Downloading")
-                else -> Text("Downloading…", style = IosType.caption2, color = palette.textSecondary)
+                else -> Text("Downloading…", style = AppType.labelSmall, color = palette.textSecondary)
             }
         },
     ) {
@@ -305,16 +305,16 @@ private fun DownloadManageSavedRow(row: DownloadManageRow, onDelete: () -> Unit)
     AbstandListRow(
         title = row.title,
         subtitle = row.author,
-        titleStyle = IosType.body.medium,
+        titleStyle = AppType.bodyLarge.medium,
         titleMaxLines = 2,
         verticalPadding = AppTheme.Layout.rowVerticalPadding,
         leading = { DownloadCover(row.libraryItemId) },
         below = {
             val meta = listOfNotNull(row.durationLabel, row.savedLabel.ifEmpty { null }).joinToString(" · ")
-            if (meta.isNotEmpty()) Text(meta, style = IosType.caption2, color = palette.textSecondary, maxLines = 1)
+            if (meta.isNotEmpty()) Text(meta, style = AppType.labelSmall, color = palette.textSecondary, maxLines = 1)
         },
     ) {
-        Text(Formatter.formatFileSize(context, row.byteCount), style = IosType.caption, color = palette.textSecondary)
+        Text(Formatter.formatFileSize(context, row.byteCount), style = AppType.bodySmall, color = palette.textSecondary)
         AbstandIconButton(SF.trash, "Delete download", onClick = { confirm = true }, tint = AppTheme.danger)
     }
     if (confirm) {

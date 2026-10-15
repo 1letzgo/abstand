@@ -39,11 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
 import de.letzgo.abstand.ui.LocalScrollBottomInset
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.bold
 
 // Screen-Gerüste je Kategorie (CLAUDE.md „Design-Grundlagen“):
 // Tab-Root → TabRootScaffold · Detailseite → DetailScaffold · Settings-Unterseite →
@@ -84,8 +82,8 @@ fun AbstandBackButton(onBack: () -> Unit, tint: Color = Theme.palette.textPrimar
 
 /**
  * iOS: Tab-Root (`.toolbarTitleDisplayMode(.inlineLarge)` + `abstandTabScreenChrome()` +
- * `AbstandFixedBrowseStripSectionsLayout`). Feste Material-`TopAppBar`: der große Titel steht von
- * Anfang an in der Leiste (wie `.inlineLarge`), nicht erst nach dem Einklappen beim Scrollen; [header] = fixer Browse-Strip unter dem Titel (bleibt stehen).
+ * `AbstandFixedBrowseStripSectionsLayout`). Feste M3-`TopAppBar` (64 dp, Titel `titleLarge`): der
+ * Titel steht von Anfang an in der Leiste (wie `.inlineLarge`), kein Ein-/Ausklappen; [header] = fixer Browse-Strip unter dem Titel (bleibt stehen).
  * [content] bekommt das fertige Content-Padding (Top-Bar, `tabPaddingH`, Abstand Titel →
  * Inhalt, unterer Mini-Player-Inset) und soll es an seine `LazyColumn`/`LazyVerticalGrid` geben.
  * Die NavigationBar gehört der Tab-Shell; hier keine Bottom-Insets.
@@ -109,7 +107,7 @@ fun TabRootScaffold(
         topBar = {
             Column(Modifier.background(palette.background)) {
                 TopAppBar(
-                    title = { Text(title, style = IosType.title2.bold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     actions = actions,
                     scrollBehavior = scrollBehavior,
                     colors = TopAppBarDefaults.topAppBarColors(

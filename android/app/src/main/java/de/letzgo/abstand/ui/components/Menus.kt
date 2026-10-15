@@ -1,6 +1,5 @@
 package de.letzgo.abstand.ui.components
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,21 +35,26 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 
 // iOS: SwiftUI `Menu` mit `Button`/`Picker`/`Section`/`Divider`/`role: .destructive`.
 // **Jedes** Menü der App läuft über [AbstandMenu] — nie rohes `DropdownMenu` bauen.
 
-/** Maße des Menü-Chromes (iOS-Kontextmenü: ~250 pt breit, 44 pt Zeilen). */
+/**
+ * Maße des Menü-Chromes nach Material 3 (iOS-Kontextmenü: ~250 pt breit, 44 pt Zeilen):
+ * Einträge 48 dp hoch, 12 dp seitlich, 24-dp-Symbole, Menü 112–280 dp breit, Ecken extra-small.
+ */
 object AbstandMenuMetrics {
-    /** Mindestbreite des Menüs (Material: 112 dp — zu schmal für „Sort by“-Listen). */
-    val minWidth = 200.dp
-    /** Symbolgröße in Menüzeilen. */
-    val iconSize = 20.dp
-    /** Container-Form (Karten-Ecken). */
-    val shape: Shape = RoundedCornerShape(AppTheme.Layout.cardCornerRadius)
+    /** M3: Mindestbreite des Menüs. */
+    val minWidth = AppTheme.Layout.menuMinWidth
+    /** M3: Höchstbreite des Menüs. */
+    val maxWidth = AppTheme.Layout.menuMaxWidth
+    /** Symbolgröße in Menüzeilen (M3: 24). */
+    val iconSize = AppTheme.Layout.iconSize
+    /** Container-Form (M3: extra-small, 4 dp). */
+    val shape: Shape = RoundedCornerShape(AppTheme.Layout.cornerExtraSmall)
     /** Deckkraft deaktivierter Einträge (wie Settings-Zeilen). */
     const val disabledOpacity = 0.45f
 }
@@ -79,23 +83,23 @@ class AbstandMenuScope internal constructor(private val dismiss: () -> Unit) {
         val color = if (destructive) AppTheme.danger else palette.textPrimary
         Row(
             Modifier
-                .widthIn(min = AbstandMenuMetrics.minWidth)
-                .heightIn(min = AppTheme.Layout.minTapTarget)
+                .widthIn(min = AbstandMenuMetrics.minWidth, max = AbstandMenuMetrics.maxWidth)
+                .heightIn(min = AppTheme.Layout.menuItemHeight)
                 .clickable(enabled = enabled, role = Role.Button) {
                     dismiss()
                     onClick()
                 }
                 .semantics { this.selected = selected }
                 .alpha(if (enabled) 1f else AbstandMenuMetrics.disabledOpacity)
-                .padding(horizontal = AppTheme.Layout.screenPadding),
+                .padding(horizontal = AppTheme.Layout.menuItemHorizontalPadding),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
+            horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.menuItemHorizontalPadding),
         ) {
             if (icon != null) {
                 Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(AbstandMenuMetrics.iconSize))
             }
             Text(
-                label, style = IosType.body, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                label, style = AppType.labelLarge, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             if (selected) {
@@ -112,14 +116,14 @@ class AbstandMenuScope internal constructor(private val dismiss: () -> Unit) {
         if (title != null) {
             Text(
                 title,
-                style = IosType.footnote,
+                style = AppType.bodySmall,
                 color = Theme.palette.textSecondary,
                 maxLines = 1,
                 modifier = Modifier
-                    .widthIn(min = AbstandMenuMetrics.minWidth)
+                    .widthIn(min = AbstandMenuMetrics.minWidth, max = AbstandMenuMetrics.maxWidth)
                     .padding(
-                        start = AppTheme.Layout.screenPadding, end = AppTheme.Layout.screenPadding,
-                        top = AppTheme.Layout.compactSpacing, bottom = AppTheme.Layout.tightSpacing,
+                        start = AppTheme.Layout.menuItemHorizontalPadding, end = AppTheme.Layout.menuItemHorizontalPadding,
+                        top = AppTheme.Layout.stackSpacing, bottom = AppTheme.Layout.tightSpacing,
                     )
                     .semantics { heading() },
             )
@@ -148,15 +152,15 @@ class AbstandMenuScope internal constructor(private val dismiss: () -> Unit) {
     @Composable
     fun divider() {
         HorizontalDivider(
-            Modifier.widthIn(min = AbstandMenuMetrics.minWidth).padding(vertical = AppTheme.Layout.tightSpacing),
-            thickness = AppTheme.Layout.hairlineStrokeWidth,
+            Modifier.widthIn(min = AbstandMenuMetrics.minWidth).padding(vertical = AppTheme.Layout.stackSpacing),
+            thickness = AppTheme.Layout.hairlineWidth,
             color = Theme.palette.textSecondary.copy(alpha = 0.25f),
         )
     }
 }
 
 /**
- * Menü-Chrome der App: Karte (`palette.card`, Karten-Ecken, Karten-Schatten, Hairline-Kante),
+ * Menü-Chrome der App: M3-Menü (`palette.card`, 4-dp-Ecken, Elevation Level 2),
  * Inhalt per [AbstandMenuScope]. Verankert am umgebenden `Box` (wie Material-`DropdownMenu`).
  */
 @Composable
@@ -178,7 +182,6 @@ fun AbstandMenu(
         containerColor = palette.card,
         tonalElevation = 0.dp,
         shadowElevation = AppTheme.CardElevation.Hero.shadowElevation,
-        border = BorderStroke(AppTheme.Layout.hairlineStrokeWidth, palette.textSecondary.copy(alpha = 0.2f)),
     ) {
         scope.content()
     }
@@ -240,13 +243,13 @@ fun <T> AbstandPickerMenu(
 /** Wert + Auf/Ab-Chevron als Anker eines Menü-Pickers (iOS: Menü-Picker-Label). */
 @Composable
 fun AbstandMenuValueLabel(text: String, color: Color = Theme.palette.textPrimary) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.badgeSpacing)) {
-        Text(text, style = IosType.body, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing)) {
+        Text(text, style = AppType.bodyLarge, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Icon(SF.chevronUpChevronDown, contentDescription = null, tint = color, modifier = Modifier.size(AbstandMenuValueChevronSize))
     }
 }
 
-private val AbstandMenuValueChevronSize = 18.dp
+private val AbstandMenuValueChevronSize = AppTheme.Layout.smallIconSize
 
 /**
  * Zeile „Titel links, Wert-Menü rechts“ (iOS: `Picker(.menu)` in Formularen). Gemeinsamer Kern

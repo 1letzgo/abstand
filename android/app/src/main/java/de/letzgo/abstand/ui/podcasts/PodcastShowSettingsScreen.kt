@@ -34,7 +34,7 @@ import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.PodcastAutoDownloadInterval
 import de.letzgo.abstand.model.PodcastStore
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.IosType
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
 import de.letzgo.abstand.ui.TabNavigator
@@ -386,13 +386,13 @@ private fun FeedDraftRow(
                     .padding(end = AppTheme.Layout.libraryRowTextInset),
                 verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing),
             ) {
-                Text(title, style = IosType.headline, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 PodcastRowMetaLine("Show", showTitle)
                 Spacer(Modifier.weight(1f))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         publishedAt?.takeIf { it > 0 }?.let { dateLabelMillis(it) } ?: "—",
-                        style = IosType.subheadline, color = palette.textSecondary, modifier = Modifier.weight(1f),
+                        style = AppType.bodyMedium, color = palette.textSecondary, modifier = Modifier.weight(1f),
                     )
                     Box(Modifier.sizeIn(minWidth = AppTheme.Layout.minTapTarget, minHeight = AppTheme.Layout.minTapTarget), contentAlignment = Alignment.Center) { trailing() }
                 }
