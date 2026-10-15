@@ -110,7 +110,7 @@ internal fun BooksBrowseSectionPane(section: BooksBrowseSection, catalog: Catalo
             when (section) {
                 BooksBrowseSection.BOOKS, BooksBrowseSection.SEARCH -> {
                     // Immer „Audiobooks" — welche Bibliothek gemeint ist, sagt die Leiste darüber.
-                    item(key = "books-title") { TabContentSectionTitle(BooksBrowseSection.BOOKS.title) }
+                    // Überschrift entfällt auf Android: das Tab-Label nennt den Bereich schon.
                     if (filter.isLibraryCatalogFiltered) {
                         item(key = "books-filter") { CatalogFilterBanner(filter.activeLibraryFilterSummary, catalog::clearCatalogFilter) }
                     }
@@ -125,7 +125,6 @@ internal fun BooksBrowseSectionPane(section: BooksBrowseSection, catalog: Catalo
                     @Suppress("UNUSED_EXPRESSION") progressMap
                     val pure = catalog.browseEbooksFiltered(browse.ebooks, filter.ebookCatalogQuickFilter)
                     val supplementary = catalog.browseEbooksFiltered(browse.ebooksSupplementary, filter.ebookCatalogQuickFilter)
-                    item(key = "ebooks-title") { TabContentSectionTitle(BooksBrowseSection.EBOOKS.title) }
                     when {
                         browse.ebooksLoading && pure.isEmpty() && supplementary.isEmpty() -> item(key = "ebooks-loading") { AbstandLoadingSpinner() }
                         pure.isEmpty() -> item(key = "ebooks-empty") {
@@ -143,7 +142,6 @@ internal fun BooksBrowseSectionPane(section: BooksBrowseSection, catalog: Catalo
                     }
                 }
                 BooksBrowseSection.AUTHOR -> {
-                    item(key = "authors-title") { TabContentSectionTitle("Authors") }
                     when {
                         showsOfflineHint -> item(key = "authors-offline") { BrowseOfflineHint() }
                         browse.authorsLoading && browse.authors.isEmpty() -> item(key = "authors-loading") { AbstandLoadingSpinner() }
@@ -163,7 +161,6 @@ internal fun BooksBrowseSectionPane(section: BooksBrowseSection, catalog: Catalo
                     }
                 }
                 BooksBrowseSection.SERIES -> {
-                    item(key = "series-title") { TabContentSectionTitle("Series") }
                     when {
                         showsOfflineHint -> item(key = "series-offline") { BrowseOfflineHint() }
                         browse.seriesLoading && browse.series.isEmpty() -> item(key = "series-loading") { AbstandLoadingSpinner() }
@@ -213,7 +210,6 @@ internal fun BooksBrowseSectionPane(section: BooksBrowseSection, catalog: Catalo
                             browse.tagsLoading, "No tags found.",
                         )
                     }
-                    item(key = "facet-title") { TabContentSectionTitle(section.title) }
                     when {
                         showsOfflineHint -> item(key = "facet-offline") { BrowseOfflineHint() }
                         isLoading && tiles.isEmpty() -> item(key = "facet-loading") { AbstandLoadingSpinner() }
