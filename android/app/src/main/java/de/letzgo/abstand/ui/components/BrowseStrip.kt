@@ -1,5 +1,6 @@
 package de.letzgo.abstand.ui.components
 
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.layout.Column
 import de.letzgo.abstand.ui.Theme
@@ -174,6 +175,8 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
      * Reihen laufen randlos mit Innenabstand (Material-„uncontained carousel“).
      */
     fullBleed: Boolean = false,
+    /** Optional eigener Listen-Zustand (Home: Pill springt zu Regalen und folgt der Scroll-Position). */
+    listState: LazyListState? = null,
     sectionBody: LazyListScope.(ID) -> Unit,
 ) {
     val holder = rememberSaveableStateHolder()
@@ -186,7 +189,8 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
         header = if (showsStrip) strip else null,
     ) { padding ->
         holder.SaveableStateProvider(selection) {
-            val state = rememberLazyListState()
+            val ownState = rememberLazyListState()
+            val state = listState ?: ownState
             LaunchedEffect(scrollToTopTrigger) {
                 if (scrollToTopTrigger != null) state.scrollToItem(0)
             }

@@ -397,7 +397,8 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
                                          gewählt secondaryContainer + Häkchen, sonst outlineVariant-Rand
    AbstandChip                         → dito (Häkchen, wenn kein Symbol)
    AbstandDropdownPill                 → Tonal-Chip (secondaryContainer, 8er-Ecke, kein Schatten)
-   Settings-Icon-Leiste                → M3 Primary Tabs (Symbol + Label, 64 dp, 3-dp-Indikator, Divider)
+   Settings-Icon-Leiste                → Bereichs-Pill wie Books/Podcasts (AbstandBrowsePills)
+   Home-Kopfzeile                      → Bereichs-Pill wie Books/Podcasts: zeigt aktuelles Regal, Menü springt zum Regal
    ServerAdminSection-Titel            → M3-Listen-Subheader (titleSmall, primary)
    SettingsCardIcon                    → onSurfaceVariant statt Akzent; Divider outlineVariant
    Karten (CardElevation)              → Filled Cards ohne Schatten (Subtle/Standard 0), Hero Level 1

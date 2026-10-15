@@ -1,5 +1,11 @@
 package de.letzgo.abstand.ui.home
 
+import de.letzgo.abstand.ui.components.AbstandBrowseStripItem
+import de.letzgo.abstand.ui.components.AbstandBrowsePills
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -53,9 +59,10 @@ import de.letzgo.abstand.ui.components.AbstandIconButton
 // iOS: HomeDashboardViews.swift — Home-Tab (`HomeTabRootView` + `StartDashboardView`).
 
 /**
- * iOS: `HomeTabRootView` + `StartDashboardView` — Großtitel „Home“, Offline-Schalter in der Toolbar,
- * darunter alle eingeschalteten Regale (Continue listening als Hero-Karten, alle anderen als
- * Kompaktkarten). Kein Browse-Streifen (iOS `showsStrip: false`), Pull-to-Refresh.
+ * iOS: `HomeTabRootView` + `StartDashboardView` — Offline-Schalter in der Toolbar, darunter alle
+ * eingeschalteten Regale (Continue listening als Hero-Karten, alle anderen als Kompaktkarten),
+ * Pull-to-Refresh. Android: Kopfzeile wie Books/Podcasts — Bereichs-Pill ([AbstandBrowsePills])
+ * zeigt das aktuelle Regal und springt per Menü zu jedem Regal (iOS: `showsStrip: false`).
  */
 @Composable
 fun HomeTabRoot(model: AppModel = AppModel.shared) {
@@ -88,10 +95,39 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
     }
 
     val continueId = AbsStartShelfLocalization.homeBrowseContinueSectionID
+    val anyShelfEnabled = HomeShelfLogic.isAnyShelfEnabled(categoryList, disabled)
+    val visibleShelves = if (isRestoring || !anyShelfEnabled) emptyList() else
+        HomeShelfLogic.shelvesForHomeBrowseSection(continueId, categoryList, shelves, disabled)
+            .filter(HomeShelfLogic::shelfHasVisibleContent)
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    // Pill zeigt das Regal oben in der Liste; am Listenende das letzte sichtbare.
+    val currentShelfKey by remember(visibleShelves) {
+        derivedStateOf {
+            val index = if (!listState.canScrollForward && listState.canScrollBackward) {
+                listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: listState.firstVisibleItemIndex
+            } else {
+                listState.firstVisibleItemIndex
+            }
+            (visibleShelves.getOrNull(index) ?: visibleShelves.firstOrNull())?.let(::homeShelfKey).orEmpty()
+        }
+    }
     AbstandFixedBrowseStripSectionsLayout(
         title = MainTab.start.label,
         selection = continueId,
-        showsStrip = false,
+        showsStrip = true,
+        strip = {
+            AbstandBrowsePills(
+                items = visibleShelves.map { AbstandBrowseStripItem(homeShelfKey(it), it.displayTitle, SF.squareGrid2x2) },
+                selectionId = currentShelfKey,
+                onSelect = { key ->
+                    val index = visibleShelves.indexOfFirst { homeShelfKey(it) == key }
+                    if (index >= 0) scope.launch { listState.animateScrollToItem(index) }
+                },
+                sectionAccessibilityLabel = "Shelves",
+            )
+        },
+        listState = listState,
         fullBleed = true,
         sectionSpacing = AppTheme.Layout.homeSectionSpacing,
         actions = {
@@ -106,16 +142,14 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
                 // Kurz leer halten, bis die lokal rekonstruierten Regale atomar vorliegen.
                 Spacer(Modifier.fillMaxWidth().height(AppTheme.Layout.homeBrowseBootstrapMinHeight))
             }
-            !HomeShelfLogic.isAnyShelfEnabled(categoryList, disabled) -> item(key = "all-off") {
+            !anyShelfEnabled -> item(key = "all-off") {
                 HomeAllShelvesDisabledState()
             }
             else -> {
-                val visible = HomeShelfLogic.shelvesForHomeBrowseSection(continueId, categoryList, shelves, disabled)
-                    .filter(HomeShelfLogic::shelfHasVisibleContent)
-                if (visible.isEmpty()) {
+                if (visibleShelves.isEmpty()) {
                     item(key = "empty") { HomeSectionEmptyState(continueId, offline) }
                 } else {
-                    visible.forEach { shelf -> item(key = "shelf-${shelf.category}-${shelf.id}") { StartDashboardShelf(shelf) } }
+                    visibleShelves.forEach { shelf -> item(key = "shelf-${homeShelfKey(shelf)}") { StartDashboardShelf(shelf) } }
                 }
             }
         }
@@ -362,3 +396,6 @@ private fun LazyItemScope.HomeAllShelvesDisabledState() {
 
 /** Leerzustände füllen den sichtbaren Bereich (Material: zentriert im Viewport). */
 private const val EmptyStateParentFraction = 0.8f
+
+/** Stabiler Schlüssel eines Home-Regals (Listen-Key und Pill-ID). */
+private fun homeShelfKey(shelf: AbsStartShelfSection): String = "${shelf.category}-${shelf.id}"
