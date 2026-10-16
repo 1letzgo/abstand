@@ -154,7 +154,7 @@ fun TabRootScaffold(
             PaddingValues(
                 start = AppTheme.Layout.tabPaddingH,
                 end = AppTheme.Layout.tabPaddingH,
-                top = inner.calculateTopPadding() + AppTheme.Layout.tabTitleToHeaderBlockSpacing,
+                top = inner.calculateTopPadding() + if (header == null) AppTheme.Layout.tabTitleToHeaderBlockSpacing else 0.dp,
                 bottom = abstandScrollBottomPadding(),
             ),
         )
