@@ -85,6 +85,8 @@ object SF {
     val folderFill = Icons.Filled.Folder
     val gearshape2 = Icons.Outlined.SettingsApplications
     val gearshapeFill = Icons.Filled.Settings
+    /** Kontur-Variante für Kopfzeilen-Aktionen (wie Filter/Sortieren). */
+    val gearshape = Icons.Outlined.Settings
     val globe = Icons.Outlined.Language
     val handTap = Icons.Outlined.TouchApp
     val headphones = Icons.Outlined.Headphones

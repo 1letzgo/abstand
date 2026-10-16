@@ -115,15 +115,16 @@ fun PodcastsTabRoot(model: AppModel = AppModel.shared) {
         title = "Podcasts",
         actions = {
             if (isRoot && isNewView) {
+                // Kopfzeilen-Aktionen wie in Books: einfache Kontur-Symbole in Textfarbe.
                 AbstandIconButton(
-                    SF.plusCircleFill, "Add podcast", onClick = { navigator?.push(PodcastAddDestination()) },
-                    enabled = reachable && store.podcastCatalogLibrary != null, tint = Theme.accent,
+                    SF.plus, "Add podcast", onClick = { navigator?.push(PodcastAddDestination()) },
+                    enabled = reachable && store.podcastCatalogLibrary != null, tint = Theme.palette.textPrimary,
                 )
             }
             val sid = selectedShowId
             if (isRoot && sid != null) {
                 val title = shows.firstOrNull { it.id == sid }?.displayTitle?.trim()?.ifEmpty { null } ?: "Podcast"
-                AbstandIconButton(SF.gearshapeFill, "Show settings", onClick = { navigator?.push(PodcastShowSettingsDestination(sid, title)) }, tint = Theme.accent)
+                AbstandIconButton(SF.gearshape, "Show settings", onClick = { navigator?.push(PodcastShowSettingsDestination(sid, title)) }, tint = Theme.palette.textPrimary)
             }
             if (isNewView) {
                 PodcastSortMenuButton(
