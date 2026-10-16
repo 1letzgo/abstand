@@ -236,7 +236,8 @@ fun AbstandChip(
 }
 
 private val AbstandChipIconSize = AppTheme.Layout.smallIconSize
-private val AbstandChipShape = RoundedCornerShape(AppTheme.Layout.cornerSmall)
+/** Gemeinsame Form der Pills, Chips und des Suchfelds in den Kopfzeilen. */
+internal val AbstandChipShape = RoundedCornerShape(AppTheme.Layout.cornerSmall)
 
 /**
  * iOS: `AbstandExpandingDockChip` (Kreis → Akzent-Kapsel). Android: M3 Filter Chip mit immer

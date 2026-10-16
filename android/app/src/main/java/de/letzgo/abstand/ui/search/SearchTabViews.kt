@@ -73,7 +73,11 @@ fun SearchTabRoot(model: AppModel = AppModel.shared) {
                     focus.clearFocus()
                     search.submit()
                 },
-                modifier = Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH),
+                // Abstände wie die Pill-Zeilen der anderen Tabs.
+                modifier = Modifier.padding(
+                    start = AppTheme.Layout.tabPaddingH, end = AppTheme.Layout.stackSpacing,
+                    top = AppTheme.ExpandingDock.verticalPadding, bottom = AppTheme.ExpandingDock.verticalPadding,
+                ),
             )
         },
     ) { padding ->
