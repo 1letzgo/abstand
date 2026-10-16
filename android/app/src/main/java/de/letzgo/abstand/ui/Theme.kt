@@ -350,7 +350,8 @@ object AppTheme {
         val coverCornerRadius = cornerSmall
 
         /** Cover in Library-Zeilen: festes 1:1. */
-        val libraryRowCoverSide = 100.dp
+        // Android kleiner als iOS (100 pt): Zeilen wirkten neben M3-Typo deutlich höher.
+        val libraryRowCoverSide = 80.dp
         /** Abstand Cover ↔ Textspalte in Library-Zeilen. */
         val libraryRowCardInset = 12.dp
         /** Titel oben / Laufzeit unten. */

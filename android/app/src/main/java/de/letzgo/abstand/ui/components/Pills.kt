@@ -306,7 +306,6 @@ fun AbstandDropdownPill(
     iconOnly: Boolean = false,
 ) {
     val dock = AppTheme.ExpandingDock
-    val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
     val current = items.firstOrNull { it.id == selectionId } ?: items.firstOrNull()
     var expanded by remember { mutableStateOf(false) }
     BoxWithConstraints(modifier) {
@@ -314,8 +313,9 @@ fun AbstandDropdownPill(
         Surface(
             onClick = { expanded = true },
             shape = AbstandChipShape,
-            color = colors.activeBackground,
-            contentColor = colors.activeForeground,
+            // Dropdown-Pills in der Appearance-Akzentfarbe (nicht tonal).
+            color = Theme.accent,
+            contentColor = Theme.onAccent,
             modifier = (if (iconOnly) Modifier else Modifier.fillMaxWidth()).height(dock.activeHeight).semantics {
                 contentDescription = "$accessibilityLabel: ${current?.label.orEmpty()}"
             },
