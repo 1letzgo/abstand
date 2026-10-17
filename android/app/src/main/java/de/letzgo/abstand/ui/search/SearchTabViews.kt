@@ -16,7 +16,14 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.model.AppModel
-import de.letzgo.abstand.model.MainTab
+import de.letzgo.abstand.model.ShellRoute
+import de.letzgo.abstand.ui.TabDestination
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.FocusRequester
 import de.letzgo.abstand.model.SearchLogic
 import de.letzgo.abstand.model.SearchResults
 import de.letzgo.abstand.model.SearchSection
@@ -46,13 +53,29 @@ import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.home.seriesCoverBookIds
 
 /**
+ * Android: Suche als gepushte Seite auf Home (Lupe in der Home-Kopfzeile; iOS: Search-Tab). Jedes
+ * Öffnen bekommt einen eigenen Schlüssel, damit der Autofokus wieder greift. Geleert wird beim
+ * Verlassen (Seite vom Stack) über [de.letzgo.abstand.model.SearchStore.setScreenOpen].
+ */
+class SearchDestination : TabDestination {
+    override val key: String = "search/${nextOpenId++}"
+
+    @Composable
+    override fun Content(navigator: TabNavigator) = SearchScreen(onBack = { navigator.pop() })
+
+    private companion object {
+        var nextOpenId = 0
+    }
+}
+
+/**
  * iOS: `SearchTabRootView` — ein Suchtext durchsucht Bücher und Podcasts zugleich. iOS nutzt das
- * native `.searchable`-Feld in der Navigationsleiste; Android legt das Suchfeld fix unter den Titel
- * (Header des Tab-Gerüsts), Ergebnisse scrollen darunter. Sektionen in iOS-Reihenfolge: Books,
+ * native `.searchable`-Feld in der Navigationsleiste; Android legt das Suchfeld fix in die
+ * Kopfzeile (mit Zurück-Pfeil), Ergebnisse scrollen darunter. Sektionen in iOS-Reihenfolge: Books,
  * Authors, Series, Narrators, Tags, Genres, dann Shows und Episodes.
  */
 @Composable
-fun SearchTabRoot(model: AppModel = AppModel.shared) {
+fun SearchScreen(onBack: () -> Unit, model: AppModel = AppModel.shared) {
     val search = model.search
     val query by search.query.collectAsState()
     val results by search.results.collectAsState()
@@ -61,9 +84,19 @@ fun SearchTabRoot(model: AppModel = AppModel.shared) {
     val navigator = LocalTabNavigator.current
     val focus = LocalFocusManager.current
     val status = SearchLogic.status(query, isSearching, results)
+    // Autofokus nur beim ersten Erscheinen, nicht nach Rückkehr aus einer Detailseite.
+    val focusRequester = remember { FocusRequester() }
+    var autoFocused by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (!autoFocused) {
+            autoFocused = true
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
 
     TabRootScaffold(
-        title = MainTab.search.label,
+        title = ShellRoute.search.label,
+        onBack = onBack,
         header = {
             AbstandSearchField(
                 query = query,
@@ -73,9 +106,10 @@ fun SearchTabRoot(model: AppModel = AppModel.shared) {
                     focus.clearFocus()
                     search.submit()
                 },
-                // Abstände wie die Pill-Zeilen der anderen Tabs.
+                focusRequester = focusRequester,
+                // Abstände wie die Pill-Zeilen; links steht der Zurück-Pfeil.
                 modifier = Modifier.padding(
-                    start = AppTheme.Layout.tabPaddingH, end = AppTheme.Layout.stackSpacing,
+                    start = AppTheme.Layout.tightSpacing, end = AppTheme.Layout.stackSpacing,
                     top = AppTheme.ExpandingDock.verticalPadding, bottom = AppTheme.ExpandingDock.verticalPadding,
                 ),
             )

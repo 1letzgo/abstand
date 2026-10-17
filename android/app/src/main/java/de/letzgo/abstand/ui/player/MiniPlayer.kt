@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -153,13 +154,13 @@ fun MiniPlayerDock(
         MiniPlayerBar(
             snapshot = snapshot,
             wiring = wiring,
-            // Fest über der Navigation Bar angedockt: volle Breite, keine Ecken, kein Schatten.
+            // Unten angedockt (über der System-Navigationsleiste): volle Breite, keine Ecken, kein Schatten.
             modifier = Modifier.onGloballyPositioned { NowPlayingZoomSource.bounds = it.boundsInRoot() },
         )
     }
 }
 
-/** Höhe, die die Leiste über dem Inhalt belegt (für [de.letzgo.abstand.ui.LocalScrollBottomInset]). */
+/** Höhe, die die Leiste über der System-Navigationsleiste belegt (für [de.letzgo.abstand.ui.LocalScrollBottomInset]). */
 val miniPlayerDockHeight: Dp
     get() = MiniPlayerMetrics.barHeight + MiniPlayerMetrics.accessoryBottomGap
 
@@ -177,7 +178,8 @@ private fun MiniPlayerBar(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring, mo
         contentColor = palette.textPrimary,
         shadowElevation = MiniPlayerMetrics.accessoryShadowElevation,
     ) {
-        Box {
+        // Ohne Tab-Leiste: Fläche läuft unter die System-Navigationsleiste, Inhalt bleibt darüber.
+        Box(Modifier.navigationBarsPadding()) {
             Row(
                 Modifier
                     .fillMaxWidth()

@@ -325,7 +325,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    Icon-Button (iconButtonSize)               40 Container, 24 Icon    40 / 44 plain      40 Container + 48 Ziel, Icon 24
    kompakter Icon-Button                      — (32 XS)                36                 32 Container, Ziel 48
    Top App Bar                                64, Titel titleLarge     64, title2.bold    64, titleLarge, fix (kein Collapse)
-   Navigation Bar                             80, Indicator 64×32      Material-Default   unverändert (NavigationBar)
+   Navigation Bar                             80, Indicator 64×32      Material-Default   entfällt (keine Tab-Leiste)
    Listenzeile 1/2/3-zeilig                   56 / 72 / 88             50 (listRowMin)    56 / 72 (mit Untertitel)
    Listenzeile Innenabstand/Gap               16 seitl., 8 vert., 16   16 / 8 / 12        16 / 8 / 16 (rowSpacing)
    Listen-Icons leading/trailing              24 / 24                  22 / 18            24 / 24

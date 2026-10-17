@@ -83,7 +83,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `ui/Theme.kt`, `ui/components/` | `AppTheme`, `AppAppearance`, shared view building blocks (UI templates, see Conventions + `UI_TEMPLATES.txt`) |
 | `ui/components/Menus.kt`, `Overlays.kt`, `Pills.kt`, `Progress.kt`, `Rows.kt` | SwiftUI `Menu`/`Picker(.menu)`, `.alert`/`.sheet`, cover pills/badges/chips, `ProgressView`, list rows/segmented `Picker` |
 | `ui/Icons.kt` | SF Symbols mapping |
-| `ui/AppRoot.kt`, `ui/TabNavigation.kt` | `abstandApp` / `AppRootContainer` / `MainTabShellView` / `MainRootView` (tabs, per-tab `NavigationStack`) |
+| `ui/AppRoot.kt`, `ui/TabNavigation.kt` | `abstandApp` / `AppRootContainer` / `MainTabShellView` / `MainRootView` (tabs, per-tab `NavigationStack`) — Android: no tab bar, one navigator with Home as root; Search/Settings are pushed (`ShellRoute` requests from `SessionStore.openSearch()/openSettings()/openHome()`) |
 | `store/LocalLibraryModels.kt`, `store/LocalLibraryDao.kt` (Room, schema in `app/schemas/`) | `LocalLibraryModels.swift` (SwiftData `@Model`s, schema V4) |
 | `store/LocalLibraryStore.kt` (`LocalLibraryStore`, `LocalLibraryStoreManager`) | `LocalLibraryStore.swift` |
 | `store/LocalLibraryQueries.kt` | `LocalLibraryQueries` (in `LocalLibraryStore.swift`) |
@@ -93,7 +93,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `store/EbookLocalStore.kt` | `EbookLocalStore.swift` |
 | `store/CoverImageCache.kt` (`CoverImageCache`, `CoverImageLoader`, Coil fetcher) | `CoverImageCache.swift`, `CoverImageLoader.swift` |
 | `ui/components/CoverImage.kt` | `CoverImageView.swift` (`CoverImageView`, `SquareCoverImageView`) |
-| `model/AppModel.kt` (facade), `model/SessionParticipant.kt` (`MainTab`, extension points) | `AppModel` (split into stores) |
+| `model/AppModel.kt` (facade), `model/SessionParticipant.kt` (`ShellRoute` ≙ `MainTab`, extension points) | `AppModel` (split into stores) |
 | `model/SessionStore.kt`, `model/SessionLogic.kt` | `AppModelSessionAuth.swift` + bootstrap/login/account/library parts of `AppModel.swift` |
 | `ui/login/LoginScreen.kt` | `LoginView.swift` |
 | `ui/login/ServerCustomHeadersEditor.kt` | `ServerCustomHeadersEditor.swift` |
@@ -141,13 +141,13 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `ui/home/HomeCardSupport.kt` | cover-tint placeholder, author image, live-state helpers (`LibraryRowLayout` lives in `ui/library/LibraryCards.kt`, `LibraryRowCollapsedMetaLine` and cover pills in `ui/components/`) |
 | `ui/home/HomeShelfSettings.kt` | `SettingsAppearanceHomeView` (ServerAdminViews.swift) |
 | `ui/components/BrowseStrip.kt` | `AbstandExpandingDockBrowseStrip.swift` (`AbstandPinnedBrowseStrip` → `AbstandBrowsePills`), `AbstandFixedBrowseStripSectionsLayout` (AppTheme.swift) |
-| `ui/search/SearchTabViews.kt` | `SearchTabViews.swift` |
+| `ui/search/SearchTabViews.kt` | `SearchTabViews.swift` — Android: `SearchDestination` pushed from the Home header (no Search tab) |
 | `ui/destinations/Destinations.kt` | Home/Search `navigationDestination` targets → `ui/detail/` screens, `PodcastEpisodeDetailView`, show filter in the Home library bar |
 | `model/AppSettings.kt` (`AppSettings`, `LibraryCardStyle`, `TranslationTargetLanguage`) | simple `@Published` settings of `AppModel`, `LibraryBookCardStyle`/`LibraryPodcastCardStyle`/`TranslationTargetLanguage` (`AppAppearance.swift`) |
 | `model/AdminStore.kt` (`AdminStore`, `AdminLogic`) | server-admin part of `AppModel` (users, library stats/scan, M4B encode + polling, media-cache purge, `changeAccountPassword`) |
 | `model/StatsStore.kt` (`StatsStore`, `StatsLogicExt`) | listening-stats part of `AppModel` (`loadListeningStats`, achievements snapshot, stats navigation stubs) |
 | `data/AdminSocketClient.kt` (`AdminSocketClient`, `AdminSocketProtocol`) | `ABSAdminSocketClient.swift` (OkHttp WebSocket) |
-| `ui/settings/SettingsHub.kt`, `SettingsIconStrip.kt` | `SettingsHubRootView`, `SettingsHubSection`, `SettingsIconStrip` (`ServerAdminViews.swift`) |
+| `ui/settings/SettingsHub.kt`, `SettingsIconStrip.kt` | `SettingsHubRootView`, `SettingsHubSection`, `SettingsIconStrip` (`ServerAdminViews.swift`) — Android: `SettingsDestination` pushed from the Home header (no Settings tab) |
 | `ui/settings/SettingsAccountSections.kt`, `SettingsAccountPages.kt` | `SettingsAccountView`, `SettingsChangePasswordView` (+ Android-only connection/custom-headers page) |
 | `ui/settings/SettingsAppearance.kt` | `SettingsAppearanceView`, `SettingsAppearanceHomeView`, `SettingsHomeShelfCard` |
 | `ui/settings/SettingsPlayback.kt` | `SettingsPlaybackView` (Playback + Teleprompter) |

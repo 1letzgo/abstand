@@ -32,7 +32,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -153,9 +156,12 @@ class SessionStore internal constructor(
     )
     val showPodcastsTab: StateFlow<Boolean> = _showPodcastsTab.asStateFlow()
 
-    private val _mainTab = MutableStateFlow(MainTab.start)
-    /** iOS: `mainTab`. */
-    val mainTab: StateFlow<MainTab> = _mainTab.asStateFlow()
+    private val _shellRouteRequests = MutableSharedFlow<ShellRoute>(extraBufferCapacity = 8)
+    /**
+     * iOS: `mainTab = …` — Android hat keine Tab-Leiste mehr: Search und Settings sind gepushte
+     * Seiten auf dem Home-Navigator. Die App-Shell setzt diese Anforderungen um ([ShellRoute]).
+     */
+    val shellRouteRequests: SharedFlow<ShellRoute> = _shellRouteRequests.asSharedFlow()
 
     // MARK: - Verbindung / Offline
 
@@ -238,7 +244,7 @@ class SessionStore internal constructor(
         }
         scheduleHomeLaunchRestoreFromLocalStore()
         if (offlineHomeUIActive) {
-            _mainTab.value = MainTab.start
+            openHome()
             scope.launch { loadStartDashboard(skipAuthorizeRefresh = false, force = true) }
         } else if (_isLoggedIn.value) {
             // Overlay bis Home/Player bereit; Bootstrap sofort (nicht auf die erste Komposition warten).
@@ -546,7 +552,7 @@ class SessionStore internal constructor(
                     if (!SessionLogic.isAuthHTTPStatus(error)) {
                         _isServerReachable.value = false
                         _offlineHomeModeAuto.value = true
-                        _mainTab.value = MainTab.start
+                        openHome()
                         prepareForOfflineHomeMode()
                         bootstrapLocalSessionOnly()
                     }
@@ -784,7 +790,7 @@ class SessionStore internal constructor(
                 if (_isAppBootstrapInProgress.value) bootstrapSupersededByOffline = true
                 cancelDeferredBootstrapWork()
                 _isAppBootstrapInProgress.value = false
-                _mainTab.value = MainTab.start
+                openHome()
                 prepareForOfflineHomeMode()
                 bootstrapLocalSessionOnly()
             } else {
@@ -829,7 +835,7 @@ class SessionStore internal constructor(
             if (bootstrapSupersededByOffline || offlineHomeUIActive) return
             resolveLibrariesAfterServerFetch(res.userDefaultLibraryId)
             if (bootstrapSupersededByOffline || offlineHomeUIActive) return
-            _mainTab.value = MainTab.start
+            openHome()
             finishLaunchPresentationAfterBootstrap()
         } catch (e: CancellationException) {
             throw e
@@ -838,7 +844,7 @@ class SessionStore internal constructor(
             publishErrorUnlessBenignCancellation(e)
             if (serverSessionEstablished) {
                 _isServerReachable.value = true
-                _mainTab.value = MainTab.start
+                openHome()
                 finishLaunchPresentationAfterBootstrap()
                 return
             }
@@ -1082,7 +1088,7 @@ class SessionStore internal constructor(
     /** iOS: `clearInMemorySessionState` — Session-Zustand verwerfen; [clearCredentials] = Logout. */
     fun clearInMemorySessionState(clearCredentials: Boolean) {
         cancelDeferredBootstrapWork()
-        _mainTab.value = MainTab.start
+        openHome()
         if (clearCredentials) {
             cacheAccountDir()?.let { CoverImageCache.clearAll(appContext, it) }
             _coverImageCacheRevision.value += 1
@@ -1502,9 +1508,19 @@ class SessionStore internal constructor(
         setShowAudiobooksTab(SessionLogic.tabVisibleFromLibraries(booksLibraryPreferenceIsNone, sortedBookLibraries.isNotEmpty()))
     }
 
-    /** iOS: `mainTab = …` aus Views (Tab-Leiste). */
-    fun selectMainTab(tab: MainTab) {
-        _mainTab.value = tab
+    /** iOS: `mainTab = .start` — zurück zur Home-Wurzel (Back-Stack leeren). */
+    fun openHome() {
+        _shellRouteRequests.tryEmit(ShellRoute.home)
+    }
+
+    /** iOS: `mainTab = .search` — Suche als Seite auf Home öffnen. */
+    fun openSearch() {
+        _shellRouteRequests.tryEmit(ShellRoute.search)
+    }
+
+    /** iOS: `mainTab = .settings` — Settings als Seite auf Home öffnen. */
+    fun openSettings() {
+        _shellRouteRequests.tryEmit(ShellRoute.settings)
     }
 
     // MARK: - Home-Bibliotheksleiste (Android)
@@ -1555,7 +1571,7 @@ class SessionStore internal constructor(
     }
 
     private fun revealHomeLibrary() {
-        _mainTab.value = MainTab.start
+        openHome()
         _homeLibraryRevealEpoch.value += 1
     }
 
