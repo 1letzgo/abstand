@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import de.letzgo.abstand.ui.AppTheme
+import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.LocalScrollBottomInset
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
@@ -108,9 +109,12 @@ fun TabRootScaffold(
     /** Fester Bereich unter der Kopfzeile (scrollt nicht mit), z. B. Home: Regal-Reihe + Bibliotheksleiste. */
     belowHeader: (@Composable () -> Unit)? = null,
     onBack: (() -> Unit)? = null,
+    /** `true` (Home): eigene Titelzeile mit [title] und [actions] über der Kopfzeile aus [header]. */
+    showsTitleRow: Boolean = false,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val palette = Theme.palette
+    val headerActions = if (showsTitleRow) null else actions
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -118,27 +122,44 @@ fun TabRootScaffold(
         contentColor = palette.textPrimary,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            if (header != null) {
+            if (header != null || showsTitleRow) {
                 // Keine Titelzeile: die Bereichs-Pills/Tabs/das Suchfeld sind die Top-Leiste, die
                 // Aktionen (Filter, Sortieren, …) stehen rechts, ein Zurück-Pfeil links in derselben Zeile.
                 Column(Modifier.fillMaxWidth().background(palette.background).windowInsetsPadding(WindowInsets.statusBars)) {
-                    Row(
+                    if (showsTitleRow) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = AppTheme.Layout.minTapTarget)
+                                .padding(start = AppTheme.Layout.tabPaddingH, end = AppTheme.Layout.tightSpacing)
+                                .semantics { heading() },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(title, style = AppType.titleLarge, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            if (actions != null) {
+                                CompositionLocalProvider(LocalContentColor provides Theme.accent) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+                                }
+                            }
+                        }
+                    }
+                    if (header != null) Row(
                         Modifier
                             .fillMaxWidth()
                             // Gleiche Kopfzeilenhöhe in allen Tabs (Pills, Tabs, Überschrift, Aktionen).
                             .heightIn(min = AppTheme.Layout.minTapTarget)
                             .padding(
                                 start = if (onBack != null) AppTheme.Layout.tightSpacing else 0.dp,
-                                end = if (actions != null) AppTheme.Layout.tightSpacing else AppTheme.Layout.tabPaddingH - AppTheme.Layout.stackSpacing,
+                                end = if (headerActions != null) AppTheme.Layout.tightSpacing else AppTheme.Layout.tabPaddingH - AppTheme.Layout.stackSpacing,
                             )
                             .semantics { heading(); contentDescription = title },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (onBack != null) AbstandBackButton(onBack)
                         Box(Modifier.weight(1f)) { header() }
-                        if (actions != null) {
+                        if (headerActions != null) {
                             CompositionLocalProvider(LocalContentColor provides Theme.accent) {
-                                Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+                                Row(verticalAlignment = Alignment.CenterVertically, content = headerActions)
                             }
                         }
                     }
@@ -164,7 +185,7 @@ fun TabRootScaffold(
             PaddingValues(
                 start = AppTheme.Layout.tabPaddingH,
                 end = AppTheme.Layout.tabPaddingH,
-                top = inner.calculateTopPadding() + if (header == null) AppTheme.Layout.tabTitleToHeaderBlockSpacing else 0.dp,
+                top = inner.calculateTopPadding() + if (header == null && !showsTitleRow) AppTheme.Layout.tabTitleToHeaderBlockSpacing else 0.dp,
                 bottom = abstandScrollBottomPadding(),
             ),
         )

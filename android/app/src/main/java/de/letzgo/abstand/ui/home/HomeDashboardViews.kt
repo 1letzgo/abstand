@@ -185,29 +185,18 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
     }
 
     AbstandFixedBrowseStripSectionsLayout(
-        title = ShellRoute.home.label,
+        title = "abstand",
         selection = continueId,
-        showsStrip = true,
+        showsStrip = visibleShelves.isNotEmpty(),
         // Liste wie in Books/Podcasts: Karten mit dem Abstand innerhalb einer Sektion.
         sectionSpacing = AppTheme.Layout.withinSectionSpacing,
         listState = listState,
+        // Titelzeile „abstand“ mit Offline/Search/Settings, darunter die Kategorie-Pills.
+        showsTitleRow = true,
         strip = {
-            if (visibleShelves.isNotEmpty()) {
-                HomeShelfPills(visibleShelves, selectedShelf?.category) { category ->
-                    selectedCategory = category
-                    Prefs.setString(HOME_SHELF_KEY, category)
-                }
-            } else {
-                // Ohne Regale: feste Überschrift in Höhe der Pill-Reihe.
-                Box(
-                    Modifier
-                        .padding(start = AppTheme.Layout.tabPaddingH, top = AppTheme.ExpandingDock.verticalPadding, bottom = AppTheme.ExpandingDock.verticalPadding)
-                        .height(AppTheme.ExpandingDock.activeHeight)
-                        .semantics { heading() },
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    Text("abstand", style = AppType.titleLarge, color = Theme.palette.textPrimary, maxLines = 1)
-                }
+            HomeShelfPills(visibleShelves, selectedShelf?.category) { category ->
+                selectedCategory = category
+                Prefs.setString(HOME_SHELF_KEY, category)
             }
         },
         // Fest unter der Kategorie-Reihe (scrollt nicht mit): gewähltes Regal + Bibliotheksleiste.

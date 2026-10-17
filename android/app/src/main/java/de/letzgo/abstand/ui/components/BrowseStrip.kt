@@ -146,6 +146,8 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
     fullBleed: Boolean = false,
     /** Optional eigener Listen-Zustand (Home: Pill springt zu Regalen und folgt der Scroll-Position). */
     listState: LazyListState? = null,
+    /** `true` (Home): eigene Titelzeile mit [title] und [actions] über dem Streifen. */
+    showsTitleRow: Boolean = false,
     sectionBody: LazyListScope.(ID) -> Unit,
 ) {
     val holder = rememberSaveableStateHolder()
@@ -157,6 +159,7 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
         actions = actions,
         header = if (showsStrip) strip else null,
         belowHeader = belowStrip,
+        showsTitleRow = showsTitleRow,
     ) { padding ->
         holder.SaveableStateProvider(selection) {
             val ownState = rememberLazyListState()
