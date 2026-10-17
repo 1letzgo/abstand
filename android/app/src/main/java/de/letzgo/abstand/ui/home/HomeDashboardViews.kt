@@ -1,5 +1,12 @@
 package de.letzgo.abstand.ui.home
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -395,26 +402,57 @@ private fun HomeShelfCarousel(shelf: AbsStartShelfSection) {
 // MARK: - Karussells
 
 /**
- * iOS: `HomeCompactCardCarousel` — Karten ≈ 3/4 der Regalbreite, Mindesthöhe = Cover-Seite.
- * Material: randloser `LazyRow` mit `tabPaddingH`-Innenabstand (uncontained carousel).
+ * iOS: `HomeCompactCardCarousel` (Karten ≈ 3/4 der Breite). Android: Pager — jede Karte in voller
+ * Breite, seitlich wischen; darunter ein Indikator, wie viele Karten es gibt und welche sichtbar ist
+ * (Punkte bis [HomePagerMaxDots], darüber „n / m“). Eine Karte = kein Indikator.
  */
 @Composable
 private fun <T> HomeCompactCardCarousel(
     items: List<T>,
     key: (T) -> String,
     contentPadding: PaddingValues,
-    card: @Composable LazyItemScope.(T, Dp) -> Unit,
+    card: @Composable (T, Dp) -> Unit,
 ) {
+    if (items.isEmpty()) return
+    val pagerState = rememberPagerState { items.size }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val cardWidth = AppTheme.Layout.homeCompactCardWidth(maxWidth - AppTheme.Layout.tabPaddingH * 2)
-        CompositionLocalProvider(LocalAbstandCardShadowEnabled provides false) {
-            LazyRow(
-                contentPadding = contentPadding,
-                horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing),
-                verticalAlignment = Alignment.Top,
-                modifier = Modifier.fillMaxWidth().heightIn(min = AppTheme.Layout.homeCompactCardCoverSide),
-            ) {
-                items(items, key = key) { item -> card(item, cardWidth) }
+        val cardWidth = maxWidth - contentPadding.calculateLeftPadding(LayoutDirection.Ltr) - contentPadding.calculateRightPadding(LayoutDirection.Ltr)
+        Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
+            CompositionLocalProvider(LocalAbstandCardShadowEnabled provides false) {
+                HorizontalPager(
+                    state = pagerState,
+                    contentPadding = contentPadding,
+                    pageSpacing = AppTheme.Layout.withinSectionSpacing,
+                    key = { key(items[it]) },
+                    verticalAlignment = Alignment.Top,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = AppTheme.Layout.homeCompactCardCoverSide),
+                ) { page -> card(items[page], cardWidth) }
+            }
+            if (items.size > 1) HomePagerIndicator(items.size, pagerState.currentPage)
+        }
+    }
+}
+
+/** Ab so vielen Karten zeigt der Indikator „n / m“ statt Punkte. */
+private const val HomePagerMaxDots = 10
+
+@Composable
+private fun HomePagerIndicator(count: Int, current: Int) {
+    val palette = Theme.palette
+    Row(
+        Modifier.fillMaxWidth().semantics { contentDescription = "Card ${current + 1} of $count" },
+        horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.tightSpacing, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (count > HomePagerMaxDots) {
+            Text("${current + 1} / $count", style = AppType.labelMedium, color = palette.textSecondary)
+        } else {
+            repeat(count) { i ->
+                Box(
+                    Modifier
+                        .size(AppTheme.Layout.homePagerDotSize)
+                        .background(if (i == current) Theme.accent else palette.scheme.outlineVariant, CircleShape),
+                )
             }
         }
     }

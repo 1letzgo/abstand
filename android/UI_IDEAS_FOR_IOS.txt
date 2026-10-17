@@ -40,6 +40,8 @@ Inhalt
   (kompakte Bibliotheks-Pill mit allen Books- UND Podcast-Bibliotheken, Bereichs-Pill mit den
   Books-Sektionen bzw. „New“ + Sendungen, rechts die alten Tab-Aktionen) und der Bereichsinhalt wie
   bisher in den Tabs. Sprünge „zur Sendung“/„zum Katalog“ landen auf Home mit passender Auswahl.
+- [offen] Home-Regal oben als Pager: eine Karte in voller Breite pro Seite (Cover 96 statt 80 wie
+  in der Bibliotheksliste), darunter Seiten-Indikator — Punkte in Akzentfarbe, ab 11 Karten „n / m“.
 
 Player
 ------
