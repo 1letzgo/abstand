@@ -31,7 +31,7 @@ Inhalt
 - [offen] Home-Regale mit dem Standard-Abschnittsabstand (24) statt eigenem (32). (ab5755b)
 - [offen] „Compact row“-Karten in Books/Podcasts mit 80er- statt 100er-Cover. (e3cc40d)
 - [offen] Home nur mit Kompaktkarten — auch „Continue listening“ (statt Hero-Karten); Bücher und
-  Folgen mit Play-Pille unten rechts wie in Books, Serien/Autoren ohne. (siehe nächster Commit)
+  Folgen mit Play-Pille unten rechts wie in Books, Serien/Autoren ohne. (18ba21a)
 
 Player
 ------
