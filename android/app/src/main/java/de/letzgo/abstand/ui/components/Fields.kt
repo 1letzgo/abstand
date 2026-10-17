@@ -1,5 +1,7 @@
 package de.letzgo.abstand.ui.components
 
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.background
@@ -123,6 +125,8 @@ fun AbstandSearchField(
     modifier: Modifier = Modifier,
     placeholder: String = "Search",
     onSubmit: (() -> Unit)? = null,
+    /** Fokus von außen setzen (z. B. Autofokus beim Öffnen der Suche). */
+    focusRequester: FocusRequester? = null,
 ) {
     val palette = Theme.palette
     Row(
@@ -141,7 +145,10 @@ fun AbstandSearchField(
                 cursorBrush = SolidColor(Theme.accent),
                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSubmit?.invoke() }),
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = placeholder },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                    .semantics { contentDescription = placeholder },
             )
         }
         if (query.isNotEmpty()) {

@@ -55,7 +55,7 @@ import de.letzgo.abstand.logic.BooksBrowseSection
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.HomeLibraryLogic
 import de.letzgo.abstand.model.HomeShelfLogic
-import de.letzgo.abstand.model.MainTab
+import de.letzgo.abstand.model.ShellRoute
 import de.letzgo.abstand.model.SessionStore
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
@@ -185,7 +185,7 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
     }
 
     AbstandFixedBrowseStripSectionsLayout(
-        title = MainTab.start.label,
+        title = ShellRoute.home.label,
         selection = continueId,
         showsStrip = true,
         // Liste wie in Books/Podcasts: Karten mit dem Abstand innerhalb einer Sektion.
@@ -224,10 +224,13 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
                 }
             }
         },
+        // Android: keine Tab-Leiste — Search und Settings öffnen sich als Seiten über Home.
         actions = {
             HomeGoOfflineToolbarButton(offline) {
                 if (offline) session.exitOfflineHomeUI() else showOfflineConfirmation = true
             }
+            AbstandIconButton(SF.magnifyingglass, "Search", onClick = session::openSearch, tint = Theme.palette.textPrimary)
+            AbstandIconButton(SF.gearshape, "Settings", onClick = session::openSettings, tint = Theme.palette.textPrimary)
         },
         onRefresh = {
             home.refreshStartTabPullToRefresh()
@@ -271,7 +274,12 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
 /** iOS: `HomeGoOfflineToolbarButton` — statischer Offline-/Online-Schalter (nur Symbol). */
 @Composable
 private fun HomeGoOfflineToolbarButton(offline: Boolean, onClick: () -> Unit) {
-    AbstandIconButton(if (offline) SF.icloudSlash else SF.icloud, if (offline) "Go online" else "Go offline", onClick = onClick)
+    AbstandIconButton(
+        if (offline) SF.icloudSlash else SF.icloud,
+        if (offline) "Go online" else "Go offline",
+        onClick = onClick,
+        tint = Theme.palette.textPrimary,
+    )
 }
 
 // MARK: - Bibliotheksleiste (Android)

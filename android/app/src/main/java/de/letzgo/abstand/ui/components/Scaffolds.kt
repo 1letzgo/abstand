@@ -95,7 +95,8 @@ fun AbstandBackButton(onBack: () -> Unit, tint: Color = Theme.palette.textPrimar
  * Titel steht von Anfang an in der Leiste (wie `.inlineLarge`), kein Ein-/Ausklappen; [header] = fixer Browse-Strip unter dem Titel (bleibt stehen).
  * [content] bekommt das fertige Content-Padding (Top-Bar, `tabPaddingH`, Abstand Titel →
  * Inhalt, unterer Mini-Player-Inset) und soll es an seine `LazyColumn`/`LazyVerticalGrid` geben.
- * Die NavigationBar gehört der Tab-Shell; hier keine Bottom-Insets.
+ * Keine Bottom-Insets hier: System-Navigationsleiste + Mini-Player stecken in [LocalScrollBottomInset].
+ * [onBack] ≠ `null` (als Seite gepusht, z. B. Search/Settings): Zurück-Pfeil vor dem [header].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,6 +107,7 @@ fun TabRootScaffold(
     header: (@Composable () -> Unit)? = null,
     /** Fester Bereich unter der Kopfzeile (scrollt nicht mit), z. B. Home: Regal-Reihe + Bibliotheksleiste. */
     belowHeader: (@Composable () -> Unit)? = null,
+    onBack: (() -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val palette = Theme.palette
@@ -117,18 +119,22 @@ fun TabRootScaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (header != null) {
-                // Keine Titelzeile (der Tab-Name steht in der Navigation Bar): die Bereichs-Pills sind
-                // die Top-Leiste, die Aktionen (Filter, Sortieren, …) stehen rechts in derselben Zeile.
+                // Keine Titelzeile: die Bereichs-Pills/Tabs/das Suchfeld sind die Top-Leiste, die
+                // Aktionen (Filter, Sortieren, …) stehen rechts, ein Zurück-Pfeil links in derselben Zeile.
                 Column(Modifier.fillMaxWidth().background(palette.background).windowInsetsPadding(WindowInsets.statusBars)) {
                     Row(
                         Modifier
                             .fillMaxWidth()
                             // Gleiche Kopfzeilenhöhe in allen Tabs (Pills, Tabs, Überschrift, Aktionen).
                             .heightIn(min = AppTheme.Layout.minTapTarget)
-                            .padding(end = if (actions != null) AppTheme.Layout.tightSpacing else AppTheme.Layout.tabPaddingH - AppTheme.Layout.stackSpacing)
+                            .padding(
+                                start = if (onBack != null) AppTheme.Layout.tightSpacing else 0.dp,
+                                end = if (actions != null) AppTheme.Layout.tightSpacing else AppTheme.Layout.tabPaddingH - AppTheme.Layout.stackSpacing,
+                            )
                             .semantics { heading(); contentDescription = title },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        if (onBack != null) AbstandBackButton(onBack)
                         Box(Modifier.weight(1f)) { header() }
                         if (actions != null) {
                             CompositionLocalProvider(LocalContentColor provides Theme.accent) {
@@ -141,6 +147,7 @@ fun TabRootScaffold(
             } else {
                 TopAppBar(
                     title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    navigationIcon = { if (onBack != null) AbstandBackButton(onBack) },
                     actions = actions ?: {},
                     scrollBehavior = scrollBehavior,
                     colors = TopAppBarDefaults.topAppBarColors(

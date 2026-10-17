@@ -6,12 +6,12 @@ import de.letzgo.abstand.data.ContinueRefreshAttemptResult
 import de.letzgo.abstand.store.LocalLibraryStore
 
 /**
- * iOS: `AppModel.MainTab` — Android: nur Home · Settings · Search. Books und Podcasts sind keine
- * eigenen Tabs mehr, sondern die fixierte Bibliotheksleiste auf Home
- * ([SessionStore.showBooksLibraryOnHome] / [SessionStore.showPodcastLibraryOnHome]).
+ * iOS: `AppModel.MainTab` — Android hat keine Tab-Leiste: Home ist die einzige Wurzel, Search und
+ * Settings sind gepushte Seiten (Symbole in der Home-Kopfzeile), Books und Podcasts die fixierte
+ * Bibliotheksleiste auf Home. Ziele für [SessionStore.shellRouteRequests].
  */
-enum class MainTab(val label: String) {
-    start("Home"),
+enum class ShellRoute(val label: String) {
+    home("Home"),
     settings("Settings"),
     search("Search"),
 }

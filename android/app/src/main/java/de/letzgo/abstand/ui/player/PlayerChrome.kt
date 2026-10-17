@@ -38,14 +38,14 @@ object MiniPlayerMetrics {
     /** Innenabstand: (64 − 48) / 2 = 8 dp um das Cover. */
     val accessoryHorizontalPadding = AppTheme.Layout.screenPadding
     /** Ecke der schwebenden Leiste (M3 large). */
-    /** Angedockt (fest über der Navigation Bar): keine Ecken. */
+    /** Angedockt (unten über der System-Navigationsleiste): keine Ecken. */
     val accessoryCornerRadius = 0.dp
     /** Schatten der schwebenden Leiste (M3 Level 2). */
     val accessoryShadowElevation = 0.dp
     /** Fortschrittslinie am Fuß der Leiste (M3 Linear Progress). */
     val accessoryProgressHeight = 4.dp
     /** Abstand der Leiste zur Navigationsleiste. */
-    /** Angedockt: kein Abstand zur Navigation Bar. */
+    /** Angedockt: kein Abstand zum unteren Rand. */
     val accessoryBottomGap = 0.dp
 
     /** iOS: `fullPlayerCoverInset`. */

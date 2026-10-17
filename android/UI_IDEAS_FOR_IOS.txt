@@ -42,10 +42,15 @@ Inhalt
   bisher in den Tabs. Sprünge „zur Sendung“/„zum Katalog“ landen auf Home mit passender Auswahl.
 - [offen] Home-Regal oben als Pager: eine Karte in voller Breite pro Seite (Cover 96 statt 80 wie
   in der Bibliotheksliste), darunter Seiten-Indikator — Punkte in Akzentfarbe, ab 11 Karten „n / m“.
+- [offen] Keine Tab-Leiste mehr: Home ist die einzige Wurzel; Search (Lupe) und Settings (Zahnrad)
+  sitzen als Symbole rechts in der Home-Kopfzeile (neben dem Offline-Wölkchen) und öffnen sich als
+  gepushte Seiten mit Zurück-Pfeil vor ihrer Kopfzeile (Suchfeld mit Autofokus bzw. Settings-Tabs).
+  Suche leert sich beim Verlassen, Settings merkt den Bereich. Mini-Player dockt direkt am unteren
+  Rand an.
 
 Player
 ------
-- [offen] Mini-Player fest über der Tab-Bar angedockt (volle Breite, ohne Ecken/Schatten,
+- [offen] Mini-Player fest unten (früher über der Tab-Bar) angedockt (volle Breite, ohne Ecken/Schatten,
   Fortschrittslinie oben) statt schwebender Karte. (3286a9f)
 - [offen] Now Playing öffnet als Container-Transform aus der Mini-Leiste; Wischen schrumpft ihn
   kontinuierlich zurück. (cefdac9) — iOS hat eine eigene Zoom-Transition, prüfen ob übertragbar.
