@@ -1,5 +1,6 @@
 package de.letzgo.abstand.ui.home
 
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.foundation.layout.calculateStartPadding
@@ -66,7 +67,6 @@ import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandBrowsePills
 import de.letzgo.abstand.ui.components.AbstandBrowseStripItem
 import de.letzgo.abstand.ui.components.AbstandDialog
-import de.letzgo.abstand.ui.components.AbstandDockChip
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
 import de.letzgo.abstand.ui.components.AbstandFixedBrowseStripSectionsLayout
 import de.letzgo.abstand.ui.components.AbstandIconButton
@@ -74,6 +74,7 @@ import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
 import de.letzgo.abstand.ui.components.AbstandProminentButton
 import de.letzgo.abstand.ui.components.AbstandSectionEmptyState
 import de.letzgo.abstand.ui.components.SquareCoverImage
+import de.letzgo.abstand.ui.components.TabContentSectionTitle
 import de.letzgo.abstand.ui.destinations.AuthorDestination
 import de.letzgo.abstand.ui.destinations.BookDetailDestination
 import de.letzgo.abstand.ui.destinations.EpisodeDestination
@@ -136,8 +137,8 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
     val visibleShelves = if (isRestoring || !anyShelfEnabled) emptyList() else
         HomeShelfLogic.shelvesForHomeBrowseSection(continueId, categoryList, shelves, disabled)
             .filter(HomeShelfLogic::shelfHasVisibleContent)
-    var selectedCategory by rememberSaveable { mutableStateOf(Prefs.string(HOME_SHELF_KEY).orEmpty()) }
-    val selectedShelf = visibleShelves.firstOrNull { it.category == selectedCategory } ?: visibleShelves.firstOrNull()
+    // Oben fest nur „Continue listening“; die übrigen Regale stehen im Bereichs-Dropdown der Bibliothek.
+    val continueShelf = visibleShelves.firstOrNull { HomeShelfLogic.isContinueCategory(it.category) }
 
     // Bibliotheksleiste: kombinierte Auswahl (Books + Podcasts), gemerkt im Session-Store.
     val libraryChoices = rememberHomeLibraryChoices(session)
@@ -160,6 +161,14 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
             model.catalog.ensureActiveSectionLoaded()
         }
     }
+    val libraryShelves = remember(visibleShelves, libraryChoice) { libraryChoice?.let { homeShelvesForLibrary(visibleShelves, it) }.orEmpty() }
+    // Gewähltes Regal im Dropdown, gemerkt als „<Bibliothek>|<Kategorie>“ (leer = normaler Bereich).
+    var shelfPick by rememberSaveable { mutableStateOf(Prefs.string(HOME_SHELF_KEY).orEmpty()) }
+    val activeShelf = libraryChoice?.let { choice -> libraryShelves.firstOrNull { "${choice.id}|${it.category}" == shelfPick } }
+    val selectShelf: (String?) -> Unit = { category ->
+        shelfPick = if (category == null || libraryChoice == null) "" else "${libraryChoice.id}|$category"
+        Prefs.setString(HOME_SHELF_KEY, shelfPick)
+    }
     val booksContent = if (libraryChoice != null && !libraryChoice.isPodcast) rememberBooksBrowseSectionContent(model.catalog, model) else null
     val podcastsContent = if (libraryChoice?.isPodcast == true) rememberPodcastsSectionContent(model) else null
 
@@ -167,6 +176,7 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
     val listState = rememberLazyListState()
     val catalogScrollEpoch by model.catalog.libraryCatalogScrollToTopEpoch.collectAsState()
     val sectionKey = when {
+        activeShelf != null -> "s-${activeShelf.category}"
         booksContent != null -> "b-${booksContent.section.rawValue}-$catalogScrollEpoch"
         podcastsContent != null -> "p-${podcastsContent.stripSectionId}"
         else -> ""
@@ -187,29 +197,25 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
     AbstandFixedBrowseStripSectionsLayout(
         title = "abstand",
         selection = continueId,
-        showsStrip = visibleShelves.isNotEmpty(),
+        showsStrip = false,
         // Liste wie in Books/Podcasts: Karten mit dem Abstand innerhalb einer Sektion.
         sectionSpacing = AppTheme.Layout.withinSectionSpacing,
         listState = listState,
-        // Titelzeile „abstand“ mit Offline/Search/Settings, darunter die Kategorie-Pills.
+        // Titelzeile „abstand“ mit Offline/Search/Settings.
         showsTitleRow = true,
-        strip = {
-            HomeShelfPills(visibleShelves, selectedShelf?.category) { category ->
-                selectedCategory = category
-                Prefs.setString(HOME_SHELF_KEY, category)
-            }
-        },
         // Fest unter der Kategorie-Reihe (scrollt nicht mit): gewähltes Regal + Bibliotheksleiste.
         belowStrip = {
             Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
                 when {
                     isRestoring -> Spacer(Modifier.fillMaxWidth().height(AppTheme.Layout.homeBrowseBootstrapMinHeight))
                     !anyShelfEnabled -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeAllShelvesDisabledState() }
-                    selectedShelf == null -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeSectionEmptyState(continueId, offline) }
-                    else -> Box(Modifier.padding(top = AppTheme.Layout.tightSpacing)) { HomeShelfCarousel(selectedShelf) }
+                    continueShelf == null -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeSectionEmptyState(continueId, offline) }
+                    else -> Box(Modifier.padding(top = AppTheme.Layout.tightSpacing)) {
+                        HomeContinueCompactCarousel(continueShelf, PaddingValues(horizontal = AppTheme.Layout.tabPaddingH))
+                    }
                 }
                 if (libraryChoice != null) {
-                    HomeLibraryBar(model, libraryChoices, libraryChoice, booksContent?.section, podcastsContent?.let { it.shows to it.stripSectionId })
+                    HomeLibraryBar(model, libraryChoices, libraryChoice, booksContent?.section, podcastsContent?.let { it.shows to it.stripSectionId }, libraryShelves, activeShelf?.category, selectShelf)
                 }
             }
         },
@@ -240,6 +246,7 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
             return@AbstandFixedBrowseStripSectionsLayout
         }
         when {
+            activeShelf != null -> homeShelfListItems(activeShelf)
             booksContent != null -> booksBrowseSectionItems(booksContent)
             podcastsContent != null -> podcastsSectionItems(podcastsContent)
         }
@@ -295,8 +302,19 @@ private fun HomeLibraryBar(
     choice: HomeLibraryLogic.Choice,
     booksSection: BooksBrowseSection?,
     podcastSections: Pair<List<AbstandBrowseStripItem>, String>?,
+    shelves: List<AbsStartShelfSection>,
+    activeShelfCategory: String?,
+    onSelectShelf: (String?) -> Unit,
 ) {
     val session = model.session
+    val shelfItems = shelves.map {
+        AbstandBrowseStripItem(HOME_SHELF_ITEM_PREFIX + it.category, it.displayTitle, SF.named(AbsStartShelfLocalization.stripSystemImage(it.category)) ?: SF.squareGrid2x2)
+    }
+    val shelfSelectionId = activeShelfCategory?.let { HOME_SHELF_ITEM_PREFIX + it }
+    // Regal-Einträge abfangen, sonst normaler Bereich (und Regal abwählen).
+    fun select(id: String, section: (String) -> Unit) {
+        if (id.startsWith(HOME_SHELF_ITEM_PREFIX)) onSelectShelf(id.removePrefix(HOME_SHELF_ITEM_PREFIX)) else { onSelectShelf(null); section(id) }
+    }
     val catalog = model.catalog
     val libraryItems = remember(choices) {
         choices.map { AbstandBrowseStripItem(it.id, it.library.name, if (it.isPodcast) SF.micFill else SF.booksVerticalFill) }
@@ -311,9 +329,9 @@ private fun HomeLibraryBar(
         Box(Modifier.weight(1f)) {
             if (podcastSections != null) {
                 AbstandBrowsePills(
-                    items = podcastSectionStripItems(podcastSections.first),
-                    selectionId = podcastSections.second,
-                    onSelect = model.podcasts::selectStripSection,
+                    items = podcastSectionStripItems(podcastSections.first) + shelfItems,
+                    selectionId = shelfSelectionId ?: podcastSections.second,
+                    onSelect = { id -> select(id, model.podcasts::selectStripSection) },
                     libraryItems = libraryItems,
                     librarySelectionId = choice.id,
                     onSelectLibrary = session::selectHomeLibraryChoice,
@@ -322,9 +340,9 @@ private fun HomeLibraryBar(
             } else {
                 val sections = BooksBrowseSection.audiobookStripOrder
                 AbstandBrowsePills(
-                    items = sections.map { AbstandBrowseStripItem(it.rawValue, it.title, it.icon) },
-                    selectionId = booksSection?.rawValue.orEmpty(),
-                    onSelect = { id -> sections.firstOrNull { it.rawValue == id }?.let(catalog::selectBooksBrowseSection) },
+                    items = sections.map { AbstandBrowseStripItem(it.rawValue, it.title, it.icon) } + shelfItems,
+                    selectionId = shelfSelectionId ?: booksSection?.rawValue.orEmpty(),
+                    onSelect = { id -> select(id) { raw -> sections.firstOrNull { it.rawValue == raw }?.let(catalog::selectBooksBrowseSection) } },
                     libraryItems = libraryItems,
                     librarySelectionId = choice.id,
                     onSelectLibrary = session::selectHomeLibraryChoice,
@@ -346,53 +364,42 @@ private fun HomeLibraryBar(
 
 // MARK: - Kategorie-Pills und Regal-Reihe (Android)
 
-/** Merkt die zuletzt gewählte Home-Kategorie (Android-eigen; iOS zeigt alle Regale untereinander). */
+/** Merkt das im Dropdown gewählte Regal als „<Bibliothek>|<Kategorie>“ (Android-eigen). */
 private const val HOME_SHELF_KEY = "abstand_android_home_shelf_category"
 
-/** Pill-Reihe der Kategorien in der Kopfzeile — aktive Pill in Akzentfarbe, horizontal scrollbar. */
-@Composable
-private fun HomeShelfPills(shelves: List<AbsStartShelfSection>, selectedCategory: String?, onSelect: (String) -> Unit) {
-    val dock = AppTheme.ExpandingDock
-    val state = rememberLazyListState()
-    val selectedIndex = shelves.indexOfFirst { it.category == selectedCategory }
-    LaunchedEffect(selectedIndex) { if (selectedIndex > 0) state.animateScrollToItem(selectedIndex - 1) }
-    LazyRow(
-        Modifier.fillMaxWidth(),
-        state = state,
-        contentPadding = PaddingValues(start = AppTheme.Layout.tabPaddingH, end = AppTheme.Layout.stackSpacing, top = dock.verticalPadding, bottom = dock.verticalPadding),
-        horizontalArrangement = Arrangement.spacedBy(dock.itemSpacing),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        items(shelves, key = { it.category }) { shelf ->
-            AbstandDockChip(
-                label = shelf.displayTitle,
-                icon = SF.named(AbsStartShelfLocalization.stripSystemImage(shelf.category)) ?: SF.squareGrid2x2,
-                selected = shelf.category == selectedCategory,
-                onClick = { onSelect(shelf.category) },
-                checkmarkWhenSelected = false,
-                accentWhenSelected = true,
-            )
+/** ID-Präfix der Regal-Einträge im Bereichs-Dropdown. */
+private const val HOME_SHELF_ITEM_PREFIX = "__shelf__:"
+
+/**
+ * Android: Regale (außer „Continue listening“) für die gewählte Bibliothek — Books-Bibliotheken
+ * bekommen Buch-/Serien-/Autoren-Regale mit ihren Büchern, Podcast-Bibliotheken Folgen-Regale
+ * (ohne „Newest episodes“, das ist dort schon „New“).
+ */
+private fun homeShelvesForLibrary(shelves: List<AbsStartShelfSection>, choice: HomeLibraryLogic.Choice): List<AbsStartShelfSection> {
+    val libraryId = choice.library.id
+    fun inLibrary(id: String?) = id.isNullOrBlank() || id == libraryId
+    return shelves.filter { !HomeShelfLogic.isContinueCategory(it.category) }.mapNotNull { shelf ->
+        if (choice.isPodcast) {
+            if (shelf.category == HomeShelfLogic.newestEpisodesCategory) return@mapNotNull null
+            shelf.copy(books = emptyList(), series = emptyList(), authors = emptyList(), podcastEpisodes = shelf.podcastEpisodes.filter { inLibrary(it.libraryId) })
+                .takeIf { it.hasPodcastEpisodes }
+        } else {
+            shelf.copy(podcastEpisodes = emptyList(), books = shelf.books.filter { inLibrary(it.libraryId) })
+                .takeIf { it.hasBooks || it.hasSeries || it.hasAuthors }
         }
     }
 }
 
-/** Kinder randlos über die horizontalen Listen-Ränder hinaus (Karussell, fixierte Pills). */
-private fun Modifier.fullBleed(horizontal: Dp): Modifier = layout { measurable, constraints ->
-    val extra = horizontal.roundToPx() * 2
-    val placeable = measurable.measure(constraints.copy(minWidth = constraints.maxWidth + extra, maxWidth = constraints.maxWidth + extra))
-    layout(constraints.maxWidth, placeable.height) { placeable.place(-extra / 2, 0) }
-}
-
-/** Gewähltes Regal als horizontale Kartenreihe (ohne Überschrift — die aktive Pill in der Kopfzeile nennt es). */
-@Composable
-private fun HomeShelfCarousel(shelf: AbsStartShelfSection) {
-    val rowPadding = PaddingValues(horizontal = AppTheme.Layout.tabPaddingH)
+/** Gewähltes Regal als Liste aus Kompaktkarten (statt Bereichsinhalt der Bibliothek). */
+private fun LazyListScope.homeShelfListItems(shelf: AbsStartShelfSection) {
+    item(key = "shelf-title") { TabContentSectionTitle(shelf.displayTitle) }
     when {
-        shelf.category == HomeShelfLogic.homeContinueCategory && (shelf.hasBooks || shelf.hasPodcastEpisodes) -> HomeContinueCompactCarousel(shelf, rowPadding)
-        shelf.hasBooks -> HomeBooksCompactCarousel(shelf.books, rowPadding, usesEbookProgressDisplay = shelf.category == HomeShelfLogic.continueEbooksCategory)
-        shelf.hasPodcastEpisodes -> HomePodcastEpisodesCompactCarousel(shelf.podcastEpisodes, rowPadding)
-        shelf.hasSeries -> HomeSeriesCompactCarousel(shelf.series, rowPadding)
-        shelf.hasAuthors -> HomeAuthorsCompactCarousel(shelf.authors, rowPadding)
+        shelf.hasBooks -> items(shelf.books, key = { "sb-${it.id}" }) { book ->
+            HomeShelfBookCard(book, usesEbookProgressDisplay = shelf.category == HomeShelfLogic.continueEbooksCategory)
+        }
+        shelf.hasPodcastEpisodes -> items(shelf.podcastEpisodes, key = { "se-${it.progressLookupKey}" }) { HomeShelfEpisodeCard(it) }
+        shelf.hasSeries -> items(shelf.series, key = { "ss-${it.id}" }) { HomeShelfSeriesCard(it) }
+        shelf.hasAuthors -> items(shelf.authors, key = { "sa-${it.id}" }) { HomeShelfAuthorCard(it) }
     }
 }
 
@@ -455,15 +462,11 @@ private fun HomePagerIndicator(count: Int, current: Int) {
     }
 }
 
-/** iOS: `HomeBooksCompactCarousel`. */
+/** iOS: Karte aus `HomeBooksCompactCarousel`. */
 @Composable
-private fun HomeBooksCompactCarousel(books: List<AbsBook>, contentPadding: PaddingValues, usesEbookProgressDisplay: Boolean) {
+private fun HomeShelfBookCard(book: AbsBook, usesEbookProgressDisplay: Boolean) {
     val navigator = LocalTabNavigator.current
-    HomeCompactCardCarousel(books, { it.id }, contentPadding) { book, width ->
-        Column(Modifier.width(width)) {
-            HomeBookCompactCard(book, onOpen = { navigator?.push(BookDetailDestination(book.id)) }, usesEbookProgressDisplay = usesEbookProgressDisplay)
-        }
-    }
+    HomeBookCompactCard(book, onOpen = { navigator?.push(BookDetailDestination(book.id)) }, usesEbookProgressDisplay = usesEbookProgressDisplay)
 }
 
 /**
@@ -489,57 +492,45 @@ private fun HomeContinueCompactCarousel(shelf: AbsStartShelfSection, contentPadd
     }
 }
 
-/** iOS: `HomePodcastEpisodesCompactCarousel`. */
+/** iOS: Karte aus `HomePodcastEpisodesCompactCarousel`. */
 @Composable
-private fun HomePodcastEpisodesCompactCarousel(episodes: List<AbsPodcastEpisodeListItem>, contentPadding: PaddingValues) {
+private fun HomeShelfEpisodeCard(episode: AbsPodcastEpisodeListItem) {
     val navigator = LocalTabNavigator.current
-    HomeCompactCardCarousel(episodes, { it.progressLookupKey }, contentPadding) { episode, width ->
-        Column(Modifier.width(width)) {
-            HomeEpisodeCompactCard(episode, onOpen = { navigator?.push(EpisodeDestination(episode.libraryItemId, episode.episodeId)) })
-        }
+    HomeEpisodeCompactCard(episode, onOpen = { navigator?.push(EpisodeDestination(episode.libraryItemId, episode.episodeId)) })
+}
+
+/** iOS: Karte aus `HomeSeriesCompactCarousel`. */
+@Composable
+private fun HomeShelfSeriesCard(item: AbsLibrarySeriesListItem) {
+    val navigator = LocalTabNavigator.current
+    val coverId = seriesCoverBookIds(item.books).firstOrNull()
+    val count = item.books?.size ?: 0
+    val authors = item.cardAuthorsLine?.trim().orEmpty()
+    HomeEntityCompactCard(
+        title = item.name,
+        subtitleLabel = if (authors.isEmpty()) "Books" else "Author",
+        subtitle = if (authors.isEmpty()) (if (count > 0) "$count" else "—") else authors,
+        footer = booksCountLabel(count),
+        accessibilityHint = "Opens series details.",
+        onOpen = { navigator?.push(SeriesDestination(item.id, item.name)) },
+    ) {
+        if (coverId != null) SquareCoverImage(itemId = coverId, tint = coverTint(coverId)) else HomeEntityCoverPlaceholder(SF.booksVerticalFill)
     }
 }
 
-/** iOS: `HomeSeriesCompactCarousel`. */
+/** iOS: Karte aus `HomeAuthorsCompactCarousel`. */
 @Composable
-private fun HomeSeriesCompactCarousel(series: List<AbsLibrarySeriesListItem>, contentPadding: PaddingValues) {
+private fun HomeShelfAuthorCard(author: AbsAuthorShelfEntity) {
     val navigator = LocalTabNavigator.current
-    HomeCompactCardCarousel(series, { it.id }, contentPadding) { item, width ->
-        val coverId = seriesCoverBookIds(item.books).firstOrNull()
-        val count = item.books?.size ?: 0
-        val authors = item.cardAuthorsLine?.trim().orEmpty()
-        Column(Modifier.width(width)) {
-            HomeEntityCompactCard(
-                title = item.name,
-                subtitleLabel = if (authors.isEmpty()) "Books" else "Author",
-                subtitle = if (authors.isEmpty()) (if (count > 0) "$count" else "—") else authors,
-                footer = booksCountLabel(count),
-                accessibilityHint = "Opens series details.",
-                onOpen = { navigator?.push(SeriesDestination(item.id, item.name)) },
-            ) {
-                if (coverId != null) SquareCoverImage(itemId = coverId, tint = coverTint(coverId)) else HomeEntityCoverPlaceholder(SF.booksVerticalFill)
-            }
-        }
-    }
-}
-
-/** iOS: `HomeAuthorsCompactCarousel`. */
-@Composable
-private fun HomeAuthorsCompactCarousel(authors: List<AbsAuthorShelfEntity>, contentPadding: PaddingValues) {
-    val navigator = LocalTabNavigator.current
-    HomeCompactCardCarousel(authors, { it.id }, contentPadding) { author, width ->
-        Column(Modifier.width(width)) {
-            HomeEntityCompactCard(
-                title = author.name,
-                subtitleLabel = "Books",
-                subtitle = author.numBooks?.toString() ?: "—",
-                footer = booksCountLabel(author.numBooks),
-                accessibilityHint = "Opens author details.",
-                onOpen = { navigator?.push(AuthorDestination(author.id, author.name)) },
-            ) {
-                if (author.hasAuthorImage) AuthorImage(author.id) else HomeEntityCoverPlaceholder(SF.personFill)
-            }
-        }
+    HomeEntityCompactCard(
+        title = author.name,
+        subtitleLabel = "Books",
+        subtitle = author.numBooks?.toString() ?: "—",
+        footer = booksCountLabel(author.numBooks),
+        accessibilityHint = "Opens author details.",
+        onOpen = { navigator?.push(AuthorDestination(author.id, author.name)) },
+    ) {
+        if (author.hasAuthorImage) AuthorImage(author.id) else HomeEntityCoverPlaceholder(SF.personFill)
     }
 }
 
