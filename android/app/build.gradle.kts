@@ -45,8 +45,10 @@ android {
     // Verteilung: `sideload` = eigene APK, `play` = Google Play (vorbereitet, noch ohne Unterschiede).
     flavorDimensions += "distribution"
     productFlavors {
-        create("sideload") { dimension = "distribution" }
-        create("play") { dimension = "distribution" }
+        // `sideload`: APK als GitHub-Release mit Update-Prüfung in der App (wie stede);
+        // `play`: Google Play aktualisiert selbst, keine eigene Prüfung.
+        create("sideload") { dimension = "distribution"; buildConfigField("Boolean", "SIDELOAD", "true") }
+        create("play") { dimension = "distribution"; buildConfigField("Boolean", "SIDELOAD", "false") }
     }
     sourceSets {
         // Golden-Files, die iOS und Android gemeinsam nutzen (gleiche Dekodierung/Logik beweisen).

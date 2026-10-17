@@ -1,5 +1,11 @@
 package de.letzgo.abstand.ui.settings
 
+import de.letzgo.abstand.ui.components.SettingsCardActionRow
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import de.letzgo.abstand.ui.AppUpdateDialog
+import de.letzgo.abstand.data.AppUpdate
+import de.letzgo.abstand.BuildConfig
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
@@ -79,6 +85,49 @@ fun shareDebugLog(context: Context, text: String) {
 }
 
 /** iOS: `DebugLogExportView` — Sektion „Debug Log“. */
+/**
+ * Android-eigen: Version und manuelle Update-Prüfung (GitHub-Releases, wie stede). Nur im
+ * `sideload`-Flavor mit Prüf-Button; Play-Installationen zeigen nur die Version.
+ */
+@Composable
+fun AppVersionSection() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val updatesEnabled = remember { AppUpdate.isEnabled(context) }
+    var checking by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var found by remember { mutableStateOf<AppUpdate.Release?>(null) }
+    found?.let { AppUpdateDialog(it) { found = null } }
+    ServerAdminSection("App") {
+        AbstandGroupedCard {
+            SettingsCardInfoRow(
+                icon = SF.infoCircle,
+                title = "Version",
+                subtitle = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            )
+            if (updatesEnabled) {
+                SettingsCardDivider()
+                SettingsCardActionRow(
+                    icon = SF.arrowDownCircle,
+                    title = "Check for updates",
+                    subtitle = status,
+                    isBusy = checking,
+                    onClick = {
+                        scope.launch {
+                            checking = true
+                            status = null
+                            runCatching { AppUpdate.newer() }
+                                .onSuccess { found = it; if (it == null) status = "You have the latest version." }
+                                .onFailure { status = "GitHub is not reachable right now." }
+                            checking = false
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DebugLogSection() {

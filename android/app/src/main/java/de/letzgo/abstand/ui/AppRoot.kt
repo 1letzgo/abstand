@@ -83,6 +83,8 @@ fun AppRoot(model: AppModel = AppModel.shared) {
             Box(Modifier.fillMaxSize()) {
                 MainTabShell(session, model.player)
                 EbookReaderOverlay()
+                // Android-eigen: neue APK aus GitHub-Releases (nur sideload-Flavor).
+                AppUpdateCheck()
             }
         } else {
             LoginScreen(session)

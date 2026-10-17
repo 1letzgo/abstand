@@ -87,6 +87,8 @@ object SF {
     val gearshapeFill = Icons.Filled.Settings
     /** Kontur-Variante für Kopfzeilen-Aktionen (wie Filter/Sortieren). */
     val gearshape = Icons.Outlined.Settings
+    /** App-Version (Settings › Debug › App). */
+    val infoCircle = Icons.Outlined.Info
     val globe = Icons.Outlined.Language
     val handTap = Icons.Outlined.TouchApp
     val headphones = Icons.Outlined.Headphones

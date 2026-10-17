@@ -138,6 +138,9 @@ private fun LazyListScope.settingsHubSectionBody(section: SettingsHubSection, se
         }
         SettingsHubSection.stats -> statsHubSections()
         SettingsHubSection.server -> serverSettingsMenuSections(admin)
-        SettingsHubSection.debug -> item(key = "debug") { DebugLogSection() }
+        SettingsHubSection.debug -> {
+            item(key = "app-version") { AppVersionSection() }
+            item(key = "debug") { DebugLogSection() }
+        }
     }
 }
