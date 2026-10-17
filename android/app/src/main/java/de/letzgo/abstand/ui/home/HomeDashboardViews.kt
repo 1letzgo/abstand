@@ -82,8 +82,6 @@ import de.letzgo.abstand.ui.podcasts.rememberPodcastsSectionContent
 
 // iOS: HomeDashboardViews.swift — Home-Tab (`HomeTabRootView` + `StartDashboardView`).
 
-/** Listen-Index der fixierten Bibliotheksleiste (davor genau ein Eintrag: Regal-Reihe bzw. Zustand). */
-private const val HomeLibraryBarIndex = 1
 
 /**
  * iOS: `HomeTabRootView` + `StartDashboardView` (Offline-Schalter, Regale, Pull-to-Refresh).
@@ -167,7 +165,7 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
         else -> ""
     }
     LaunchedEffect(libraryChoice?.id, sectionKey) {
-        if (listState.firstVisibleItemIndex > HomeLibraryBarIndex) listState.scrollToItem(HomeLibraryBarIndex)
+        if (listState.firstVisibleItemIndex > 0) listState.scrollToItem(0)
     }
     // Sprung aus Suche/Detail („Sendung zeigen“): zur Bibliotheksleiste scrollen.
     val revealEpoch by session.homeLibraryRevealEpoch.collectAsState()
@@ -175,7 +173,7 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
     LaunchedEffect(revealEpoch) {
         if (revealEpoch != handledRevealEpoch) {
             handledRevealEpoch = revealEpoch
-            listState.animateScrollToItem(HomeLibraryBarIndex)
+            listState.animateScrollToItem(0)
         }
     }
 
@@ -205,6 +203,20 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
                 }
             }
         },
+        // Fest unter der Kategorie-Reihe (scrollt nicht mit): gewähltes Regal + Bibliotheksleiste.
+        belowStrip = {
+            Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
+                when {
+                    isRestoring -> Spacer(Modifier.fillMaxWidth().height(AppTheme.Layout.homeBrowseBootstrapMinHeight))
+                    !anyShelfEnabled -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeAllShelvesDisabledState() }
+                    selectedShelf == null -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeSectionEmptyState(continueId, offline) }
+                    else -> Box(Modifier.padding(top = AppTheme.Layout.tightSpacing)) { HomeShelfCarousel(selectedShelf) }
+                }
+                if (libraryChoice != null) {
+                    HomeLibraryBar(model, libraryChoices, libraryChoice, booksContent?.section, podcastsContent?.let { it.shows to it.stripSectionId })
+                }
+            }
+        },
         actions = {
             HomeGoOfflineToolbarButton(offline) {
                 if (offline) session.exitOfflineHomeUI() else showOfflineConfirmation = true
@@ -221,29 +233,12 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
             }
         },
     ) {
-        // Index 0: genau ein Eintrag (Regal-Reihe oder Zustand) — siehe HomeLibraryBarIndex.
-        when {
-            isRestoring -> item(key = "bootstrap") {
-                // Kurz leer halten, bis die lokal rekonstruierten Regale atomar vorliegen.
-                Spacer(Modifier.fillMaxWidth().height(AppTheme.Layout.homeBrowseBootstrapMinHeight))
-            }
-            !anyShelfEnabled -> item(key = "all-off") { HomeAllShelvesDisabledState() }
-            selectedShelf == null -> item(key = "empty") { HomeSectionEmptyState(continueId, offline) }
-            else -> item(key = "shelf-row") {
-                Box(Modifier.fullBleed(AppTheme.Layout.tabPaddingH)) { HomeShelfCarousel(selectedShelf) }
-            }
-        }
         if (libraryChoice == null) {
             item(key = "library-none") {
                 if (isBootstrapping) AbstandLoadingSpinner()
                 else AbstandSectionEmptyState("No library selected. Choose a library in Settings.")
             }
             return@AbstandFixedBrowseStripSectionsLayout
-        }
-        stickyHeader(key = "library-bar") {
-            Box(Modifier.fullBleed(AppTheme.Layout.tabPaddingH).background(Theme.palette.background)) {
-                HomeLibraryBar(model, libraryChoices, libraryChoice, booksContent?.section, podcastsContent?.let { it.shows to it.stripSectionId })
-            }
         }
         when {
             booksContent != null -> booksBrowseSectionItems(booksContent)
@@ -523,7 +518,7 @@ fun seriesCoverBookIds(books: List<AbsBook>?, maxCount: Int = 4): List<String> {
 
 /** iOS: `startDashboardSectionEmptyState` (`ContentUnavailableView`) — Android: über der Bibliotheksleiste, eigene Höhe. */
 @Composable
-private fun LazyItemScope.HomeSectionEmptyState(category: String, offline: Boolean) {
+private fun HomeSectionEmptyState(category: String, offline: Boolean) {
     val label = when (category) {
         AbsStartShelfLocalization.homeBrowseContinueSectionID -> AbsStartShelfLocalization.homeBrowseContinueStripLabel
         AbsStartShelfLocalization.homeBrowseRecentSectionID -> AbsStartShelfLocalization.homeBrowseRecentStripLabel
@@ -544,7 +539,7 @@ private fun LazyItemScope.HomeSectionEmptyState(category: String, offline: Boole
 
 /** iOS: `startDashboardAllShelvesDisabledState` — Android: Knopf direkt zu den Home-Einstellungen. */
 @Composable
-private fun LazyItemScope.HomeAllShelvesDisabledState() {
+private fun HomeAllShelvesDisabledState() {
     val navigator = LocalTabNavigator.current
     AbstandEmptyScreen(
         title = "All shelves are off",

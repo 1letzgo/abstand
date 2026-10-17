@@ -136,6 +136,8 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
     scrollToTopTrigger: Any? = null,
     onRefresh: (suspend () -> Unit)? = null,
     strip: @Composable () -> Unit = {},
+    /** Fester Bereich unter dem Streifen (scrollt nicht mit). */
+    belowStrip: (@Composable () -> Unit)? = null,
     sectionSpacing: Dp = AppTheme.Layout.sectionSpacing,
     /**
      * `true`: Liste ohne horizontales Padding — Sektionen setzen `tabPaddingH` selbst, horizontale
@@ -154,6 +156,7 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
         modifier = modifier,
         actions = actions,
         header = if (showsStrip) strip else null,
+        belowHeader = belowStrip,
     ) { padding ->
         holder.SaveableStateProvider(selection) {
             val ownState = rememberLazyListState()

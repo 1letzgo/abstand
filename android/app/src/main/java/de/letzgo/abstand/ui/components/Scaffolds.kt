@@ -104,6 +104,8 @@ fun TabRootScaffold(
     modifier: Modifier = Modifier,
     actions: (@Composable RowScope.() -> Unit)? = null,
     header: (@Composable () -> Unit)? = null,
+    /** Fester Bereich unter der Kopfzeile (scrollt nicht mit), z. B. Home: Regal-Reihe + Bibliotheksleiste. */
+    belowHeader: (@Composable () -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val palette = Theme.palette
@@ -117,23 +119,24 @@ fun TabRootScaffold(
             if (header != null) {
                 // Keine Titelzeile (der Tab-Name steht in der Navigation Bar): die Bereichs-Pills sind
                 // die Top-Leiste, die Aktionen (Filter, Sortieren, …) stehen rechts in derselben Zeile.
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(palette.background)
-                        .windowInsetsPadding(WindowInsets.statusBars)
-                        // Gleiche Kopfzeilenhöhe in allen Tabs (Pills, Tabs, Überschrift, Aktionen).
-                        .heightIn(min = AppTheme.Layout.minTapTarget)
-                        .padding(end = if (actions != null) AppTheme.Layout.tightSpacing else AppTheme.Layout.tabPaddingH - AppTheme.Layout.stackSpacing)
-                        .semantics { heading(); contentDescription = title },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(Modifier.weight(1f)) { header() }
-                    if (actions != null) {
-                        CompositionLocalProvider(LocalContentColor provides Theme.accent) {
-                            Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+                Column(Modifier.fillMaxWidth().background(palette.background).windowInsetsPadding(WindowInsets.statusBars)) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            // Gleiche Kopfzeilenhöhe in allen Tabs (Pills, Tabs, Überschrift, Aktionen).
+                            .heightIn(min = AppTheme.Layout.minTapTarget)
+                            .padding(end = if (actions != null) AppTheme.Layout.tightSpacing else AppTheme.Layout.tabPaddingH - AppTheme.Layout.stackSpacing)
+                            .semantics { heading(); contentDescription = title },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.weight(1f)) { header() }
+                        if (actions != null) {
+                            CompositionLocalProvider(LocalContentColor provides Theme.accent) {
+                                Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+                            }
                         }
                     }
+                    if (belowHeader != null) Box(Modifier.fillMaxWidth().background(palette.background)) { belowHeader() }
                 }
             } else {
                 TopAppBar(

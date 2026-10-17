@@ -247,7 +247,7 @@ fun BookRowCard(
                                 downloadProgress = live.downloadProgress,
                             )
                         }
-                        LibraryRowCollapsedMetaLine("Author", book.displayAuthorsCardLine, Modifier.alpha(fade))
+                        LibraryRowCollapsedMetaLine("Author", book.displayAuthorsCardLine, Modifier.alpha(fade), valueMaxLines = 1)
                         Spacer(Modifier.weight(1f))
                         Row(verticalAlignment = Alignment.Bottom) {
                             Box(Modifier.weight(1f).alpha(fade)) {
@@ -484,7 +484,7 @@ fun BrowseEntityRowCard(
             Text(title, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (authorLine != null) LibraryRowCollapsedMetaLine("Author", authorLine, valueMaxLines = 1)
             Spacer(Modifier.weight(1f))
-            LibraryRowCollapsedMetaLine(detailLabel, detailValue)
+            LibraryRowCollapsedMetaLine(detailLabel, detailValue, valueMaxLines = 1)
         }
     }
 }
