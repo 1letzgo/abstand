@@ -309,7 +309,8 @@ object AppTheme {
         val homeCompactCardMaxWidth = 400.dp
         val homeCompactCardFallbackWidth = 260.dp
         /** Cover-Seite der Home-Kompaktkarten. */
-        val homeCompactCardCoverSide = 80.dp
+        // Etwas höher als die Bibliothekskarten (libraryRowCoverSide 80) — die Regal-Reihe oben hebt sich ab.
+        val homeCompactCardCoverSide = 96.dp
 
         /** Abstand Titel ↔ Autor/Show. */
         val continueHeroMetadataTitleDetailSpacing = 4.dp
