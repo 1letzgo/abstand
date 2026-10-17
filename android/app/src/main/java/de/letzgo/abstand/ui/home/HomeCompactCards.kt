@@ -38,9 +38,9 @@ import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.components.AbstandStatusBadges
 import de.letzgo.abstand.ui.library.LibraryRowLayout
 
-// Home-Regale (alle außer „Continue listening“): Kompaktkarte — Cover 1:1 links, rechts Titel
-// (eine Zeile), Metazeile, unten Laufzeit/Status. Ohne Play-Pille, ≈ 3/4 der Regalbreite, ein Ziel:
-// die Detailseite (iOS: HomeCompactCards.swift).
+// Home-Regale (Android: alle, auch „Continue listening“): Kompaktkarte — Cover 1:1 links, rechts Titel
+// (eine Zeile), Metazeile, unten Laufzeit/Status und (Bücher/Folgen) die Play-Pille wie in Books,
+// ≈ 3/4 der Regalbreite; Tippen auf die Karte öffnet die Detailseite (iOS: HomeCompactCards.swift).
 
 /** iOS: `HomeCompactCard` — Grundaufbau. */
 @Composable
@@ -57,6 +57,8 @@ fun HomeCompactCard(
     cover: @Composable () -> Unit,
     footer: @Composable () -> Unit = {},
     badges: @Composable () -> Unit = {},
+    /** Android: Play-Pille unten rechts (wie `LibraryRowPlayPill` in Books); `null` = keine. */
+    playAction: (@Composable () -> Unit)? = null,
 ) {
     val palette = Theme.palette
     val side = AppTheme.Layout.homeCompactCardCoverSide
@@ -96,6 +98,10 @@ fun HomeCompactCard(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                     Box(Modifier.weight(1f).alpha(contentOpacity)) { footer() }
                     badges()
+                    if (playAction != null) {
+                        Spacer(Modifier.width(AppTheme.Layout.stackSpacing))
+                        Box(Modifier.alpha(contentOpacity)) { playAction() }
+                    }
                 }
             }
         }
@@ -150,6 +156,7 @@ fun HomeBookCompactCard(book: AbsBook, onOpen: () -> Unit, usesEbookProgressDisp
             }
         },
         badges = { AbstandStatusBadges(isFinished, download.isDownloaded, download.isDownloading, download.progress) },
+        playAction = if (usesEbookMetrics) null else ({ HomeCompactPlayPill(book.id, null, isFinished) }),
     )
 }
 
@@ -180,6 +187,7 @@ fun HomeEpisodeCompactCard(episode: AbsPodcastEpisodeListItem, onOpen: () -> Uni
         cover = { SquareCoverImage(itemId = episode.libraryItemId, tint = coverTint(episode.libraryItemId)) },
         footer = { HomeCompactFooterText(formatPlaybackTime(total)) },
         badges = { AbstandStatusBadges(isFinished, download.isDownloaded, download.isDownloading, download.progress) },
+        playAction = { HomeCompactPlayPill(episode.libraryItemId, episode.episodeId, isFinished) },
     )
 }
 

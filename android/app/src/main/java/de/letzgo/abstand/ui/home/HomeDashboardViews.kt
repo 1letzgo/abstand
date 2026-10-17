@@ -1,5 +1,6 @@
 package de.letzgo.abstand.ui.home
 
+import de.letzgo.abstand.data.AbsStartShelfMergedRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Arrangement
 import de.letzgo.abstand.ui.Theme
@@ -175,13 +176,14 @@ private fun StartDashboardShelf(shelf: AbsStartShelfSection) {
             if (shelf.hasBooks || shelf.hasPodcastEpisodes) {
                 Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing)) {
                     TabContentSectionTitle(shelf.displayTitle, titleModifier)
-                    ContinueListeningHeroCarousel(shelf, rowPadding)
+                    // Android: Kompaktkarten mit Play-Pille statt Hero-Karten.
+                    HomeContinueCompactCarousel(shelf, rowPadding)
                 }
             }
             if (shelf.hasAuthors) {
                 Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing)) {
                     TabContentSectionTitle(shelf.displayTitle, titleModifier)
-                    HomeAuthorsCoverCardCarousel(shelf.authors, rowPadding)
+                    HomeAuthorsCompactCarousel(shelf.authors, rowPadding)
                 }
             }
         }
@@ -263,6 +265,29 @@ private fun HomeBooksCompactCarousel(books: List<AbsBook>, contentPadding: Paddi
     HomeCompactCardCarousel(books, { it.id }, contentPadding) { book, width ->
         Column(Modifier.width(width)) {
             HomeBookCompactCard(book, onOpen = { navigator?.push(BookDetailDestination(book.id)) }, usesEbookProgressDisplay = usesEbookProgressDisplay)
+        }
+    }
+}
+
+/**
+ * Android: „Continue listening“ als Kompakt-Karussell — Bücher und Folgen gemischt nach
+ * `lastUpdate` (Reihenfolge wie die Hero-Reihe, nur bei geänderter Rangfolge neu gebaut).
+ */
+@Composable
+private fun HomeContinueCompactCarousel(shelf: AbsStartShelfSection, contentPadding: PaddingValues) {
+    val navigator = LocalTabNavigator.current
+    val progress by AppModel.shared.home.progressByItemId.collectAsState()
+    val merged = AbsStartShelfMergedRow.merged(shelf.books, shelf.podcastEpisodes, progress)
+    val signature = merged.joinToString("\u001f") { it.id }
+    val rows = remember(signature) { merged }
+    HomeCompactCardCarousel(rows, { it.id }, contentPadding) { row, width ->
+        Column(Modifier.width(width)) {
+            when (row) {
+                is AbsStartShelfMergedRow.Book ->
+                    HomeBookCompactCard(row.book, onOpen = { navigator?.push(BookDetailDestination(row.book.id)) })
+                is AbsStartShelfMergedRow.PodcastEpisode ->
+                    HomeEpisodeCompactCard(row.episode, onOpen = { navigator?.push(EpisodeDestination(row.episode.libraryItemId, row.episode.episodeId)) })
+            }
         }
     }
 }

@@ -197,6 +197,16 @@ fun ContinueHeroPlayPill(itemId: String, episodeId: String?, caption: String, is
     )
 }
 
+/** Android: Play-Pille der Home-Kompaktkarten (Symbol, wie `LibraryRowPlayPill` in Books). */
+@Composable
+internal fun HomeCompactPlayPill(itemId: String, episodeId: String?, isFinished: Boolean) {
+    val nowPlaying = rememberNowPlaying()
+    AbstandPlayPill(
+        isPlaying = nowPlaying.isPlaying(itemId, episodeId),
+        onClick = { continueHeroPlayPillToggle(nowPlaying, itemId, episodeId, isFinished) },
+    )
+}
+
 /** iOS: `continueHeroPlayPillToggle` — aktives Medium pausieren/fortsetzen, sonst starten. */
 private fun continueHeroPlayPillToggle(nowPlaying: NowPlayingState, itemId: String, episodeId: String?, isFinished: Boolean) {
     val launcher = AppModel.shared.playbackLauncher
