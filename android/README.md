@@ -48,6 +48,22 @@ abstand.debug.user=…
 abstand.debug.password=…
 ```
 
+## Releases (GitHub, in-app update)
+
+Android builds are published as GitHub releases of the public repo `1letzgo/abstand`, tag
+`abstand-android-<versionCode>`, one `.apk` asset — the app (`data/AppUpdate.kt`, `sideload` flavor
+only) checks them on launch (at most every 6 h) and under Settings › Debug › App, downloads the APK,
+verifies the GitHub SHA-256 digest and hands it to the package installer (same logic as stede).
+
+1. Commit everything, `./gradlew assembleSideloadRelease` (R8-minified, signed with the stable
+   debug key `~/.android/debug.keystore` — never change it, or installed apps reject the update).
+2. `versionCode` = commit count, so every new commit yields a higher code; never reuse a tag.
+3. Push `main`, then
+   `gh release create abstand-android-<code> abstand-<versionName>-<code>.apk --repo 1letzgo/abstand --target main --title "abstand <versionName> (<code>) – Android" --notes "<short German changelog>"`.
+4. Verify the asset digest (`gh release view … --json assets`) equals the local `shasum -a 256`.
+
+The `play` flavor (Google Play) never checks GitHub and is signed with the upload key.
+
 ## Flavors
 
 | Flavor | Distribution |
