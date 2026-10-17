@@ -54,7 +54,7 @@ android {
         // Golden-Files, die iOS und Android gemeinsam nutzen (gleiche Dekodierung/Logik beweisen).
         getByName("test").resources.srcDir("../../shared/fixtures")
     }
-    // Upload-Key liegt außerhalb von Repo und iCloud; ohne ihn ist der Release-Build unsigniert.
+    // Upload-Key (Google Play) liegt außerhalb von Repo und iCloud; ohne ihn ist der Play-Release unsigniert.
     val signingFile = file("${System.getProperty("user.home")}/Library/Application Support/abstand-signing/keystore.properties")
     signingConfigs {
         if (signingFile.exists()) create("upload") {
@@ -65,10 +65,13 @@ android {
             keyPassword = props.getProperty("keyPassword")
         }
     }
+    // Signatur je Verteilweg: `sideload` (GitHub-Releases, In-App-Update) immer mit dem Debug-Key
+    // dieses Macs (~/.android/debug.keystore) — er darf sich nie ändern, sonst lehnt Android die
+    // Updates ab; Debug- und Release-APKs installieren damit übereinander. `play` mit dem Upload-Key.
+    productFlavors.getByName("sideload").signingConfig = signingConfigs.getByName("debug")
+    signingConfigs.findByName("upload")?.let { productFlavors.getByName("play").signingConfig = it }
     buildTypes {
         debug {
-            // Gleicher Key wie Release: Debug und Release installieren übereinander ohne Datenverlust.
-            signingConfigs.findByName("upload")?.let { signingConfig = it }
             buildConfigField("String", "DEBUG_SERVER", localString("abstand.debug.server"))
             buildConfigField("String", "DEBUG_USER", localString("abstand.debug.user"))
             buildConfigField("String", "DEBUG_PASSWORD", localString("abstand.debug.password"))
@@ -78,7 +81,6 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfigs.findByName("upload")?.let { signingConfig = it }
         }
     }
     compileOptions {
