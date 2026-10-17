@@ -74,7 +74,8 @@ data class AbstandBrowseStripItem(
 )
 
 /**
- * Bereichsumschalter unter der Titelzeile mit den Dropdown-Pills aus iOS `AbstandPinnedBrowseStrip`:
+ * Bereichsumschalter mit den Dropdown-Pills aus iOS `AbstandPinnedBrowseStrip` / `AbstandExpandingDockBrowseStrip`
+ * (Home-Bibliotheksleiste, Settings):
  * links die Bibliothek als kompakte Pill (nur Symbol + Chevron, Namen im Menü), daneben der Bereich
  * über die restliche Breite — **immer** beide, auch bei nur einer aktiven Bibliothek. Ohne
  * Bibliotheksauswahl (Settings) füllt die Bereichs-Pill die Zeile allein.
@@ -114,51 +115,6 @@ fun AbstandBrowsePills(
             AbstandDropdownPill(items, selectionId, select, Modifier.weight(1f), SF.squareGrid2x2, sectionAccessibilityLabel)
         }
     }
-}
-
-/**
- * iOS: `AbstandExpandingDockBrowseStrip`. Android: [AbstandBrowsePills]; [pinnedLeadingItem]
- * (Podcast „New“) steht als erster Eintrag im Menü.
- */
-@Composable
-fun AbstandExpandingDockBrowseStrip(
-    items: List<AbstandBrowseStripItem>,
-    selectionId: String,
-    onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    pinnedLeadingItem: AbstandBrowseStripItem? = null,
-) {
-    val ordered = if (pinnedLeadingItem == null) items else listOf(pinnedLeadingItem) + items.filter { it.id != pinnedLeadingItem.id }
-    AbstandBrowsePills(ordered, selectionId, onSelect, modifier)
-}
-
-/**
- * iOS: `AbstandPinnedBrowseStrip` — zwei Dropdown-Pills (Bibliothek | Bereich), siehe [AbstandBrowsePills].
- */
-@Composable
-fun AbstandPinnedBrowseStrip(
-    secondaryItems: List<AbstandBrowseStripItem>,
-    secondarySelectionId: String,
-    onSelectSecondary: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    libraryPickerItems: List<AbstandBrowseStripItem> = emptyList(),
-    libraryPickerSelectionId: String = "",
-    onSelectLibrary: ((String) -> Unit)? = null,
-    pinnedLeadingItem: AbstandBrowseStripItem? = null,
-    secondaryAccessibilityLabel: String = "Browse",
-) {
-    val ordered = if (pinnedLeadingItem == null) secondaryItems
-    else listOf(pinnedLeadingItem) + secondaryItems.filter { it.id != pinnedLeadingItem.id }
-    AbstandBrowsePills(
-        items = ordered,
-        selectionId = secondarySelectionId,
-        onSelect = onSelectSecondary,
-        modifier = modifier,
-        libraryItems = libraryPickerItems,
-        librarySelectionId = libraryPickerSelectionId,
-        onSelectLibrary = onSelectLibrary,
-        sectionAccessibilityLabel = secondaryAccessibilityLabel,
-    )
 }
 
 /**
@@ -207,7 +163,7 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
             }
             val list = @Composable {
                 // Liste beginnt UNTER der (deckenden) Kopfzeile statt dahinter — sonst kleben
-                // `stickyHeader`s unsichtbar hinter der Kopfzeile (Home: Kategorie-Pills).
+                // `stickyHeader`s unsichtbar hinter der Kopfzeile (Home: Bibliotheksleiste).
                 val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
                 LazyColumn(
                     state = state,

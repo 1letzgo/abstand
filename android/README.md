@@ -15,7 +15,7 @@ What is language-neutral is shared 1:1:
 
 **The Android app is its own product and the UI test bed:** layout/design ideas are tried here first and may diverge from iOS; proven ones are collected in `UI_IDEAS_FOR_IOS.txt` and ported to iOS later. Logic, data, API and bug fixes stay in parity with iOS.
 
-**Baseline: behave like the iOS app, look like a standard Material 3 app** — same tabs, order, labels
+**Baseline: behave like the iOS app, look like a standard Material 3 app** — same tabs (exception: no Books/Podcasts tabs, they live in the Home library bar), order, labels
 (English UI), defaults, features, accent and screen structure as iOS; colors are a Material 3
 scheme generated from the iOS accent (accent = seed = `primary`, see `UI_TEMPLATES.txt` → "Material 3 colors"); dimensions, spacing,
 typography and component sizes follow **Material 3** (4-dp grid, 48-dp touch targets, M3 type
@@ -125,7 +125,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `model/PodcastStore.kt` (`PodcastStore`, `PodcastDirectoryState`, `PodcastShowAdminState`) | `AppModelCatalogPodcasts.swift`, `AppModelPodcastDirectory.swift`, podcast parts of `AppModel.swift` |
 | `model/PodcastLogic.kt` (`PodcastLogic`, `PodcastCatalogSortField`, `PodcastEpisodeSortField`, `PodcastAutoDownloadInterval`) | static podcast helpers in `AppModel.swift`, `CatalogBrowseTypes.swift`, `PodcastAutoDownloadSchedule.swift` |
 | `ui/podcasts/PodcastActions.kt` | player/download bridge (`playPodcastEpisode`, `startDownloadPodcastEpisode`, `downloadedItemIds`) |
-| `ui/podcasts/PodcastsTabRoot.kt` | podcasts root in `MainRootView.swift` + `PodcastCatalogTabShell`/`PodcastCatalogToolbarContent` (`LibraryToolbarState.swift`) |
+| `ui/podcasts/PodcastsBrowseSection.kt` | podcasts root content in `MainRootView.swift` + `PodcastCatalogToolbarContent` (`LibraryToolbarState.swift`) — Android: list builder + toolbar for the Home library bar (no Podcasts tab) |
 | `ui/podcasts/PodcastEpisodeRows.kt` | `PodcastEpisodeRowCard` (`LibraryCardViews.swift`; badges/play pill via `AbstandStatusBadges`/`AbstandPlayPill`) |
 | `ui/podcasts/PodcastTabSheets.kt` | `PodcastTabSheets.swift` (Add podcast: search, charts, storefront) + `AbstandCatalogSortToolbarMenu` |
 | `ui/podcasts/PodcastDirectoryShowView.kt` | `PodcastDirectoryShowView.swift` |
@@ -134,14 +134,15 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `model/HomeStore.kt` (`HomeStore`), `model/HomeShelfLogic.kt` (pure, tested) | Home parts of `AppModel.swift` (`startShelves`, `loadStartDashboard`, Continue listening/reading, New episodes, `startCategoryOrder`/`startDisabledCategories`/`homeBrowseCategory`, `progressByItemId`) |
 | `model/SearchStore.kt`, `model/SearchLogic.kt` (pure, tested) | search parts of `AppModel.swift` (`scheduleUnifiedSearch`, `performSearch`, `performPodcastLibrarySearch`, local-first results) |
 | `model/PlaybackLauncher.kt` (`PlaybackLauncher`, `NowPlayingState`, `DownloadStatusSource`) | card → player/download bridge (`model.play`, `player.$isPlaying`, `LibraryBookRowLiveState` download flags) |
-| `ui/home/HomeDashboardViews.kt` | `HomeDashboardViews.swift` (`HomeTabRootView`, `StartDashboardView`, Home carousels) |
+| `ui/home/HomeDashboardViews.kt` | `HomeDashboardViews.swift` (`HomeTabRootView`, `StartDashboardView`, Home carousels) — Android: Home is the combined library view (shelf pills, shelf carousel, sticky library bar with Books + Podcasts) |
+| `model/HomeLibraryLogic.kt` (pure, tested) | — (Android-only: combined Books/Podcasts library choice of the Home library bar) |
 | `ui/home/HomeCompactCards.kt` | `HomeCompactCards.swift` |
 | `ui/home/ContinueListeningHeroViews.kt` | `ContinueListeningHeroViews.swift` + `ContinueListeningHeroBookCard`/`…PodcastCard` (LibraryCardViews.swift) |
 | `ui/home/HomeCardSupport.kt` | cover-tint placeholder, author image, live-state helpers (`LibraryRowLayout` lives in `ui/library/LibraryCards.kt`, `LibraryRowCollapsedMetaLine` and cover pills in `ui/components/`) |
 | `ui/home/HomeShelfSettings.kt` | `SettingsAppearanceHomeView` (ServerAdminViews.swift) |
-| `ui/components/BrowseStrip.kt` | `AbstandExpandingDockBrowseStrip.swift` (`AbstandPinnedBrowseStrip`, dropdown pills), `AbstandFixedBrowseStripSectionsLayout` (AppTheme.swift) |
+| `ui/components/BrowseStrip.kt` | `AbstandExpandingDockBrowseStrip.swift` (`AbstandPinnedBrowseStrip` → `AbstandBrowsePills`), `AbstandFixedBrowseStripSectionsLayout` (AppTheme.swift) |
 | `ui/search/SearchTabViews.kt` | `SearchTabViews.swift` |
-| `ui/destinations/Destinations.kt` | Home/Search `navigationDestination` targets → `ui/detail/` screens, `PodcastEpisodeDetailView`, Podcasts tab show filter |
+| `ui/destinations/Destinations.kt` | Home/Search `navigationDestination` targets → `ui/detail/` screens, `PodcastEpisodeDetailView`, show filter in the Home library bar |
 | `model/AppSettings.kt` (`AppSettings`, `LibraryCardStyle`, `TranslationTargetLanguage`) | simple `@Published` settings of `AppModel`, `LibraryBookCardStyle`/`LibraryPodcastCardStyle`/`TranslationTargetLanguage` (`AppAppearance.swift`) |
 | `model/AdminStore.kt` (`AdminStore`, `AdminLogic`) | server-admin part of `AppModel` (users, library stats/scan, M4B encode + polling, media-cache purge, `changeAccountPassword`) |
 | `model/StatsStore.kt` (`StatsStore`, `StatsLogicExt`) | listening-stats part of `AppModel` (`loadListeningStats`, achievements snapshot, stats navigation stubs) |
@@ -164,7 +165,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `model/CatalogStore.kt` (`CatalogStore`, `LibraryBookCardStyle`, `CatalogSortState`, `CatalogFilterState`, `BrowseListsState`) | catalog/browse parts of `AppModel.swift` + `AppModelCatalogPodcasts.reloadLibrary`, `LibraryBookCardStyle` (`AppAppearance.swift`), book actions (detail load, mark finished, reset, bookmarks, delete) |
 | `model/EntityDetailLoader.kt` | `reloadEntityDetail`/`loadMoreEntityDetailIfNeeded`/`applyEntityDetailFromLocalCache` (per screen instead of shared `entityDetail*`) |
 | `logic/CatalogLogic.kt`, `logic/BookDetailLogic.kt` | pure catalog/entity/detail helpers of `AppModel.swift`, `BookDetailView.swift`, `BookListeningDetailSections.swift` |
-| `ui/library/BooksLibraryTabRoot.kt`, `ui/library/BooksBrowseSections.kt` | `MainRootView` books root, `BooksLibraryTabShell`/`BooksLibraryToolbarContent` (`LibraryToolbarState.swift`), `MainRootBrowseSections.swift` |
+| `ui/library/BooksLibraryToolbar.kt`, `ui/library/BooksBrowseSections.kt` | `BooksLibraryToolbarContent` (`LibraryToolbarState.swift`), books root content of `MainRootView` / `MainRootBrowseSections.swift` — Android: list builder + toolbar for the Home library bar (no Books tab) |
 | `ui/library/LibraryCards.kt` | `LibraryCardViews.swift` (book row + cover card, browse entity row, facet tile, badges, play pills) |
 | `ui/library/LibraryToolbarMenus.kt` | `LibrarySortToolbars.swift`, `LibraryFilterViews.swift` |
 | `ui/library/LibraryPlayback.kt` | `AppModel.play(book:)`, `jumpToBookmark`, `continueHeroPlayPillToggle` |

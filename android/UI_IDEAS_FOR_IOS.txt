@@ -34,6 +34,12 @@ Inhalt
   Folgen mit Play-Pille unten rechts wie in Books, Serien/Autoren ohne. (18ba21a)
 - [offen] Home-Kategorien per Pill-Reihe in der Kopfzeile umschalten (aktive Pill in Akzentfarbe)
   statt alle Regale untereinander; gewählte Kategorie als Liste aus Kompaktkarten, Auswahl gemerkt.
+- [offen] Home als gemeinsame Bibliotheksansicht; die Tabs Books und Podcasts entfallen (Tab-Leiste:
+  Home · Settings · Search). Kopfzeile = Kategorie-Pills der Regale (+ Offline-Button), darunter das
+  gewählte Regal als horizontale Kartenreihe, darunter eine beim Scrollen fixierte Bibliotheksleiste
+  (kompakte Bibliotheks-Pill mit allen Books- UND Podcast-Bibliotheken, Bereichs-Pill mit den
+  Books-Sektionen bzw. „New“ + Sendungen, rechts die alten Tab-Aktionen) und der Bereichsinhalt wie
+  bisher in den Tabs. Sprünge „zur Sendung“/„zum Katalog“ landen auf Home mit passender Auswahl.
 
 Player
 ------

@@ -183,7 +183,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/reader/ReaderScreen.kt:794  CircularProgressIndicator(Modifier.size(AppTheme.Layout.blockSpacing), color = foreground,
 
 ## Filter-/Kategorie-Chips (FilterChip, Kapsel-Box im Dock-Farbschema)
-   → Vorlage: AbstandChip · AbstandDockChip · AbstandPinnedBrowseStrip
+   → Vorlage: AbstandChip · AbstandDockChip · AbstandBrowsePills
    Fundstellen vorher: 4
    - ui/library/BooksLibraryTabRoot.kt:207  FilterChip(
    - ui/library/BooksLibraryTabRoot.kt:232  FilterChip(
@@ -243,7 +243,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/settings/SettingsDownloads.kt:316  private fun DownloadManageSavedRow(row: DownloadManageRow, onDelete: () -> Unit) {
 
 ## Doppelte Ports (gleiche Funktion in zwei Paketen)
-   → Vorlage: eine Implementierung: library.LibraryRowLayout, components.LibraryRowCollapsedMetaLine, library.BrowseEntityRowCard/FacetBrowseTileCard, DetailMetaLabelIcon.icon, AbstandPinnedBrowseStrip
+   → Vorlage: eine Implementierung: library.LibraryRowLayout, components.LibraryRowCollapsedMetaLine, library.BrowseEntityRowCard/FacetBrowseTileCard, DetailMetaLabelIcon.icon, AbstandBrowsePills
    Fundstellen vorher: 12
    - ui/browse/BrowseFacetSections.kt:92  fun BrowseEntityRowCard(
    - ui/browse/BrowseFacetSections.kt:144  fun FacetBrowseTileCard(kind: BooksBrowseSection, title: String, count: Int?, onClick: () 

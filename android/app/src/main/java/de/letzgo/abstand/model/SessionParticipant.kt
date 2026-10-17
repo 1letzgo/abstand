@@ -5,11 +5,13 @@ import de.letzgo.abstand.data.AbsUser
 import de.letzgo.abstand.data.ContinueRefreshAttemptResult
 import de.letzgo.abstand.store.LocalLibraryStore
 
-/** iOS: `AppModel.MainTab` — gleiche Labels, gleiche Reihenfolge wie die Tab-Leiste. */
+/**
+ * iOS: `AppModel.MainTab` — Android: nur Home · Settings · Search. Books und Podcasts sind keine
+ * eigenen Tabs mehr, sondern die fixierte Bibliotheksleiste auf Home
+ * ([SessionStore.showBooksLibraryOnHome] / [SessionStore.showPodcastLibraryOnHome]).
+ */
 enum class MainTab(val label: String) {
     start("Home"),
-    library("Books"),
-    podcasts("Podcasts"),
     settings("Settings"),
     search("Search"),
 }

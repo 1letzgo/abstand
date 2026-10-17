@@ -35,14 +35,12 @@ import de.letzgo.abstand.ui.components.LocalCoverEnvironment
 import de.letzgo.abstand.ui.components.TabRootScaffold
 import de.letzgo.abstand.ui.detail.BookDetailDestination
 import de.letzgo.abstand.ui.home.HomeTabRoot
-import de.letzgo.abstand.ui.library.BooksLibraryTabRoot
 import de.letzgo.abstand.ui.login.LoginScreen
 import de.letzgo.abstand.ui.permissions.NotificationPermissionHost
 import de.letzgo.abstand.ui.player.MiniPlayerDock
 import de.letzgo.abstand.ui.player.NowPlayingOverlay
 import de.letzgo.abstand.ui.player.miniPlayerDockHeight
 import de.letzgo.abstand.ui.player.rememberTranscriptReadAlong
-import de.letzgo.abstand.ui.podcasts.PodcastsTabRoot
 import de.letzgo.abstand.ui.reader.EbookReaderOverlay
 import de.letzgo.abstand.ui.search.SearchTabRoot
 import de.letzgo.abstand.ui.settings.SettingsTabRoot
@@ -51,8 +49,6 @@ import de.letzgo.abstand.ui.settings.SettingsTabRoot
 val MainTab.icon: ImageVector
     get() = when (this) {
         MainTab.start -> SF.houseFill
-        MainTab.library -> SF.booksVerticalFill
-        MainTab.podcasts -> SF.micFill
         MainTab.settings -> SF.gearshapeFill
         MainTab.search -> SF.magnifyingglass
     }
@@ -93,25 +89,16 @@ fun AppRoot(model: AppModel = AppModel.shared) {
 }
 
 /**
- * iOS: `MainTabShellView(MainRootView)` — Material-`NavigationBar` mit Home, Books, Podcasts,
- * Settings, Search; jeder Tab mit eigenem Back-Stack. Sichtbarkeit von Books/Podcasts folgt den
- * gecachten Flags, die der Session-Store erst nach dem Bootstrap umschaltet — die Tab-Struktur
- * bleibt während des Starts stabil. Tab-Inhalte bleiben beim Wechsel erhalten (Zustand je Tab).
+ * iOS: `MainTabShellView(MainRootView)` — Material-`NavigationBar` mit Home, Settings, Search
+ * (Android: Books und Podcasts sind keine eigenen Tabs, sondern die Bibliotheksleiste auf Home);
+ * jeder Tab mit eigenem Back-Stack. Tab-Inhalte bleiben beim Wechsel erhalten (Zustand je Tab).
  */
 @Composable
 private fun MainTabShell(session: SessionStore, player: PlayerWiring) {
     val palette = Theme.palette
     val selected by session.mainTab.collectAsState()
-    val showBooks by session.showAudiobooksTab.collectAsState()
-    val showPodcasts by session.showPodcastsTab.collectAsState()
     val epoch by session.accountSessionEpoch.collectAsState()
-    val visibleTabs = MainTab.entries.filter {
-        when (it) {
-            MainTab.library -> showBooks
-            MainTab.podcasts -> showPodcasts
-            else -> true
-        }
-    }
+    val visibleTabs = MainTab.entries
     // Navigatoren je Tab; nach Accountwechsel frisch (iOS: `accountSessionEpoch` invalidiert Tab-Views).
     val navigators = remember(epoch) { MainTab.entries.associateWith { TabNavigator(it) } }
     val stateHolder = rememberSaveableStateHolder()
@@ -169,14 +156,12 @@ private fun MainTabShell(session: SessionStore, player: PlayerWiring) {
     ErrorAlert(session)
 }
 
-/** Wurzel je Tab — Home und Suche portiert, Books/Podcasts noch Platzhalter (Settings: Account-Sektionen). */
+/** Wurzel je Tab (Books/Podcasts stecken in Home). */
 @Composable
 private fun TabRootContent(tab: MainTab) {
     when (tab) {
         MainTab.settings -> SettingsTabRoot()
         MainTab.start -> HomeTabRoot()
-        MainTab.library -> BooksLibraryTabRoot()
-        MainTab.podcasts -> PodcastsTabRoot()
         MainTab.search -> SearchTabRoot()
     }
 }

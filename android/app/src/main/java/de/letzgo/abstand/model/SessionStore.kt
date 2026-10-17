@@ -1269,7 +1269,7 @@ class SessionStore internal constructor(
             _focusedBooksLibrary.value = lib
             participants.forEach { it.onBooksLibrarySelected(lib, changed = false) }
             setShowAudiobooksTab(true)
-            if (navigateToCatalog) navigateToMainTab(MainTab.library)
+            if (navigateToCatalog) showBooksLibraryOnHome(lib)
             return
         }
         _selectedBooksLibrary.value = lib
@@ -1279,7 +1279,7 @@ class SessionStore internal constructor(
         _focusedBooksLibrary.value = lib
         syncStoredAccountFromSession()
         setShowAudiobooksTab(true)
-        if (navigateToCatalog) navigateToMainTab(MainTab.library)
+        if (navigateToCatalog) showBooksLibraryOnHome(lib)
         participants.forEach { it.onBooksLibrarySelected(lib, changed = true) }
     }
 
@@ -1291,7 +1291,7 @@ class SessionStore internal constructor(
             _focusedPodcastLibrary.value = lib
             participants.forEach { it.onPodcastLibrarySelected(lib, changed = false) }
             setShowPodcastsTab(true)
-            if (navigateToCatalog && _showPodcastsTab.value) navigateToMainTab(MainTab.podcasts)
+            if (navigateToCatalog) showPodcastLibraryOnHome(lib)
             return
         }
         _selectedPodcastLibrary.value = lib
@@ -1301,7 +1301,7 @@ class SessionStore internal constructor(
         _focusedPodcastLibrary.value = lib
         syncStoredAccountFromSession()
         setShowPodcastsTab(true)
-        if (navigateToCatalog && _showPodcastsTab.value) navigateToMainTab(MainTab.podcasts)
+        if (navigateToCatalog) showPodcastLibraryOnHome(lib)
         participants.forEach { it.onPodcastLibrarySelected(lib, changed = true) }
     }
 
@@ -1457,23 +1457,19 @@ class SessionStore internal constructor(
 
     // MARK: - Tabs
 
-    /** iOS: `showAudiobooksTab.didSet` — persistieren; ausgeblendeten Tab verlassen. */
+    /**
+     * iOS: `showAudiobooksTab.didSet` — persistieren. Android: kein eigener Tab mehr (Books liegt in
+     * der Home-Bibliotheksleiste); das Flag sagt nur noch, ob es eine Books-Bibliothek gibt.
+     */
     private fun updateShowAudiobooksTab(visible: Boolean) {
         _showAudiobooksTab.value = visible
         Prefs.setBool(Keys.showAudiobooksTab, visible)
-        if (!visible && _mainTab.value == MainTab.library) _mainTab.value = preferredFallbackMediaTab(excluding = MainTab.library)
     }
 
+    /** Wie [updateShowAudiobooksTab] — Podcast-Bibliothek vorhanden (Suche, Home-Leiste). */
     private fun updateShowPodcastsTab(visible: Boolean) {
         _showPodcastsTab.value = visible
         Prefs.setBool(Keys.showPodcastsTab, visible)
-        if (!visible && _mainTab.value == MainTab.podcasts) _mainTab.value = preferredFallbackMediaTab(excluding = MainTab.podcasts)
-    }
-
-    private fun preferredFallbackMediaTab(excluding: MainTab): MainTab = when {
-        excluding != MainTab.library && _showAudiobooksTab.value -> MainTab.library
-        excluding != MainTab.podcasts && _showPodcastsTab.value -> MainTab.podcasts
-        else -> MainTab.start
     }
 
     /** Tab-Struktur bleibt während des Bootstraps stabil (iOS-Regel: kein strukturelles Umschalten). */
@@ -1506,14 +1502,62 @@ class SessionStore internal constructor(
         setShowAudiobooksTab(SessionLogic.tabVisibleFromLibraries(booksLibraryPreferenceIsNone, sortedBookLibraries.isNotEmpty()))
     }
 
-    /** iOS: `mainTab = …` aus Views (Tab-Leiste). Ausgeblendete Tabs werden nicht gewählt. */
+    /** iOS: `mainTab = …` aus Views (Tab-Leiste). */
     fun selectMainTab(tab: MainTab) {
-        if (tab == MainTab.library && !_showAudiobooksTab.value) return
-        if (tab == MainTab.podcasts && !_showPodcastsTab.value) return
         _mainTab.value = tab
     }
 
-    private fun navigateToMainTab(tab: MainTab) = selectMainTab(tab)
+    // MARK: - Home-Bibliotheksleiste (Android)
+
+    private val _homeLibraryChoiceId = MutableStateFlow(Prefs.string(HomeLibraryLogic.prefsKey).orEmpty())
+    /** Gewählte Bibliothek der Home-Bibliotheksleiste (`b:<id>` / `p:<id>`, siehe [HomeLibraryLogic]). */
+    val homeLibraryChoiceId: StateFlow<String> = _homeLibraryChoiceId.asStateFlow()
+
+    private val _homeLibraryRevealEpoch = MutableStateFlow(0)
+    /** Zählt hoch, wenn Home zur Bibliotheksleiste scrollen soll (Sprung aus Suche/Detail). */
+    val homeLibraryRevealEpoch: StateFlow<Int> = _homeLibraryRevealEpoch.asStateFlow()
+
+    /** Kombinierte Auswahl (aktive Books- + Podcast-Bibliotheken). */
+    val homeLibraryChoices: List<HomeLibraryLogic.Choice>
+        get() = HomeLibraryLogic.choices(activeBookLibraries, activePodcastLibraries)
+
+    /** Aktuell gültige Home-Bibliothek (gespeichert, sonst fokussiert, sonst erste). */
+    fun resolvedHomeLibraryChoice(): HomeLibraryLogic.Choice? = HomeLibraryLogic.resolve(
+        homeLibraryChoices, _homeLibraryChoiceId.value,
+        _focusedBooksLibrary.value?.id, _focusedPodcastLibrary.value?.id,
+    )
+
+    /** Bibliothek der Home-Leiste wählen (merken + fokussieren, damit Katalog bzw. Feed sie laden). */
+    fun selectHomeLibraryChoice(choiceId: String) {
+        val choice = homeLibraryChoices.firstOrNull { it.id == choiceId } ?: return
+        if (_homeLibraryChoiceId.value != choice.id) {
+            _homeLibraryChoiceId.value = choice.id
+            Prefs.setString(HomeLibraryLogic.prefsKey, choice.id)
+        }
+        if (choice.isPodcast) focusPodcastLibrary(choice.library) else focusBooksLibrary(choice.library)
+    }
+
+    /**
+     * Statt Books-Tab: Home mit der Books-Bibliothek in der Leiste zeigen (fokussiert, sonst Primary,
+     * sonst erste aktive) und zur Leiste scrollen.
+     */
+    fun showBooksLibraryOnHome(library: AbsLibrary? = null) {
+        val lib = library ?: _focusedBooksLibrary.value ?: _selectedBooksLibrary.value ?: activeBookLibraries.firstOrNull()
+        lib?.let { selectHomeLibraryChoice(HomeLibraryLogic.booksChoiceId(it.id)) }
+        revealHomeLibrary()
+    }
+
+    /** Statt Podcasts-Tab: Home mit der Podcast-Bibliothek in der Leiste zeigen. */
+    fun showPodcastLibraryOnHome(library: AbsLibrary? = null) {
+        val lib = library ?: _focusedPodcastLibrary.value ?: _selectedPodcastLibrary.value ?: activePodcastLibraries.firstOrNull()
+        lib?.let { selectHomeLibraryChoice(HomeLibraryLogic.podcastChoiceId(it.id)) }
+        revealHomeLibrary()
+    }
+
+    private fun revealHomeLibrary() {
+        _mainTab.value = MainTab.start
+        _homeLibraryRevealEpoch.value += 1
+    }
 
     private companion object {
         const val TAG = "SessionStore"
