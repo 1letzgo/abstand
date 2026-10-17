@@ -13,7 +13,9 @@ What is language-neutral is shared 1:1:
 - **Golden files:** `../shared/fixtures/` holds JSON samples and logic cases both platforms decode;
   the Android unit tests read them as test resources.
 
-**Goal: behave like the iOS app, look like a standard Material 3 app** — same tabs, order, labels
+**The Android app is its own product and the UI test bed:** layout/design ideas are tried here first and may diverge from iOS; proven ones are collected in `UI_IDEAS_FOR_IOS.txt` and ported to iOS later. Logic, data, API and bug fixes stay in parity with iOS.
+
+**Baseline: behave like the iOS app, look like a standard Material 3 app** — same tabs, order, labels
 (English UI), defaults, features, accent and screen structure as iOS; colors are a Material 3
 scheme generated from the iOS accent (accent = seed = `primary`, see `UI_TEMPLATES.txt` → "Material 3 colors"); dimensions, spacing,
 typography and component sizes follow **Material 3** (4-dp grid, 48-dp touch targets, M3 type

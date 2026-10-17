@@ -1,0 +1,44 @@
+UI-Ideen aus der Android-Version für iOS
+========================================
+
+Die Android-App ist das UI-Versuchsfeld: Layout-/Design-Ideen werden dort ausprobiert und erst nach
+Bewährung nach iOS übernommen. Hier steht der aktuelle Stand jeder Idee (Android-Commit), damit sie
+später gezielt portiert werden kann. Verworfene Zwischenstände sind nicht aufgeführt.
+
+Status: [offen] = auf Android aktiv, noch nicht in iOS · [übernommen] = in iOS umgesetzt ·
+[verworfen] = auf Android wieder entfernt
+
+Kopfzeile der Tab-Roots
+-----------------------
+- [offen] Keine Titelzeile: Bereichsauswahl und Aktionen in EINER Top-Leiste direkt unter der
+  Statusleiste; der Tab-Name steht nur in der Tab-Bar. (b37b65e)
+- [offen] Books/Podcasts: zwei Dropdown-Pills — Bibliothek kompakt (nur Symbol + Chevron, Namen im
+  Menü) + Bereich über die restliche Breite; Pills in Akzentfarbe, Aktionen (Filter, Sortieren, +)
+  als einfache Kontur-Symbole in Textfarbe rechts daneben. (458f1e0, e3cc40d, 019160c)
+- [offen] Bibliotheks-Pill auch bei nur einer aktiven Bibliothek sichtbar (gleiches Layout überall). (1015fe7)
+- [offen] Settings: Standard-Tabs (Text, Unterstrich-Indikator) statt Expanding-Dock. (ab5755b)
+- [offen] Home: feste Überschrift „abstand“ in Höhe der Bereichsleisten, rechts Offline-Button. (f446342)
+- [offen] Search: Suchfeld in Form/Höhe der Pills (abgerundetes Rechteck, Lupe in Akzentfarbe). (4108fa7)
+- [offen] Einheitliche Kopfzeilenhöhe in allen Tabs; erste Überschrift überall auf derselben Höhe,
+  kein Zusatzabstand unter der Kopfzeile. (ab5755b, c687f74)
+
+Inhalt
+------
+- [offen] Eine einzige Abschnittsüberschrift für alle Ansichten (Home-Regale, Stats, Books/Podcasts-
+  Bereiche, Settings): kleine Zwischenüberschrift in Akzentfarbe, bündig mit der Kartenkante —
+  statt großer weißer `TabContentSectionTitle` neben kleinen Settings-Überschriften. (2eef79b, 39e3e15)
+- [offen] Settings öffnet mit Stats als erstem Bereich. → bereits in iOS [übernommen] (88b86bf)
+- [offen] Home-Regale mit dem Standard-Abschnittsabstand (24) statt eigenem (32). (ab5755b)
+- [offen] „Compact row“-Karten in Books/Podcasts mit 80er- statt 100er-Cover. (e3cc40d)
+
+Player
+------
+- [offen] Mini-Player fest über der Tab-Bar angedockt (volle Breite, ohne Ecken/Schatten,
+  Fortschrittslinie oben) statt schwebender Karte. (3286a9f)
+- [offen] Now Playing öffnet als Container-Transform aus der Mini-Leiste; Wischen schrumpft ihn
+  kontinuierlich zurück. (cefdac9) — iOS hat eine eigene Zoom-Transition, prüfen ob übertragbar.
+
+Farben
+------
+- [offen] Farbschema aus der Akzentfarbe abgeleitet (Tonpaletten), optional System-/Dynamic Color
+  (Android-spezifisch, auf iOS evtl. als „Farben aus Akzent ableiten“). (deb6406)
