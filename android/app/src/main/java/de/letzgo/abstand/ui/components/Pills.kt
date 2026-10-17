@@ -254,9 +254,12 @@ fun AbstandDockChip(
     coverItemId: String? = null,
     /** Aktiver Chip: Häkchen statt Symbol (Filter-Chip-Stil); `false` = Symbol bleibt (Dock-Buttons). */
     checkmarkWhenSelected: Boolean = true,
+    /** Aktiver Chip in der Appearance-Akzentfarbe (wie die Dropdown-Pills) statt tonal. */
+    accentWhenSelected: Boolean = false,
 ) {
     val dock = AppTheme.ExpandingDock
-    val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
+    val base = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
+    val colors = if (accentWhenSelected) base.copy(activeBackground = Theme.accent, activeForeground = Theme.onAccent) else base
     val foreground = if (selected) colors.activeForeground else colors.inactiveForeground
     Surface(
         onClick = onClick,

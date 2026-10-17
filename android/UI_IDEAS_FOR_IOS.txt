@@ -32,6 +32,8 @@ Inhalt
 - [offen] „Compact row“-Karten in Books/Podcasts mit 80er- statt 100er-Cover. (e3cc40d)
 - [offen] Home nur mit Kompaktkarten — auch „Continue listening“ (statt Hero-Karten); Bücher und
   Folgen mit Play-Pille unten rechts wie in Books, Serien/Autoren ohne. (18ba21a)
+- [offen] Home-Kategorien per Pill-Reihe in der Kopfzeile umschalten (aktive Pill in Akzentfarbe)
+  statt alle Regale untereinander; gewählte Kategorie als Liste aus Kompaktkarten, Auswahl gemerkt.
 
 Player
 ------

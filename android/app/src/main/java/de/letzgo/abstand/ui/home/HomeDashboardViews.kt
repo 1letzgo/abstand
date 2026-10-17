@@ -1,5 +1,10 @@
 package de.letzgo.abstand.ui.home
 
+import de.letzgo.abstand.data.AbsUserMediaProgress
+import de.letzgo.abstand.ui.components.AbstandDockChip
+import de.letzgo.abstand.data.Prefs
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.lazy.LazyListScope
 import de.letzgo.abstand.data.AbsStartShelfMergedRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Arrangement
@@ -101,25 +106,35 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
     val visibleShelves = if (isRestoring || !anyShelfEnabled) emptyList() else
         HomeShelfLogic.shelvesForHomeBrowseSection(continueId, categoryList, shelves, disabled)
             .filter(HomeShelfLogic::shelfHasVisibleContent)
-    val listState = rememberLazyListState()
+    // Android: Kategorien (Regale) per Pill-Reihe umschalten statt untereinander; Auswahl wird gemerkt.
+    var selectedCategory by rememberSaveable { mutableStateOf(Prefs.string(HOME_SHELF_KEY).orEmpty()) }
+    val selectedShelf = visibleShelves.firstOrNull { it.category == selectedCategory } ?: visibleShelves.firstOrNull()
+    val progress by home.progressByItemId.collectAsState()
     AbstandFixedBrowseStripSectionsLayout(
         title = MainTab.start.label,
-        selection = continueId,
+        selection = selectedShelf?.category ?: continueId,
         showsStrip = true,
+        // Liste wie in Books: Karten mit dem Abstand innerhalb einer Sektion.
+        sectionSpacing = AppTheme.Layout.withinSectionSpacing,
         strip = {
-            // Keine Buttons: feste Überschrift „abstand“ in der Höhe der Bereichs-Buttons der anderen Tabs.
-            Box(
-                Modifier
-                    .padding(start = AppTheme.Layout.tabPaddingH, top = AppTheme.ExpandingDock.verticalPadding, bottom = AppTheme.ExpandingDock.verticalPadding)
-                    .height(AppTheme.ExpandingDock.activeHeight)
-                    .semantics { heading() },
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                Text("abstand", style = AppType.titleLarge, color = Theme.palette.textPrimary, maxLines = 1)
+            if (visibleShelves.isNotEmpty()) {
+                HomeShelfPills(visibleShelves, selectedShelf?.category) { category ->
+                    selectedCategory = category
+                    Prefs.setString(HOME_SHELF_KEY, category)
+                }
+            } else {
+                // Ohne Regale: feste Überschrift in Höhe der Pill-Reihe.
+                Box(
+                    Modifier
+                        .padding(start = AppTheme.Layout.tabPaddingH, top = AppTheme.ExpandingDock.verticalPadding, bottom = AppTheme.ExpandingDock.verticalPadding)
+                        .height(AppTheme.ExpandingDock.activeHeight)
+                        .semantics { heading() },
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Text("abstand", style = AppType.titleLarge, color = Theme.palette.textPrimary, maxLines = 1)
+                }
             }
         },
-        listState = listState,
-        fullBleed = true,
         actions = {
             HomeGoOfflineToolbarButton(offline) {
                 if (offline) session.exitOfflineHomeUI() else showOfflineConfirmation = true
@@ -135,13 +150,8 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
             !anyShelfEnabled -> item(key = "all-off") {
                 HomeAllShelvesDisabledState()
             }
-            else -> {
-                if (visibleShelves.isEmpty()) {
-                    item(key = "empty") { HomeSectionEmptyState(continueId, offline) }
-                } else {
-                    visibleShelves.forEach { shelf -> item(key = "shelf-${homeShelfKey(shelf)}") { StartDashboardShelf(shelf) } }
-                }
-            }
+            selectedShelf == null -> item(key = "empty") { HomeSectionEmptyState(continueId, offline) }
+            else -> homeShelfList(selectedShelf, progress)
         }
     }
 
@@ -197,6 +207,103 @@ private fun StartDashboardShelf(shelf: AbsStartShelfSection) {
             if (shelf.hasAuthors) HomeAuthorsCompactCarousel(shelf.authors, rowPadding)
             if (shelf.hasPodcastEpisodes) HomePodcastEpisodesCompactCarousel(shelf.podcastEpisodes, rowPadding)
         }
+    }
+}
+
+// MARK: - Kategorie-Pills und Liste (Android)
+
+/** Merkt die zuletzt gewählte Home-Kategorie (Android-eigen; iOS zeigt alle Regale untereinander). */
+private const val HOME_SHELF_KEY = "abstand_android_home_shelf_category"
+
+/** Pill-Reihe der Kategorien in der Kopfzeile — aktive Pill in Akzentfarbe, horizontal scrollbar. */
+@Composable
+private fun HomeShelfPills(shelves: List<AbsStartShelfSection>, selectedCategory: String?, onSelect: (String) -> Unit) {
+    val dock = AppTheme.ExpandingDock
+    val state = rememberLazyListState()
+    val selectedIndex = shelves.indexOfFirst { it.category == selectedCategory }
+    LaunchedEffect(selectedIndex) { if (selectedIndex > 0) state.animateScrollToItem(selectedIndex - 1) }
+    LazyRow(
+        Modifier.fillMaxWidth(),
+        state = state,
+        contentPadding = PaddingValues(start = AppTheme.Layout.tabPaddingH, end = AppTheme.Layout.stackSpacing, top = dock.verticalPadding, bottom = dock.verticalPadding),
+        horizontalArrangement = Arrangement.spacedBy(dock.itemSpacing),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        items(shelves, key = { it.category }) { shelf ->
+            AbstandDockChip(
+                label = shelf.displayTitle,
+                icon = SF.named(AbsStartShelfLocalization.stripSystemImage(shelf.category)) ?: SF.squareGrid2x2,
+                selected = shelf.category == selectedCategory,
+                onClick = { onSelect(shelf.category) },
+                checkmarkWhenSelected = false,
+                accentWhenSelected = true,
+            )
+        }
+    }
+}
+
+/** Gewählte Kategorie als senkrechte Liste aus Kompaktkarten (volle Breite). */
+private fun LazyListScope.homeShelfList(shelf: AbsStartShelfSection, progress: Map<String, AbsUserMediaProgress>) {
+    item(key = "title-${shelf.category}") { TabContentSectionTitle(shelf.displayTitle) }
+    if (shelf.category == HomeShelfLogic.homeContinueCategory) {
+        val rows = AbsStartShelfMergedRow.merged(shelf.books, shelf.podcastEpisodes, progress)
+        items(rows, key = { "row-${it.id}" }) { row ->
+            when (row) {
+                is AbsStartShelfMergedRow.Book -> HomeBookListCard(row.book, usesEbookProgressDisplay = false)
+                is AbsStartShelfMergedRow.PodcastEpisode -> HomeEpisodeListCard(row.episode)
+            }
+        }
+    } else {
+        val ebooks = shelf.category == HomeShelfLogic.continueEbooksCategory
+        items(shelf.books, key = { "book-${it.id}" }) { HomeBookListCard(it, ebooks) }
+        items(shelf.podcastEpisodes, key = { "ep-${it.progressLookupKey}" }) { HomeEpisodeListCard(it) }
+    }
+    items(shelf.series, key = { "series-${it.id}" }) { HomeSeriesCard(it) }
+    items(shelf.authors, key = { "author-${it.id}" }) { HomeAuthorCard(it) }
+}
+
+@Composable
+private fun HomeBookListCard(book: AbsBook, usesEbookProgressDisplay: Boolean) {
+    val navigator = LocalTabNavigator.current
+    HomeBookCompactCard(book, onOpen = { navigator?.push(BookDetailDestination(book.id)) }, usesEbookProgressDisplay = usesEbookProgressDisplay)
+}
+
+@Composable
+private fun HomeEpisodeListCard(episode: AbsPodcastEpisodeListItem) {
+    val navigator = LocalTabNavigator.current
+    HomeEpisodeCompactCard(episode, onOpen = { navigator?.push(EpisodeDestination(episode.libraryItemId, episode.episodeId)) })
+}
+
+@Composable
+private fun HomeSeriesCard(item: AbsLibrarySeriesListItem) {
+    val navigator = LocalTabNavigator.current
+    val coverId = seriesCoverBookIds(item.books).firstOrNull()
+    val count = item.books?.size ?: 0
+    val authors = item.cardAuthorsLine?.trim().orEmpty()
+    HomeEntityCompactCard(
+        title = item.name,
+        subtitleLabel = if (authors.isEmpty()) "Books" else "Author",
+        subtitle = if (authors.isEmpty()) (if (count > 0) "$count" else "—") else authors,
+        footer = booksCountLabel(count),
+        accessibilityHint = "Opens series details.",
+        onOpen = { navigator?.push(SeriesDestination(item.id, item.name)) },
+    ) {
+        if (coverId != null) SquareCoverImage(itemId = coverId, tint = coverTint(coverId)) else HomeEntityCoverPlaceholder(SF.booksVerticalFill)
+    }
+}
+
+@Composable
+private fun HomeAuthorCard(author: AbsAuthorShelfEntity) {
+    val navigator = LocalTabNavigator.current
+    HomeEntityCompactCard(
+        title = author.name,
+        subtitleLabel = "Books",
+        subtitle = author.numBooks?.toString() ?: "—",
+        footer = booksCountLabel(author.numBooks),
+        accessibilityHint = "Opens author details.",
+        onOpen = { navigator?.push(AuthorDestination(author.id, author.name)) },
+    ) {
+        if (author.hasAuthorImage) AuthorImage(author.id) else HomeEntityCoverPlaceholder(SF.personFill)
     }
 }
 
