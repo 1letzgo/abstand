@@ -74,7 +74,6 @@ import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
 import de.letzgo.abstand.ui.components.AbstandProminentButton
 import de.letzgo.abstand.ui.components.AbstandSectionEmptyState
 import de.letzgo.abstand.ui.components.SquareCoverImage
-import de.letzgo.abstand.ui.components.TabContentSectionTitle
 import de.letzgo.abstand.ui.destinations.AuthorDestination
 import de.letzgo.abstand.ui.destinations.BookDetailDestination
 import de.letzgo.abstand.ui.destinations.EpisodeDestination
@@ -211,7 +210,9 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
                     !anyShelfEnabled -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeAllShelvesDisabledState() }
                     continueShelf == null -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeSectionEmptyState(continueId, offline) }
                     else -> Box(Modifier.padding(top = AppTheme.Layout.tightSpacing)) {
-                        HomeContinueCompactCarousel(continueShelf, PaddingValues(horizontal = AppTheme.Layout.tabPaddingH))
+                        CompositionLocalProvider(LocalHomeCompactCardCoverSide provides AppTheme.Layout.homeContinueCardCoverSide) {
+                            HomeContinueCompactCarousel(continueShelf, PaddingValues(horizontal = AppTheme.Layout.tabPaddingH))
+                        }
                     }
                 }
                 if (libraryChoice != null) {
@@ -392,7 +393,6 @@ private fun homeShelvesForLibrary(shelves: List<AbsStartShelfSection>, choice: H
 
 /** Gewähltes Regal als Liste aus Kompaktkarten (statt Bereichsinhalt der Bibliothek). */
 private fun LazyListScope.homeShelfListItems(shelf: AbsStartShelfSection) {
-    item(key = "shelf-title") { TabContentSectionTitle(shelf.displayTitle) }
     when {
         shelf.hasBooks -> items(shelf.books, key = { "sb-${it.id}" }) { book ->
             HomeShelfBookCard(book, usesEbookProgressDisplay = shelf.category == HomeShelfLogic.continueEbooksCategory)
@@ -429,7 +429,7 @@ private fun <T> HomeCompactCardCarousel(
                     pageSpacing = AppTheme.Layout.withinSectionSpacing,
                     key = { key(items[it]) },
                     verticalAlignment = Alignment.Top,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = AppTheme.Layout.homeCompactCardCoverSide),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = LocalHomeCompactCardCoverSide.current),
                 ) { page -> card(items[page], cardWidth) }
             }
             if (items.size > 1) HomePagerIndicator(items.size, pagerState.currentPage)

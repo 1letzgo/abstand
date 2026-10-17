@@ -1,5 +1,6 @@
 package de.letzgo.abstand.ui.home
 
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,6 +43,9 @@ import de.letzgo.abstand.ui.library.LibraryRowLayout
 // (eine Zeile), Metazeile, unten Laufzeit/Status und (Bücher/Folgen) die Play-Pille wie in Books,
 // ≈ 3/4 der Regalbreite; Tippen auf die Karte öffnet die Detailseite (iOS: HomeCompactCards.swift).
 
+/** Cover-Kantenlänge (= Kartenhöhe) der Kompaktkarten; „Continue listening“ setzt sie größer. */
+val LocalHomeCompactCardCoverSide = staticCompositionLocalOf { AppTheme.Layout.homeCompactCardCoverSide }
+
 /** iOS: `HomeCompactCard` — Grundaufbau. */
 @Composable
 fun HomeCompactCard(
@@ -61,7 +65,7 @@ fun HomeCompactCard(
     playAction: (@Composable () -> Unit)? = null,
 ) {
     val palette = Theme.palette
-    val side = AppTheme.Layout.homeCompactCardCoverSide
+    val side = LocalHomeCompactCardCoverSide.current
     Box(
         modifier
             .fillMaxWidth()

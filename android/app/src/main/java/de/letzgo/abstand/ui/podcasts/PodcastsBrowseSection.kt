@@ -23,7 +23,6 @@ import de.letzgo.abstand.ui.components.AbstandIconButton
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
 import de.letzgo.abstand.ui.components.AbstandSectionEmptyState
 import de.letzgo.abstand.ui.components.AbstandSpinnerSize
-import de.letzgo.abstand.ui.components.TabContentSectionTitle
 
 /**
  * Zustand des Podcasts-Abschnitts (iOS: Podcasts-Tab-Root in `MainRootView`, `podcastsTabRoot` +
@@ -103,7 +102,6 @@ internal fun LazyListScope.podcastsSectionItems(content: PodcastsSectionContent)
     val store = content.store
     val episodes = content.episodes
     val isNewView = content.isNewView
-    item(key = "podcast-title") { TabContentSectionTitle(content.sectionTitle) }
     if (content.listLoading) {
         item(key = "podcast-loading") { AbstandLoadingSpinner() }
     } else if (episodes.isEmpty()) {
