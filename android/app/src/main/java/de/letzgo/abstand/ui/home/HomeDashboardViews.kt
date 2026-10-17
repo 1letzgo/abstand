@@ -1,5 +1,17 @@
 package de.letzgo.abstand.ui.home
 
+import de.letzgo.abstand.ui.podcasts.PodcastEpisodeDetailDestination
+import de.letzgo.abstand.ui.podcasts.PodcastEpisodeListRow
+import de.letzgo.abstand.ui.library.bookCards
+import de.letzgo.abstand.ui.components.AbstandSectionEmptyState
+import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
+import de.letzgo.abstand.ui.components.AbstandBrowseStripItem
+import de.letzgo.abstand.ui.components.AbstandDropdownPill
+import de.letzgo.abstand.data.AbsLibrary
+import androidx.compose.ui.layout.layout
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import de.letzgo.abstand.data.AbsUserMediaProgress
 import de.letzgo.abstand.ui.components.AbstandDockChip
 import de.letzgo.abstand.data.Prefs
@@ -106,33 +118,34 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
     val visibleShelves = if (isRestoring || !anyShelfEnabled) emptyList() else
         HomeShelfLogic.shelvesForHomeBrowseSection(continueId, categoryList, shelves, disabled)
             .filter(HomeShelfLogic::shelfHasVisibleContent)
-    // Android: Kategorien (Regale) per Pill-Reihe umschalten statt untereinander; Auswahl wird gemerkt.
+    // Android: oben das gewählte Regal als horizontale Kartenreihe, darunter die Kategorie-Pills
+    // (beim Scrollen oben fixiert), darunter die Bibliothek (Books + Podcasts, kombinierte Auswahl).
     var selectedCategory by rememberSaveable { mutableStateOf(Prefs.string(HOME_SHELF_KEY).orEmpty()) }
     val selectedShelf = visibleShelves.firstOrNull { it.category == selectedCategory } ?: visibleShelves.firstOrNull()
-    val progress by home.progressByItemId.collectAsState()
+    val libraryChoices = rememberHomeLibraryChoices(model)
+    var libraryChoiceId by rememberSaveable { mutableStateOf(Prefs.string(HOME_LIBRARY_KEY).orEmpty()) }
+    val libraryChoice = libraryChoices.firstOrNull { it.id == libraryChoiceId } ?: libraryChoices.firstOrNull()
+    LaunchedEffect(libraryChoice?.id) { libraryChoice?.let { focusHomeLibrary(model, it) } }
+    val books by model.catalog.displayBooks.collectAsState()
+    val booksLoading by model.catalog.isLoadingLibrary.collectAsState()
+    val cardStyle by model.catalog.libraryBookCardStyle.collectAsState()
+    val episodes by model.podcasts.podcastEpisodes.collectAsState()
+    val episodesLoading by model.podcasts.isLoadingPodcasts.collectAsState()
+    val navigator = LocalTabNavigator.current
     AbstandFixedBrowseStripSectionsLayout(
         title = MainTab.start.label,
-        selection = selectedShelf?.category ?: continueId,
+        selection = continueId,
         showsStrip = true,
-        // Liste wie in Books: Karten mit dem Abstand innerhalb einer Sektion.
         sectionSpacing = AppTheme.Layout.withinSectionSpacing,
         strip = {
-            if (visibleShelves.isNotEmpty()) {
-                HomeShelfPills(visibleShelves, selectedShelf?.category) { category ->
-                    selectedCategory = category
-                    Prefs.setString(HOME_SHELF_KEY, category)
-                }
-            } else {
-                // Ohne Regale: feste Überschrift in Höhe der Pill-Reihe.
-                Box(
-                    Modifier
-                        .padding(start = AppTheme.Layout.tabPaddingH, top = AppTheme.ExpandingDock.verticalPadding, bottom = AppTheme.ExpandingDock.verticalPadding)
-                        .height(AppTheme.ExpandingDock.activeHeight)
-                        .semantics { heading() },
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    Text("abstand", style = AppType.titleLarge, color = Theme.palette.textPrimary, maxLines = 1)
-                }
+            Box(
+                Modifier
+                    .padding(start = AppTheme.Layout.tabPaddingH, top = AppTheme.ExpandingDock.verticalPadding, bottom = AppTheme.ExpandingDock.verticalPadding)
+                    .height(AppTheme.ExpandingDock.activeHeight)
+                    .semantics { heading() },
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text("abstand", style = AppType.titleLarge, color = Theme.palette.textPrimary, maxLines = 1)
             }
         },
         actions = {
@@ -147,11 +160,55 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
                 // Kurz leer halten, bis die lokal rekonstruierten Regale atomar vorliegen.
                 Spacer(Modifier.fillMaxWidth().height(AppTheme.Layout.homeBrowseBootstrapMinHeight))
             }
-            !anyShelfEnabled -> item(key = "all-off") {
-                HomeAllShelvesDisabledState()
-            }
+            !anyShelfEnabled -> item(key = "all-off") { HomeAllShelvesDisabledState() }
             selectedShelf == null -> item(key = "empty") { HomeSectionEmptyState(continueId, offline) }
-            else -> homeShelfList(selectedShelf, progress)
+            else -> {
+                item(key = "shelf-row-${selectedShelf.category}") {
+                    Box(Modifier.fullBleed(AppTheme.Layout.tabPaddingH)) { HomeShelfCarousel(selectedShelf) }
+                }
+                @OptIn(ExperimentalFoundationApi::class)
+                stickyHeader(key = "shelf-pills") {
+                    Box(Modifier.fullBleed(AppTheme.Layout.tabPaddingH).background(Theme.palette.background)) {
+                        HomeShelfPills(visibleShelves, selectedShelf.category) { category ->
+                            selectedCategory = category
+                            Prefs.setString(HOME_SHELF_KEY, category)
+                        }
+                    }
+                }
+            }
+        }
+        if (libraryChoices.isNotEmpty() && libraryChoice != null) {
+            item(key = "library-pill") {
+                Row(Modifier.fillMaxWidth().padding(top = AppTheme.Layout.stackSpacing)) {
+                    AbstandDropdownPill(
+                        libraryChoices.map { AbstandBrowseStripItem(it.id, it.name, it.icon) },
+                        libraryChoice.id,
+                        { id ->
+                            libraryChoiceId = id
+                            Prefs.setString(HOME_LIBRARY_KEY, id)
+                        },
+                        Modifier.fillMaxWidth(),
+                        SF.booksVerticalFill,
+                        "Library",
+                    )
+                }
+            }
+            if (libraryChoice.isPodcast) {
+                when {
+                    episodesLoading && episodes.isEmpty() -> item(key = "lib-loading") { AbstandLoadingSpinner() }
+                    episodes.isEmpty() -> item(key = "lib-empty") { AbstandSectionEmptyState("No episodes in the list.") }
+                    else -> items(episodes, key = { "lib-ep-${it.progressLookupKey}" }) { episode ->
+                        PodcastEpisodeListRow(model.podcasts, episode) { navigator?.push(PodcastEpisodeDetailDestination(episode)) }
+                        LaunchedEffect(episode.progressLookupKey) { model.podcasts.loadMorePodcastsIfNeeded(episode.id) }
+                    }
+                }
+            } else {
+                when {
+                    booksLoading && books.isEmpty() -> item(key = "lib-loading") { AbstandLoadingSpinner() }
+                    books.isEmpty() -> item(key = "lib-empty") { AbstandSectionEmptyState("No books in this library.") }
+                    else -> bookCards(books, cardStyle, 1, "lib-book", onAppear = { model.catalog.loadMoreIfNeeded(it.id) })
+                }
+            }
         }
     }
 
@@ -210,7 +267,50 @@ private fun StartDashboardShelf(shelf: AbsStartShelfSection) {
     }
 }
 
-// MARK: - Kategorie-Pills und Liste (Android)
+// MARK: - Kategorie-Pills, Regal-Reihe und Bibliothek (Android)
+
+/** Merkt die auf Home gewählte Bibliothek (Books- oder Podcast-Bibliothek). */
+private const val HOME_LIBRARY_KEY = "abstand_android_home_library"
+
+/** Eintrag der kombinierten Bibliotheks-Auswahl (Books + Podcasts). */
+private data class HomeLibraryChoice(val id: String, val name: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val isPodcast: Boolean, val library: AbsLibrary)
+
+@Composable
+private fun rememberHomeLibraryChoices(model: AppModel): List<HomeLibraryChoice> {
+    val session = model.session
+    session.activeBooksLibraryIds.collectAsState().value
+    session.activePodcastLibraryIds.collectAsState().value
+    session.libraries.collectAsState().value
+    return session.activeBookLibraries.map { HomeLibraryChoice("b:${it.id}", it.name, SF.booksVerticalFill, false, it) } +
+        session.activePodcastLibraries.map { HomeLibraryChoice("p:${it.id}", it.name, SF.micFill, true, it) }
+}
+
+/** Gewählte Bibliothek fokussieren, damit Katalog bzw. Podcast-Feed sie laden. */
+private fun focusHomeLibrary(model: AppModel, choice: HomeLibraryChoice) {
+    if (choice.isPodcast) model.session.focusPodcastLibrary(choice.library) else model.session.focusBooksLibrary(choice.library)
+}
+
+/** Kinder randlos über die horizontalen Listen-Ränder hinaus (Karussell, fixierte Pills). */
+private fun Modifier.fullBleed(horizontal: Dp): Modifier = layout { measurable, constraints ->
+    val extra = horizontal.roundToPx() * 2
+    val placeable = measurable.measure(constraints.copy(minWidth = constraints.maxWidth + extra, maxWidth = constraints.maxWidth + extra))
+    layout(constraints.maxWidth, placeable.height) { placeable.place(-extra / 2, 0) }
+}
+
+/** Gewähltes Regal als horizontale Kartenreihe (ohne Überschrift — die Pill darunter nennt es). */
+@Composable
+private fun HomeShelfCarousel(shelf: AbsStartShelfSection) {
+    val rowPadding = PaddingValues(horizontal = AppTheme.Layout.tabPaddingH)
+    when {
+        shelf.category == HomeShelfLogic.homeContinueCategory && (shelf.hasBooks || shelf.hasPodcastEpisodes) -> HomeContinueCompactCarousel(shelf, rowPadding)
+        shelf.hasBooks -> HomeBooksCompactCarousel(shelf.books, rowPadding, usesEbookProgressDisplay = shelf.category == HomeShelfLogic.continueEbooksCategory)
+        shelf.hasPodcastEpisodes -> HomePodcastEpisodesCompactCarousel(shelf.podcastEpisodes, rowPadding)
+        shelf.hasSeries -> HomeSeriesCompactCarousel(shelf.series, rowPadding)
+        shelf.hasAuthors -> HomeAuthorsCompactCarousel(shelf.authors, rowPadding)
+    }
+}
+
+// MARK: - (bisher) Kategorie-Liste (Android)
 
 /** Merkt die zuletzt gewählte Home-Kategorie (Android-eigen; iOS zeigt alle Regale untereinander). */
 private const val HOME_SHELF_KEY = "abstand_android_home_shelf_category"

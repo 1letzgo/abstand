@@ -33,6 +33,8 @@ import androidx.compose.foundation.background
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -204,13 +206,20 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
                 if (scrollToTopTrigger != null) state.scrollToItem(0)
             }
             val list = @Composable {
+                // Liste beginnt UNTER der (deckenden) Kopfzeile statt dahinter — sonst kleben
+                // `stickyHeader`s unsichtbar hinter der Kopfzeile (Home: Kategorie-Pills).
+                val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
                 LazyColumn(
                     state = state,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().padding(top = padding.calculateTopPadding()),
                     contentPadding = if (fullBleed) {
-                        PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding())
+                        PaddingValues(bottom = padding.calculateBottomPadding())
                     } else {
-                        padding
+                        PaddingValues(
+                            start = padding.calculateStartPadding(layoutDirection),
+                            end = padding.calculateEndPadding(layoutDirection),
+                            bottom = padding.calculateBottomPadding(),
+                        )
                     },
                     verticalArrangement = Arrangement.spacedBy(sectionSpacing),
                 ) { sectionBody(selection) }
