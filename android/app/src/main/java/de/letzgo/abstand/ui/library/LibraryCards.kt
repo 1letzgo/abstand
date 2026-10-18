@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -39,11 +37,9 @@ import de.letzgo.abstand.data.AbsBook
 import de.letzgo.abstand.data.AbsUserMediaProgress
 import de.letzgo.abstand.data.CoverImageTier
 import de.letzgo.abstand.downloads.DownloadManager
-import de.letzgo.abstand.logic.BookDetailLogic
 import de.letzgo.abstand.logic.BooksBrowseSection
 import de.letzgo.abstand.logic.LibraryRowLiveState
 import de.letzgo.abstand.model.AppModel
-import de.letzgo.abstand.model.LibraryBookCardStyle
 import de.letzgo.abstand.player.PlaybackController
 import de.letzgo.abstand.store.CoverImageCache
 import de.letzgo.abstand.ui.AppTheme
@@ -66,8 +62,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import de.letzgo.abstand.ui.components.AbstandCoverCornerBadge
-import de.letzgo.abstand.ui.components.AbstandCoverDownloadBadge
-import de.letzgo.abstand.ui.components.AbstandCoverPillIcon
 import de.letzgo.abstand.ui.components.AbstandCoverPillMetrics
 import de.letzgo.abstand.ui.components.AbstandCoverPillText
 import de.letzgo.abstand.ui.components.AbstandPlayPill
@@ -166,15 +160,6 @@ fun rememberIsPlayingMedia(libraryItemId: String, episodeId: String? = null): Bo
 @Composable
 fun LibraryRowPlayPill(libraryItemId: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     AbstandPlayPill(rememberIsPlayingMedia(libraryItemId), onClick, modifier)
-}
-
-/** iOS: `ContinueHeroPlayPillButton` — Play-Pille mit Restzeit unter Cover-Karten. */
-@Composable
-private fun HeroPlayPill(libraryItemId: String, caption: String, onClick: () -> Unit) {
-    AbstandPlayPill(
-        rememberIsPlayingMedia(libraryItemId), onClick, caption = caption,
-        height = AppTheme.Layout.continueHeroMetadataPlayPillIntrinsicHeight,
-    )
 }
 
 // MARK: - Kompakte Buch-Zeile
@@ -276,124 +261,23 @@ fun BookRowCard(
     }
 }
 
-// MARK: - Cover-Karte (Raster)
-
 /**
- * iOS: `LibraryHeroBookRowCard` — Cover-Karte im Continue-Hero-Stil: 1:1-Cover mit Scrim und
- * Fortschritt, Typ-/Fertig-/eBook-/Download-Pillen; darunter Titel, Autor und Play-Pille mit
- * Restlaufzeit (eBooks: Lesefortschritt + Download-Status).
- */
-@Composable
-fun LibraryHeroBookCard(
-    book: AbsBook,
-    modifier: Modifier = Modifier,
-    showEbookBadge: Boolean = false,
-    usesEbookProgressDisplay: Boolean = false,
-    showsDownloadStatus: Boolean = true,
-    onOpen: (() -> Unit)? = rememberOpenBookDetail().let { open -> { open(book.id) } },
-) {
-    val context = LocalContext.current
-    val palette = Theme.palette
-    val live = rememberBookRowLive(book.id)
-    val ebookMetrics = book.isPureEbookLibraryItem || usesEbookProgressDisplay
-    val prog = live.progress
-    val heroProgress: Double? = if (ebookMetrics) live.ebookFraction?.takeIf { it > 0.005 && it < 0.995 }
-    else prog?.takeIf { !it.isFinished && it.duration > 0 }?.progress?.coerceIn(0.0, 1.0)
-    val isFinished = if (ebookMetrics) (live.ebookFraction ?: 0.0) >= 0.995 else prog?.isFinished == true
-    val fade = if (isFinished) AppTheme.disabledContentAlpha else 1f
-    val supplementaryBadge = showEbookBadge || AppModel.shared.catalog.bookShowsSupplementaryEbookBadge(book)
-    val inset = AppTheme.Layout.libraryRowCardInset
-    val outer = LibraryRowLayout.cardShape
-    val coverTop = RoundedCornerShape(topStart = AppTheme.Layout.coverCornerRadius, topEnd = AppTheme.Layout.coverCornerRadius)
-    val authorLine = book.displayAuthorsCardLine.trim().ifEmpty { "—" }
-    val totalDuration = maxOf(book.media.duration ?: 0.0, prog?.duration ?: 0.0)
-
-    CompositionLocalProvider(LocalAbstandCardShadowEnabled provides false) {
-        AbstandCard(
-            modifier = modifier.fillMaxWidth(),
-            shape = outer,
-            onClick = onOpen,
-        ) {
-            Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(coverTop)) {
-                SquareCoverImage(itemId = book.id, cacheRevision = coverRevisionFor(book.updatedAt), modifier = Modifier.fillMaxSize().alpha(fade))
-                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(AppTheme.Layout.coverScrimHeight).background(AppTheme.coverScrimGradient))
-                if (heroProgress != null) {
-                    AbstandCardBottomProgress(heroProgress, Modifier.align(Alignment.BottomCenter))
-                }
-                if (book.isPureEbookLibraryItem) AbstandCoverPillIcon(SF.bookClosedFill, "eBook", Modifier.align(Alignment.TopStart))
-                Row(Modifier.align(Alignment.TopEnd)) {
-                    if (isFinished) AbstandCoverPillIcon(SF.checkmarkCircleFill, "Finished")
-                    if (supplementaryBadge) AbstandCoverPillIcon(SF.bookClosedFill, "eBook available")
-                    if (showsDownloadStatus) AbstandCoverDownloadBadge(live.isDownloaded, live.isDownloading, live.downloadProgress)
-                }
-            }
-            Column(
-                Modifier.fillMaxWidth().padding(
-                    start = inset, end = inset,
-                    top = AppTheme.Layout.continueHeroMetadataVerticalPadding,
-                    bottom = AppTheme.Layout.continueHeroMetadataExtraBottomPadding,
-                ),
-                verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.continueHeroMetadataTitleDetailSpacing),
-            ) {
-                Text(
-                    book.displayTitle, style = AppType.titleMedium,
-                    color = if (isFinished) palette.textSecondary else palette.textPrimary, maxLines = 2,
-                    minLines = 2, overflow = TextOverflow.Ellipsis,
-                )
-                LibraryRowCollapsedMetaLine("Author", authorLine, valueMaxLines = 1)
-                if (book.isPlayableAudiobook) {
-                    Box(Modifier.padding(top = AppTheme.Layout.continueHeroMetadataPlayPillTopPadding).alpha(fade)) {
-                        HeroPlayPill(book.id, BookDetailLogic.remainingCaption(totalDuration, prog)) {
-                            LibraryPlayback.toggle(context, book, prog?.isFinished == true)
-                        }
-                    }
-                } else {
-                    Row(Modifier.padding(top = AppTheme.Layout.continueHeroMetadataPlayPillTopPadding), verticalAlignment = Alignment.CenterVertically) {
-                        val label = if (ebookMetrics) LibraryRowLiveState.ebookProgressLabel(live.ebookFraction) ?: formatPlaybackTime(0.0)
-                        else formatPlaybackTime(totalDuration)
-                        Text(label, style = AppType.bodyMedium, color = palette.textSecondary, modifier = Modifier.weight(1f))
-                        if (isFinished) Icon(SF.checkmarkCircleFill, "Finished", tint = Theme.accent, modifier = Modifier.size(HeroStatusIconSize))
-                        if (showsDownloadStatus && live.isDownloaded) {
-                            Icon(SF.arrowDownCircleFill, "Saved offline", tint = Theme.accent, modifier = Modifier.size(HeroStatusIconSize))
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * iOS: `LibraryBookListCard` — kompakte Zeile oder Cover-Karte nach `libraryBookCardStyle`
- * ([forceCompact]: Autor-/Serien-Detail, Downloads).
+ * iOS: `LibraryBookListCard` — auf Android immer die kompakte Zeile ([BookRowCard]); die
+ * iOS-Kartenstil-Auswahl (`libraryBookCardStyle`) gibt es hier nicht.
  */
 @Composable
 fun LibraryBookListCard(
     book: AbsBook,
-    style: LibraryBookCardStyle,
     modifier: Modifier = Modifier,
     showEbookBadge: Boolean = false,
     usesEbookProgressDisplay: Boolean = false,
-    forceCompact: Boolean = false,
     usesSquareCenterCropCover: Boolean = false,
     showsPlaybackControls: Boolean = true,
 ) {
-    if (!forceCompact && style == LibraryBookCardStyle.heroCover) {
-        LibraryHeroBookCard(book, modifier, showEbookBadge = showEbookBadge, usesEbookProgressDisplay = usesEbookProgressDisplay)
-    } else {
-        BookRowCard(
-            book, modifier, showEbookBadge = showEbookBadge, usesSquareCenterCropCover = usesSquareCenterCropCover,
-            usesEbookProgressDisplay = usesEbookProgressDisplay, showsPlaybackControls = showsPlaybackControls,
-        )
-    }
-}
-
-/** iOS: `LibraryHeroMultiColumnRows` — Spaltenzahl; Tablets (≥ 600 dp) bekommen zwei Spalten mehr. */
-@Composable
-fun libraryGridColumns(style: LibraryBookCardStyle): Int {
-    val wide = LocalConfiguration.current.screenWidthDp >= 600
-    val base = maxOf(1, style.phoneGridColumns)
-    return if (wide && style.usesMultiColumnGrid) base + 2 else base
+    BookRowCard(
+        book, modifier, showEbookBadge = showEbookBadge, usesSquareCenterCropCover = usesSquareCenterCropCover,
+        usesEbookProgressDisplay = usesEbookProgressDisplay, showsPlaybackControls = showsPlaybackControls,
+    )
 }
 
 /** Eine Rasterzeile mit [columns] gleich breiten Zellen (leere Zellen füllen auf). */
@@ -524,6 +408,5 @@ fun FacetBrowseTileCard(kind: BooksBrowseSection, title: String, count: Int?, on
 fun authorCoverScopeId(authorId: String): String = CoverImageCache.scopeId("author:$authorId", CoverImageTier.thumbnail)
 
 /** Status-Symbole auf Hero-Karten (iOS: `.caption`). */
-private val HeroStatusIconSize = 16.dp
 /** Platzhalter-Symbol in Entity-Zeilen ohne Cover. */
 private val EntityPlaceholderIconSize = 36.dp

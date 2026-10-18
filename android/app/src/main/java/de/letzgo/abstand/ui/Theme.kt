@@ -327,11 +327,6 @@ object AppTheme {
             continueHeroMetadataPlayPillIntrinsicHeight + continueHeroMetadataExtraBottomPadding
         /** Gesamthöhe Continue-Hero-Karte. */
         val continueHeroCardTotalHeight: Dp = continueHeroCoverMaxHeight + continueHeroMetadataBlockHeight
-        /** Metadaten unter dem Cover ohne Play-Pille. */
-        val libraryHeroMetadataBlockHeight: Dp = continueHeroMetadataVerticalPadding +
-            continueHeroMetadataTitleFixedHeight + continueHeroMetadataTitleDetailSpacing +
-            continueHeroMetadataDetailFixedHeight + continueHeroMetadataExtraBottomPadding
-
         /** M3-Karten: medium (12 dp). */
         val cardCornerRadius = cornerMedium
         /** Mindesthöhe für Zeilen in gruppierten Karten (M3 einzeilige Liste). */

@@ -143,7 +143,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `ui/components/BrowseStrip.kt` | `AbstandExpandingDockBrowseStrip.swift` (`AbstandPinnedBrowseStrip` → `AbstandBrowsePills`), `AbstandFixedBrowseStripSectionsLayout` (AppTheme.swift) |
 | `ui/search/SearchTabViews.kt` | `SearchTabViews.swift` — Android: `SearchDestination` pushed from the Home header (no Search tab) |
 | `ui/destinations/Destinations.kt` | Home/Search `navigationDestination` targets → `ui/detail/` screens, `PodcastEpisodeDetailView`, show filter in the Home library bar |
-| `model/AppSettings.kt` (`AppSettings`, `LibraryCardStyle`, `TranslationTargetLanguage`) | simple `@Published` settings of `AppModel`, `LibraryBookCardStyle`/`LibraryPodcastCardStyle`/`TranslationTargetLanguage` (`AppAppearance.swift`) |
+| `model/AppSettings.kt` (`AppSettings`, `TranslationTargetLanguage`) | simple `@Published` settings of `AppModel`, `TranslationTargetLanguage` (`AppAppearance.swift`); no card-style setting on Android (`LibraryBookCardStyle`/`LibraryPodcastCardStyle` have no counterpart — only the compact row exists) |
 | `model/AdminStore.kt` (`AdminStore`, `AdminLogic`) | server-admin part of `AppModel` (users, library stats/scan, M4B encode + polling, media-cache purge, `changeAccountPassword`) |
 | `model/StatsStore.kt` (`StatsStore`, `StatsLogicExt`) | listening-stats part of `AppModel` (`loadListeningStats`, achievements snapshot, stats navigation stubs) |
 | `data/AdminSocketClient.kt` (`AdminSocketClient`, `AdminSocketProtocol`) | `ABSAdminSocketClient.swift` (OkHttp WebSocket) |
@@ -162,11 +162,11 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `ui/metadata/EditMetadataSheet.kt`, `MatchMetadataSheet.kt`, `ChaptersEditorSheet.kt` | `EditMetadataSheet.swift`, `MatchMetadataSheet.swift`, `ChaptersEditorSheet.swift` |
 | `ui/permissions/NotificationPermission.kt` | — (Android 13+ `POST_NOTIFICATIONS`, asked once — Settings root or first playback/download start) |
 | `model/ProgressStore.kt` | `progressByItemId`/`bookmarks`, `applyUserProgress`/`mergedUserMediaProgress`, guard keys (local finished/discarded/pending sync), progress persistence of `AppModel.swift` |
-| `model/CatalogStore.kt` (`CatalogStore`, `LibraryBookCardStyle`, `CatalogSortState`, `CatalogFilterState`, `BrowseListsState`) | catalog/browse parts of `AppModel.swift` + `AppModelCatalogPodcasts.reloadLibrary`, `LibraryBookCardStyle` (`AppAppearance.swift`), book actions (detail load, mark finished, reset, bookmarks, delete) |
+| `model/CatalogStore.kt` (`CatalogStore`, `CatalogSortState`, `CatalogFilterState`, `BrowseListsState`) | catalog/browse parts of `AppModel.swift` + `AppModelCatalogPodcasts.reloadLibrary`, book actions (detail load, mark finished, reset, bookmarks, delete) |
 | `model/EntityDetailLoader.kt` | `reloadEntityDetail`/`loadMoreEntityDetailIfNeeded`/`applyEntityDetailFromLocalCache` (per screen instead of shared `entityDetail*`) |
 | `logic/CatalogLogic.kt`, `logic/BookDetailLogic.kt` | pure catalog/entity/detail helpers of `AppModel.swift`, `BookDetailView.swift`, `BookListeningDetailSections.swift` |
 | `ui/library/BooksLibraryToolbar.kt`, `ui/library/BooksBrowseSections.kt` | `BooksLibraryToolbarContent` (`LibraryToolbarState.swift`), books root content of `MainRootView` / `MainRootBrowseSections.swift` — Android: list builder + toolbar for the Home library bar (no Books tab) |
-| `ui/library/LibraryCards.kt` | `LibraryCardViews.swift` (book row + cover card, browse entity row, facet tile, badges, play pills) |
+| `ui/library/LibraryCards.kt` | `LibraryCardViews.swift` (book row only — no cover card on Android, browse entity row, facet tile, badges, play pills) |
 | `ui/library/LibraryToolbarMenus.kt` | `LibrarySortToolbars.swift`, `LibraryFilterViews.swift` |
 | `ui/library/LibraryPlayback.kt` | `AppModel.play(book:)`, `jumpToBookmark`, `continueHeroPlayPillToggle` |
 | `ui/detail/BookDetailScreen.kt`, `ui/detail/BookDetailSections.kt` | `BookDetailView.swift`, `BookListeningDetailSections.swift`, `BookmarksUI.swift` |

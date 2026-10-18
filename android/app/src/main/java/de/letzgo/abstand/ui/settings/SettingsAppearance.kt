@@ -27,8 +27,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import de.letzgo.abstand.data.AbsStartShelfLocalization
-import de.letzgo.abstand.model.AppSettings
-import de.letzgo.abstand.model.LibraryCardStyle
 import de.letzgo.abstand.ui.Appearance
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppearanceMode
@@ -45,7 +43,6 @@ import de.letzgo.abstand.ui.components.SettingsCardActionRow
 import de.letzgo.abstand.ui.components.SettingsCardColorPickerRow
 import de.letzgo.abstand.ui.components.SettingsCardIcon
 import de.letzgo.abstand.ui.components.SettingsCardNavRow
-import de.letzgo.abstand.ui.components.SettingsCardPickerRow
 import de.letzgo.abstand.ui.components.SettingsCardSegmentedRow
 import de.letzgo.abstand.ui.components.SettingsCardToggleRow
 import de.letzgo.abstand.ui.components.SettingsSubpageScaffold
@@ -108,41 +105,22 @@ private fun SettingsThemeSection() {
     }
 }
 
+/**
+ * Android: nur die Home-Regale — die iOS-Kartenstil-Auswahl (Compact row / Cover card) gibt es nicht.
+ * Ohne Home-Regal-Einstellungen bleibt der Abschnitt weg.
+ */
 @Composable
 private fun SettingsViewsSection() {
-    val bookStyle by AppSettings.libraryBookCardStyle.collectAsState()
-    val podcastStyle by AppSettings.libraryPodcastCardStyle.collectAsState()
+    if (SettingsIntegration.homeShelfSettings == null) return
     val navigator = LocalTabNavigator.current
     ServerAdminSection("Views") {
         AbstandGroupedCard {
-            SettingsCardPickerRow(
-                icon = SF.booksVerticalFill,
-                title = "Book",
-                selection = bookStyle,
-                options = LibraryCardStyle.entries,
-                label = { it.label },
-                onSelect = { AppSettings.setLibraryBookCardStyle(it) },
+            SettingsCardNavRow(
+                icon = SF.houseFill,
+                title = "Home",
+                subtitle = "Show or hide shelves under Dashboard",
+                onClick = { navigator?.push(HomeShelvesDestination) },
             )
-        }
-        AbstandGroupedCard {
-            SettingsCardPickerRow(
-                icon = SF.micFill,
-                title = "Podcast episode cards",
-                selection = podcastStyle,
-                options = LibraryCardStyle.entries,
-                label = { it.label },
-                onSelect = { AppSettings.setLibraryPodcastCardStyle(it) },
-            )
-        }
-        if (SettingsIntegration.homeShelfSettings != null) {
-            AbstandGroupedCard {
-                SettingsCardNavRow(
-                    icon = SF.houseFill,
-                    title = "Home",
-                    subtitle = "Show or hide shelves under Dashboard",
-                    onClick = { navigator?.push(HomeShelvesDestination) },
-                )
-            }
         }
     }
 }

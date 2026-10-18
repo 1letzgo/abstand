@@ -79,6 +79,7 @@ import de.letzgo.abstand.ui.destinations.BookDetailDestination
 import de.letzgo.abstand.ui.destinations.EpisodeDestination
 import de.letzgo.abstand.ui.destinations.SeriesDestination
 import de.letzgo.abstand.ui.library.BooksLibraryToolbar
+import de.letzgo.abstand.ui.library.bookCards
 import de.letzgo.abstand.ui.library.icon
 import de.letzgo.abstand.ui.library.booksBrowseSectionItems
 import de.letzgo.abstand.ui.library.rememberBooksBrowseSectionContent
@@ -398,12 +399,13 @@ private fun homeShelvesForLibrary(shelves: List<AbsStartShelfSection>, choice: H
     }
 }
 
-/** Gewähltes Regal als Liste aus Kompaktkarten (statt Bereichsinhalt der Bibliothek). */
+/** Gewähltes Regal als Liste — Bücher mit derselben kompakten Zeile wie die Bibliothek. */
 private fun LazyListScope.homeShelfListItems(shelf: AbsStartShelfSection) {
     when {
-        shelf.hasBooks -> items(shelf.books, key = { "sb-${it.id}" }) { book ->
-            HomeShelfBookCard(book, usesEbookProgressDisplay = shelf.category == HomeShelfLogic.continueEbooksCategory)
-        }
+        shelf.hasBooks -> bookCards(
+            shelf.books, "shelf-${shelf.category}",
+            usesEbookProgressDisplay = shelf.category == HomeShelfLogic.continueEbooksCategory,
+        )
         shelf.hasPodcastEpisodes -> items(shelf.podcastEpisodes, key = { "se-${it.progressLookupKey}" }) { HomeShelfEpisodeCard(it) }
         shelf.hasSeries -> items(shelf.series, key = { "ss-${it.id}" }) { HomeShelfSeriesCard(it) }
         shelf.hasAuthors -> items(shelf.authors, key = { "sa-${it.id}" }) { HomeShelfAuthorCard(it) }
@@ -468,13 +470,6 @@ private fun HomePagerIndicator(count: Int, current: Int) {
             }
         }
     }
-}
-
-/** iOS: Karte aus `HomeBooksCompactCarousel`. */
-@Composable
-private fun HomeShelfBookCard(book: AbsBook, usesEbookProgressDisplay: Boolean) {
-    val navigator = LocalTabNavigator.current
-    HomeBookCompactCard(book, onOpen = { navigator?.push(BookDetailDestination(book.id)) }, usesEbookProgressDisplay = usesEbookProgressDisplay)
 }
 
 /**

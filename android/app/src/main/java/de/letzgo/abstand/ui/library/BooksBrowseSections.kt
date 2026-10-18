@@ -25,7 +25,6 @@ import de.letzgo.abstand.model.CatalogFilterState
 import de.letzgo.abstand.model.CatalogStore
 import de.letzgo.abstand.model.BrowseListsState
 import de.letzgo.abstand.ui.TabNavigator
-import de.letzgo.abstand.model.LibraryBookCardStyle
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.LocalTabNavigator
@@ -56,8 +55,6 @@ internal class BooksBrowseSectionContent(
     val loading: Boolean,
     val filter: CatalogFilterState,
     val browse: BrowseListsState,
-    val style: LibraryBookCardStyle,
-    val columns: Int,
     val tileColumns: Int,
     val showsOfflineHint: Boolean,
     val navigator: TabNavigator?,
@@ -71,7 +68,6 @@ internal fun rememberBooksBrowseSectionContent(catalog: CatalogStore, model: App
     val loading by catalog.isLoadingLibrary.collectAsState()
     val filter by catalog.filter.collectAsState()
     val browse by catalog.browse.collectAsState()
-    val style by catalog.libraryBookCardStyle.collectAsState()
     val reachable by model.session.isNetworkReachable.collectAsState()
     val offline by model.session.offlineHomeMode.collectAsState()
     val offlineAuto by model.session.offlineHomeModeAuto.collectAsState()
@@ -84,8 +80,6 @@ internal fun rememberBooksBrowseSectionContent(catalog: CatalogStore, model: App
         loading = loading,
         filter = filter,
         browse = browse,
-        style = style,
-        columns = libraryGridColumns(style),
         tileColumns = facetColumns(),
         showsOfflineHint = !reachable && !(offline || offlineAuto),
         navigator = LocalTabNavigator.current,
@@ -105,8 +99,6 @@ internal fun LazyListScope.booksBrowseSectionItems(content: BooksBrowseSectionCo
     val loading = content.loading
     val filter = content.filter
     val browse = content.browse
-    val style = content.style
-    val columns = content.columns
     val tileColumns = content.tileColumns
     val showsOfflineHint = content.showsOfflineHint
     val navigator = content.navigator
@@ -120,7 +112,7 @@ internal fun LazyListScope.booksBrowseSectionItems(content: BooksBrowseSectionCo
                 loading && books.isEmpty() -> item(key = "books-loading") { AbstandLoadingSpinner() }
                 // Leerzustand verhindert eine „weiße" Liste nach Filter/Mark-as-finished.
                 books.isEmpty() -> item(key = "books-empty") { AbstandSectionEmptyState("No books match the current filter.") }
-                else -> bookCards(books, style, columns, "book", onAppear = { catalog.loadMoreIfNeeded(it.id) })
+                else -> bookCards(books, "book", onAppear = { catalog.loadMoreIfNeeded(it.id) })
             }
         }
         BooksBrowseSection.EBOOKS, BooksBrowseSection.EBOOKS_SUPPLEMENTARY -> {
@@ -133,13 +125,13 @@ internal fun LazyListScope.booksBrowseSectionItems(content: BooksBrowseSectionCo
                         if (filter.ebookCatalogQuickFilter == null) "No eBooks in this library." else "No eBooks match the current filter.",
                     )
                 }
-                else -> bookCards(pure, style, columns, "ebook", usesEbookProgressDisplay = true, onAppear = { catalog.loadMoreBrowseEbooksIfNeeded(it.id) })
+                else -> bookCards(pure, "ebook", usesEbookProgressDisplay = true, onAppear = { catalog.loadMoreBrowseEbooksIfNeeded(it.id) })
             }
             if (supplementary.isNotEmpty()) {
                 item(key = "ebooks-supp-title") {
                     TabContentSectionTitle("Audiobooks with eBook", Modifier.padding(top = AppTheme.Layout.sectionSpacing))
                 }
-                bookCards(supplementary, style, columns, "ebook-supp", usesEbookProgressDisplay = true)
+                bookCards(supplementary, "ebook-supp", usesEbookProgressDisplay = true)
             }
         }
         BooksBrowseSection.AUTHOR -> {
@@ -234,31 +226,16 @@ private fun BrowseOfflineHint() {
     )
 }
 
-/** Buchkarten als Liste oder zeilenweises Raster (iOS: `LibraryHeroMultiColumnRows`). */
+/** Buchkarten als Liste kompakter Zeilen (iOS: `LibraryBookListCard`-Liste). */
 internal fun LazyListScope.bookCards(
     books: List<AbsBook>,
-    style: LibraryBookCardStyle,
-    columns: Int,
     keyPrefix: String,
     usesEbookProgressDisplay: Boolean = false,
-    forceCompact: Boolean = false,
     onAppear: (suspend (AbsBook) -> Unit)? = null,
 ) {
-    if (!forceCompact && style.usesMultiColumnGrid && columns > 1) {
-        items(books.chunked(columns), key = { "$keyPrefix-row-${it.first().id}" }) { row ->
-            LibraryGridRow(row, columns) { book ->
-                LibraryBookListCard(book, style, usesEbookProgressDisplay = usesEbookProgressDisplay)
-            }
-            if (onAppear != null) LaunchedEffect(row.last().id) { onAppear(row.last()) }
-        }
-    } else {
-        items(books, key = { "$keyPrefix-${it.id}" }) { book ->
-            LibraryBookListCard(
-                book, style, usesEbookProgressDisplay = usesEbookProgressDisplay, forceCompact = forceCompact,
-                usesSquareCenterCropCover = forceCompact && !book.isPureEbookLibraryItem,
-            )
-            if (onAppear != null) LaunchedEffect(book.id) { onAppear(book) }
-        }
+    items(books, key = { "$keyPrefix-${it.id}" }) { book ->
+        LibraryBookListCard(book, usesEbookProgressDisplay = usesEbookProgressDisplay)
+        if (onAppear != null) LaunchedEffect(book.id) { onAppear(book) }
     }
 }
 
