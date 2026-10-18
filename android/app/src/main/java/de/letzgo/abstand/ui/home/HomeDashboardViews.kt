@@ -218,8 +218,7 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
                             LocalHomeCompactCardCoverSide provides AppTheme.Layout.homeContinueCardCoverSide,
                             LocalHomeCompactCardIsHero provides true,
                         ) {
-                            // Randlos über die volle Breite — keine Nachbarkarte, die rechts hereinragt.
-                            HomeContinueCompactCarousel(continueShelf, PaddingValues(0.dp))
+                            HomeContinueCompactCarousel(continueShelf, PaddingValues(horizontal = AppTheme.Layout.tabPaddingH))
                         }
                     }
                 }
@@ -434,14 +433,14 @@ private fun <T> HomeCompactCardCarousel(
         val cardWidth = maxWidth - contentPadding.calculateLeftPadding(LayoutDirection.Ltr) - contentPadding.calculateRightPadding(LayoutDirection.Ltr)
         Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
             CompositionLocalProvider(LocalAbstandCardShadowEnabled provides false) {
+                // Rand liegt in der Seite, nicht im Pager: so ist nur eine Karte sichtbar (keine
+                // hereinragende Nachbarkarte), die Karte behält Rundung und normalen Seitenabstand.
                 HorizontalPager(
                     state = pagerState,
-                    contentPadding = contentPadding,
-                    pageSpacing = AppTheme.Layout.withinSectionSpacing,
                     key = { key(items[it]) },
                     verticalAlignment = Alignment.Top,
                     modifier = Modifier.fillMaxWidth().heightIn(min = LocalHomeCompactCardCoverSide.current),
-                ) { page -> card(items[page], cardWidth) }
+                ) { page -> Box(Modifier.padding(contentPadding)) { card(items[page], cardWidth) } }
             }
             // Ohne Punkte: leerer Platzhalter, damit der Abstand zur Bibliotheksleiste gleich bleibt.
             if (items.size > 1) HomePagerIndicator(items.size, pagerState.currentPage) else Spacer(Modifier)
