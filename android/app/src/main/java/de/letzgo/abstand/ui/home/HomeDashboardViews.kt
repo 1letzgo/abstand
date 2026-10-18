@@ -204,7 +204,9 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
         showsTitleRow = true,
         // Fest unter der Kategorie-Reihe (scrollt nicht mit): gewähltes Regal + Bibliotheksleiste.
         belowStrip = {
-            Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
+            // Kein Zusatzabstand zur Bibliotheksleiste: deren 48-dp-Zeile lässt über den Pills schon
+            // denselben Rand wie zwischen Karte und Punkten — so sitzen die Punkte mittig.
+            Column {
                 when {
                     isRestoring -> Spacer(Modifier.fillMaxWidth().height(AppTheme.Layout.homeBrowseBootstrapMinHeight))
                     !anyShelfEnabled -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeAllShelvesDisabledState() }
@@ -433,7 +435,8 @@ private fun <T> HomeCompactCardCarousel(
                     modifier = Modifier.fillMaxWidth().heightIn(min = LocalHomeCompactCardCoverSide.current),
                 ) { page -> card(items[page], cardWidth) }
             }
-            if (items.size > 1) HomePagerIndicator(items.size, pagerState.currentPage)
+            // Ohne Punkte: leerer Platzhalter, damit der Abstand zur Bibliotheksleiste gleich bleibt.
+            if (items.size > 1) HomePagerIndicator(items.size, pagerState.currentPage) else Spacer(Modifier)
         }
     }
 }
