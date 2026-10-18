@@ -204,9 +204,8 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
         showsTitleRow = true,
         // Fest unter der Kategorie-Reihe (scrollt nicht mit): gewähltes Regal + Bibliotheksleiste.
         belowStrip = {
-            // Kein Zusatzabstand zur Bibliotheksleiste: deren 48-dp-Zeile lässt über den Pills schon
-            // denselben Rand wie zwischen Karte und Punkten — so sitzen die Punkte mittig.
-            Column {
+            // Unter den Punkten derselbe Abstand wie darüber, dann beginnt die Liste.
+            Column(Modifier.padding(bottom = AppTheme.Layout.stackSpacing)) {
                 when {
                     isRestoring -> Spacer(Modifier.fillMaxWidth().height(AppTheme.Layout.homeBrowseBootstrapMinHeight))
                     !anyShelfEnabled -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeAllShelvesDisabledState() }
@@ -217,9 +216,12 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
                         }
                     }
                 }
-                if (libraryChoice != null) {
-                    HomeLibraryBar(model, libraryChoices, libraryChoice, booksContent?.section, podcastsContent?.let { it.shows to it.stripSectionId }, libraryShelves, activeShelf?.category, selectShelf)
-                }
+            }
+        },
+        // Test: Bibliotheksleiste unten über dem Mini-Player statt unter der Regal-Reihe.
+        bottomStrip = libraryChoice?.let { choice ->
+            {
+                HomeLibraryBar(model, libraryChoices, choice, booksContent?.section, podcastsContent?.let { it.shows to it.stripSectionId }, libraryShelves, activeShelf?.category, selectShelf)
             }
         },
         // Android: keine Tab-Leiste — Search und Settings öffnen sich als Seiten über Home.
