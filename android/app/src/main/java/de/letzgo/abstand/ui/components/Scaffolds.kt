@@ -118,8 +118,6 @@ fun TabRootScaffold(
     onBack: (() -> Unit)? = null,
     /** `true` (Home): eigene Titelzeile mit [title] und [actions] über der Kopfzeile aus [header]. */
     showsTitleRow: Boolean = false,
-    /** Fest unten über dem Mini-Player (Home-Test: Bibliotheksleiste unten). */
-    bottomBar: (@Composable () -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val palette = Theme.palette
@@ -130,12 +128,6 @@ fun TabRootScaffold(
         containerColor = palette.background,
         contentColor = palette.textPrimary,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        bottomBar = {
-            if (bottomBar != null) {
-                // Deckend über der Liste; Abstand nach unten = Mini-Player + Navigationsleiste.
-                Box(Modifier.fillMaxWidth().background(palette.background).padding(bottom = LocalScrollBottomInset.current)) { bottomBar() }
-            }
-        },
         topBar = {
             if (header != null || showsTitleRow) {
                 // Keine Titelzeile: die Bereichs-Pills/Tabs/das Suchfeld sind die Top-Leiste, die
@@ -202,7 +194,7 @@ fun TabRootScaffold(
                 start = AppTheme.Layout.tabPaddingH,
                 end = AppTheme.Layout.tabPaddingH,
                 top = inner.calculateTopPadding() + if (header == null && !showsTitleRow) AppTheme.Layout.tabTitleToHeaderBlockSpacing else 0.dp,
-                bottom = if (bottomBar != null) inner.calculateBottomPadding() + AppTheme.Layout.scrollBottomInsetBase else abstandScrollBottomPadding(),
+                bottom = abstandScrollBottomPadding(),
             ),
         )
     }

@@ -140,8 +140,6 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
     strip: @Composable () -> Unit = {},
     /** Fester Bereich unter dem Streifen (scrollt nicht mit). */
     belowStrip: (@Composable () -> Unit)? = null,
-    /** Fest unten über dem Mini-Player. */
-    bottomStrip: (@Composable () -> Unit)? = null,
     sectionSpacing: Dp = AppTheme.Layout.sectionSpacing,
     /**
      * `true`: Liste ohne horizontales Padding — Sektionen setzen `tabPaddingH` selbst, horizontale
@@ -164,7 +162,6 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
         header = if (showsStrip) strip else null,
         belowHeader = belowStrip,
         showsTitleRow = showsTitleRow,
-        bottomBar = bottomStrip,
     ) { padding ->
         holder.SaveableStateProvider(selection) {
             val ownState = rememberLazyListState()

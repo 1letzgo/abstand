@@ -35,8 +35,6 @@ Inhalt
 - [offen] Oben auf Home nur „Continue listening“; die übrigen Regale (Continue series, Recently added,
   Recommended, Listen again, New authors …) sind Einträge im Bereichs-Dropdown der jeweiligen
   Bibliothek (Bücher-Regale bei Books, Folgen-Regale bei Podcasts) und zeigen sich dort als Liste.
-- [offen] (Test) Bibliotheksleiste (Bibliothek + Bereich + Filter/Sortieren) unten über dem Mini-Player
-  statt unter „Continue listening“ — daumennah, oben nur Titel + Continue-Pager.
 - [offen] Bibliotheksansichten ohne Abschnittsüberschrift — der gewählte Bereich steht schon in der
   Pill (nur „Audiobooks with eBook“ trennt in eBooks noch zwei Gruppen).
 - [offen] Home als gemeinsame Bibliotheksansicht; die Tabs Books und Podcasts entfallen (Tab-Leiste:
