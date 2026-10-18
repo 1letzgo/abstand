@@ -22,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import de.letzgo.abstand.transcript.PlayerLiveTranscriptionController
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType

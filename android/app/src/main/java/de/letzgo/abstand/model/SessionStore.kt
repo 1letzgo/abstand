@@ -149,7 +149,7 @@ class SessionStore internal constructor(
     private val _showAudiobooksTab = MutableStateFlow(
         SessionLogic.cachedTabVisibility(cachedBool(Keys.showAudiobooksTab), Prefs.string(Keys.booksLibrary)),
     )
-    /** Books-Tab — aus gecachter Präferenz (nicht erst nach `libraries`-Fetch). */
+    /** iOS: `showAudiobooksTab` (Books-Bibliothek vorhanden) — aus gecachter Präferenz (nicht erst nach `libraries`-Fetch). */
     val showAudiobooksTab: StateFlow<Boolean> = _showAudiobooksTab.asStateFlow()
     private val _showPodcastsTab = MutableStateFlow(
         SessionLogic.cachedTabVisibility(cachedBool(Keys.showPodcastsTab), Prefs.string(Keys.podcastsLibrary)),
@@ -1489,7 +1489,10 @@ class SessionStore internal constructor(
         if (_showPodcastsTab.value != visible) updateShowPodcastsTab(visible)
     }
 
-    /** Tab-Leiste erst nach Bootstrap aktualisieren. */
+    /**
+     * Sichtbarkeits-Flags der Bibliotheken (`showAudiobooksTab`/`showPodcastsTab`; auf Android ohne
+     * Tab-Leiste: Suche und Home-Bibliotheksleiste) erst nach dem Bootstrap aktualisieren.
+     */
     fun flushTabVisibilityAfterBootstrap() {
         syncAudiobooksTabVisibilityFromLibraries()
         syncPodcastsTabVisibilityFromLibraries()

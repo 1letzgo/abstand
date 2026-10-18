@@ -52,18 +52,6 @@ object ContinueHeroMath {
         return maxOf(0.0, total - elapsed)
     }
 
-    /** iOS: `ContinueListeningHeroPodcastCard.heroProgress01`. */
-    fun episodeProgress(episodeDuration: Double, progress: AbsUserMediaProgress?): Double? {
-        val p = progress ?: return null
-        if (p.isFinished) return null
-        val total = maxOf(p.duration, episodeTotalSeconds(episodeDuration, p))
-        if (total > 0) {
-            val t = p.currentTime / total
-            if (t.isFinite()) return t.coerceIn(0.0, 1.0)
-        }
-        return if (p.progress > 0 && p.progress <= 1) p.progress else null
-    }
-
     /** iOS: `continueHeroAuthorSingleLine`. */
     fun authorLine(book: AbsBook): String = book.displayAuthorsCardLine.trim().let { if (it.isEmpty() || it == "—") "—" else it }
 }

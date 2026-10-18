@@ -10,7 +10,6 @@ import de.letzgo.abstand.data.AbsStartShelfLocalization
 import de.letzgo.abstand.data.AbsStartShelfSection
 import de.letzgo.abstand.data.AbsUser
 import de.letzgo.abstand.data.AbsUserMediaProgress
-import de.letzgo.abstand.data.AbstandErrorFilter
 import de.letzgo.abstand.data.ContinueRefreshAttemptResult
 import de.letzgo.abstand.data.Keys
 import de.letzgo.abstand.data.Prefs

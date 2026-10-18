@@ -113,10 +113,10 @@ fun TabRootScaffold(
     modifier: Modifier = Modifier,
     actions: (@Composable RowScope.() -> Unit)? = null,
     header: (@Composable () -> Unit)? = null,
-    /** Fester Bereich unter der Kopfzeile (scrollt nicht mit), z. B. Home: Regal-Reihe + Bibliotheksleiste. */
+    /** Fester Bereich unter der Kopfzeile (scrollt nicht mit), z. B. Home: Continue listening + Bibliotheksleiste. */
     belowHeader: (@Composable () -> Unit)? = null,
     onBack: (() -> Unit)? = null,
-    /** `true` (Home): eigene Titelzeile mit [title] und [actions] über der Kopfzeile aus [header]. */
+    /** `true` (Home): eigene Titelzeile mit [title] und [actions] statt der M3-`TopAppBar`. */
     showsTitleRow: Boolean = false,
     content: @Composable (PaddingValues) -> Unit,
 ) {
@@ -153,7 +153,7 @@ fun TabRootScaffold(
                     if (header != null) Row(
                         Modifier
                             .fillMaxWidth()
-                            // Gleiche Kopfzeilenhöhe in allen Tabs (Pills, Tabs, Überschrift, Aktionen).
+                            // Gleiche Kopfzeilenhöhe auf allen Wurzelseiten (Tabs, Suchfeld, Titelzeile, Aktionen).
                             .heightIn(min = AppTheme.Layout.minTapTarget)
                             .padding(
                                 start = if (onBack != null) AppTheme.Layout.tightSpacing else 0.dp,

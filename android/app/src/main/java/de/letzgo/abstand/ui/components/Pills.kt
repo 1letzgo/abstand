@@ -1,25 +1,14 @@
 package de.letzgo.abstand.ui.components
 
 import androidx.compose.foundation.border
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,16 +32,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.library.LibraryRowLayout
 
 // Pillen, Badges und Chips — Cover-Overlays, Status-Labels, Filter-/Browse-Chips.
 
@@ -61,8 +47,6 @@ object AbstandCoverPillMetrics {
     /** Abstand der Pille zum Cover-Rand. */
     val inset = AppTheme.Layout.inlineSpacing
     val iconSize = 12.dp
-    /** Fortschrittsring eines laufenden Downloads. */
-    val spinnerSize = 12.dp
     /** Symbol im runden Eck-Badge ([AbstandCoverCornerBadge]). */
     val cornerBadgeIconSize = 12.dp
 }
@@ -77,14 +61,6 @@ fun AbstandCoverPill(modifier: Modifier = Modifier, content: @Composable () -> U
             .padding(horizontal = AppTheme.Layout.inlineSpacing, vertical = AppTheme.Layout.pillVerticalPadding),
         contentAlignment = Alignment.Center,
     ) { content() }
-}
-
-/** [AbstandCoverPill] mit Symbol (Medientyp, „Downloaded“). */
-@Composable
-fun AbstandCoverPillIcon(icon: ImageVector, contentDescription: String?, modifier: Modifier = Modifier) {
-    AbstandCoverPill(modifier) {
-        Icon(icon, contentDescription = contentDescription, tint = AppTheme.coverOverlayForeground, modifier = Modifier.size(AbstandCoverPillMetrics.iconSize))
-    }
 }
 
 /** [AbstandCoverPill] mit kurzem Text („12 Books“, Rang). */
@@ -104,27 +80,6 @@ fun AbstandCoverCornerBadge(icon: ImageVector, contentDescription: String?, modi
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = contentDescription, tint = AppTheme.coverOverlayForeground, modifier = Modifier.size(AbstandCoverPillMetrics.cornerBadgeIconSize))
-    }
-}
-
-/**
- * iOS: `ContinueListeningHeroOfflineBadge` — fertiger Download (Symbol) oder laufender Download
- * (Ring) als [AbstandCoverPill]; sonst nichts.
- */
-@Composable
-fun AbstandCoverDownloadBadge(isDownloaded: Boolean, isDownloading: Boolean, downloadProgress: Double, modifier: Modifier = Modifier) {
-    when {
-        isDownloaded -> AbstandCoverPillIcon(SF.arrowDownCircleFill, "Downloaded", modifier)
-        isDownloading -> AbstandCoverPill(modifier) {
-            AbstandProgressRing(
-                downloadProgress,
-                color = AppTheme.coverOverlayForeground,
-                size = AbstandCoverPillMetrics.spinnerSize,
-                strokeWidth = AbstandProgressMetrics.miniRingStrokeWidth,
-                trackColor = AppTheme.coverOverlayForeground.copy(alpha = AppTheme.disabledContentAlpha),
-                contentDescription = "Downloading",
-            )
-        }
     }
 }
 

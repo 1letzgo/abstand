@@ -73,7 +73,7 @@ internal fun rememberPodcastsSectionContent(model: AppModel = AppModel.shared): 
         shows.firstOrNull { it.id == sid }?.displayTitle?.trim()?.ifEmpty { null } ?: "Episodes"
     } ?: "New episodes"
     val listLoading = if (isNewView) isLoadingPodcasts && episodes.isEmpty() else isLoadingShowEpisodes && episodes.isEmpty()
-    val showItems = remember(shows) { shows.map { AbstandBrowseStripItem(it.id, it.displayTitle, SF.micFill, coverItemId = it.id) } }
+    val showItems = remember(shows) { shows.map { AbstandBrowseStripItem(it.id, it.displayTitle, SF.micFill) } }
     return PodcastsSectionContent(
         store = store,
         isNewView = isNewView,

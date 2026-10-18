@@ -49,7 +49,6 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.components.AbstandAlert
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner

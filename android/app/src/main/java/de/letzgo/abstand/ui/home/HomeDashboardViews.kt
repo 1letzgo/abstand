@@ -3,7 +3,6 @@ package de.letzgo.abstand.ui.home
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.pager.rememberPagerState
@@ -22,8 +21,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyItemScope
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.LocalContentColor
@@ -40,11 +37,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.AbsAuthorShelfEntity
 import de.letzgo.abstand.data.AbsBook
 import de.letzgo.abstand.data.AbsLibrarySeriesListItem
@@ -57,7 +51,6 @@ import de.letzgo.abstand.logic.BooksBrowseSection
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.HomeLibraryLogic
 import de.letzgo.abstand.model.HomeShelfLogic
-import de.letzgo.abstand.model.ShellRoute
 import de.letzgo.abstand.model.SessionStore
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
@@ -94,12 +87,12 @@ import de.letzgo.abstand.ui.podcasts.rememberPodcastsSectionContent
 
 /**
  * iOS: `HomeTabRootView` + `StartDashboardView` (Offline-Schalter, Regale, Pull-to-Refresh).
- * Android: Home ist die gemeinsame Bibliotheksansicht (die Tabs Books und Podcasts gibt es nicht):
- * - Kopfzeile: Kategorie-Pills der Regale (aktive in Akzentfarbe), rechts der Offline-Schalter.
- * - Das gewählte Regal als horizontale Kartenreihe (randlos).
- * - Darunter die Bibliotheksleiste, beim Scrollen unter der Kopfzeile fixiert: Bibliothek (Books
- *   und Podcasts kombiniert) + Bereich als Pills, rechts die Aktionen des alten Tabs.
- * - Darunter der Bereichsinhalt wie in den alten Tabs (Books-Sektionen bzw. Podcast-Folgen).
+ * Android: Home ist die gemeinsame Bibliotheksansicht und einzige Wurzel (keine Tab-Leiste):
+ * - Titelzeile „abstand“ mit Offline-Schalter, Search und Settings (öffnen sich als Seiten).
+ * - Darunter fest „Continue listening“ als Pager mit Seiten-Punkten.
+ * - Darunter die fixierte Bibliotheksleiste: Bibliothek (Books und Podcasts kombiniert) + Bereich
+ *   als Dropdown-Pills (die übrigen Regale stehen im Bereichs-Menü), rechts die Aktionen.
+ * - Darunter der scrollende Bereichsinhalt (Books-Sektionen, Podcast-Folgen oder ein Regal).
  * Pull-to-Refresh lädt Regale und die gewählte Bibliothek neu.
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -198,13 +191,10 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
     AbstandFixedBrowseStripSectionsLayout(
         title = "abstand",
         selection = continueId,
-        showsStrip = false,
         // Liste wie in Books/Podcasts: Karten mit dem Abstand innerhalb einer Sektion.
         sectionSpacing = AppTheme.Layout.withinSectionSpacing,
         listState = listState,
-        // Titelzeile „abstand“ mit Offline/Search/Settings.
-        showsTitleRow = true,
-        // Fest unter der Kategorie-Reihe (scrollt nicht mit): gewähltes Regal + Bibliotheksleiste.
+        // Fest unter der Titelzeile „abstand“ (scrollt nicht mit): Continue listening + Bibliotheksleiste.
         belowStrip = {
             // Kein Zusatzabstand zur Bibliotheksleiste: deren 48-dp-Zeile lässt über den Pills schon
             // denselben Rand wie zwischen Karte und Punkten — so sitzen die Punkte mittig.

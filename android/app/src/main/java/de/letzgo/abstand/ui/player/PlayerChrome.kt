@@ -79,7 +79,6 @@ object MiniPlayerMetrics {
     /** M3-Slider: Griff 4 × 40 dp, Spur 16 dp, 4 dp Lücke zum Griff, Stopp-Punkt am Ende. */
     val progressRowHeight = 40.dp
     val progressTrackHeight = 16.dp
-    val scrubThumbDiameter = 16.dp
     val scrubberBlockSpacing = 8.dp
     val scrubberPaddingAboveBar = 8.dp
     val scrubberBarToTimeSpacing = 4.dp
