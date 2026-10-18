@@ -93,7 +93,9 @@ class HomeStore internal constructor(private val model: AppModel) : SessionParti
     private var replaceContinueOnNextLoad = false
     private var postProcessingJob: Job? = null
 
-    private val disabled: Set<String> get() = _startDisabledCategories.value
+    // Android: keine Regal-Auswahl in den Settings — alle Regale gelten als aktiv. Der persistierte
+    // Satz (`startDisabledCategories`) bleibt für iOS-Parität erhalten, wird aber nicht angewendet.
+    private val disabled: Set<String> get() = emptySet()
     private val offline: Boolean get() = session.offlineHomeUIActive
 
     init {

@@ -1,5 +1,6 @@
 package de.letzgo.abstand.ui.library
 
+import de.letzgo.abstand.model.CatalogSortState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -32,7 +33,6 @@ import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
 import de.letzgo.abstand.ui.components.AbstandSectionEmptyState
-import de.letzgo.abstand.ui.components.TabContentSectionTitle
 import de.letzgo.abstand.ui.detail.AuthorDetailDestination
 import de.letzgo.abstand.ui.detail.CollectionDetailDestination
 import de.letzgo.abstand.ui.detail.FacetFilteredBooksDestination
@@ -55,6 +55,7 @@ internal class BooksBrowseSectionContent(
     val loading: Boolean,
     val filter: CatalogFilterState,
     val browse: BrowseListsState,
+    val sort: CatalogSortState,
     val tileColumns: Int,
     val showsOfflineHint: Boolean,
     val navigator: TabNavigator?,
@@ -68,6 +69,7 @@ internal fun rememberBooksBrowseSectionContent(catalog: CatalogStore, model: App
     val loading by catalog.isLoadingLibrary.collectAsState()
     val filter by catalog.filter.collectAsState()
     val browse by catalog.browse.collectAsState()
+    val sort by catalog.sort.collectAsState()
     val reachable by model.session.isNetworkReachable.collectAsState()
     val offline by model.session.offlineHomeMode.collectAsState()
     val offlineAuto by model.session.offlineHomeModeAuto.collectAsState()
@@ -80,6 +82,7 @@ internal fun rememberBooksBrowseSectionContent(catalog: CatalogStore, model: App
         loading = loading,
         filter = filter,
         browse = browse,
+        sort = sort,
         tileColumns = facetColumns(),
         showsOfflineHint = !reachable && !(offline || offlineAuto),
         navigator = LocalTabNavigator.current,
@@ -99,6 +102,7 @@ internal fun LazyListScope.booksBrowseSectionItems(content: BooksBrowseSectionCo
     val loading = content.loading
     val filter = content.filter
     val browse = content.browse
+    val sort = content.sort
     val tileColumns = content.tileColumns
     val showsOfflineHint = content.showsOfflineHint
     val navigator = content.navigator
@@ -116,22 +120,18 @@ internal fun LazyListScope.booksBrowseSectionItems(content: BooksBrowseSectionCo
             }
         }
         BooksBrowseSection.EBOOKS, BooksBrowseSection.EBOOKS_SUPPLEMENTARY -> {
+            // Android: eine Liste für reine eBooks und Hörbücher mit eBook (iOS trennt sie mit Überschrift).
             val pure = catalog.browseEbooksFiltered(browse.ebooks, filter.ebookCatalogQuickFilter)
             val supplementary = catalog.browseEbooksFiltered(browse.ebooksSupplementary, filter.ebookCatalogQuickFilter)
+            val ebooks = CatalogLogic.mergedEbookLists(pure, supplementary, sort.catalogField, sort.catalogDescending)
             when {
-                browse.ebooksLoading && pure.isEmpty() && supplementary.isEmpty() -> item(key = "ebooks-loading") { AbstandLoadingSpinner() }
-                pure.isEmpty() -> item(key = "ebooks-empty") {
+                browse.ebooksLoading && ebooks.isEmpty() -> item(key = "ebooks-loading") { AbstandLoadingSpinner() }
+                ebooks.isEmpty() -> item(key = "ebooks-empty") {
                     AbstandSectionEmptyState(
                         if (filter.ebookCatalogQuickFilter == null) "No eBooks in this library." else "No eBooks match the current filter.",
                     )
                 }
-                else -> bookCards(pure, "ebook", usesEbookProgressDisplay = true, onAppear = { catalog.loadMoreBrowseEbooksIfNeeded(it.id) })
-            }
-            if (supplementary.isNotEmpty()) {
-                item(key = "ebooks-supp-title") {
-                    TabContentSectionTitle("Audiobooks with eBook", Modifier.padding(top = AppTheme.Layout.sectionSpacing))
-                }
-                bookCards(supplementary, "ebook-supp", usesEbookProgressDisplay = true)
+                else -> bookCards(ebooks, "ebook", usesEbookProgressDisplay = true, onAppear = { catalog.loadMoreBrowseEbooksIfNeeded(it.id) })
             }
         }
         BooksBrowseSection.AUTHOR -> {

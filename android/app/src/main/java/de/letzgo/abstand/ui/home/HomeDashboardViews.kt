@@ -1,5 +1,7 @@
 package de.letzgo.abstand.ui.home
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.LayoutDirection
@@ -29,12 +31,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
@@ -65,7 +65,6 @@ import de.letzgo.abstand.ui.components.AbstandEmptyScreen
 import de.letzgo.abstand.ui.components.AbstandFixedBrowseStripSectionsLayout
 import de.letzgo.abstand.ui.components.AbstandIconButton
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
-import de.letzgo.abstand.ui.components.AbstandProminentButton
 import de.letzgo.abstand.ui.components.AbstandSectionEmptyState
 import de.letzgo.abstand.ui.components.SquareCoverImage
 import de.letzgo.abstand.ui.destinations.AuthorDestination
@@ -102,7 +101,6 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
     val session = model.session
     val shelves by home.startShelves.collectAsState()
     val categoryList by home.startSettingsCategoryList.collectAsState()
-    val disabled by home.startDisabledCategories.collectAsState()
     val isRestoring by session.isHomeContinueRestoreInProgress.collectAsState()
     val isBootstrapping by session.isAppBootstrapInProgress.collectAsState()
     val offlineManual by session.offlineHomeMode.collectAsState()
@@ -121,18 +119,20 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
             home.loadStartDashboard(force = offline)
         }
     }
-    // iOS: `.onChange(of: offlineHomeUIActive)` / `startDisabledCategories` → Kategorie klemmen.
-    LaunchedEffect(offline, disabled, categoryList.size) {
+    // iOS: `.onChange(of: offlineHomeUIActive)` → Kategorie klemmen.
+    LaunchedEffect(offline, categoryList.size) {
         if (!isBootstrapping) home.clampHomeBrowseSectionIfNeeded()
     }
 
     val continueId = AbsStartShelfLocalization.homeBrowseContinueSectionID
-    val anyShelfEnabled = HomeShelfLogic.isAnyShelfEnabled(categoryList, disabled)
-    val visibleShelves = if (isRestoring || !anyShelfEnabled) emptyList() else
-        HomeShelfLogic.shelvesForHomeBrowseSection(continueId, categoryList, shelves, disabled)
+    // Android: keine Regal-Auswahl in den Settings — alle Regale mit Inhalt sind sichtbar.
+    val visibleShelves = if (isRestoring) emptyList() else
+        HomeShelfLogic.shelvesForHomeBrowseSection(continueId, categoryList, shelves, emptySet())
             .filter(HomeShelfLogic::shelfHasVisibleContent)
     // Oben fest nur „Continue listening“; die übrigen Regale stehen im Bereichs-Dropdown der Bibliothek.
     val continueShelf = visibleShelves.firstOrNull { HomeShelfLogic.isContinueCategory(it.category) }
+    // „Continue reading“ (eBooks mit Lesefortschritt) läuft oben im selben Pager mit.
+    val readingShelf = visibleShelves.firstOrNull { it.category == HomeShelfLogic.continueEbooksCategory }
 
     // Bibliotheksleiste: kombinierte Auswahl (Books + Podcasts), gemerkt im Session-Store.
     val libraryChoices = rememberHomeLibraryChoices(session)
@@ -201,14 +201,13 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
             Column {
                 when {
                     isRestoring -> Spacer(Modifier.fillMaxWidth().height(AppTheme.Layout.homeBrowseBootstrapMinHeight))
-                    !anyShelfEnabled -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeAllShelvesDisabledState() }
-                    continueShelf == null -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeSectionEmptyState(continueId, offline) }
+                    continueShelf == null && readingShelf == null -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeSectionEmptyState(continueId, offline) }
                     else -> Box(Modifier.padding(top = AppTheme.Layout.tightSpacing)) {
                         CompositionLocalProvider(
                             LocalHomeCompactCardCoverSide provides AppTheme.Layout.homeContinueCardCoverSide,
                             LocalHomeCompactCardIsHero provides true,
                         ) {
-                            HomeContinueCompactCarousel(continueShelf, PaddingValues(horizontal = AppTheme.Layout.tabPaddingH))
+                            HomeContinueCompactCarousel(continueShelf, readingShelf, PaddingValues(horizontal = AppTheme.Layout.tabPaddingH))
                         }
                     }
                 }
@@ -378,7 +377,7 @@ private const val HOME_SHELF_ITEM_PREFIX = "__shelf__:"
 private fun homeShelvesForLibrary(shelves: List<AbsStartShelfSection>, choice: HomeLibraryLogic.Choice): List<AbsStartShelfSection> {
     val libraryId = choice.library.id
     fun inLibrary(id: String?) = id.isNullOrBlank() || id == libraryId
-    return shelves.filter { !HomeShelfLogic.isContinueCategory(it.category) }.mapNotNull { shelf ->
+    return shelves.filter { !HomeShelfLogic.isContinueCategory(it.category) && it.category != HomeShelfLogic.continueEbooksCategory }.mapNotNull { shelf ->
         if (choice.isPodcast) {
             if (shelf.category == HomeShelfLogic.newestEpisodesCategory) return@mapNotNull null
             shelf.copy(books = emptyList(), series = emptyList(), authors = emptyList(), podcastEpisodes = shelf.podcastEpisodes.filter { inLibrary(it.libraryId) })
@@ -468,17 +467,25 @@ private fun HomePagerIndicator(count: Int, current: Int) {
  * `lastUpdate` (Reihenfolge wie die Hero-Reihe, nur bei geänderter Rangfolge neu gebaut).
  */
 @Composable
-private fun HomeContinueCompactCarousel(shelf: AbsStartShelfSection, contentPadding: PaddingValues) {
+private fun HomeContinueCompactCarousel(listening: AbsStartShelfSection?, reading: AbsStartShelfSection?, contentPadding: PaddingValues) {
     val navigator = LocalTabNavigator.current
     val progress by AppModel.shared.home.progressByItemId.collectAsState()
-    val merged = AbsStartShelfMergedRow.merged(shelf.books, shelf.podcastEpisodes, progress)
+    // Hörbücher zuerst (gewinnen bei Dubletten), dann eBooks aus „Continue reading“ mit Lesefortschritt.
+    val listeningBooks = listening?.books.orEmpty()
+    val readingBooks = reading?.books.orEmpty()
+    val merged = AbsStartShelfMergedRow.merged(listeningBooks + readingBooks, listening?.podcastEpisodes.orEmpty(), progress)
+    val listeningIds = listeningBooks.mapTo(HashSet()) { it.id }
+    val readingIds = readingBooks.mapTo(HashSet()) { it.id } - listeningIds
     val signature = merged.joinToString("\u001f") { it.id }
     val rows = remember(signature) { merged }
     HomeCompactCardCarousel(rows, { it.id }, contentPadding) { row, width ->
         Column(Modifier.width(width)) {
             when (row) {
                 is AbsStartShelfMergedRow.Book ->
-                    HomeBookCompactCard(row.book, onOpen = { navigator?.push(BookDetailDestination(row.book.id)) })
+                    HomeBookCompactCard(
+                        row.book, onOpen = { navigator?.push(BookDetailDestination(row.book.id)) },
+                        usesEbookProgressDisplay = row.book.id in readingIds,
+                    )
                 is AbsStartShelfMergedRow.PodcastEpisode ->
                     HomeEpisodeCompactCard(row.episode, onOpen = { navigator?.push(EpisodeDestination(row.episode.libraryItemId, row.episode.episodeId)) })
             }
@@ -556,19 +563,3 @@ private fun HomeSectionEmptyState(category: String, offline: Boolean) {
         modifier = Modifier.padding(vertical = AppTheme.Layout.sectionSpacing),
     )
 }
-
-/** iOS: `startDashboardAllShelvesDisabledState` — Android: Knopf direkt zu den Home-Einstellungen. */
-@Composable
-private fun HomeAllShelvesDisabledState() {
-    val navigator = LocalTabNavigator.current
-    AbstandEmptyScreen(
-        title = "All shelves are off",
-        icon = SF.gearshape2,
-        description = "Open Settings → Appearance → Home to turn shelves back on.",
-        modifier = Modifier.padding(vertical = AppTheme.Layout.sectionSpacing),
-        actions = {
-            AbstandProminentButton("Home settings", onClick = { navigator?.push(HomeShelvesSettingsDestination) })
-        },
-    )
-}
-

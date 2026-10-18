@@ -37,6 +37,10 @@ Inhalt
 - [offen] Oben auf Home nur „Continue listening“; die übrigen Regale (Continue series, Recently added,
   Recommended, Listen again, New authors …) sind Einträge im Bereichs-Dropdown der jeweiligen
   Bibliothek (Bücher-Regale bei Books, Folgen-Regale bei Podcasts) und zeigen sich dort als Liste.
+- [offen] Settings › Appearance › Views entfernt (keine Regal-Auswahl/-Reihenfolge mehr): alle Regale
+  mit Inhalt erscheinen im Bereichs-Menü der jeweiligen Bibliothek, „Continue listening/reading“ oben.
+- [offen] eBooks ohne Trennung „Audiobooks with eBook“: eine Liste aus reinen eBooks und Hörbüchern mit
+  eBook, lokal nach der gewählten Sortierung gemischt. „Continue reading“ läuft im Hero-Pager oben mit.
 - [offen] Leisten-Aktionen (Filter, Sortieren, +, Zahnrad) als Symbol-Pillen in Form und Fläche der
   Dropdown-Pills; aktiver Filter als Akzent-Pille.
 - [offen] Bibliotheksansichten ohne Abschnittsüberschrift — der gewählte Bereich steht schon in der
