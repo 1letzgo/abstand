@@ -44,6 +44,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.AbsAuthorShelfEntity
 import de.letzgo.abstand.data.AbsBook
 import de.letzgo.abstand.data.AbsLibrarySeriesListItem
@@ -217,7 +218,8 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
                             LocalHomeCompactCardCoverSide provides AppTheme.Layout.homeContinueCardCoverSide,
                             LocalHomeCompactCardIsHero provides true,
                         ) {
-                            HomeContinueCompactCarousel(continueShelf, PaddingValues(horizontal = AppTheme.Layout.tabPaddingH))
+                            // Randlos über die volle Breite — keine Nachbarkarte, die rechts hereinragt.
+                            HomeContinueCompactCarousel(continueShelf, PaddingValues(0.dp))
                         }
                     }
                 }

@@ -50,7 +50,7 @@ Inhalt
   Symbole gedeckt. Hero-Karte „Continue listening“: Titel zweizeilig, gefüllter Play-Button „2 hrs 48 min“
   statt Laufzeit-Fußzeile; Regal-Listen in derselben Kartengröße wie die Bibliothek (80); im Bereichs-
   Menü Trenner zwischen Bereichen und Regalen.
-- [offen] „Continue listening“ oben als Pager: eine Karte in voller Breite pro Seite (Cover 144; Listen 80), darunter Seiten-Indikator — Punkte in Akzentfarbe, ab 11 Karten „n / m“.
+- [offen] „Continue listening“ oben als Pager: eine randlose Karte über die volle Bildschirmbreite pro Seite (eckig, keine hereinragende Nachbarkarte) (Cover 144; Listen 80), darunter Seiten-Indikator — Punkte in Akzentfarbe, ab 11 Karten „n / m“.
 - [offen] Keine Tab-Leiste mehr: Home ist die einzige Wurzel; Search (Lupe) und Settings (Zahnrad)
   sitzen mit dem Offline-Wölkchen rechts in einer eigenen Titelzeile „abstand“ über den Kategorie-Pills und öffnen sich als
   gepushte Seiten mit Zurück-Pfeil vor ihrer Kopfzeile (Suchfeld mit Autofokus bzw. Settings-Tabs).

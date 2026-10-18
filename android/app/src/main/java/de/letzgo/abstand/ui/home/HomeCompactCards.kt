@@ -1,5 +1,6 @@
 package de.letzgo.abstand.ui.home
 
+import androidx.compose.ui.graphics.RectangleShape
 import de.letzgo.abstand.logic.BookDetailLogic
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.layout.Arrangement
@@ -75,14 +76,15 @@ fun HomeCompactCard(
             .fillMaxWidth()
             .height(side)
             // M3 Filled Card (12 dp, ohne Rand) über die gemeinsame Karten-Vorlage.
-            .abstandCardChrome(palette.card, LibraryRowLayout.cardShape, onClick = onOpen)
+            // Hero liegt randlos am Bildschirmrand → ohne Eckenrundung.
+            .abstandCardChrome(palette.card, if (isHero) RectangleShape else LibraryRowLayout.cardShape, onClick = onOpen)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
                 contentDescription = "$title. $accessibilityHint"
             },
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(LibraryRowLayout.cardInset)) {
-            Box(Modifier.size(side).clip(LibraryRowLayout.coverClipShape).alpha(dim)) { cover() }
+            Box(Modifier.size(side).clip(if (isHero) RectangleShape else LibraryRowLayout.coverClipShape).alpha(dim)) { cover() }
             Column(
                 Modifier
                     .weight(1f)
