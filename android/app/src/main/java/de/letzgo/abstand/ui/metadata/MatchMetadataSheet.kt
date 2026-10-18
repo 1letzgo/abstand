@@ -177,7 +177,6 @@ fun MatchMetadataSheet(itemId: String, onDismiss: () -> Unit) {
             confirmLabel = "Apply",
             confirmEnabled = selectedFields.isNotEmpty() && !isApplying,
             isBusy = isApplying,
-            cancelLabel = "Cancel",
         ) {
             Column(
                 Modifier.fillMaxWidth().height(FieldSheetMaxHeight).verticalScroll(rememberScrollState()),

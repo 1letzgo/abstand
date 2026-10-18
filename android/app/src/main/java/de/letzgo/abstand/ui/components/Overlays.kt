@@ -44,6 +44,10 @@ object AbstandOverlayMetrics {
     /** M3-Griff 32 × 4 dp (iOS: 36 × 5). */
     val grabberWidth = AppTheme.Layout.dragHandleWidth
     val grabberHeight = AppTheme.Layout.dragHandleHeight
+    /** M3-Bottom-Sheet: Titel, Inhalt und Aktionszeile 24 dp seitlich/unten. */
+    val sheetPadding = 24.dp
+    /** Zusatzabstand über der Aktionszeile (zum Zeilenabstand des Inhalts). */
+    val sheetActionsTopPadding = 8.dp
 }
 
 /**
@@ -172,21 +176,25 @@ fun AbstandSheetGrabber(modifier: Modifier = Modifier) {
 }
 
 /**
- * Kurzes Sheet als Bottom-Sheet (iOS: `.sheet` mit `.presentationDetents`): Griff, Kopfzeile mit
- * optionalem Abbrechen links ([cancelLabel]), Titel und optionalem Bestätigen rechts
- * ([onConfirm]); Palette-Hintergrund, Inhalt mit `screenPadding`. Für Formulare mit Tastatur
- * [MetadataSheetScaffold] nehmen.
+ * M3 Modal Bottom Sheet (iOS: `.sheet` mit `.presentationDetents`): Griff, optionaler Titel
+ * (`titleLarge`, linksbündig, 24 dp seitlich), Inhalt und — nur wenn es eine Bestätigung gibt
+ * ([onConfirm]) — unten rechtsbündig „Cancel“ als Text-Button ([cancelLabel], schließt) plus
+ * Filled Button ([confirmLabel]; [destructive] in `error`). Ohne Bestätigung keine Buttons:
+ * Schließen per Wischen/Scrim/Zurück. Unterer Rand respektiert die Navigationsleiste
+ * (Standard-`windowInsets` des Sheets). Ganzseitige Formulare mit Tastatur gehören in
+ * [MetadataSheetScaffold] (Vollbild-Dialog), nicht hierher.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AbstandSheet(
-    title: String,
+    title: String?,
     onDismiss: () -> Unit,
     onConfirm: (() -> Unit)? = null,
     confirmLabel: String = "Done",
     confirmEnabled: Boolean = true,
     isBusy: Boolean = false,
-    cancelLabel: String? = null,
+    destructive: Boolean = false,
+    cancelLabel: String = "Cancel",
     spacing: Dp = AppTheme.Layout.withinSectionSpacing,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -204,22 +212,32 @@ fun AbstandSheet(
     ) {
         Column(
             Modifier.fillMaxWidth().padding(
-                start = AppTheme.Layout.screenPadding,
-                end = AppTheme.Layout.screenPadding,
-                bottom = AppTheme.Layout.blockSpacing,
+                start = AbstandOverlayMetrics.sheetPadding,
+                end = AbstandOverlayMetrics.sheetPadding,
+                bottom = AbstandOverlayMetrics.sheetPadding,
             ),
             verticalArrangement = Arrangement.spacedBy(spacing),
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                if (cancelLabel != null) AbstandTextButton(cancelLabel, onDismiss)
+            if (title != null) {
                 Text(
                     title, style = AppType.titleLarge, color = palette.textPrimary,
-                    textAlign = if (cancelLabel != null) TextAlign.Center else TextAlign.Start,
-                    modifier = Modifier.weight(1f).semantics { heading() },
+                    modifier = Modifier.fillMaxWidth().semantics { heading() },
                 )
-                if (onConfirm != null) SheetConfirmAction(confirmLabel, onConfirm, confirmEnabled, isBusy)
             }
             content()
+            if (onConfirm != null) {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = AbstandOverlayMetrics.sheetActionsTopPadding),
+                    horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AbstandTextButton(cancelLabel, onDismiss)
+                    AbstandProminentButton(
+                        confirmLabel, onConfirm,
+                        enabled = confirmEnabled, isBusy = isBusy, destructive = destructive,
+                    )
+                }
+            }
         }
     }
 }

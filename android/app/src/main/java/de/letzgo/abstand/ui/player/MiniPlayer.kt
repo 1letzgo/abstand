@@ -23,6 +23,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -165,12 +172,13 @@ val miniPlayerDockHeight: Dp
     get() = MiniPlayerMetrics.barHeight + MiniPlayerMetrics.accessoryBottomGap
 
 /** iOS: `TabAccessoryMiniPlayer` — Cover, „Autor – Titel“, Restzeit, −Sekunden, Play/Pause. */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun MiniPlayerBar(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring, modifier: Modifier = Modifier) {
     val palette = Theme.palette
     val shape = RoundedCornerShape(MiniPlayerMetrics.accessoryCornerRadius)
     val scope = rememberCoroutineScope()
+    val stopPlayback: () -> Unit = { scope.launch { wiring.dismissPlayer() } }
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = shape,
@@ -180,55 +188,114 @@ private fun MiniPlayerBar(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring, mo
     ) {
         // Ohne Tab-Leiste: Fläche läuft unter die System-Navigationsleiste, Inhalt bleibt darüber.
         Box(Modifier.navigationBarsPadding()) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = MiniPlayerMetrics.barHeight)
-                    .padding(horizontal = MiniPlayerMetrics.accessoryHorizontalPadding),
-                verticalAlignment = Alignment.CenterVertically,
+            // M3-Swipe-to-dismiss: waagerecht (beide Richtungen) wischen stoppt die Wiedergabe —
+            // dieselbe Logik wie „Stop playback“ im Cover-Kontextmenü. Tippen (Now Playing) und
+            // die Transport-Knöpfe bleiben unberührt, das Ziehen startet erst nach Touch-Slop.
+            val swipeState = rememberSwipeToDismissBoxState(
+                confirmValueChange = { value ->
+                    if (value != SwipeToDismissBoxValue.Settled) stopPlayback()
+                    value != SwipeToDismissBoxValue.Settled
+                },
+                positionalThreshold = { distance -> distance * MiniPlayerSwipeThresholdFraction },
+            )
+            // Normalfall: Stoppen leert den aktiven Titel, die Leiste verschwindet samt Zustand.
+            // Bleibt sie trotzdem sichtbar (Fehler), nach kurzer Zeit zurückschnappen.
+            androidx.compose.runtime.LaunchedEffect(swipeState.currentValue) {
+                if (swipeState.currentValue != SwipeToDismissBoxValue.Settled) {
+                    kotlinx.coroutines.delay(MiniPlayerSwipeResetDelayMs)
+                    swipeState.reset()
+                }
+            }
+            SwipeToDismissBox(
+                state = swipeState,
+                backgroundContent = { MiniPlayerSwipeBackground(swipeState.dismissDirection) },
             ) {
                 Row(
                     Modifier
-                        .weight(1f)
-                        .heightIn(min = MiniPlayerMetrics.rowMinHeight)
-                        .clickable(onClickLabel = "Shows the full player") { wiring.openNowPlaying() }
-                        .semantics { contentDescription = "Open now playing" },
+                        .fillMaxWidth()
+                        // Eigene Fläche deckt den Wisch-Hintergrund ab, solange nicht gewischt wird.
+                        .background(palette.scheme.surfaceContainerHighest)
+                        .heightIn(min = MiniPlayerMetrics.barHeight)
+                        .padding(horizontal = MiniPlayerMetrics.accessoryHorizontalPadding),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    var menuOpen by remember { mutableStateOf(false) }
-                    Box {
-                        val id = snapshot.activeBookId
-                        Box(
-                            Modifier
-                                .size(MiniPlayerMetrics.tabAccessoryCover)
-                                .clip(RoundedCornerShape(AppTheme.Layout.cornerSmall))
-                                .combinedClickable(onClick = { wiring.openNowPlaying() }, onLongClick = { menuOpen = true }),
-                        ) {
-                            if (id != null) CoverImage(itemId = id, modifier = Modifier.size(MiniPlayerMetrics.tabAccessoryCover))
-                        }
-                        // iOS: Kontextmenü am Cover → „Stop playback“.
-                        AbstandMenu(menuOpen, { menuOpen = false }) {
-                            item("Stop playback", { scope.launch { wiring.dismissPlayer() } }, icon = SF.xmarkCircle, destructive = true)
-                        }
-                    }
-                    Column(
-                        Modifier.weight(1f).padding(start = AppTheme.Layout.rowSpacing),
+                    Row(
+                        Modifier
+                            .weight(1f)
+                            .heightIn(min = MiniPlayerMetrics.rowMinHeight)
+                            .clickable(onClickLabel = "Shows the full player") { wiring.openNowPlaying() }
+                            .semantics {
+                                contentDescription = "Open now playing"
+                                // Barrierefreie Alternative zum Wischen / Lange-Drücken.
+                                customActions = listOf(CustomAccessibilityAction("Stop playback") { stopPlayback(); true })
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            snapshot.primaryLine,
-                            style = AppType.titleSmall,
-                            color = palette.textPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        snapshot.subtitleText?.let {
-                            Text(it, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1)
+                        var menuOpen by remember { mutableStateOf(false) }
+                        Box {
+                            val id = snapshot.activeBookId
+                            Box(
+                                Modifier
+                                    .size(MiniPlayerMetrics.tabAccessoryCover)
+                                    .clip(RoundedCornerShape(AppTheme.Layout.cornerSmall))
+                                    .combinedClickable(onClick = { wiring.openNowPlaying() }, onLongClick = { menuOpen = true }),
+                            ) {
+                                if (id != null) CoverImage(itemId = id, modifier = Modifier.size(MiniPlayerMetrics.tabAccessoryCover))
+                            }
+                            // iOS: Kontextmenü am Cover → „Stop playback“.
+                            AbstandMenu(menuOpen, { menuOpen = false }) {
+                                item("Stop playback", { stopPlayback() }, icon = SF.xmarkCircle, destructive = true)
+                            }
+                        }
+                        Column(
+                            Modifier.weight(1f).padding(start = AppTheme.Layout.rowSpacing),
+                        ) {
+                            Text(
+                                snapshot.primaryLine,
+                                style = AppType.titleSmall,
+                                color = palette.textPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            snapshot.subtitleText?.let {
+                                Text(it, style = AppType.bodySmall, color = palette.textSecondary, maxLines = 1)
+                            }
                         }
                     }
+                    if (snapshot.canTogglePlayback || snapshot.isBuffering) MiniTransport(snapshot, wiring)
                 }
-                if (snapshot.canTogglePlayback || snapshot.isBuffering) MiniTransport(snapshot, wiring)
             }
             MiniProgressLine(wiring, Modifier.align(Alignment.TopCenter).fillMaxWidth())
+        }
+    }
+}
+
+/** Anteil der Leistenbreite, ab dem ein Wisch die Wiedergabe stoppt. */
+private const val MiniPlayerSwipeThresholdFraction = 0.35f
+/** Rückfall: Leiste nach einem Wisch ohne Ausblenden wieder einblenden. */
+private const val MiniPlayerSwipeResetDelayMs = 1_500L
+
+/**
+ * Hintergrund beim Wischen (M3): `surfaceContainerHighest`, Stopp-Symbol + „Stop“ in
+ * `onSurfaceVariant` auf der Seite, die die Leiste freigibt.
+ */
+@Composable
+private fun MiniPlayerSwipeBackground(direction: SwipeToDismissBoxValue) {
+    val scheme = Theme.palette.scheme
+    val alignment = if (direction == SwipeToDismissBoxValue.EndToStart) Alignment.CenterEnd else Alignment.CenterStart
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(scheme.surfaceContainerHighest)
+            .padding(horizontal = AppTheme.Layout.blockSpacing),
+        contentAlignment = alignment,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing),
+        ) {
+            Icon(SF.xmarkCircle, contentDescription = null, tint = scheme.onSurfaceVariant)
+            Text("Stop", style = AppType.labelLarge, color = scheme.onSurfaceVariant)
         }
     }
 }

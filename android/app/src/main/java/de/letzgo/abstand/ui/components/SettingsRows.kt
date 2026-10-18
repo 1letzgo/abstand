@@ -1,6 +1,5 @@
 package de.letzgo.abstand.ui.components
 
-import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,8 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
@@ -36,13 +33,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,7 +50,6 @@ import de.letzgo.abstand.ui.bold
 // [AbstandGroupedCard], getrennt durch [SettingsCardDivider].
 
 /** iOS: `ServerAdminLayoutMetrics.inputFieldMaxWidth` — max. Breite von Eingaben in Kartenzeilen. */
-private val InputFieldMaxWidth = 180.dp
 /** Symbolgröße in Settings-Zeilen (M3-Listen-Leading-Icon: 24 dp). */
 private val RowIconSize = AppTheme.Layout.iconSize
 /** Trailing-Symbol (Chevron, Statussymbol; M3: 24 dp). */
@@ -288,32 +280,25 @@ private fun ChannelSlider(label: String, value: Float, onChange: (Float) -> Unit
     }
 }
 
-/** iOS: `SettingsCardSecureFieldRow` — Titel links, maskierte Eingabe rechts (max. 180 dp). */
+/**
+ * iOS: `SettingsCardSecureFieldRow` — Titel links, maskierte Eingabe rechts. Android: Symbol +
+ * M3 Outlined Text Field ([AbstandOutlinedTextField], [title] als schwebendes Label, maskiert mit
+ * Sichtbarkeits-Schalter); [supportingText] (z. B. „Optional“/„Required“) steht darunter.
+ */
 @Composable
 fun SettingsCardSecureFieldRow(
     icon: ImageVector,
     title: String,
     value: String,
     onValueChange: (String) -> Unit,
-    placeholder: String = "••••••••",
+    supportingText: String? = null,
 ) {
-    val palette = Theme.palette
     SettingsRow {
         SettingsCardIcon(icon)
-        Text(title, style = AppType.bodyLarge, color = palette.textPrimary, modifier = Modifier.weight(1f))
-        Box(Modifier.widthIn(max = InputFieldMaxWidth), contentAlignment = Alignment.CenterEnd) {
-            if (value.isEmpty()) Text(placeholder, style = AppType.bodyLarge, color = palette.textSecondary.copy(alpha = 0.55f))
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                singleLine = true,
-                textStyle = AppType.bodyLarge.copy(color = palette.textPrimary, textAlign = TextAlign.End),
-                cursorBrush = SolidColor(Theme.accent),
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = title },
-            )
-        }
+        AbstandOutlinedTextField(
+            label = title, value = value, onValueChange = onValueChange, isSecure = true,
+            supportingText = supportingText, modifier = Modifier.weight(1f),
+        )
     }
 }
 

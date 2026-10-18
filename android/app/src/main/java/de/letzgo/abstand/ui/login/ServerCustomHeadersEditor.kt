@@ -6,7 +6,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,11 +13,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,21 +27,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.ServerHTTPHeader
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.components.AbstandOutlinedTextField
+import androidx.compose.ui.text.input.ImeAction
 
 /**
  * iOS: `ServerCustomHeadersEditor` — je Zeile Name + Wert (verdeckt), Entfernen-Button, „Add header“
@@ -59,13 +52,22 @@ fun ServerCustomHeadersEditor(headers: List<ServerHTTPHeader>, onHeadersChange: 
         headers.forEach { header ->
             Row(horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing), verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
-                    HeaderField("Header name", header.name, isSecure = false) { v ->
-                        onHeadersChange(headers.map { if (it.id == header.id) it.copy(name = v) else it })
-                    }
-                    HeaderField("Value", header.value, isSecure = true) { v ->
-                        onHeadersChange(headers.map { if (it.id == header.id) it.copy(value = v) else it })
-                    }
-                    headerProblem(header)?.let { Text(it, style = AppType.bodySmall, color = AppTheme.danger) }
+                    // Fehler am betroffenen Feld (M3: isError + Supporting Text): fehlender Wert am
+                    // Wert-Feld, alles andere betrifft den Namen.
+                    val problem = headerProblem(header)
+                    val valueProblem = problem != null && header.trimmedName.isNotEmpty() && header.trimmedValue.isEmpty() &&
+                        header.trimmedName.lowercase() !in ServerHTTPHeader.reservedNames
+                    AbstandOutlinedTextField(
+                        label = "Header name", value = header.name, monospace = true,
+                        keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next,
+                        errorText = problem.takeUnless { valueProblem },
+                        onValueChange = { v -> onHeadersChange(headers.map { if (it.id == header.id) it.copy(name = v) else it }) },
+                    )
+                    AbstandOutlinedTextField(
+                        label = "Value", value = header.value, isSecure = true,
+                        errorText = problem.takeIf { valueProblem },
+                        onValueChange = { v -> onHeadersChange(headers.map { if (it.id == header.id) it.copy(value = v) else it }) },
+                    )
                 }
                 Box(
                     Modifier
@@ -93,37 +95,6 @@ fun ServerCustomHeadersEditor(headers: List<ServerHTTPHeader>, onHeadersChange: 
             "Sent with every request to this server, e.g. for SSO or a reverse proxy that needs its own token. Stored encrypted on this device.",
             style = AppType.bodySmall,
             color = palette.textSecondary,
-        )
-    }
-}
-
-@Composable
-private fun HeaderField(placeholder: String, value: String, isSecure: Boolean, onValueChange: (String) -> Unit) {
-    val palette = Theme.palette
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(AppTheme.Layout.fieldCornerRadius))
-            .background(palette.card)
-            .padding(AppTheme.Layout.rowSpacing),
-    ) {
-        if (value.isEmpty()) Text(placeholder, style = AppType.bodyLarge, color = palette.textSecondary.copy(alpha = 0.55f))
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            singleLine = true,
-            textStyle = AppType.bodyLarge.copy(
-                color = palette.textPrimary,
-                fontFamily = if (isSecure) null else FontFamily.Monospace,
-            ),
-            cursorBrush = SolidColor(Theme.accent),
-            visualTransformation = if (isSecure) PasswordVisualTransformation() else VisualTransformation.None,
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.None,
-                autoCorrectEnabled = false,
-                keyboardType = if (isSecure) KeyboardType.Password else KeyboardType.Ascii,
-            ),
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = placeholder },
         )
     }
 }

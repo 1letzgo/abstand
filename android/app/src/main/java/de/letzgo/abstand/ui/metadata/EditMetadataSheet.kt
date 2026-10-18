@@ -62,7 +62,7 @@ import kotlinx.coroutines.launch
 import de.letzgo.abstand.ui.components.AbstandIconButton
 
 /** Feste Breite des Seriennummer-Feldes (iOS: `SeriesRowMetrics.numberFieldWidth`). */
-private val SeriesNumberFieldWidth = 64.dp
+private val SeriesNumberFieldWidth = 80.dp
 
 /** Editierbare Serie-Zeile (iOS: `EditSeriesRow`). */
 private data class EditSeriesRow(

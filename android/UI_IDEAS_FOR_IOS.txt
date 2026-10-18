@@ -57,6 +57,9 @@ Player
   Fortschrittslinie oben) statt schwebender Karte. (3286a9f)
 - [offen] Now Playing öffnet als Container-Transform aus der Mini-Leiste; Wischen schrumpft ihn
   kontinuierlich zurück. (cefdac9) — iOS hat eine eigene Zoom-Transition, prüfen ob übertragbar.
+- [offen] Mini-Player waagerecht wegwischen (beide Richtungen) stoppt die Wiedergabe; dahinter
+  „Stop“-Hinweis mit Symbol. Lange-Drücken aufs Cover bleibt, zusätzlich Accessibility-Aktion
+  „Stop playback“. (M3-Konformität) — auf iOS z. B. als Swipe auf dem tabViewBottomAccessory prüfen.
 
 Farben
 ------

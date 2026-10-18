@@ -56,7 +56,10 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/stats/ListeningAchievementCard.kt:113  AlertDialog(
 
 ## Bottom-Sheets (ModalBottomSheet / AbstandSheetScaffold)
-   → Vorlage: AbstandSheet (Griff, Cancel/Titel/Confirm) · MetadataSheetScaffold (Formulare)
+   → Vorlage: AbstandSheet (M3: Griff, optionaler Titel titleLarge linksbündig 24 dp, Inhalt; nur mit
+     Bestätigung unten rechts „Cancel“-Text-Button + Filled-Button, destructive = error; ohne
+     Bestätigung keine Buttons, Schließen per Wischen/Scrim) · MetadataSheetScaffold (Vollbild-Dialog
+     für Formulare: ✕ links, Titel, „Save“-Text-Aktion rechts)
    Fundstellen vorher: 5
    - ui/components/Scaffolds.kt:336  fun AbstandSheetScaffold(
    - ui/components/Scaffolds.kt:347  ModalBottomSheet(
@@ -273,7 +276,12 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/stats/StatsScreen.kt:346  color = Color.White,
 
 ## Freitext-Eingaben (OutlinedTextField / InsetField)
-   → Vorlage: AbstandInsetTextField · AbstandLabeledTextField · MetadataSheetTextField · AbstandSearchField
+   → Vorlage: AbstandOutlinedTextField (Kern, M3 Outlined Text Field: Label im Feld/schwebend,
+     bodyLarge, Ecke 4 dp, Fokus primary, Kontur outline, Label onSurfaceVariant, supportingText
+     darunter, errorText = isError + error-Farbe, isSecure mit Sichtbarkeits-Schalter) ·
+     AbstandLabeledTextField · MetadataSheetTextField (hint → supportingText) · AbstandInsetTextField
+     (Platzhalter → Label) · SettingsCardSecureFieldRow (Symbol + Outlined-Feld) — alle darauf
+     aufgebaut · AbstandSearchField bleibt bewusst die kompakte 32-dp-Pill
    Fundstellen vorher: 2
    - ui/metadata/EditMetadataSheet.kt:372  private fun InsetField(
    - ui/player/NowPlayingPanels.kt:244  OutlinedTextField(
@@ -344,7 +352,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    Dialog Ecke / Innenabstand / Titel         28 / 24 / headlineSmall  20 / – / headline  28 / 24 / headlineSmall
    Dialog-Aktionen                            Text-Buttons primary     Akzent/textPrimary alle primary, destruktiv error
    Bottom Sheet Ecke / Griff                  28 / 32×4                20 / 36×5          28 / 32×4
-   Textfeld / Suchfeld                        56 hoch, 16, Ecke 4/voll 12er Padding/Ecke  16 Padding (56), Ecke 4; Suche bewusst 32-dp-Pill
+   Textfeld / Suchfeld                        56 hoch, 16, Ecke 4/voll 12er Padding/Ecke  M3 OutlinedTextField (56), Ecke 4; Suche bewusst 32-dp-Pill
                                                                                           (8er-Ecke wie Bereichs-Pills), bodyLarge, Lupe
                                                                                           onSurfaceVariant, Löschen = AbstandIconButton
    Segmented Button                           40 hoch, labelLarge      Default, subhead.  Default (40), labelLarge; gewählt secondaryContainer
