@@ -120,6 +120,8 @@ fun AbstandCoverDownloadBadge(isDownloaded: Boolean, isDownloading: Boolean, dow
                 downloadProgress,
                 color = AppTheme.coverOverlayForeground,
                 size = AbstandCoverPillMetrics.spinnerSize,
+                strokeWidth = AbstandProgressMetrics.miniRingStrokeWidth,
+                trackColor = AppTheme.coverOverlayForeground.copy(alpha = AppTheme.disabledContentAlpha),
                 contentDescription = "Downloading",
             )
         }
@@ -128,8 +130,6 @@ fun AbstandCoverDownloadBadge(isDownloaded: Boolean, isDownloading: Boolean, dow
 
 /** Symbolgröße der Status-Badges (iOS: `.font(.caption)` ≈ 14 pt; M3-Raster 16 dp). */
 private val StatusBadgeIconSize = 16.dp
-/** iOS: `LibraryRowLayout.finishedContentOpacity` — „fertig“ zurückgenommen. */
-private const val FinishedBadgeOpacity = 0.35f
 
 /**
  * iOS: `LibraryRowStatusBadges` / `HomeCompactCardStatusBadges` — „fertig“ (gedimmt) + Download-
@@ -141,7 +141,7 @@ fun AbstandStatusBadges(isFinished: Boolean, isDownloaded: Boolean, isDownloadin
     val color = Theme.palette.textSecondary
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing), verticalAlignment = Alignment.CenterVertically) {
         if (isFinished) {
-            Icon(SF.checkmarkCircleFill, "Finished", tint = color.copy(alpha = color.alpha * FinishedBadgeOpacity), modifier = Modifier.size(StatusBadgeIconSize))
+            Icon(SF.checkmarkCircleFill, "Finished", tint = color.copy(alpha = color.alpha * AppTheme.disabledContentAlpha), modifier = Modifier.size(StatusBadgeIconSize))
         }
         if (isDownloaded) {
             Icon(SF.arrowDownCircleFill, "Saved offline", tint = color, modifier = Modifier.size(StatusBadgeIconSize))
@@ -240,61 +240,6 @@ private val AbstandChipIconSize = AppTheme.Layout.smallIconSize
 internal val AbstandChipShape = RoundedCornerShape(AppTheme.Layout.cornerSmall)
 
 /**
- * iOS: `AbstandExpandingDockChip` (Kreis → Akzent-Kapsel). Android: M3 Filter Chip mit immer
- * sichtbarem Label — gewählt secondaryContainer mit Häkchen (bzw. Cover), sonst outlineVariant-
- * Rand mit Symbol/Cover. Einziger Dock-Chip (Browse-Strip, Podcast-Shows).
- */
-@Composable
-fun AbstandDockChip(
-    label: String,
-    icon: ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    coverItemId: String? = null,
-    /** Aktiver Chip: Häkchen statt Symbol (Filter-Chip-Stil); `false` = Symbol bleibt (Dock-Buttons). */
-    checkmarkWhenSelected: Boolean = true,
-    /** Aktiver Chip in der Appearance-Akzentfarbe (wie die Dropdown-Pills) statt tonal. */
-    accentWhenSelected: Boolean = false,
-) {
-    val dock = AppTheme.ExpandingDock
-    val base = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
-    val colors = if (accentWhenSelected) base.copy(activeBackground = Theme.accent, activeForeground = Theme.onAccent) else base
-    val foreground = if (selected) colors.activeForeground else colors.inactiveForeground
-    Surface(
-        onClick = onClick,
-        shape = AbstandChipShape,
-        color = if (selected) colors.activeBackground else Color.Transparent,
-        contentColor = foreground,
-        border = if (selected) null else BorderStroke(AppTheme.Layout.hairlineWidth, Theme.palette.scheme.outlineVariant),
-        modifier = modifier
-            .height(dock.activeHeight)
-            .animateContentSize(spring(dampingRatio = 0.72f, stiffness = dock.selectionAnimation.stiffness))
-            .semantics {
-                this.selected = selected
-                role = Role.Tab
-                contentDescription = label
-                stateDescription = if (selected) "Selected" else ""
-            },
-    ) {
-        Row(
-            Modifier.padding(start = dock.activeLeadingPadding, end = dock.activeTrailingPadding).fillMaxHeight(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(dock.iconLabelSpacing),
-        ) {
-            when {
-                coverItemId != null -> Box(Modifier.size(dock.activeCoverSize).clip(CircleShape)) {
-                    CoverImage(itemId = coverItemId, modifier = Modifier.fillMaxSize())
-                }
-                selected && checkmarkWhenSelected -> Icon(SF.checkmark, contentDescription = null, modifier = Modifier.size(dock.iconSize))
-                else -> Icon(icon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
-            }
-            Text(label, style = AppType.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-/**
  * iOS: `AbstandBrowseStripDropdownPill` — Akzent-Kapsel mit aktuellem Eintrag; Tippen öffnet
  * ein [AbstandMenu] mit allen Einträgen (Bibliothek/Sektion, wenn mehrere Bibliotheken).
  */
@@ -320,7 +265,8 @@ fun AbstandDropdownPill(
             // Dropdown-Pills in der Appearance-Akzentfarbe (nicht tonal).
             color = Theme.accent,
             contentColor = Theme.onAccent,
-            modifier = (if (iconOnly) Modifier else Modifier.fillMaxWidth()).height(dock.activeHeight).semantics {
+            // 48-dp-Trefferfläche (M3), sichtbare Pill bleibt 32 dp.
+            modifier = (if (iconOnly) Modifier else Modifier.fillMaxWidth()).minimumInteractiveComponentSize().height(dock.activeHeight).semantics {
                 contentDescription = "$accessibilityLabel: ${current?.label.orEmpty()}"
             },
         ) {
@@ -342,33 +288,8 @@ fun AbstandDropdownPill(
         }
         AbstandMenu(expanded, { expanded = false }) {
             items.forEach { entry ->
-                item(entry.label, onClick = { if (entry.id != selectionId) onSelect(entry.id) }, icon = entry.icon, selected = entry.id == selectionId)
+                item(entry.label, onClick = { if (entry.id != selectionId) onSelect(entry.id) }, icon = entry.icon, selected = entry.id == selectionId, selectable = true)
             }
-        }
-    }
-}
-
-/**
- * Statische Akzent-Pill im Stil der Dropdown-Pills (Symbol + Label, ohne Chevron und Menü) —
- * Kopfzeile von Screens ohne Bereichsauswahl (Home).
- */
-@Composable
-fun AbstandStaticPill(label: String, icon: ImageVector, modifier: Modifier = Modifier) {
-    val dock = AppTheme.ExpandingDock
-    val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
-    Surface(
-        shape = RoundedCornerShape(percent = 50),
-        color = colors.activeBackground,
-        contentColor = colors.activeForeground,
-        modifier = modifier.height(dock.activeHeight).semantics(mergeDescendants = true) { heading() },
-    ) {
-        Row(
-            Modifier.padding(start = dock.activeLeadingPadding, end = dock.activeTrailingPadding),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(dock.iconLabelSpacing),
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
-            Text(label, style = AppType.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

@@ -148,13 +148,13 @@ internal fun PodcastsToolbarActions(model: AppModel = AppModel.shared) {
         // Kopfzeilen-Aktionen wie in Books: einfache Kontur-Symbole in Textfarbe.
         AbstandIconButton(
             SF.plus, "Add podcast", onClick = { navigator?.push(PodcastAddDestination()) },
-            enabled = reachable && store.podcastCatalogLibrary != null, tint = Theme.palette.textPrimary,
+            enabled = reachable && store.podcastCatalogLibrary != null, tint = Theme.palette.textSecondary,
         )
     }
     val sid = selectedShowId
     if (isRoot && sid != null) {
         val title = shows.firstOrNull { it.id == sid }?.displayTitle?.trim()?.ifEmpty { null } ?: "Podcast"
-        AbstandIconButton(SF.gearshape, "Show settings", onClick = { navigator?.push(PodcastShowSettingsDestination(sid, title)) }, tint = Theme.palette.textPrimary)
+        AbstandIconButton(SF.gearshape, "Show settings", onClick = { navigator?.push(PodcastShowSettingsDestination(sid, title)) }, tint = Theme.palette.textSecondary)
     }
     if (isNewView) {
         PodcastSortMenuButton(

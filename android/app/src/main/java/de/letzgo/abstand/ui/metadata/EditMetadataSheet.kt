@@ -366,7 +366,7 @@ private fun SeriesSuggestionsList(names: List<String>, onPick: (String) -> Unit)
         Modifier.fillMaxWidth()
             .clip(MetadataSheetMetrics.fieldShape)
             .background(palette.background)
-            .border(AppTheme.Layout.hairlineWidth, palette.textSecondary.copy(alpha = MetadataSheetMetrics.fieldBorderOpacity), MetadataSheetMetrics.fieldShape),
+            .border(AppTheme.Layout.hairlineWidth, palette.scheme.outlineVariant, MetadataSheetMetrics.fieldShape),
     ) {
         names.forEachIndexed { index, name ->
             Text(

@@ -40,8 +40,15 @@ object AppTheme {
     val defaultAccent = Color(251 / 255f, 192 / 255f, 45 / 255f)
     /** Light-Mode-Akzent (Standard #00374A). */
     val defaultLightAccent = Color(0 / 255f, 55 / 255f, 74 / 255f)
-    /** iOS: `AppTheme.danger` (0.92, 0.32, 0.32). */
-    val danger = Color(0.92f, 0.32f, 0.32f)
+    /**
+     * iOS: `AppTheme.danger`. Android: **einzige** Quelle für destruktiv/Fehler = M3-Rolle
+     * `colorScheme.error` (Text darauf: [onDanger]); passt sich Hell/Dunkel und Dynamic Color an.
+     */
+    val danger: Color
+        @Composable get() = Theme.palette.scheme.error
+    /** Inhalt auf [danger]-Flächen (M3 `onError`). */
+    val onDanger: Color
+        @Composable get() = Theme.palette.scheme.onError
     /** iOS: `AppTheme.success` (0.35, 0.82, 0.55). */
     val success = Color(0.35f, 0.82f, 0.55f)
     /** Warnfarbe — iOS nutzt dafür System-Orange (`.orange`, dunkle Variante #FF9F0A). */
@@ -51,6 +58,15 @@ object AppTheme {
      * paletten-unabhängig (iOS: `.foregroundStyle(.white)` auf `coverPlayBadgeBackground`).
      */
     val coverOverlayForeground = Color.White
+    /**
+     * M3-Zustandsdeckkraft für deaktivierte bzw. beendete Inhalte (Text/Symbol/Cover: 38 %).
+     * Einzige Quelle — keine freien 0.35/0.45/0.5-Werte in Views.
+     */
+    const val disabledContentAlpha = 0.38f
+    /** M3: Fläche deaktivierter Filled/Tonal-Komponenten = onSurface 12 %. */
+    const val disabledContainerAlpha = 0.12f
+    /** Deckkraft des Sheet-/Player-Griffs (M3 Drag Handle: onSurfaceVariant 40 %). */
+    const val grabberAlpha = 0.4f
     /** iOS: Vorlese-Markierung im eBook (System-Gelb #FFCC00), unabhängig von Palette/Akzent. */
     val narrationHighlight = Color(0xFFFFCC00)
 
@@ -147,10 +163,6 @@ object AppTheme {
         val iconSize = 24.dp
         /** M3-Symbol in Buttons, Chips, Segmented Buttons. */
         val smallIconSize = 18.dp
-        /** M3 Primary Tab mit Symbol und Label. */
-        val primaryTabHeight = 64.dp
-        /** M3 Top App Bar (small/center-aligned). */
-        val topAppBarHeight = 64.dp
         /** M3 Common Buttons (Filled/Tonal/Text). */
         val buttonHeight = 40.dp
         /** M3 Button-Innenabstand horizontal (Text-Button: [buttonTextHorizontalPadding]). */
@@ -174,7 +186,6 @@ object AppTheme {
         val dragHandleHeight = 4.dp
         /** M3 Floating Action Button / großer Play-Knopf. */
         val fabSize = 56.dp
-        val largeFabSize = 96.dp
 
         // MARK: Ränder und Abstände (iOS-Namen)
 
@@ -191,8 +202,6 @@ object AppTheme {
         val tabTitleToHeaderBlockSpacing = 8.dp
         /** Zwischen Hauptblöcken (Regale, Suchbereich ↔ Liste). */
         val sectionSpacing = 24.dp
-        /** Home-Dashboard: Abstand zwischen Kategorie-Regalen. */
-        val homeSectionSpacing = 32.dp
         /** Kategoriezeile ↔ erste Zeile / Karten innerhalb eines Blocks; Karten-Abstand in Reihen. */
         val withinSectionSpacing = 8.dp
 
@@ -263,10 +272,8 @@ object AppTheme {
         /** Zusatz unter Scroll-Inhalten vor dem Mini-Player ([LocalScrollBottomInset] kommt dazu). */
         val scrollBottomInsetBase = 24.dp
 
-        /** Textfelder (M3 Outlined/Filled: extra-small). Suchfeld: [searchFieldHeight], volle Rundung. */
+        /** Textfelder (M3 Outlined/Filled: extra-small). Suchfeld: kompakte 32-dp-Pill (`abstandSearchFieldChrome`). */
         val fieldCornerRadius = cornerExtraSmall
-        /** M3 Search Bar / Textfeld-Mindesthöhe. */
-        val searchFieldHeight = 56.dp
         /** Kleine Cover-Thumbs / Chips in Metadata-Sheets (M3-Chip-Ecke). */
         val chipCornerRadius = cornerSmall
         /** Reader-Chrome-Hinweis. */
@@ -278,9 +285,8 @@ object AppTheme {
         val horizontalBrowseStripToTitleSpacing = 4.dp
         /** Ab dieser Breite zeigt eine Dropdown-Pill ihr führendes Symbol (sonst nur Label + Chevron). */
         val dropdownPillIconMinWidth = 152.dp
-        /** Akzent-Indikator unter dem aktiven Icon-Tab (M3 Primary-Tab-Indikator). */
-        val browseTabIndicatorWidth = 32.dp
-        val browseTabIndicatorHeight = 4.dp
+        /** Akzent-Indikator unter dem aktiven Tab ([AbstandMaterialTabs], M3 Primary-Tab-Indikator: 3 dp). */
+        val browseTabIndicatorHeight = 3.dp
         /** Abstand Strip ↔ Scroll-Inhalt unten. */
         val horizontalBrowseStripToContentSpacing = 8.dp
         val horizontalBrowseStripVerticalPadding = 4.dp
@@ -297,17 +303,6 @@ object AppTheme {
         val continueHeroCardMaxWidth = 220.dp
         val continueHeroCoverMaxHeight = 176.dp
 
-        /** Home-Regale (Cover-Cards, Maß von „New episodes“): Compact 2¼, Regular +2. */
-        const val homeNewestEpisodesVisibleCardsCompact = 2.25f
-        val homeNewestEpisodesCardMinWidth = 120.dp
-        val homeNewestEpisodesCardMaxWidth = 220.dp
-        val homeNewestEpisodesCardFallbackWidth = 160.dp
-
-        /** Home-Kompaktkarten (alle Regale außer „Continue listening“): ~3/4 der Regalbreite. */
-        const val homeCompactCardWidthFraction = 3f / 4f
-        val homeCompactCardMinWidth = 240.dp
-        val homeCompactCardMaxWidth = 400.dp
-        val homeCompactCardFallbackWidth = 260.dp
         /** Cover-Seite der Home-Kompaktkarten. */
         // Etwas höher als die Bibliothekskarten (libraryRowCoverSide 80) — die Regal-Reihe oben hebt sich ab.
         val homeCompactCardCoverSide = 96.dp
@@ -370,12 +365,6 @@ object AppTheme {
         val homeBrowseBootstrapMinHeight = 220.dp
         /** iOS: `facetTileGridColumns` (`GridItem(.adaptive(minimum: 160))`) → `GridCells.Adaptive(facetTileMinWidth)`. */
         val facetTileMinWidth = 160.dp
-        /** iOS: `homeCompactCardWidth(forViewportWidth:)`. */
-        fun homeCompactCardWidth(viewport: Dp): Dp {
-            if (viewport <= 1.dp) return homeCompactCardFallbackWidth
-            return (viewport * homeCompactCardWidthFraction).coerceIn(homeCompactCardMinWidth, homeCompactCardMaxWidth)
-        }
-
         /** iOS: `continueHeroVisibleCards(horizontalSizeClass:)` — [isRegular] = iPad-/Tablet-Breite. */
         fun continueHeroVisibleCards(isRegular: Boolean): Float =
             homeCarouselVisibleCards(continueHeroVisibleCardsCompact, isRegular)
@@ -384,15 +373,6 @@ object AppTheme {
         fun continueHeroCardWidth(viewport: Dp, isRegular: Boolean = false): Dp = homeCarouselCardWidth(
             viewport, continueHeroVisibleCards(isRegular), continueHeroCardMinWidth, continueHeroCardMaxWidth,
             continueHeroCardWidth, isRegular,
-        )
-
-        fun homeNewestEpisodesVisibleCards(isRegular: Boolean): Float =
-            homeCarouselVisibleCards(homeNewestEpisodesVisibleCardsCompact, isRegular)
-
-        /** iOS: `homeNewestEpisodesCardWidth(forViewportWidth:horizontalSizeClass:)`. */
-        fun homeNewestEpisodesCardWidth(viewport: Dp, isRegular: Boolean = false): Dp = homeCarouselCardWidth(
-            viewport, homeNewestEpisodesVisibleCards(isRegular), homeNewestEpisodesCardMinWidth,
-            homeNewestEpisodesCardMaxWidth, homeNewestEpisodesCardFallbackWidth, isRegular,
         )
 
         private fun homeCarouselVisibleCards(compact: Float, isRegular: Boolean): Float =

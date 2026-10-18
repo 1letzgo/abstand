@@ -52,8 +52,6 @@ object MetadataSheetMetrics {
     /** Innenabstand eingelassener Felder (M3-Textfeld: 16 dp → 56 dp Höhe mit `bodyLarge`). */
     val fieldInsetH = 16.dp
     val fieldInsetV = 16.dp
-    /** Hairline um eingelassene Felder. */
-    const val fieldBorderOpacity = 0.18f
     /** Kartenform (wie Detail-Sektionskarte). */
     val cardShape: Shape = RoundedCornerShape(AppTheme.Layout.detailSectionCardCornerRadius)
     /** Form eingelassener Felder. */
@@ -104,7 +102,7 @@ fun MetadataSheetCard(
 /** iOS: `MetadataSheetCardDivider`. */
 @Composable
 fun MetadataSheetCardDivider() {
-    AbstandDivider(opacity = 0.25f)
+    AbstandDivider()
 }
 
 /** iOS: `metadataSheetFieldChrome()` — eingelassenes Feld (App-Hintergrund + Hairline). */
@@ -116,7 +114,7 @@ fun Modifier.metadataSheetFieldChrome(
     fillMaxWidth()
         .clip(MetadataSheetMetrics.fieldShape)
         .background(palette.background)
-        .border(AppTheme.Layout.hairlineWidth, palette.textSecondary.copy(alpha = MetadataSheetMetrics.fieldBorderOpacity), MetadataSheetMetrics.fieldShape)
+        .border(AppTheme.Layout.hairlineWidth, palette.scheme.outlineVariant, MetadataSheetMetrics.fieldShape)
         .padding(horizontal = horizontalPadding, vertical = verticalPadding)
 }
 

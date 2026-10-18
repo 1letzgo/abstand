@@ -58,6 +58,8 @@ import de.letzgo.abstand.ui.components.AbstandIconButton
 import de.letzgo.abstand.ui.components.AbstandProgressRing
 import de.letzgo.abstand.ui.components.AbstandTextButton
 import de.letzgo.abstand.ui.components.AbstandCapsLabel
+import de.letzgo.abstand.ui.components.AbstandProminentButton
+import de.letzgo.abstand.ui.components.AbstandIconButtonStyle
 
 /** iOS: `DetailHeroLayoutMetrics`. */
 object DetailHeroLayoutMetrics {
@@ -74,7 +76,6 @@ object DetailHeroLayoutMetrics {
     const val singlePrimaryWidthFraction = 0.54f
     val actionRowSpacing = 16.dp
     val compactActionRowSpacing: Dp = AppTheme.Layout.withinSectionSpacing
-    val borderWidth = AppTheme.Layout.hairlineWidth
 }
 
 /** iOS: `DetailMetaLayoutMetrics`. */
@@ -93,7 +94,7 @@ val LocalDetailSectionCardBackground = compositionLocalOf<Color?> { null }
 
 private val DetailSectionCardShape = RoundedCornerShape(AppTheme.Layout.detailSectionCardCornerRadius)
 
-/** iOS: `DetailHeroCoverFrame` — Cover max. 280 dp, zentriert, 8-dp-Ecken, leichter Schatten. */
+/** iOS: `DetailHeroCoverFrame` — Cover max. 280 dp, zentriert, 12-dp-Ecken (M3 medium), leichter Schatten. */
 @Composable
 fun DetailHeroCoverFrame(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val shape = RoundedCornerShape(DetailHeroLayoutMetrics.coverCornerRadius)
@@ -173,29 +174,34 @@ data class DetailHeroMediaAction(
     val onPrimary: () -> Unit,
 )
 
-/** iOS: `DetailHeroCircularButton` — Kreis mit Akzent-Kontur, gefüllt wenn „fertig". */
+/**
+ * iOS: `DetailHeroCircularButton` — Nebenaktion „fertig“ als M3 Tonal Icon Button (Toggle):
+ * offen `surfaceContainerHighest`/`onSurfaceVariant`, „fertig“ (ausgewählt)
+ * `secondaryContainer`/`onSecondaryContainer`; deaktiviert onSurface 12 %/38 % (Vorlage).
+ */
 @Composable
 fun DetailHeroCircularButton(icon: ImageVector, isFinished: Boolean, enabled: Boolean, size: Dp, description: String, onClick: () -> Unit) {
-    val accent = Theme.accent
-    val palette = Theme.palette
-    val stroke = if (enabled) accent else palette.textSecondary
-    val iconColor = when {
-        !enabled -> palette.textSecondary
-        isFinished -> Theme.onAccent
-        else -> accent
-    }
-    Box(
-        Modifier.size(size).clip(CircleShape)
-            .then(if (isFinished && enabled) Modifier.background(accent) else Modifier.border(DetailHeroLayoutMetrics.borderWidth, stroke, CircleShape))
-            .clickable(enabled = enabled, onClick = onClick)
-            .semantics { contentDescription = description },
-        contentAlignment = Alignment.Center,
-    ) { Icon(icon, contentDescription = null, tint = iconColor) }
+    val scheme = Theme.palette.scheme
+    AbstandIconButton(
+        icon,
+        description,
+        onClick = onClick,
+        enabled = enabled,
+        style = AbstandIconButtonStyle.Tonal,
+        size = size,
+        tint = if (isFinished) scheme.onSecondaryContainer else scheme.onSurfaceVariant,
+        containerColor = if (isFinished) scheme.secondaryContainer else scheme.surfaceContainerHighest,
+    )
 }
 
+/** Deckkraft der Fortschritts-Überlagerung im gefüllten Play-Button (M3-State-Layer-Stufe „pressed“). */
+private const val HeroProgressOverlayAlpha = 0.16f
+
 /**
- * iOS: `DetailHeroPrimaryButton` — Kapsel mit Akzent-Kontur, Fortschritt füllt von links; die
- * Beschriftung wechselt unter der Füllung auf `onAccent`. „Fertig" = komplett gefüllt.
+ * iOS: `DetailHeroPrimaryButton` — Hauptaktion der Detailseite als M3 Filled Button
+ * ([AbstandProminentButton], Akzentfläche, `onAccent`-Beschriftung). Der Fortschritt liegt als
+ * dezente `onAccent`-Überlagerung von links über der Fläche („fertig“ = ganz überlagert) und
+ * steht zusätzlich in der `stateDescription`.
  */
 @Composable
 fun DetailHeroPrimaryButton(
@@ -207,8 +213,7 @@ fun DetailHeroPrimaryButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    val accent = Theme.accent
-    val onAccent = Theme.onAccent
+    val overlay = Theme.onAccent.copy(alpha = HeroProgressOverlayAlpha)
     val fill = if (isFinished) 1f else progress01.toFloat().coerceIn(0f, 1f)
     val height = if (compact) DetailHeroLayoutMetrics.compactPrimaryControlHeight else DetailHeroLayoutMetrics.primaryControlHeight
     val textStyle = if (compact) AppType.titleSmall else AppType.titleMedium
@@ -218,31 +223,25 @@ fun DetailHeroPrimaryButton(
         kind == DetailHeroPrimaryKind.Read -> "${(fill * 100).toInt()} percent read"
         else -> "${(fill * 100).toInt()} percent listened"
     }
-
-    @Composable
-    fun Label(color: Color) {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            Icon(kind.icon, null, tint = color, modifier = Modifier.size(HeroLabelIconSize))
-            Spacer(Modifier.width(AppTheme.Layout.compactSpacing))
-            Text(kind.title, style = textStyle, color = color, maxLines = 1)
-        }
-    }
-
-    Box(
-        modifier.height(height).clip(CircleShape)
-            .border(DetailHeroLayoutMetrics.borderWidth, if (enabled) accent else accent.copy(alpha = 0.4f), CircleShape)
-            .clickable(enabled = enabled, onClick = onClick)
+    AbstandProminentButton(
+        onClick = onClick,
+        modifier = modifier
+            .height(height)
+            .clip(CircleShape)
+            .drawWithContent {
+                drawContent()
+                if (enabled && fill > 0f) drawRect(overlay, size = size.copy(width = size.width * fill))
+            }
             .semantics {
                 contentDescription = kind.accessibilityLabel
                 stateDescription = stateText
             },
+        enabled = enabled,
+        capsule = true,
     ) {
-        Label(accent)
-        Box(
-            Modifier.fillMaxSize().drawWithContent {
-                clipRect(right = size.width * fill) { this@drawWithContent.drawContent() }
-            }.background(accent),
-        ) { Label(onAccent) }
+        Icon(kind.icon, null, modifier = Modifier.size(HeroLabelIconSize))
+        Spacer(Modifier.width(AppTheme.Layout.compactSpacing))
+        Text(kind.title, style = textStyle, maxLines = 1)
     }
 }
 

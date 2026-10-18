@@ -35,8 +35,8 @@ import de.letzgo.abstand.ui.library.LibraryRowLayout
 internal object PodcastRowLayout {
     val coverSide = AppTheme.Layout.libraryRowCoverSide
     val cardInset = AppTheme.Layout.libraryRowCardInset
-    const val finishedContentOpacity = 0.35f
-    val rowShape = RoundedCornerShape(AppTheme.Layout.libraryRowCornerRadius)
+    /** M3-Karten: 12 dp wie alle Karten. */
+    val rowShape = RoundedCornerShape(AppTheme.Layout.cardCornerRadius)
     val statusIconSize = 16.dp
     val playPillIconSize = 12.dp
 }
@@ -74,7 +74,8 @@ internal fun PodcastEpisodeRowCard(
     val isFinished = prog?.isFinished == true
     val total = resolvedEpisodeDuration(episode, prog)
     val showsProgressBar = prog != null && !isFinished && maxOf(prog.duration, total) > 0
-    val contentAlpha = if (isFinished) PodcastRowLayout.finishedContentOpacity else 1f
+    // Beendet: Cover und Play-Pille gedimmt (M3 38 %), Texte bleiben lesbar (Titel onSurfaceVariant).
+    val contentAlpha = if (isFinished) AppTheme.disabledContentAlpha else 1f
     PodcastRowCardChrome(
         modifier = modifier,
         onClick = onOpenDetail,
@@ -97,10 +98,10 @@ internal fun PodcastEpisodeRowCard(
                     Text(
                         episode.episodeTitle,
                         style = AppType.titleMedium,
-                        color = palette.textPrimary,
+                        color = if (isFinished) palette.textSecondary else palette.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f).alpha(contentAlpha),
+                        modifier = Modifier.weight(1f),
                     )
                     AbstandStatusBadges(isFinished, live.isDownloaded, live.downloadProgress != null && !live.isDownloaded, live.downloadProgress ?: 0.0)
                 }
@@ -110,7 +111,6 @@ internal fun PodcastEpisodeRowCard(
                     color = palette.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.alpha(contentAlpha),
                 )
                 Spacer(Modifier.weight(1f))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -118,7 +118,7 @@ internal fun PodcastEpisodeRowCard(
                         formatPlaybackTime(total),
                         style = AppType.bodyMedium,
                         color = palette.textSecondary,
-                        modifier = Modifier.weight(1f).alpha(contentAlpha),
+                        modifier = Modifier.weight(1f),
                     )
                     PodcastPlayPill(isPlaying = live.isPlaying, onClick = onPlayToggle, modifier = Modifier.alpha(contentAlpha))
                 }

@@ -58,8 +58,6 @@ import de.letzgo.abstand.ui.bold
 
 /** iOS: `ServerAdminLayoutMetrics.inputFieldMaxWidth` — max. Breite von Eingaben in Kartenzeilen. */
 private val InputFieldMaxWidth = 180.dp
-/** iOS: `.opacity(isEnabled ? 1 : 0.45)` deaktivierter Zeilen. */
-private const val DisabledRowOpacity = 0.45f
 /** Symbolgröße in Settings-Zeilen (M3-Listen-Leading-Icon: 24 dp). */
 private val RowIconSize = AppTheme.Layout.iconSize
 /** Trailing-Symbol (Chevron, Statussymbol; M3: 24 dp). */
@@ -88,7 +86,7 @@ fun SettingsCardIcon(icon: ImageVector, tint: Color? = null) {
     }
 }
 
-/** iOS: `SettingsCardDivider` — Trenner (`textSecondary` 25 %) mit `settingsCardDividerSpacing`. */
+/** iOS: `SettingsCardDivider` — Trenner (M3 `outlineVariant`) mit `settingsCardDividerSpacing`. */
 @Composable
 fun SettingsCardDivider(modifier: Modifier = Modifier) {
     HorizontalDivider(
@@ -113,19 +111,19 @@ private fun SettingsRow(
         modifier.abstandCardListRowFrame()
             .heightIn(min = if (twoLine) AppTheme.Layout.listItemTwoLineHeight else AppTheme.Layout.listItemOneLineHeight)
             .padding(vertical = AppTheme.Layout.rowVerticalPadding)
-            .alpha(if (enabled) 1f else DisabledRowOpacity),
+            .alpha(if (enabled) 1f else AppTheme.disabledContentAlpha),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
         content = content,
     )
 }
 
-/** Titel (+ optionaler Untertitel) als Textspalte einer Zeile. */
+/** Titel (M3-Listen-Headline `bodyLarge`) + optionaler Untertitel als Textspalte einer Zeile. */
 @Composable
-private fun RowTitles(title: String, subtitle: String?, titleColor: Color, titleMedium: Boolean, modifier: Modifier, subtitleMaxLines: Int = Int.MAX_VALUE) {
+private fun RowTitles(title: String, subtitle: String?, titleColor: Color, modifier: Modifier, subtitleMaxLines: Int = Int.MAX_VALUE) {
     val palette = Theme.palette
     Column(modifier) {
-        Text(title, style = if (titleMedium) AppType.titleMedium else AppType.bodyLarge, color = titleColor)
+        Text(title, style = AppType.bodyLarge, color = titleColor)
         if (subtitle != null) {
             Text(subtitle, style = AppType.bodyMedium, color = palette.textSecondary, maxLines = subtitleMaxLines, overflow = TextOverflow.Ellipsis)
         }
@@ -137,7 +135,7 @@ private fun RowTitles(title: String, subtitle: String?, titleColor: Color, title
 fun SettingsCardNavRow(icon: ImageVector, title: String, onClick: () -> Unit, subtitle: String? = null) {
     SettingsRow(Modifier.clickable(onClick = onClick), twoLine = subtitle != null) {
         SettingsCardIcon(icon)
-        RowTitles(title, subtitle, Theme.palette.textPrimary, titleMedium = true, modifier = Modifier.weight(1f))
+        RowTitles(title, subtitle, Theme.palette.textPrimary, modifier = Modifier.weight(1f))
         Icon(SF.chevronRight, contentDescription = null, tint = Theme.palette.textSecondary, modifier = Modifier.size(TrailingIconSize))
     }
 }
@@ -158,7 +156,7 @@ fun SettingsCardToggleRow(
         twoLine = subtitle != null,
     ) {
         SettingsCardIcon(icon)
-        RowTitles(title, subtitle, Theme.palette.textPrimary, titleMedium = false, modifier = Modifier.weight(1f))
+        RowTitles(title, subtitle, Theme.palette.textPrimary, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = null, enabled = enabled, colors = abstandSwitchColors())
     }
 }
@@ -372,7 +370,7 @@ fun SettingsCardActionRow(
     val palette = Theme.palette
     SettingsRow(Modifier.clickable(enabled = enabled && !isBusy, onClick = onClick), enabled = enabled, twoLine = subtitle != null) {
         SettingsCardIcon(icon, tint)
-        RowTitles(title, subtitle, tint ?: palette.textPrimary, titleMedium = true, modifier = Modifier.weight(1f))
+        RowTitles(title, subtitle, tint ?: palette.textPrimary, modifier = Modifier.weight(1f))
         if (isBusy) {
             AbstandInlineSpinner()
         } else if (trailingIcon != null) {
@@ -393,7 +391,7 @@ fun SettingsCardInfoRow(
     val palette = Theme.palette
     SettingsRow(twoLine = subtitle != null) {
         SettingsCardIcon(icon)
-        RowTitles(title, subtitle, palette.textPrimary, titleMedium = true, modifier = Modifier.weight(1f), subtitleMaxLines = 2)
+        RowTitles(title, subtitle, palette.textPrimary, modifier = Modifier.weight(1f), subtitleMaxLines = 2)
         if (trailingIcon != null) {
             Icon(trailingIcon, contentDescription = null, tint = trailingTint ?: palette.textSecondary, modifier = Modifier.size(TrailingIconSize))
         }

@@ -225,8 +225,8 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
             HomeGoOfflineToolbarButton(offline) {
                 if (offline) session.exitOfflineHomeUI() else showOfflineConfirmation = true
             }
-            AbstandIconButton(SF.magnifyingglass, "Search", onClick = session::openSearch, tint = Theme.palette.textPrimary)
-            AbstandIconButton(SF.gearshape, "Settings", onClick = session::openSettings, tint = Theme.palette.textPrimary)
+            AbstandIconButton(SF.magnifyingglass, "Search", onClick = session::openSearch, tint = Theme.palette.textSecondary)
+            AbstandIconButton(SF.gearshape, "Settings", onClick = session::openSettings, tint = Theme.palette.textSecondary)
         },
         onRefresh = {
             home.refreshStartTabPullToRefresh()
@@ -275,7 +275,7 @@ private fun HomeGoOfflineToolbarButton(offline: Boolean, onClick: () -> Unit) {
         if (offline) SF.icloudSlash else SF.icloud,
         if (offline) "Go online" else "Go offline",
         onClick = onClick,
-        tint = Theme.palette.textPrimary,
+        tint = if (offline) Theme.accent else Theme.palette.textSecondary,
     )
 }
 
@@ -350,7 +350,8 @@ private fun HomeLibraryBar(
                 )
             }
         }
-        CompositionLocalProvider(LocalContentColor provides Theme.accent) {
+        // M3: Aktions-Symbole onSurfaceVariant (aktiver Zustand setzt selbst primary).
+        CompositionLocalProvider(LocalContentColor provides Theme.palette.textSecondary) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (choice.isPodcast) {
                     PodcastsToolbarActions(model)

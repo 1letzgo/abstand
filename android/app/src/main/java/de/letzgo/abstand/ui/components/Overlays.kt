@@ -44,13 +44,13 @@ object AbstandOverlayMetrics {
     /** M3-Griff 32 × 4 dp (iOS: 36 × 5). */
     val grabberWidth = AppTheme.Layout.dragHandleWidth
     val grabberHeight = AppTheme.Layout.dragHandleHeight
-    const val grabberOpacity = 0.4f
 }
 
 /**
  * Basis-Dialog im App-Stil (M3: 28-dp-Ecken, 24 dp Innenabstand): Karte (`palette.card`), Titel
- * `headlineSmall`, Text `bodyMedium`/`textSecondary`, Aktionen als [AbstandTextButton] (Bestätigen semibold in Akzent bzw. danger bei
- * [destructive], Abbrechen in `textPrimary`). [content] ersetzt/ergänzt den Text (Eingabefeld,
+ * `headlineSmall`, Text `bodyMedium`/`textSecondary`, Aktionen als [AbstandTextButton] — M3: alle
+ * Aktionen (Bestätigen, Abbrechen, neutral) als Text-Buttons in `primary`, nur ein [destructive]
+ * Bestätigen in `error`. [content] ersetzt/ergänzt den Text (Eingabefeld,
  * Regler). [dismissOnConfirm] = `false` lässt den Dialog nach Bestätigen offen (z. B. bis eine
  * Server-Antwort da ist). [neutralLabel] = dritte Aktion links neben Abbrechen.
  */
@@ -102,9 +102,9 @@ fun AbstandDialog(
             {
                 Row {
                     if (neutralLabel != null && onNeutral != null) {
-                        AbstandTextButton(neutralLabel, onNeutral, color = palette.textSecondary)
+                        AbstandTextButton(neutralLabel, onNeutral)
                     }
-                    if (dismissLabel != null) AbstandTextButton(dismissLabel, onDismiss, color = palette.textPrimary)
+                    if (dismissLabel != null) AbstandTextButton(dismissLabel, onDismiss)
                 }
             }
         } else null,
@@ -161,13 +161,13 @@ fun AbstandBlockingProgressDialog(text: String) {
     }
 }
 
-/** Sheet-Griff (M3 32 × 4 dp, iOS 36 × 5; `textSecondary` 40 %). */
+/** Sheet-Griff (M3 32 × 4 dp, iOS 36 × 5; `textSecondary` mit [AppTheme.grabberAlpha]). */
 @Composable
 fun AbstandSheetGrabber(modifier: Modifier = Modifier) {
     Box(
         modifier
             .size(AbstandOverlayMetrics.grabberWidth, AbstandOverlayMetrics.grabberHeight)
-            .background(Theme.palette.textSecondary.copy(alpha = AbstandOverlayMetrics.grabberOpacity), CircleShape),
+            .background(Theme.palette.textSecondary.copy(alpha = AppTheme.grabberAlpha), CircleShape),
     )
 }
 
@@ -211,7 +211,7 @@ fun AbstandSheet(
             verticalArrangement = Arrangement.spacedBy(spacing),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                if (cancelLabel != null) AbstandTextButton(cancelLabel, onDismiss, color = palette.textPrimary)
+                if (cancelLabel != null) AbstandTextButton(cancelLabel, onDismiss)
                 Text(
                     title, style = AppType.titleLarge, color = palette.textPrimary,
                     textAlign = if (cancelLabel != null) TextAlign.Center else TextAlign.Start,

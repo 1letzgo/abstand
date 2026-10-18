@@ -279,7 +279,7 @@ fun PodcastDirectoryShowView(hit: AbsPodcastDirectorySearchHit, onBack: () -> Un
                                         },
                                         trailing = { FeedEpisodeDownloadControl(store, hit, episode, dir.episodeDownloadInProgressKeys, reachable) },
                                     )
-                                    if (idx < episodes.size - 1) HorizontalDivider(color = palette.textSecondary.copy(alpha = 0.15f))
+                                    if (idx < episodes.size - 1) HorizontalDivider(thickness = AppTheme.Layout.hairlineWidth, color = palette.scheme.outlineVariant)
                                 }
                                 if (preview.episodes.size > InitialEpisodeCount) {
                                     Text(

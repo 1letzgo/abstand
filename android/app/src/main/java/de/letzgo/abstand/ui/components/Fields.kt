@@ -2,14 +2,12 @@ package de.letzgo.abstand.ui.components
 
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -50,8 +48,10 @@ import de.letzgo.abstand.ui.medium
 private val FieldInnerPadding = 16.dp
 
 /**
- * iOS: `abstandSearchFieldChrome()` — Android: M3 Search Bar (`palette.card`, volle Rundung,
- * 56 dp hoch, 16 dp seitlich) um selbst gebaute Eingabezeilen (Symbol + Feld).
+ * iOS: `abstandSearchFieldChrome()` — Android: bewusst **kein** 56-dp-M3-Search-Bar, sondern
+ * dieselbe kompakte Form wie die Bereichs-Pills der Kopfzeilen (32 dp hoch, [AbstandChipShape]
+ * mit 8-dp-Ecken, `surfaceContainerHigh`, 8 dp seitlich) um selbst gebaute Eingabezeilen
+ * (Symbol + Feld). Gewollte Design-Entscheidung — nicht auf 56 dp „korrigieren“.
  */
 fun Modifier.abstandSearchFieldChrome(): Modifier = composed {
     // Gleiche Form/Höhe wie die Bereichs-Pills der Kopfzeilen (AbstandChipShape, `activeHeight`).
@@ -90,7 +90,7 @@ fun AbstandLabeledTextField(
                 onValueChange = onValueChange,
                 enabled = enabled,
                 singleLine = true,
-                textStyle = AppType.labelLarge.copy(color = palette.textPrimary),
+                textStyle = AppType.bodyLarge.copy(color = palette.textPrimary),
                 cursorBrush = SolidColor(Theme.accent),
                 visualTransformation = if (isSecure && !revealed) PasswordVisualTransformation() else VisualTransformation.None,
                 keyboardOptions = KeyboardOptions(
@@ -115,8 +115,9 @@ fun AbstandLabeledTextField(
 }
 
 /**
- * Suchfeld im App-Stil (iOS: `HStack { Image("magnifyingglass"); TextField }.abstandSearchFieldChrome()`).
- * Löschen-Symbol erscheint bei Text.
+ * Suchfeld im App-Stil (iOS: `HStack { Image("magnifyingglass"); TextField }.abstandSearchFieldChrome()`):
+ * kompakte 32-dp-Pill ([abstandSearchFieldChrome]), Lupe `onSurfaceVariant`, Eingabe `bodyLarge`
+ * (passt in 32 dp), Löschen-Knopf als [AbstandIconButton] (48-dp-Trefferfläche), sobald Text da ist.
  */
 @Composable
 fun AbstandSearchField(
@@ -134,14 +135,14 @@ fun AbstandSearchField(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppTheme.ExpandingDock.iconLabelSpacing),
     ) {
-        Icon(SF.magnifyingglass, contentDescription = null, tint = Theme.accent, modifier = Modifier.size(SearchIconSize))
+        Icon(SF.magnifyingglass, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(SearchIconSize))
         Box(Modifier.weight(1f)) {
-            if (query.isEmpty()) Text(placeholder, style = AppType.labelLarge, color = palette.textSecondary, maxLines = 1)
+            if (query.isEmpty()) Text(placeholder, style = AppType.bodyLarge, color = palette.textSecondary, maxLines = 1)
             BasicTextField(
                 value = query,
                 onValueChange = onQueryChange,
                 singleLine = true,
-                textStyle = AppType.labelLarge.copy(color = palette.textPrimary),
+                textStyle = AppType.bodyLarge.copy(color = palette.textPrimary),
                 cursorBrush = SolidColor(Theme.accent),
                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSubmit?.invoke() }),
@@ -152,11 +153,13 @@ fun AbstandSearchField(
             )
         }
         if (query.isNotEmpty()) {
-            Icon(
+            AbstandIconButton(
                 SF.xmarkCircleFill,
-                contentDescription = "Clear",
+                "Clear",
+                onClick = { onQueryChange("") },
+                size = AppTheme.Layout.compactIconButtonSize,
+                iconSize = SearchIconSize,
                 tint = palette.textSecondary,
-                modifier = Modifier.size(SearchIconSize).clip(CircleShape).clickable { onQueryChange("") },
             )
         }
     }

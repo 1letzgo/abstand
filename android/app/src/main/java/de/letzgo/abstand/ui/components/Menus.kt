@@ -55,8 +55,6 @@ object AbstandMenuMetrics {
     val iconSize = AppTheme.Layout.iconSize
     /** Container-Form (M3: extra-small, 4 dp). */
     val shape: Shape = RoundedCornerShape(AppTheme.Layout.cornerExtraSmall)
-    /** Deckkraft deaktivierter Einträge (wie Settings-Zeilen). */
-    const val disabledOpacity = 0.45f
 }
 
 /**
@@ -67,8 +65,16 @@ object AbstandMenuMetrics {
 class AbstandMenuScope internal constructor(private val dismiss: () -> Unit) {
 
     /**
-     * Ein Menüeintrag — optionales Symbol links, Häkchen in Akzentfarbe rechts bei [selected],
-     * [destructive] = `AppTheme.danger` (iOS: `role: .destructive`).
+     * `true`, sobald ein Eintrag Auswahl-Semantik hat (Picker) — nur dann reservieren alle Zeilen
+     * rechts Platz für das Häkchen, sonst kein leerer 24-dp-Spacer.
+     */
+    internal var hasSelectableItems by mutableStateOf(false)
+
+    /**
+     * Ein Menüeintrag — optionales Symbol links (M3: `onSurfaceVariant`), Häkchen in Akzentfarbe
+     * rechts bei [selected], [destructive] = `AppTheme.danger` (M3 `error`, iOS: `role: .destructive`).
+     * [selectable] = Eintrag gehört zu einer Auswahl (Picker); dann reserviert das Menü die
+     * Häkchen-Spalte auch für nicht gewählte Zeilen.
      */
     @Composable
     fun item(
@@ -78,9 +84,12 @@ class AbstandMenuScope internal constructor(private val dismiss: () -> Unit) {
         selected: Boolean = false,
         destructive: Boolean = false,
         enabled: Boolean = true,
+        selectable: Boolean = selected,
     ) {
         val palette = Theme.palette
+        if (selectable && !hasSelectableItems) hasSelectableItems = true
         val color = if (destructive) AppTheme.danger else palette.textPrimary
+        val iconColor = if (destructive) AppTheme.danger else palette.textSecondary
         Row(
             Modifier
                 .widthIn(min = AbstandMenuMetrics.minWidth, max = AbstandMenuMetrics.maxWidth)
@@ -90,13 +99,13 @@ class AbstandMenuScope internal constructor(private val dismiss: () -> Unit) {
                     onClick()
                 }
                 .semantics { this.selected = selected }
-                .alpha(if (enabled) 1f else AbstandMenuMetrics.disabledOpacity)
+                .alpha(if (enabled) 1f else AppTheme.disabledContentAlpha)
                 .padding(horizontal = AppTheme.Layout.menuItemHorizontalPadding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.menuItemHorizontalPadding),
         ) {
             if (icon != null) {
-                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(AbstandMenuMetrics.iconSize))
+                Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(AbstandMenuMetrics.iconSize))
             }
             Text(
                 label, style = AppType.labelLarge, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -104,7 +113,7 @@ class AbstandMenuScope internal constructor(private val dismiss: () -> Unit) {
             )
             if (selected) {
                 Icon(SF.checkmark, contentDescription = "Selected", tint = Theme.accent, modifier = Modifier.size(AbstandMenuMetrics.iconSize))
-            } else {
+            } else if (hasSelectableItems) {
                 Spacer(Modifier.width(AbstandMenuMetrics.iconSize))
             }
         }
@@ -143,7 +152,7 @@ class AbstandMenuScope internal constructor(private val dismiss: () -> Unit) {
     ) {
         section(title) {
             options.forEach { option ->
-                item(label(option), onClick = { onSelect(option) }, icon = icon?.invoke(option), selected = option == selected)
+                item(label(option), onClick = { onSelect(option) }, icon = icon?.invoke(option), selected = option == selected, selectable = true)
             }
         }
     }
@@ -154,7 +163,7 @@ class AbstandMenuScope internal constructor(private val dismiss: () -> Unit) {
         HorizontalDivider(
             Modifier.widthIn(min = AbstandMenuMetrics.minWidth).padding(vertical = AppTheme.Layout.stackSpacing),
             thickness = AppTheme.Layout.hairlineWidth,
-            color = Theme.palette.textSecondary.copy(alpha = 0.25f),
+            color = Theme.palette.scheme.outlineVariant,
         )
     }
 }

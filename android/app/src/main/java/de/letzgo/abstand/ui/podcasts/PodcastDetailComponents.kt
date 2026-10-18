@@ -131,12 +131,14 @@ internal fun PodcastDetailPlayActions(
         horizontalArrangement = Arrangement.spacedBy(PodcastDetailMetrics.actionRowSpacing, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AbstandIconButton(
+        // M3: Nebenaktion als Tonal Icon Button (wie Buch-Detail), Hauptaktion Filled.
+        de.letzgo.abstand.ui.detail.DetailHeroCircularButton(
             if (isFinished) SF.arrowUturnBackward else SF.checkmark,
-            if (isFinished) "Mark as not finished" else "Mark as finished",
-            onClick = onMark,
+            isFinished = isFinished,
+            enabled = true,
             size = PodcastDetailMetrics.sideControlSize,
-            tint = palette.textPrimary,
+            description = if (isFinished) "Mark as not finished" else "Mark as finished",
+            onClick = onMark,
         )
         Column(Modifier.fillMaxWidth(PodcastDetailMetrics.singlePrimaryWidthFraction)) {
             AbstandProminentButton(

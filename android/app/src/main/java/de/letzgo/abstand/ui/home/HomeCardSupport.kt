@@ -39,16 +39,6 @@ import de.letzgo.abstand.ui.components.abstandCardChrome
 @Composable
 fun coverTint(@Suppress("UNUSED_PARAMETER") itemId: String): Color = Theme.palette.card
 
-/**
- * iOS: `libraryRowCardChrome` — Kartenfläche mit dezenter Kante statt Schatten, Tap öffnet.
- * (Füllung + Form + Kante gebündelt wie `abstandCardChrome`; in horizontalen Reihen ohne Schatten.)
- */
-fun Modifier.libraryRowCardChrome(fill: Color, outline: Color, onClick: (() -> Unit)?): Modifier = this
-    .clip(LibraryRowLayout.cardShape)
-    .background(fill)
-    .border(AppTheme.Layout.hairlineWidth, outline, LibraryRowLayout.cardShape)
-    .let { if (onClick != null) it.clickable(onClick = onClick) else it }
-
 /** Platzhalter für Serien/Autoren ohne Bild (iOS: `HomeEntityCoverPlaceholder`). */
 @Composable
 fun HomeEntityCoverPlaceholder(icon: ImageVector, modifier: Modifier = Modifier) {
