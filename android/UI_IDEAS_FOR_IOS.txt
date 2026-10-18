@@ -43,7 +43,7 @@ Inhalt
   (kompakte Bibliotheks-Pill mit allen Books- UND Podcast-Bibliotheken, Bereichs-Pill mit den
   Books-Sektionen bzw. „New“ + Sendungen, rechts die alten Tab-Aktionen) und der Bereichsinhalt wie
   bisher in den Tabs. Sprünge „zur Sendung“/„zum Katalog“ landen auf Home mit passender Auswahl.
-- [offen] „Continue listening“ oben als Pager: eine Karte in voller Breite pro Seite (Cover 120, Regal-
+- [offen] „Continue listening“ oben als Pager: eine Karte in voller Breite pro Seite (Cover 144, Regal-
   Listen 96, Bibliotheksliste 80), darunter Seiten-Indikator — Punkte in Akzentfarbe, ab 11 Karten „n / m“.
 - [offen] Keine Tab-Leiste mehr: Home ist die einzige Wurzel; Search (Lupe) und Settings (Zahnrad)
   sitzen mit dem Offline-Wölkchen rechts in einer eigenen Titelzeile „abstand“ über den Kategorie-Pills und öffnen sich als
