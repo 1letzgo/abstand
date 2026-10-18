@@ -9,7 +9,7 @@ Color(0x…)-Literale außerhalb von Theme.kt/Palette.kt, .dp-Literale abseits d
 und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt „Material 3 metrics“.
 
 ## Menüs (DropdownMenu/DropdownMenuItem, Sort-/Filter-/Overflow-/Kontext-/Picker-/Speed-/Sleep-/EQ-Menüs)
-   → Vorlage: AbstandMenu { item/section/picker/divider } · AbstandMenuButton · AbstandMenuBox · AbstandPickerMenu · AbstandPickerValueMenu · AbstandDropdownPill
+   → Vorlage: AbstandMenu { item/section/picker/divider } · AbstandMenuButton · AbstandMenuBox · AbstandPickerMenu · AbstandPickerValueMenu · AbstandDropdownPill · AbstandPillIconButton (AbstandMenuButton(pill = true))
    Fundstellen vorher: 14
    - ui/admin/ServerLibraries.kt:124  DropdownMenu(expanded = menuFor == lib.id, onDismissRequest = { menuFor = null }, containe
    - ui/detail/BookDetailScreen.kt:357  DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = Theme.
@@ -416,6 +416,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
                                          secondaryContainer + Häkchen (wenn kein Symbol), sonst outlineVariant-Rand
    (entfernt: AbstandDockChip, AbstandStaticPill, AbstandBrowseIconTabs, AbstandDockButtons — ungenutzt)
    AbstandDropdownPill                 → Tonal-Chip (secondaryContainer, 8er-Ecke, kein Schatten)
+   AbstandPillIconButton               → Symbol-Pille 48×32 in gleicher Fläche/Form (Leisten-Aktionen Filter/Sort/+/Zahnrad; aktiv = Akzent)
    Settings-Icon-Leiste                → M3 scrollbare Text-Tabs (AbstandMaterialTabs)
    Home-Kopfzeile                      → Titelzeile „abstand“ + Offline/Search/Settings; Bibliotheksleiste mit
                                          Bibliothek- und Bereichs-Pill (AbstandBrowsePills), Regale im Bereichs-Menü

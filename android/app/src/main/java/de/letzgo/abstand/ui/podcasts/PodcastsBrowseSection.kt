@@ -19,7 +19,7 @@ import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabNavigator
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandBrowseStripItem
-import de.letzgo.abstand.ui.components.AbstandIconButton
+import de.letzgo.abstand.ui.components.AbstandPillIconButton
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
 import de.letzgo.abstand.ui.components.AbstandSectionEmptyState
 import de.letzgo.abstand.ui.components.AbstandSpinnerSize
@@ -145,16 +145,16 @@ internal fun PodcastsToolbarActions(model: AppModel = AppModel.shared) {
     val reachable by session.isNetworkReachable.collectAsState()
     val isNewView = selectedShowId == null
     if (isRoot && isNewView) {
-        // Kopfzeilen-Aktionen wie in Books: einfache Kontur-Symbole in Textfarbe.
-        AbstandIconButton(
+        // Leisten-Aktionen als Symbol-Pillen wie Filter/Sortieren in Books.
+        AbstandPillIconButton(
             SF.plus, "Add podcast", onClick = { navigator?.push(PodcastAddDestination()) },
-            enabled = reachable && store.podcastCatalogLibrary != null, tint = Theme.palette.textSecondary,
+            enabled = reachable && store.podcastCatalogLibrary != null,
         )
     }
     val sid = selectedShowId
     if (isRoot && sid != null) {
         val title = shows.firstOrNull { it.id == sid }?.displayTitle?.trim()?.ifEmpty { null } ?: "Podcast"
-        AbstandIconButton(SF.gearshape, "Show settings", onClick = { navigator?.push(PodcastShowSettingsDestination(sid, title)) }, tint = Theme.palette.textSecondary)
+        AbstandPillIconButton(SF.gearshape, "Show settings", onClick = { navigator?.push(PodcastShowSettingsDestination(sid, title)) })
     }
     if (isNewView) {
         PodcastSortMenuButton(

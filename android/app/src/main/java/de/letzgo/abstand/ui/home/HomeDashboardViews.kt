@@ -322,7 +322,7 @@ private fun HomeLibraryBar(
         Modifier
             .fillMaxWidth()
             .heightIn(min = AppTheme.Layout.minTapTarget)
-            .padding(end = AppTheme.Layout.tightSpacing),
+            .padding(end = AppTheme.Layout.tabPaddingH),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.weight(1f)) {
@@ -350,7 +350,7 @@ private fun HomeLibraryBar(
         }
         // M3: Aktions-Symbole onSurfaceVariant (aktiver Zustand setzt selbst primary).
         CompositionLocalProvider(LocalContentColor provides Theme.palette.textSecondary) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.ExpandingDock.itemSpacing)) {
                 if (choice.isPodcast) {
                     PodcastsToolbarActions(model)
                 } else {

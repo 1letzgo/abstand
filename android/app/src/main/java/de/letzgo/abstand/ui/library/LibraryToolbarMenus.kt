@@ -20,7 +20,7 @@ fun <F : SortMenuField> AbstandSortToolbarMenu(
     onSortFieldChange: (F) -> Unit,
     onSortDescendingChange: (Boolean) -> Unit,
 ) {
-    AbstandMenuButton(SF.arrowUpArrowDown, "Sort", tint = Theme.palette.textSecondary) {
+    AbstandMenuButton(SF.arrowUpArrowDown, "Sort", pill = true) {
         picker(fields, sortField, { it.menuTitle }, onSortFieldChange, title = "Sort by")
         if (!sortField.suppressesSortOrderPicker) {
             divider()
@@ -50,7 +50,8 @@ fun BooksCatalogFilterToolbarMenu(
     AbstandMenuButton(
         if (isActive) SF.line3HorizontalDecreaseCircleFill else SF.line3HorizontalDecreaseCircle,
         "Filter",
-        tint = if (isActive) Theme.accent else Theme.palette.textSecondary,
+        pill = true,
+        active = isActive,
     ) {
         item("All", onClear, icon = SF.line3HorizontalDecreaseCircle, selected = isAllFilterActive, selectable = true)
         listOf(LibraryCatalogQuickFilter.IN_PROGRESS, LibraryCatalogQuickFilter.FINISHED, LibraryCatalogQuickFilter.NOT_STARTED).forEach { f ->
