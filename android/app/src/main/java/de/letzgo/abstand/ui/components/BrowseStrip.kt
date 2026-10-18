@@ -71,6 +71,8 @@ data class AbstandBrowseStripItem(
     val icon: ImageVector,
     /** Optional: Cover statt Symbol (z. B. Podcast-Sendungen). */
     val coverItemId: String? = null,
+    /** Trenner im Menü vor diesem Eintrag (Gruppenwechsel). */
+    val dividerBefore: Boolean = false,
 )
 
 /**

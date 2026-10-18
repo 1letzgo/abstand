@@ -212,7 +212,10 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
                     !anyShelfEnabled -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeAllShelvesDisabledState() }
                     continueShelf == null -> Box(Modifier.padding(horizontal = AppTheme.Layout.tabPaddingH)) { HomeSectionEmptyState(continueId, offline) }
                     else -> Box(Modifier.padding(top = AppTheme.Layout.tightSpacing)) {
-                        CompositionLocalProvider(LocalHomeCompactCardCoverSide provides AppTheme.Layout.homeContinueCardCoverSide) {
+                        CompositionLocalProvider(
+                            LocalHomeCompactCardCoverSide provides AppTheme.Layout.homeContinueCardCoverSide,
+                            LocalHomeCompactCardIsHero provides true,
+                        ) {
                             HomeContinueCompactCarousel(continueShelf, PaddingValues(horizontal = AppTheme.Layout.tabPaddingH))
                         }
                     }
@@ -310,8 +313,9 @@ private fun HomeLibraryBar(
     onSelectShelf: (String?) -> Unit,
 ) {
     val session = model.session
-    val shelfItems = shelves.map {
-        AbstandBrowseStripItem(HOME_SHELF_ITEM_PREFIX + it.category, it.displayTitle, SF.named(AbsStartShelfLocalization.stripSystemImage(it.category)) ?: SF.squareGrid2x2)
+    // Regale als eigene Gruppe hinter den Bereichen (Trenner vor dem ersten Regal).
+    val shelfItems = shelves.mapIndexed { i, it ->
+        AbstandBrowseStripItem(HOME_SHELF_ITEM_PREFIX + it.category, it.displayTitle, SF.named(AbsStartShelfLocalization.stripSystemImage(it.category)) ?: SF.squareGrid2x2, dividerBefore = i == 0)
     }
     val shelfSelectionId = activeShelfCategory?.let { HOME_SHELF_ITEM_PREFIX + it }
     // Regal-Einträge abfangen, sonst normaler Bereich (und Regal abwählen).

@@ -1,5 +1,6 @@
 package de.letzgo.abstand.ui.home
 
+import de.letzgo.abstand.logic.BookDetailLogic
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,7 +42,10 @@ import de.letzgo.abstand.ui.components.abstandCardChrome
 // ≈ 3/4 der Regalbreite; Tippen auf die Karte öffnet die Detailseite (iOS: HomeCompactCards.swift).
 
 /** Cover-Kantenlänge (= Kartenhöhe) der Kompaktkarten; „Continue listening“ setzt sie größer. */
-val LocalHomeCompactCardCoverSide = staticCompositionLocalOf { AppTheme.Layout.homeCompactCardCoverSide }
+val LocalHomeCompactCardCoverSide = staticCompositionLocalOf { AppTheme.Layout.libraryRowCoverSide }
+
+/** `true` nur in „Continue listening“: Titel zweizeilig, gefüllte Play-Pille mit Restzeit statt Laufzeit-Fußzeile. */
+val LocalHomeCompactCardIsHero = staticCompositionLocalOf { false }
 
 /** iOS: `HomeCompactCard` — Grundaufbau. */
 @Composable
@@ -64,6 +68,7 @@ fun HomeCompactCard(
 ) {
     val palette = Theme.palette
     val side = LocalHomeCompactCardCoverSide.current
+    val isHero = LocalHomeCompactCardIsHero.current
     val dim = if (isFinished) AppTheme.disabledContentAlpha else 1f
     Box(
         modifier
@@ -93,7 +98,7 @@ fun HomeCompactCard(
                     title,
                     style = AppType.titleMedium,
                     color = if (isFinished) palette.textSecondary else palette.textPrimary,
-                    maxLines = 1,
+                    maxLines = if (isHero) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -145,6 +150,7 @@ fun HomeBookCompactCard(book: AbsBook, onOpen: () -> Unit, usesEbookProgressDisp
         else -> 0.0
     }
     val author = book.displayAuthorsCardLine.trim().ifEmpty { "—" }
+    val isHero = LocalHomeCompactCardIsHero.current
     HomeCompactCard(
         title = book.displayTitle,
         subtitleLabel = "Author",
@@ -156,14 +162,20 @@ fun HomeBookCompactCard(book: AbsBook, onOpen: () -> Unit, usesEbookProgressDisp
         progressValue = progressValue,
         cover = { SquareCoverImage(itemId = book.id, tint = coverTint(book.id)) },
         footer = {
-            if (usesEbookMetrics) {
-                ebookProgressLabel(ebookFraction)?.let { HomeCompactFooterText(it) }
-            } else {
-                HomeCompactFooterText(formatPlaybackTime(book.media.duration ?: 0.0))
+            when {
+                usesEbookMetrics -> ebookProgressLabel(ebookFraction)?.let { HomeCompactFooterText(it) }
+                // Hero: Restzeit steht in der Play-Pille, keine doppelte Zeitangabe.
+                isHero -> Unit
+                else -> HomeCompactFooterText(formatPlaybackTime(book.media.duration ?: 0.0))
             }
         },
         badges = { AbstandStatusBadges(isFinished, download.isDownloaded, download.isDownloading, download.progress) },
-        playAction = if (usesEbookMetrics) null else ({ HomeCompactPlayPill(book.id, null, isFinished) }),
+        playAction = if (usesEbookMetrics) null else ({
+            HomeCompactPlayPill(
+                book.id, null, isFinished,
+                caption = if (isHero) BookDetailLogic.remainingCaption(book.media.duration ?: 0.0, progress) else null,
+            )
+        }),
     )
 }
 
@@ -182,6 +194,7 @@ fun HomeEpisodeCompactCard(episode: AbsPodcastEpisodeListItem, onOpen: () -> Uni
     val total = ContinueHeroMath.episodeTotalSeconds(episode.duration, progress)
     val isFinished = progress?.isFinished == true
     val showsProgressBar = progress != null && !progress.isFinished && maxOf(progress.duration, total) > 0
+    val isHero = LocalHomeCompactCardIsHero.current
     HomeCompactCard(
         title = episode.episodeTitle,
         subtitleLabel = "Show",
@@ -192,9 +205,14 @@ fun HomeEpisodeCompactCard(episode: AbsPodcastEpisodeListItem, onOpen: () -> Uni
         showsProgressBar = showsProgressBar,
         progressValue = if (showsProgressBar) progress!!.progress.coerceIn(0.0, 1.0) else 0.0,
         cover = { SquareCoverImage(itemId = episode.libraryItemId, tint = coverTint(episode.libraryItemId)) },
-        footer = { HomeCompactFooterText(formatPlaybackTime(total)) },
+        footer = { if (!isHero) HomeCompactFooterText(formatPlaybackTime(total)) },
         badges = { AbstandStatusBadges(isFinished, download.isDownloaded, download.isDownloading, download.progress) },
-        playAction = { HomeCompactPlayPill(episode.libraryItemId, episode.episodeId, isFinished) },
+        playAction = {
+            HomeCompactPlayPill(
+                episode.libraryItemId, episode.episodeId, isFinished,
+                caption = if (isHero) BookDetailLogic.remainingCaption(total, progress) else null,
+            )
+        },
     )
 }
 

@@ -70,10 +70,11 @@ object ContinueHeroMath {
 
 /** Android: Play-Pille der Home-Kompaktkarten (Symbol, wie `LibraryRowPlayPill` in Books). */
 @Composable
-internal fun HomeCompactPlayPill(itemId: String, episodeId: String?, isFinished: Boolean) {
+internal fun HomeCompactPlayPill(itemId: String, episodeId: String?, isFinished: Boolean, caption: String? = null) {
     val nowPlaying = rememberNowPlaying()
     AbstandPlayPill(
         isPlaying = nowPlaying.isPlaying(itemId, episodeId),
+        caption = caption,
         onClick = { continueHeroPlayPillToggle(nowPlaying, itemId, episodeId, isFinished) },
     )
 }

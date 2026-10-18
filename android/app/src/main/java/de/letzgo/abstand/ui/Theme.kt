@@ -304,8 +304,6 @@ object AppTheme {
         val continueHeroCoverMaxHeight = 176.dp
 
         /** Cover-Seite der Home-Kompaktkarten. */
-        // Etwas höher als die Bibliothekskarten (libraryRowCoverSide 80) — die Regal-Reihe oben hebt sich ab.
-        val homeCompactCardCoverSide = 96.dp
         /** „Continue listening“ oben auf Home: größere Karten als die Regal-Listen. */
         val homeContinueCardCoverSide = 144.dp
         /** Punkte des Seiten-Indikators unter der Regal-Reihe (Home). */

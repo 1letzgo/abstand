@@ -262,9 +262,9 @@ fun AbstandDropdownPill(
         Surface(
             onClick = { expanded = true },
             shape = AbstandChipShape,
-            // Dropdown-Pills in der Appearance-Akzentfarbe (nicht tonal).
-            color = Theme.accent,
-            contentColor = Theme.onAccent,
+            // M3 Filled Tonal: Auswahl-Pills in `secondaryContainer` — Akzent bleibt Play/Fortschritt vorbehalten.
+            color = Theme.palette.scheme.secondaryContainer,
+            contentColor = Theme.palette.scheme.onSecondaryContainer,
             // 48-dp-Trefferfläche (M3), sichtbare Pill bleibt 32 dp.
             modifier = (if (iconOnly) Modifier else Modifier.fillMaxWidth()).minimumInteractiveComponentSize().height(dock.activeHeight).semantics {
                 contentDescription = "$accessibilityLabel: ${current?.label.orEmpty()}"
@@ -288,6 +288,7 @@ fun AbstandDropdownPill(
         }
         AbstandMenu(expanded, { expanded = false }) {
             items.forEach { entry ->
+                if (entry.dividerBefore) divider()
                 item(entry.label, onClick = { if (entry.id != selectionId) onSelect(entry.id) }, icon = entry.icon, selected = entry.id == selectionId, selectable = true)
             }
         }
