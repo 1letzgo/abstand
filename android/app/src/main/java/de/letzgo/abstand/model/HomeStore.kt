@@ -10,6 +10,7 @@ import de.letzgo.abstand.data.AbsStartShelfLocalization
 import de.letzgo.abstand.data.AbsStartShelfSection
 import de.letzgo.abstand.data.AbsUser
 import de.letzgo.abstand.data.AbsUserMediaProgress
+import de.letzgo.abstand.data.AbstandErrorFilter
 import de.letzgo.abstand.data.ContinueRefreshAttemptResult
 import de.letzgo.abstand.data.Keys
 import de.letzgo.abstand.data.Prefs
@@ -93,9 +94,7 @@ class HomeStore internal constructor(private val model: AppModel) : SessionParti
     private var replaceContinueOnNextLoad = false
     private var postProcessingJob: Job? = null
 
-    // Android: keine Regal-Auswahl in den Settings — alle Regale gelten als aktiv. Der persistierte
-    // Satz (`startDisabledCategories`) bleibt für iOS-Parität erhalten, wird aber nicht angewendet.
-    private val disabled: Set<String> get() = emptySet()
+    private val disabled: Set<String> get() = _startDisabledCategories.value
     private val offline: Boolean get() = session.offlineHomeUIActive
 
     init {

@@ -88,7 +88,7 @@ fun BookChapterList(book: AbsBook, progress: AbsUserMediaProgress?, onPlayChapte
     Column(Modifier.fillMaxWidth()) {
         chapters.forEachIndexed { idx, ch ->
             BookChapterRow(ch, BookChapterPlayState.resolve(ch, progress)) { onPlayChapter(ch) }
-            if (idx < chapters.lastIndex) AbstandDivider()
+            if (idx < chapters.lastIndex) AbstandDivider(opacity = 0.15f)
         }
     }
 }
@@ -127,7 +127,7 @@ fun AudiobookBookmarkList(libraryItemId: String, onJump: (AbsAudioBookmark) -> U
                         AbstandIconButton(SF.trash, "Delete bookmark", onClick = { confirmDelete = mark }, tint = AppTheme.danger)
                     }
                 }
-                if (idx < marks.lastIndex) AbstandDivider()
+                if (idx < marks.lastIndex) AbstandDivider(opacity = 0.15f)
             }
         }
     }

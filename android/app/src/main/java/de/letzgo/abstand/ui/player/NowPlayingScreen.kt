@@ -49,6 +49,7 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.components.AbstandAlert
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
 import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
@@ -205,10 +206,12 @@ private fun DismissGrabber(onDismiss: () -> Unit) {
         Box(
             Modifier
                 .size(MiniPlayerMetrics.dismissGrabberWidth, MiniPlayerMetrics.dismissGrabberHeight)
-                .background(Theme.palette.textSecondary.copy(alpha = AppTheme.grabberAlpha), CircleShape),
+                .background(Theme.palette.textSecondary.copy(alpha = GRABBER_ALPHA), CircleShape),
         )
     }
 }
+
+private const val GRABBER_ALPHA = 0.5f
 
 /** iOS: `playerHeaderArea` — Cover oder aufgeklapptes Panel, mit Überblendung. */
 @Composable

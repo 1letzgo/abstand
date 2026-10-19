@@ -121,6 +121,7 @@ class AppearanceColorTest {
         assertEquals(4.dp, l.tightSpacing)
         assertEquals(8.dp, l.withinSectionSpacing)
         assertEquals(24.dp, l.sectionSpacing)
+        assertEquals(32.dp, l.homeSectionSpacing)
         assertEquals(16.dp, l.cardPadding)
         assertEquals(16.dp, l.screenPadding)
         assertEquals(48.dp, l.minTapTarget)
@@ -129,6 +130,7 @@ class AppearanceColorTest {
         // 12 + 48 + 4 + 20 + 8 + 40 + 12
         assertEquals(144.dp, l.continueHeroMetadataBlockHeight)
         assertEquals(320.dp, l.continueHeroCardTotalHeight)
+        assertEquals(96.dp, l.libraryHeroMetadataBlockHeight)
     }
 
     @Test fun carouselWidthsMatchIosFormula() {
@@ -138,6 +140,9 @@ class AppearanceColorTest {
         // Regular (+2 → 3.5 Karten): (1024 − 8·3) / 3.5 ≈ 285.7 → Kappe 220.
         assertEquals(220f, l.continueHeroCardWidth(1024.dp, isRegular = true).value, 0.01f)
         assertEquals(l.continueHeroCardWidth, l.continueHeroCardWidth(0.dp))
+        // Kompaktkarte: 390·¾ = 292.5 (zwischen 240 und 400).
+        assertEquals(292.5f, l.homeCompactCardWidth(390.dp).value, 0.01f)
+        assertEquals(l.homeCompactCardFallbackWidth, l.homeCompactCardWidth(0.dp))
     }
 
     @Test fun playbackTimeFormatting() {

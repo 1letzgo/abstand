@@ -315,7 +315,7 @@ private fun androidx.compose.foundation.layout.RowScope.BookDetailToolbar(
     model: AppModel = AppModel.shared,
 ) {
     val catalog = model.catalog
-    AbstandIconButton(SF.squareAndArrowUp, "Share", onClick = onShare, enabled = enabled, tint = Theme.palette.textSecondary)
+    AbstandIconButton(SF.squareAndArrowUp, "Share", onClick = onShare, enabled = enabled, tint = Theme.palette.textPrimary)
     val storageId = catalog.downloadStorageIdForLibraryItem(book.id) ?: book.id
     if (!isPureEbook) {
         DetailToolbarDownloadItem(
@@ -335,7 +335,7 @@ private fun androidx.compose.foundation.layout.RowScope.BookDetailToolbar(
         onEditChapters?.let { Triple("Edit Chapters", SF.listBulletBelowRectangle, it) },
     )
     if (showsAdminMenu && (adminItems.isNotEmpty() || isRoot)) {
-        AbstandMenuButton(SF.ellipsisCircle, "More actions", enabled = enabled && reachable, tint = Theme.palette.textSecondary) {
+        AbstandMenuButton(SF.ellipsisCircle, "More actions", enabled = enabled && reachable, tint = Theme.palette.textPrimary) {
             adminItems.forEach { (title, icon, action) -> item(title, action, icon = icon) }
             if (isRoot) {
                 if (adminItems.isNotEmpty()) divider()

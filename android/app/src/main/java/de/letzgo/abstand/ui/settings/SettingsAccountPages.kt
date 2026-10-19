@@ -68,12 +68,12 @@ fun SettingsChangePasswordScreen(onBack: () -> Unit, model: AppModel = AppModel.
                     SettingsCardDivider()
                     SettingsCardSecureFieldRow(
                         SF.lockOpenFill, "New password", new, { new = it },
-                        supportingText = if (isServerRoot) "Optional" else "Required",
+                        placeholder = if (isServerRoot) "Optional" else "Required",
                     )
                     SettingsCardDivider()
                     SettingsCardSecureFieldRow(
                         SF.lockFill, "Confirm password", confirm, { confirm = it },
-                        supportingText = if (isServerRoot) "Optional" else "Required",
+                        placeholder = if (isServerRoot) "Optional" else "Required",
                     )
                 }
                 AbstandPrimaryButton(

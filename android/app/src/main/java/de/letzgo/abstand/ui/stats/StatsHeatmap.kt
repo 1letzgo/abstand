@@ -179,7 +179,7 @@ private fun NavButton(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
         onClick = onClick,
         enabled = enabled,
         size = AppTheme.Layout.compactIconButtonSize,
-        tint = if (enabled) palette.textPrimary else palette.textPrimary.copy(alpha = AppTheme.disabledContentAlpha),
+        tint = if (enabled) palette.textPrimary else palette.textSecondary.copy(alpha = 0.35f),
     )
 }
 

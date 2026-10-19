@@ -39,6 +39,7 @@ import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCard
 import de.letzgo.abstand.ui.components.AbstandProminentButton
+import de.letzgo.abstand.ui.components.AbstandIconButton
 import de.letzgo.abstand.ui.components.AbstandProgressBar
 
 /** iOS: `DetailHeroLayoutMetrics` / `DetailMetaLayoutMetrics` (Ausschnitt für Podcast-Details). */
@@ -130,14 +131,12 @@ internal fun PodcastDetailPlayActions(
         horizontalArrangement = Arrangement.spacedBy(PodcastDetailMetrics.actionRowSpacing, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // M3: Nebenaktion als Tonal Icon Button (wie Buch-Detail), Hauptaktion Filled.
-        de.letzgo.abstand.ui.detail.DetailHeroCircularButton(
+        AbstandIconButton(
             if (isFinished) SF.arrowUturnBackward else SF.checkmark,
-            isFinished = isFinished,
-            enabled = true,
-            size = PodcastDetailMetrics.sideControlSize,
-            description = if (isFinished) "Mark as not finished" else "Mark as finished",
+            if (isFinished) "Mark as not finished" else "Mark as finished",
             onClick = onMark,
+            size = PodcastDetailMetrics.sideControlSize,
+            tint = palette.textPrimary,
         )
         Column(Modifier.fillMaxWidth(PodcastDetailMetrics.singlePrimaryWidthFraction)) {
             AbstandProminentButton(

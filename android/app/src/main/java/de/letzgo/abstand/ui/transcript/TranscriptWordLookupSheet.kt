@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.transcript.PlayerTranscriptWordLookupSelection
 import de.letzgo.abstand.transcript.TranslationTargetLanguage
 import de.letzgo.abstand.transcript.WordLookupLinks
@@ -57,7 +58,7 @@ fun TranscriptWordLookupSheet(selection: PlayerTranscriptWordLookupSelection, on
     val options = remember { TranslationTargetLanguage.pickerOptions() }
     val samePair = TranslationTargetLanguage.sameLanguage(selection.sourceLocale, target)
 
-    AbstandSheet(title = "Look up & translate", onDismiss = onDismiss) {
+    AbstandSheet(title = "Look up & translate", onDismiss = onDismiss, onConfirm = onDismiss, confirmLabel = "Done") {
         Text(selection.term, style = AppType.headlineSmall, color = palette.textPrimary, modifier = Modifier.fillMaxWidth())
 
         selection.sourceLocale?.let { source ->

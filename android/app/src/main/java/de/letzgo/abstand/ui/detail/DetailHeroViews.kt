@@ -1,6 +1,8 @@
 package de.letzgo.abstand.ui.detail
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -47,14 +50,14 @@ import de.letzgo.abstand.ui.DetailMetaLabelIcon
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.components.abstandCardChrome
 import de.letzgo.abstand.ui.components.abstandCardElevation
+import de.letzgo.abstand.ui.semibold
 import de.letzgo.abstand.ui.components.AbstandIconButton
 import de.letzgo.abstand.ui.components.AbstandProgressRing
 import de.letzgo.abstand.ui.components.AbstandTextButton
 import de.letzgo.abstand.ui.components.AbstandCapsLabel
-import de.letzgo.abstand.ui.components.AbstandProminentButton
-import de.letzgo.abstand.ui.components.AbstandIconButtonStyle
 
 /** iOS: `DetailHeroLayoutMetrics`. */
 object DetailHeroLayoutMetrics {
@@ -71,10 +74,12 @@ object DetailHeroLayoutMetrics {
     const val singlePrimaryWidthFraction = 0.54f
     val actionRowSpacing = 16.dp
     val compactActionRowSpacing: Dp = AppTheme.Layout.withinSectionSpacing
+    val borderWidth = AppTheme.Layout.hairlineWidth
 }
 
 /** iOS: `DetailMetaLayoutMetrics`. */
 object DetailMetaLayoutMetrics {
+    val thumbnailSize = 48.dp
     val labelToContentSpacing: Dp = AppTheme.Layout.compactSpacing
     val linkRowSpacing: Dp = AppTheme.Layout.withinSectionSpacing
     val disclosureContentTopPadding: Dp = AppTheme.Layout.compactSpacing
@@ -88,7 +93,7 @@ val LocalDetailSectionCardBackground = compositionLocalOf<Color?> { null }
 
 private val DetailSectionCardShape = RoundedCornerShape(AppTheme.Layout.detailSectionCardCornerRadius)
 
-/** iOS: `DetailHeroCoverFrame` — Cover max. 280 dp, zentriert, 12-dp-Ecken (M3 medium), leichter Schatten. */
+/** iOS: `DetailHeroCoverFrame` — Cover max. 280 dp, zentriert, 8-dp-Ecken, leichter Schatten. */
 @Composable
 fun DetailHeroCoverFrame(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val shape = RoundedCornerShape(DetailHeroLayoutMetrics.coverCornerRadius)
@@ -168,34 +173,29 @@ data class DetailHeroMediaAction(
     val onPrimary: () -> Unit,
 )
 
-/**
- * iOS: `DetailHeroCircularButton` — Nebenaktion „fertig“ als M3 Tonal Icon Button (Toggle):
- * offen `surfaceContainerHighest`/`onSurfaceVariant`, „fertig“ (ausgewählt)
- * `secondaryContainer`/`onSecondaryContainer`; deaktiviert onSurface 12 %/38 % (Vorlage).
- */
+/** iOS: `DetailHeroCircularButton` — Kreis mit Akzent-Kontur, gefüllt wenn „fertig". */
 @Composable
 fun DetailHeroCircularButton(icon: ImageVector, isFinished: Boolean, enabled: Boolean, size: Dp, description: String, onClick: () -> Unit) {
-    val scheme = Theme.palette.scheme
-    AbstandIconButton(
-        icon,
-        description,
-        onClick = onClick,
-        enabled = enabled,
-        style = AbstandIconButtonStyle.Tonal,
-        size = size,
-        tint = if (isFinished) scheme.onSecondaryContainer else scheme.onSurfaceVariant,
-        containerColor = if (isFinished) scheme.secondaryContainer else scheme.surfaceContainerHighest,
-    )
+    val accent = Theme.accent
+    val palette = Theme.palette
+    val stroke = if (enabled) accent else palette.textSecondary
+    val iconColor = when {
+        !enabled -> palette.textSecondary
+        isFinished -> Theme.onAccent
+        else -> accent
+    }
+    Box(
+        Modifier.size(size).clip(CircleShape)
+            .then(if (isFinished && enabled) Modifier.background(accent) else Modifier.border(DetailHeroLayoutMetrics.borderWidth, stroke, CircleShape))
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, contentDescription = null, tint = iconColor) }
 }
 
-/** Deckkraft der Fortschritts-Überlagerung im gefüllten Play-Button (M3-State-Layer-Stufe „pressed“). */
-private const val HeroProgressOverlayAlpha = 0.16f
-
 /**
- * iOS: `DetailHeroPrimaryButton` — Hauptaktion der Detailseite als M3 Filled Button
- * ([AbstandProminentButton], Akzentfläche, `onAccent`-Beschriftung). Der Fortschritt liegt als
- * dezente `onAccent`-Überlagerung von links über der Fläche („fertig“ = ganz überlagert) und
- * steht zusätzlich in der `stateDescription`.
+ * iOS: `DetailHeroPrimaryButton` — Kapsel mit Akzent-Kontur, Fortschritt füllt von links; die
+ * Beschriftung wechselt unter der Füllung auf `onAccent`. „Fertig" = komplett gefüllt.
  */
 @Composable
 fun DetailHeroPrimaryButton(
@@ -207,7 +207,8 @@ fun DetailHeroPrimaryButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    val overlay = Theme.onAccent.copy(alpha = HeroProgressOverlayAlpha)
+    val accent = Theme.accent
+    val onAccent = Theme.onAccent
     val fill = if (isFinished) 1f else progress01.toFloat().coerceIn(0f, 1f)
     val height = if (compact) DetailHeroLayoutMetrics.compactPrimaryControlHeight else DetailHeroLayoutMetrics.primaryControlHeight
     val textStyle = if (compact) AppType.titleSmall else AppType.titleMedium
@@ -217,25 +218,31 @@ fun DetailHeroPrimaryButton(
         kind == DetailHeroPrimaryKind.Read -> "${(fill * 100).toInt()} percent read"
         else -> "${(fill * 100).toInt()} percent listened"
     }
-    AbstandProminentButton(
-        onClick = onClick,
-        modifier = modifier
-            .height(height)
-            .clip(CircleShape)
-            .drawWithContent {
-                drawContent()
-                if (enabled && fill > 0f) drawRect(overlay, size = size.copy(width = size.width * fill))
-            }
+
+    @Composable
+    fun Label(color: Color) {
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Icon(kind.icon, null, tint = color, modifier = Modifier.size(HeroLabelIconSize))
+            Spacer(Modifier.width(AppTheme.Layout.compactSpacing))
+            Text(kind.title, style = textStyle, color = color, maxLines = 1)
+        }
+    }
+
+    Box(
+        modifier.height(height).clip(CircleShape)
+            .border(DetailHeroLayoutMetrics.borderWidth, if (enabled) accent else accent.copy(alpha = 0.4f), CircleShape)
+            .clickable(enabled = enabled, onClick = onClick)
             .semantics {
                 contentDescription = kind.accessibilityLabel
                 stateDescription = stateText
             },
-        enabled = enabled,
-        capsule = true,
     ) {
-        Icon(kind.icon, null, modifier = Modifier.size(HeroLabelIconSize))
-        Spacer(Modifier.width(AppTheme.Layout.compactSpacing))
-        Text(kind.title, style = textStyle, maxLines = 1)
+        Label(accent)
+        Box(
+            Modifier.fillMaxSize().drawWithContent {
+                clipRect(right = size.width * fill) { this@drawWithContent.drawContent() }
+            }.background(accent),
+        ) { Label(onAccent) }
     }
 }
 

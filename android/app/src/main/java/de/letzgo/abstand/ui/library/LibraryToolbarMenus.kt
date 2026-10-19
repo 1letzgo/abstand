@@ -20,7 +20,7 @@ fun <F : SortMenuField> AbstandSortToolbarMenu(
     onSortFieldChange: (F) -> Unit,
     onSortDescendingChange: (Boolean) -> Unit,
 ) {
-    AbstandMenuButton(SF.arrowUpArrowDown, "Sort", pill = true) {
+    AbstandMenuButton(SF.arrowUpArrowDown, "Sort", tint = Theme.palette.textPrimary) {
         picker(fields, sortField, { it.menuTitle }, onSortFieldChange, title = "Sort by")
         if (!sortField.suppressesSortOrderPicker) {
             divider()
@@ -50,15 +50,14 @@ fun BooksCatalogFilterToolbarMenu(
     AbstandMenuButton(
         if (isActive) SF.line3HorizontalDecreaseCircleFill else SF.line3HorizontalDecreaseCircle,
         "Filter",
-        pill = true,
-        active = isActive,
+        tint = if (isActive) Theme.accent else Theme.palette.textPrimary,
     ) {
-        item("All", onClear, icon = SF.line3HorizontalDecreaseCircle, selected = isAllFilterActive, selectable = true)
+        item("All", onClear, icon = SF.line3HorizontalDecreaseCircle, selected = isAllFilterActive)
         listOf(LibraryCatalogQuickFilter.IN_PROGRESS, LibraryCatalogQuickFilter.FINISHED, LibraryCatalogQuickFilter.NOT_STARTED).forEach { f ->
-            item(f.menuTitle, { onSelect(f) }, icon = f.icon, selected = quickFilter == f, selectable = true)
+            item(f.menuTitle, { onSelect(f) }, icon = f.icon, selected = quickFilter == f)
         }
         divider()
         val downloaded = LibraryCatalogQuickFilter.DOWNLOADED
-        item(downloaded.menuTitle, { onSelect(downloaded) }, icon = downloaded.icon, selected = quickFilter == downloaded, selectable = true)
+        item(downloaded.menuTitle, { onSelect(downloaded) }, icon = downloaded.icon, selected = quickFilter == downloaded)
     }
 }

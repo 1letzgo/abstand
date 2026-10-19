@@ -44,17 +44,13 @@ object AbstandOverlayMetrics {
     /** M3-Griff 32 × 4 dp (iOS: 36 × 5). */
     val grabberWidth = AppTheme.Layout.dragHandleWidth
     val grabberHeight = AppTheme.Layout.dragHandleHeight
-    /** M3-Bottom-Sheet: Titel, Inhalt und Aktionszeile 24 dp seitlich/unten. */
-    val sheetPadding = 24.dp
-    /** Zusatzabstand über der Aktionszeile (zum Zeilenabstand des Inhalts). */
-    val sheetActionsTopPadding = 8.dp
+    const val grabberOpacity = 0.4f
 }
 
 /**
  * Basis-Dialog im App-Stil (M3: 28-dp-Ecken, 24 dp Innenabstand): Karte (`palette.card`), Titel
- * `headlineSmall`, Text `bodyMedium`/`textSecondary`, Aktionen als [AbstandTextButton] — M3: alle
- * Aktionen (Bestätigen, Abbrechen, neutral) als Text-Buttons in `primary`, nur ein [destructive]
- * Bestätigen in `error`. [content] ersetzt/ergänzt den Text (Eingabefeld,
+ * `headlineSmall`, Text `bodyMedium`/`textSecondary`, Aktionen als [AbstandTextButton] (Bestätigen semibold in Akzent bzw. danger bei
+ * [destructive], Abbrechen in `textPrimary`). [content] ersetzt/ergänzt den Text (Eingabefeld,
  * Regler). [dismissOnConfirm] = `false` lässt den Dialog nach Bestätigen offen (z. B. bis eine
  * Server-Antwort da ist). [neutralLabel] = dritte Aktion links neben Abbrechen.
  */
@@ -106,9 +102,9 @@ fun AbstandDialog(
             {
                 Row {
                     if (neutralLabel != null && onNeutral != null) {
-                        AbstandTextButton(neutralLabel, onNeutral)
+                        AbstandTextButton(neutralLabel, onNeutral, color = palette.textSecondary)
                     }
-                    if (dismissLabel != null) AbstandTextButton(dismissLabel, onDismiss)
+                    if (dismissLabel != null) AbstandTextButton(dismissLabel, onDismiss, color = palette.textPrimary)
                 }
             }
         } else null,
@@ -165,36 +161,32 @@ fun AbstandBlockingProgressDialog(text: String) {
     }
 }
 
-/** Sheet-Griff (M3 32 × 4 dp, iOS 36 × 5; `textSecondary` mit [AppTheme.grabberAlpha]). */
+/** Sheet-Griff (M3 32 × 4 dp, iOS 36 × 5; `textSecondary` 40 %). */
 @Composable
 fun AbstandSheetGrabber(modifier: Modifier = Modifier) {
     Box(
         modifier
             .size(AbstandOverlayMetrics.grabberWidth, AbstandOverlayMetrics.grabberHeight)
-            .background(Theme.palette.textSecondary.copy(alpha = AppTheme.grabberAlpha), CircleShape),
+            .background(Theme.palette.textSecondary.copy(alpha = AbstandOverlayMetrics.grabberOpacity), CircleShape),
     )
 }
 
 /**
- * M3 Modal Bottom Sheet (iOS: `.sheet` mit `.presentationDetents`): Griff, optionaler Titel
- * (`titleLarge`, linksbündig, 24 dp seitlich), Inhalt und — nur wenn es eine Bestätigung gibt
- * ([onConfirm]) — unten rechtsbündig „Cancel“ als Text-Button ([cancelLabel], schließt) plus
- * Filled Button ([confirmLabel]; [destructive] in `error`). Ohne Bestätigung keine Buttons:
- * Schließen per Wischen/Scrim/Zurück. Unterer Rand respektiert die Navigationsleiste
- * (Standard-`windowInsets` des Sheets). Ganzseitige Formulare mit Tastatur gehören in
- * [MetadataSheetScaffold] (Vollbild-Dialog), nicht hierher.
+ * Kurzes Sheet als Bottom-Sheet (iOS: `.sheet` mit `.presentationDetents`): Griff, Kopfzeile mit
+ * optionalem Abbrechen links ([cancelLabel]), Titel und optionalem Bestätigen rechts
+ * ([onConfirm]); Palette-Hintergrund, Inhalt mit `screenPadding`. Für Formulare mit Tastatur
+ * [MetadataSheetScaffold] nehmen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AbstandSheet(
-    title: String?,
+    title: String,
     onDismiss: () -> Unit,
     onConfirm: (() -> Unit)? = null,
     confirmLabel: String = "Done",
     confirmEnabled: Boolean = true,
     isBusy: Boolean = false,
-    destructive: Boolean = false,
-    cancelLabel: String = "Cancel",
+    cancelLabel: String? = null,
     spacing: Dp = AppTheme.Layout.withinSectionSpacing,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -212,32 +204,22 @@ fun AbstandSheet(
     ) {
         Column(
             Modifier.fillMaxWidth().padding(
-                start = AbstandOverlayMetrics.sheetPadding,
-                end = AbstandOverlayMetrics.sheetPadding,
-                bottom = AbstandOverlayMetrics.sheetPadding,
+                start = AppTheme.Layout.screenPadding,
+                end = AppTheme.Layout.screenPadding,
+                bottom = AppTheme.Layout.blockSpacing,
             ),
             verticalArrangement = Arrangement.spacedBy(spacing),
         ) {
-            if (title != null) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (cancelLabel != null) AbstandTextButton(cancelLabel, onDismiss, color = palette.textPrimary)
                 Text(
                     title, style = AppType.titleLarge, color = palette.textPrimary,
-                    modifier = Modifier.fillMaxWidth().semantics { heading() },
+                    textAlign = if (cancelLabel != null) TextAlign.Center else TextAlign.Start,
+                    modifier = Modifier.weight(1f).semantics { heading() },
                 )
+                if (onConfirm != null) SheetConfirmAction(confirmLabel, onConfirm, confirmEnabled, isBusy)
             }
             content()
-            if (onConfirm != null) {
-                Row(
-                    Modifier.fillMaxWidth().padding(top = AbstandOverlayMetrics.sheetActionsTopPadding),
-                    horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.inlineSpacing, Alignment.End),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    AbstandTextButton(cancelLabel, onDismiss)
-                    AbstandProminentButton(
-                        confirmLabel, onConfirm,
-                        enabled = confirmEnabled, isBusy = isBusy, destructive = destructive,
-                    )
-                }
-            }
         }
     }
 }

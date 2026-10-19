@@ -9,7 +9,7 @@ Color(0x…)-Literale außerhalb von Theme.kt/Palette.kt, .dp-Literale abseits d
 und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt „Material 3 metrics“.
 
 ## Menüs (DropdownMenu/DropdownMenuItem, Sort-/Filter-/Overflow-/Kontext-/Picker-/Speed-/Sleep-/EQ-Menüs)
-   → Vorlage: AbstandMenu { item/section/picker/divider } · AbstandMenuButton · AbstandMenuBox · AbstandPickerMenu · AbstandPickerValueMenu · AbstandDropdownPill · AbstandPillIconButton (AbstandMenuButton(pill = true))
+   → Vorlage: AbstandMenu { item/section/picker/divider } · AbstandMenuButton · AbstandMenuBox · AbstandPickerMenu · AbstandPickerValueMenu · AbstandDropdownPill
    Fundstellen vorher: 14
    - ui/admin/ServerLibraries.kt:124  DropdownMenu(expanded = menuFor == lib.id, onDismissRequest = { menuFor = null }, containe
    - ui/detail/BookDetailScreen.kt:357  DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = Theme.
@@ -56,10 +56,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/stats/ListeningAchievementCard.kt:113  AlertDialog(
 
 ## Bottom-Sheets (ModalBottomSheet / AbstandSheetScaffold)
-   → Vorlage: AbstandSheet (M3: Griff, optionaler Titel titleLarge linksbündig 24 dp, Inhalt; nur mit
-     Bestätigung unten rechts „Cancel“-Text-Button + Filled-Button, destructive = error; ohne
-     Bestätigung keine Buttons, Schließen per Wischen/Scrim) · MetadataSheetScaffold (Vollbild-Dialog
-     für Formulare: ✕ links, Titel, „Save“-Text-Aktion rechts)
+   → Vorlage: AbstandSheet (Griff, Cancel/Titel/Confirm) · MetadataSheetScaffold (Formulare)
    Fundstellen vorher: 5
    - ui/components/Scaffolds.kt:336  fun AbstandSheetScaffold(
    - ui/components/Scaffolds.kt:347  ModalBottomSheet(
@@ -186,7 +183,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/reader/ReaderScreen.kt:794  CircularProgressIndicator(Modifier.size(AppTheme.Layout.blockSpacing), color = foreground,
 
 ## Filter-/Kategorie-Chips (FilterChip, Kapsel-Box im Dock-Farbschema)
-   → Vorlage: AbstandChip · AbstandBrowsePills
+   → Vorlage: AbstandChip · AbstandDockChip · AbstandPinnedBrowseStrip
    Fundstellen vorher: 4
    - ui/library/BooksLibraryTabRoot.kt:207  FilterChip(
    - ui/library/BooksLibraryTabRoot.kt:232  FilterChip(
@@ -200,7 +197,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/podcasts/PodcastTabSheets.kt:181  SegmentedButton(
 
 ## Cover-Pillen / Badges / Offline-Badge (CoverPill, CoverPillIcon, CoverOfflineBadge, CoverCornerBadge, Kapsel-Labels)
-   → Vorlage: AbstandCoverPill · AbstandCoverPillText · AbstandCoverCornerBadge · AbstandBadge (Neutral/Accent)
+   → Vorlage: AbstandCoverPill · AbstandCoverPillIcon · AbstandCoverPillText · AbstandCoverCornerBadge · AbstandCoverDownloadBadge · AbstandBadge (Neutral/Accent)
    Fundstellen vorher: 10
    - ui/admin/ServerUsers.kt:131  "root",
    - ui/home/ContinueListeningHeroViews.kt:145  fun ContinueListeningHeroOfflineBadge(isDownloaded: Boolean, isDownloading: Boolean, downl
@@ -246,7 +243,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/settings/SettingsDownloads.kt:316  private fun DownloadManageSavedRow(row: DownloadManageRow, onDelete: () -> Unit) {
 
 ## Doppelte Ports (gleiche Funktion in zwei Paketen)
-   → Vorlage: eine Implementierung: library.LibraryRowLayout, components.LibraryRowCollapsedMetaLine, library.BrowseEntityRowCard/FacetBrowseTileCard, DetailMetaLabelIcon.icon, AbstandBrowsePills
+   → Vorlage: eine Implementierung: library.LibraryRowLayout, components.LibraryRowCollapsedMetaLine, library.BrowseEntityRowCard/FacetBrowseTileCard, DetailMetaLabelIcon.icon, AbstandPinnedBrowseStrip
    Fundstellen vorher: 12
    - ui/browse/BrowseFacetSections.kt:92  fun BrowseEntityRowCard(
    - ui/browse/BrowseFacetSections.kt:144  fun FacetBrowseTileCard(kind: BooksBrowseSection, title: String, count: Int?, onClick: () 
@@ -276,12 +273,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/stats/StatsScreen.kt:346  color = Color.White,
 
 ## Freitext-Eingaben (OutlinedTextField / InsetField)
-   → Vorlage: AbstandOutlinedTextField (Kern, M3 Outlined Text Field: Label im Feld/schwebend,
-     bodyLarge, Ecke 4 dp, Fokus primary, Kontur outline, Label onSurfaceVariant, supportingText
-     darunter, errorText = isError + error-Farbe, isSecure mit Sichtbarkeits-Schalter) ·
-     AbstandLabeledTextField · MetadataSheetTextField (hint → supportingText) · AbstandInsetTextField
-     (Platzhalter → Label) · SettingsCardSecureFieldRow (Symbol + Outlined-Feld) — alle darauf
-     aufgebaut · AbstandSearchField bleibt bewusst die kompakte 32-dp-Pill
+   → Vorlage: AbstandInsetTextField · AbstandLabeledTextField · MetadataSheetTextField · AbstandSearchField
    Fundstellen vorher: 2
    - ui/metadata/EditMetadataSheet.kt:372  private fun InsetField(
    - ui/player/NowPlayingPanels.kt:244  OutlinedTextField(
@@ -304,12 +296,15 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    AbstandProgressBar: 7
    AbstandProgressRing: 3
    AbstandInlineSpinner: 12
-   AbstandCoverPill: 1
+   AbstandCoverPill: 3
+   AbstandCoverPillIcon: 5
    AbstandCoverPillText: 2
    AbstandCoverCornerBadge: 2
+   AbstandCoverDownloadBadge: 2
    AbstandStatusBadges: 4
    AbstandBadge: 5
    AbstandChip: 1
+   AbstandDockChip: 2
    AbstandSegmentedControl: 2
    AbstandListRow: 5
    AbstandDivider: 3
@@ -330,46 +325,31 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    Icon-Button (iconButtonSize)               40 Container, 24 Icon    40 / 44 plain      40 Container + 48 Ziel, Icon 24
    kompakter Icon-Button                      — (32 XS)                36                 32 Container, Ziel 48
    Top App Bar                                64, Titel titleLarge     64, title2.bold    64, titleLarge, fix (kein Collapse)
-   Navigation Bar                             80, Indicator 64×32      Material-Default   entfällt (keine Tab-Leiste)
+   Navigation Bar                             80, Indicator 64×32      Material-Default   unverändert (NavigationBar)
    Listenzeile 1/2/3-zeilig                   56 / 72 / 88             50 (listRowMin)    56 / 72 (mit Untertitel)
    Listenzeile Innenabstand/Gap               16 seitl., 8 vert., 16   16 / 8 / 12        16 / 8 / 16 (rowSpacing)
    Listen-Icons leading/trailing              24 / 24                  22 / 18            24 / 24
-   Karte Ecke (cardCornerRadius)              12 (medium)              14                 12 (alle Karten inkl. Library/Home/Folgen)
-   Karten-Variante                            Filled Card              Füllung + Kante    Filled: palette.card, kein Rand
+   Karte Ecke (cardCornerRadius)              12 (medium)              14                 12
+   Hero-Karte Ecke                            16 (large)               16                 16
    Karten-Innenabstand (cardPadding)          16                       14                 16
-   Karten-Elevation                           Filled 0 / Elevated 1    3 / 6              Standard 0, Hero 1
+   Karten-Elevation                           Level 1 = 1 dp           3 / 6              Standard 1, Hero 3
    Cover-Ecken                                8 (small)                11                 8
    Button (Primary/Prominent)                 40 hoch, voll rund, 24   ~48, 14er Ecke     40, CircleShape, 24 seitl., labelLarge
    Text-Button                                40 hoch, 12 seitl.       Default, body      Default (12), labelLarge
    Button-/Chip-Icon                          18                       20                 18 (smallIconSize)
    Play-Pille                                 Button 40 / XS 32        ~30–34             40 mit Text, 32 nur Symbol
    Chip (AbstandChip)                         32 hoch, 8 Ecke, 16/8    44, Kapsel         32, 8er Ecke, 16 (8 mit Icon), Ziel 48
-   Menü-Eintrag                               48 hoch, 12 seitl.       44, 16 seitl.      48, 12, Icon 24 onSurfaceVariant, labelLarge;
-                                                                                          Häkchen-Spalte nur bei Auswahl-Menüs
+   Dock-Chip (Expanding Dock)                 Chip 32–40, Gap 8        46, Gap 10         40, Gap 8, Icon 20, Cover 24/32
+   Menü-Eintrag                               48 hoch, 12 seitl.       44, 16 seitl.      48, 12, Icon 24, labelLarge
    Menü Breite / Ecke / Elevation             112–280 / 4 / Level 2    ≥200 / 14 / 6      112–280 / 4 / 3
    Dialog Ecke / Innenabstand / Titel         28 / 24 / headlineSmall  20 / – / headline  28 / 24 / headlineSmall
-   Dialog-Aktionen                            Text-Buttons primary     Akzent/textPrimary alle primary, destruktiv error
    Bottom Sheet Ecke / Griff                  28 / 32×4                20 / 36×5          28 / 32×4
-   Textfeld / Suchfeld                        56 hoch, 16, Ecke 4/voll 12er Padding/Ecke  M3 OutlinedTextField (56), Ecke 4; Suche bewusst 32-dp-Pill
-                                                                                          (8er-Ecke wie Bereichs-Pills), bodyLarge, Lupe
-                                                                                          onSurfaceVariant, Löschen = AbstandIconButton
-   Segmented Button                           40 hoch, labelLarge      Default, subhead.  Default (40), labelLarge; gewählt secondaryContainer
-                                                                                          + Häkchen, sonst transparent/onSurface, Rand outline
+   Textfeld / Suchfeld                        56 hoch, 16, Ecke 4/voll 12er Padding/Ecke  16 Padding (56), Ecke 4; Suche 56 voll rund
+   Segmented Button                           40 hoch, labelLarge      Default, subhead.  Default (40), labelLarge
    Spinner groß / Linear-Progress             48×4 / 4                 36×3,5 / 4         48×4 / 4 (Small 20, Regular 32)
-   Fortschrittsring (AbstandProgressRing)     4 dp, Spur secCont.      2 dp, Farbe 25 %   4 dp, Spur secondaryContainer
-   Tabs (AbstandMaterialTabs)                 Indikator 3, Divider 1   —                  Indikator 3 dp, Divider 1 dp outlineVariant
-   Deaktiviert / beendet                      38 % Inhalt, 12 % Fläche 35/45/50 %         AppTheme.disabledContentAlpha 0.38 / disabledContainerAlpha 0.12;
-                                                                                          beendete Karten: nur Cover + Play-Pille 38 %, Titel onSurfaceVariant
-   Trenner / Ränder                           outlineVariant           textSecondary α    scheme.outlineVariant (Segmented: outline)
-   Destruktiv / Fehler                        error / onError          fest Rot           AppTheme.danger = scheme.error, onDanger = onError
-   Top-App-Bar-Symbole                        Nav onSurface, Aktionen  Akzent/textPrimary Nav onSurface, Aktionen onSurfaceVariant (aktiver
-                                              onSurfaceVariant                            Zustand primary)
-   Symbole                                    Outlined, Filled = aktiv gemischt            SF ohne .fill → Outlined; Filled nur aktiv/gewählt
-   Settings-Zeilen-Titel                      bodyLarge                titleMedium        bodyLarge
-   Sheet-Griff                                onSurfaceVariant 40 %    0,4 / 0,5          AppTheme.grabberAlpha 0.4 (Sheets + Player)
    Mini-Player                                64 hoch (üblich)         48+16, Cover 32    64, Cover 48, Ecke 16, Play 56×40
    Vollplayer Play / Transport                72–96 / ≥48              72×44 / 44         96×56 / 48, Symbole 32/36
-   Sektionsabstand (sectionSpacing)           Vielfache von 8          22                 24
+   Sektionsabstand (sectionSpacing)           Vielfache von 8          22                 24 (Home-Regale 32)
    withinSectionSpacing / compactSpacing      8 / 4                    10 / 6             8 / 4
    Typografie                                 M3 Type Scale (Roboto)   iOS Dynamic Type   AppType = MaterialTheme.typography
 
@@ -381,9 +361,9 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
 
    Bewusst abweichend: AppTheme.Layout.hairlineSpacing 2 dp (= M3 SegmentedGap), Strichstärken 2 dp
    (boldStrokeWidth, Ring), Fortschritts-/Kartenkanten 1 dp; Cover-/Karussell-Breiten aus Viewport-
-   Formeln (iOS-Logik) und libraryRowCoverSide 100 dp (Cover-Maß); Detail-Play (Filled) /Neben-Aktion
-   (Tonal Icon Button) 56 dp (FAB-Höhe) statt 40-dp-Button, weil sie die Hauptaktion der Seite sind; die Bibliotheksleiste
-   nutzt Dropdown-Pills in Chip-Maßen (siehe „Material 3 Komponenten“).
+   Formeln (iOS-Logik) und libraryRowCoverSide 100 dp (Cover-Maß); Detail-Play/Neben-Aktionen 56 dp
+   (FAB-Höhe) statt 40-dp-Button, weil sie die Hauptaktion der Seite sind; Dock-Strip nutzt jetzt
+   M3 Filter Chips (siehe „Material 3 Komponenten“).
 
 ## Material 3 colors (Android; iOS-Palette nur noch als Seed)
    Quelle: m3.material.io Color roles / Tonal palettes. Umsetzung: ui/MaterialScheme.kt (CIELAB-
@@ -406,38 +386,32 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    onSurfaceVariant               NV80       NV30        textSecondary
    outline / outlineVariant       NV60/NV30  NV50/NV80
    secondaryContainer             S30        S90         progressTrack
+   Navigation Bar                 M3-Defaults (surfaceContainer, Indicator secondaryContainer)
    Switch aus                     Spur surfaceContainerHighest, Daumen/Rand outline
    AbstandBadge Accent            secondaryContainer / onSecondaryContainer
 
    Vorher: Dark fest #353535/#454545, alle Container = card, secondary = tertiary = Akzent.
 
 ## Material 3 Komponenten (Umbau, alle zentral in ui/components bzw. Theme)
-   AbstandChip                         → M3 Filter Chip: 32 dp, 8er-Ecke, Label immer sichtbar, gewählt
-                                         secondaryContainer + Häkchen (wenn kein Symbol), sonst outlineVariant-Rand
-   (entfernt: AbstandDockChip, AbstandStaticPill, AbstandBrowseIconTabs, AbstandDockButtons — ungenutzt)
+   Expanding Dock / AbstandDockChip   → M3 Filter Chip: 32 dp, 8er-Ecke, Label immer sichtbar,
+                                         gewählt secondaryContainer + Häkchen, sonst outlineVariant-Rand
+   AbstandChip                         → dito (Häkchen, wenn kein Symbol)
    AbstandDropdownPill                 → Tonal-Chip (secondaryContainer, 8er-Ecke, kein Schatten)
-   AbstandPillIconButton               → Symbol-Pille 48×32 in gleicher Fläche/Form (Leisten-Aktionen Filter/Sort/+/Zahnrad; aktiv = Akzent)
-   Settings-Icon-Leiste                → M3 scrollbare Text-Tabs (AbstandMaterialTabs)
-   Home-Kopfzeile                      → Titelzeile „abstand“ + Offline/Search/Settings; Bibliotheksleiste mit
-                                         Bibliothek- und Bereichs-Pill (AbstandBrowsePills), Regale im Bereichs-Menü
+   Settings-Icon-Leiste                → Bereichs-Pill wie Books/Podcasts (AbstandBrowsePills)
+   Home-Kopfzeile                      → Bereichs-Pill wie Books/Podcasts: zeigt aktuelles Regal, Menü springt zum Regal
    ServerAdminSection-Titel            → M3-Listen-Subheader (titleSmall, primary)
    SettingsCardIcon                    → onSurfaceVariant statt Akzent; Divider outlineVariant
-   Karten (CardElevation)              → Filled Cards ohne Schatten und ohne Rand (Subtle/Standard 0), Hero Level 1;
-                                         Home-/Library-/Folgen-Karten über AbstandCard bzw. abstandCardChrome, 12 dp
+   Karten (CardElevation)              → Filled Cards ohne Schatten (Subtle/Standard 0), Hero Level 1
    AbstandPlayPill                     → mit Restzeit Filled Button (primary), nur Symbol Filled Tonal
    AbstandIconButton Tonal             → secondaryContainer / onSecondaryContainer
-   Buttons deaktiviert                 → onSurface 12 % / 38 % (auch Tonal/Filled AbstandIconButton)
-   AbstandPlayPill kompakt, Dropdown-Pills → minimumInteractiveComponentSize (48-dp-Ziel, Optik unverändert)
-   AbstandSegmentedControl             → secondaryContainer + Häkchen / transparent, Rand outline
-   AbstandProgressRing                 → 4-dp-Strich, Spur secondaryContainer
+   Buttons deaktiviert                 → onSurface 12 % / 38 %
    AbstandCapsLabel, Meta-Labels       → keine Versalien, labelLarge
    Player-Scrubber                     → M3-Slider (Spur 16, Griff 4×40, Lücke 4, Stopp-Punkt)
    Menüs / Sheets / Mini-Player        → surfaceContainer / surfaceContainerLow / surfaceContainerHighest
    Top App Bar gescrollt               → surfaceContainer
 
 ## Bewusst nicht vereinheitlicht
-   - DetailHeroPrimaryButton (AbstandProminentButton + Fortschritts-Überlagerung) / DetailHeroCircularButton
-     (Tonal AbstandIconButton) — Einzelstück der Detail-Hero, 56 dp hoch.
+   - DetailHeroPrimaryButton / DetailHeroCircularButton (Fortschritts-Kapsel mit Füllung) — Einzelstück der Detail-Hero.
    - Transport-Knöpfe im Player (TransportIcon, Play-Kapsel, MiniTransport-Play) — eigene Maße aus MiniPlayerMetrics.
    - Mini-Player-Hülle (Surface in MiniPlayer.kt) und Now-Playing-Overlay (eigenes Vollbild-Chrome).
    - Domänen-Karten (BookRowCard, BrowseEntityRowCard, PodcastEpisodeListRow, Hero-/Kompaktkarten) — eigene

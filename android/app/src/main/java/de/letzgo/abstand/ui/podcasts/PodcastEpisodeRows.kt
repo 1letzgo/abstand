@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.AbsPodcastEpisodeListItem
 import de.letzgo.abstand.data.AbsUserMediaProgress
 import de.letzgo.abstand.ui.AppTheme
@@ -24,16 +25,20 @@ import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCard
 import de.letzgo.abstand.ui.components.AbstandCardBottomProgress
 import de.letzgo.abstand.ui.components.CoverImage
+import de.letzgo.abstand.ui.components.LibraryRowCollapsedMetaLine
 import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.components.AbstandPlayPill
 import de.letzgo.abstand.ui.components.AbstandStatusBadges
+import de.letzgo.abstand.ui.library.LibraryRowLayout
 
 /** iOS: `LibraryRowLayout` (Ausschnitt) — Maße der Library-Zeilen. */
 internal object PodcastRowLayout {
     val coverSide = AppTheme.Layout.libraryRowCoverSide
     val cardInset = AppTheme.Layout.libraryRowCardInset
-    /** M3-Karten: 12 dp wie alle Karten. */
-    val rowShape = RoundedCornerShape(AppTheme.Layout.cardCornerRadius)
+    const val finishedContentOpacity = 0.35f
+    val rowShape = RoundedCornerShape(AppTheme.Layout.libraryRowCornerRadius)
+    val statusIconSize = 16.dp
+    val playPillIconSize = 12.dp
 }
 
 /** Live-Zustand einer Folgen-Zeile (iOS: `LibraryPodcastEpisodeRowLiveState`). */
@@ -69,8 +74,7 @@ internal fun PodcastEpisodeRowCard(
     val isFinished = prog?.isFinished == true
     val total = resolvedEpisodeDuration(episode, prog)
     val showsProgressBar = prog != null && !isFinished && maxOf(prog.duration, total) > 0
-    // Beendet: Cover und Play-Pille gedimmt (M3 38 %), Texte bleiben lesbar (Titel onSurfaceVariant).
-    val contentAlpha = if (isFinished) AppTheme.disabledContentAlpha else 1f
+    val contentAlpha = if (isFinished) PodcastRowLayout.finishedContentOpacity else 1f
     PodcastRowCardChrome(
         modifier = modifier,
         onClick = onOpenDetail,
@@ -93,10 +97,10 @@ internal fun PodcastEpisodeRowCard(
                     Text(
                         episode.episodeTitle,
                         style = AppType.titleMedium,
-                        color = if (isFinished) palette.textSecondary else palette.textPrimary,
+                        color = palette.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).alpha(contentAlpha),
                     )
                     AbstandStatusBadges(isFinished, live.isDownloaded, live.downloadProgress != null && !live.isDownloaded, live.downloadProgress ?: 0.0)
                 }
@@ -106,6 +110,7 @@ internal fun PodcastEpisodeRowCard(
                     color = palette.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.alpha(contentAlpha),
                 )
                 Spacer(Modifier.weight(1f))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -113,7 +118,7 @@ internal fun PodcastEpisodeRowCard(
                         formatPlaybackTime(total),
                         style = AppType.bodyMedium,
                         color = palette.textSecondary,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).alpha(contentAlpha),
                     )
                     PodcastPlayPill(isPlaying = live.isPlaying, onClick = onPlayToggle, modifier = Modifier.alpha(contentAlpha))
                 }

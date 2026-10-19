@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import de.letzgo.abstand.transcript.PlayerLiveTranscriptionController
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
@@ -41,7 +42,7 @@ fun TranscriptRecapSheet(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val controller = remember { PlayerLiveTranscriptionController.shared(context) }
     LaunchedEffect(Unit) { controller.generateRecap() }
-    AbstandSheet(title = "Recap", onDismiss = onDismiss) {
+    AbstandSheet(title = "Recap", onDismiss = onDismiss, onConfirm = onDismiss, confirmLabel = "Done") {
         Box(Modifier.fillMaxWidth().heightIn(min = RecapMinHeight, max = RecapMaxHeight)) {
             TranscriptRecapContent(controller)
         }

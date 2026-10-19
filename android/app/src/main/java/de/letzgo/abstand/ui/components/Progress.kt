@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -28,10 +29,12 @@ import de.letzgo.abstand.ui.Theme
 object AbstandProgressMetrics {
     /** Dünner Balken in Zeilen/Downloads (iOS: `ProgressView(.linear)` ≈ 4 pt). */
     val barHeight = 4.dp
-    /** Strichstärke des Download-Rings (M3 Circular Progress: 4 dp). */
-    val ringStrokeWidth = 4.dp
+    /** Strichstärke des Download-Rings. */
+    val ringStrokeWidth = 2.dp
     /** Standard-Ringgröße in Toolbars/Zeilen (= M3-Symbol 24 dp). */
     val ringSize = AppTheme.Layout.iconSize
+    /** Deckkraft der Ring-Spur relativ zur Ringfarbe. */
+    const val ringTrackOpacity = 0.25f
 }
 
 /**
@@ -67,9 +70,8 @@ fun AbstandProgressBar(
 }
 
 /**
- * Bestimmter Fortschrittsring (laufender Download). M3: 4-dp-Strich, [color] Standard Akzent,
- * Spur [trackColor] Standard `secondaryContainer`. Für unbestimmtes Laden
- * [AbstandInlineSpinner]/[AbstandLoadingSpinner] nehmen.
+ * Bestimmter Fortschrittsring (laufender Download). [color] Standard Akzent, Spur = [color] mit
+ * 25 %. Für unbestimmtes Laden [AbstandInlineSpinner]/[AbstandLoadingSpinner] nehmen.
  */
 @Composable
 fun AbstandProgressRing(
@@ -78,14 +80,13 @@ fun AbstandProgressRing(
     color: Color = Theme.accent,
     size: Dp = AbstandProgressMetrics.ringSize,
     strokeWidth: Dp = AbstandProgressMetrics.ringStrokeWidth,
-    trackColor: Color = Theme.palette.scheme.secondaryContainer,
     contentDescription: String? = null,
 ) {
     CircularProgressIndicator(
         progress = { value.toFloat().coerceIn(0f, 1f) },
         color = color,
         strokeWidth = strokeWidth,
-        trackColor = trackColor,
+        trackColor = color.copy(alpha = AbstandProgressMetrics.ringTrackOpacity),
         modifier = modifier.size(size).let { m ->
             if (contentDescription != null) m.semantics { this.contentDescription = contentDescription } else m
         },

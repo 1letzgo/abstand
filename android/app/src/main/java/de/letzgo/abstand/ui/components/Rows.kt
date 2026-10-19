@@ -27,9 +27,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.semibold
 
 // Listenzeilen, Trenner, Versalien-Labels und Segment-Umschalter.
 
@@ -80,10 +82,10 @@ fun AbstandListRow(
     }
 }
 
-/** Hairline-Trenner zwischen Listenzeilen (M3 Divider: 1 dp `outlineVariant`; Settings-Karten: [SettingsCardDivider]). */
+/** Hairline-Trenner zwischen Listenzeilen (ohne Abstand; Settings-Karten: [SettingsCardDivider]). */
 @Composable
-fun AbstandDivider(modifier: Modifier = Modifier) {
-    HorizontalDivider(modifier, thickness = AppTheme.Layout.hairlineWidth, color = Theme.palette.scheme.outlineVariant)
+fun AbstandDivider(modifier: Modifier = Modifier, opacity: Float = 0.2f) {
+    HorizontalDivider(modifier, thickness = AppTheme.Layout.hairlineWidth, color = Theme.palette.textSecondary.copy(alpha = opacity))
 }
 
 /** Symbolgröße in [AbstandCapsLabel] (iOS: `.caption2.weight(.semibold)`). */
@@ -152,8 +154,7 @@ fun LibraryRowCollapsedMetaLine(
 
 /**
  * iOS: `Picker(.segmented)` — **der** Segment-Umschalter (M3 Segmented Buttons, 40 dp hoch,
- * `labelLarge`, volle Breite): gewählt `secondaryContainer`/`onSecondaryContainer` mit Häkchen,
- * sonst transparent mit `onSurface`, Rand `outline`.
+ * `labelLarge`, in Akzentfarbe, volle Breite).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -164,24 +165,22 @@ fun <T> AbstandSegmentedControl(
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val scheme = Theme.palette.scheme
+    val palette = Theme.palette
     SingleChoiceSegmentedButtonRow(modifier.fillMaxWidth()) {
         options.forEachIndexed { index, option ->
-            val selected = option == selection
             SegmentedButton(
-                selected = selected,
+                selected = option == selection,
                 onClick = { onSelect(option) },
                 shape = SegmentedButtonDefaults.itemShape(index, options.size),
                 colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = scheme.secondaryContainer,
-                    activeContentColor = scheme.onSecondaryContainer,
-                    activeBorderColor = scheme.outline,
-                    inactiveContainerColor = Color.Transparent,
-                    inactiveContentColor = scheme.onSurface,
-                    inactiveBorderColor = scheme.outline,
+                    activeContainerColor = Theme.accent,
+                    activeContentColor = Theme.onAccent,
+                    activeBorderColor = Theme.accent,
+                    inactiveContainerColor = palette.card,
+                    inactiveContentColor = palette.textPrimary,
+                    inactiveBorderColor = palette.textSecondary.copy(alpha = 0.35f),
                 ),
-                // M3: Häkchen nur am gewählten Segment.
-                icon = { SegmentedButtonDefaults.Icon(selected) },
+                icon = {},
             ) { Text(label(option), style = AppType.labelLarge, maxLines = 1) }
         }
     }

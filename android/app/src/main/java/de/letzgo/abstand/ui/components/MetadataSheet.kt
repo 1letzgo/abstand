@@ -1,7 +1,10 @@
 package de.letzgo.abstand.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -9,6 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,8 +24,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -32,13 +43,17 @@ import de.letzgo.abstand.ui.DetailMetaLabelIcon
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.medium
 
 /** iOS: `MetadataSheetMetrics` — Maße der Admin-Metadaten-Sheets. */
 object MetadataSheetMetrics {
     /** Abstand zwischen Formularzeilen innerhalb einer Karte. */
     val fieldSpacing = 16.dp
-    /** Horizontaler Innenabstand eingelassener Listen (M3-Textfeld: 16 dp). */
+    /** Innenabstand eingelassener Felder (M3-Textfeld: 16 dp → 56 dp Höhe mit `bodyLarge`). */
     val fieldInsetH = 16.dp
+    val fieldInsetV = 16.dp
+    /** Hairline um eingelassene Felder. */
+    const val fieldBorderOpacity = 0.18f
     /** Kartenform (wie Detail-Sektionskarte). */
     val cardShape: Shape = RoundedCornerShape(AppTheme.Layout.detailSectionCardCornerRadius)
     /** Form eingelassener Felder. */
@@ -89,7 +104,20 @@ fun MetadataSheetCard(
 /** iOS: `MetadataSheetCardDivider`. */
 @Composable
 fun MetadataSheetCardDivider() {
-    AbstandDivider()
+    AbstandDivider(opacity = 0.25f)
+}
+
+/** iOS: `metadataSheetFieldChrome()` — eingelassenes Feld (App-Hintergrund + Hairline). */
+fun Modifier.metadataSheetFieldChrome(
+    horizontalPadding: Dp = MetadataSheetMetrics.fieldInsetH,
+    verticalPadding: Dp = MetadataSheetMetrics.fieldInsetV,
+): Modifier = composed {
+    val palette = Theme.palette
+    fillMaxWidth()
+        .clip(MetadataSheetMetrics.fieldShape)
+        .background(palette.background)
+        .border(AppTheme.Layout.hairlineWidth, palette.textSecondary.copy(alpha = MetadataSheetMetrics.fieldBorderOpacity), MetadataSheetMetrics.fieldShape)
+        .padding(horizontal = horizontalPadding, vertical = verticalPadding)
 }
 
 /** iOS: `MetadataSheetFieldLabel` — Feldtitel (`caption.medium`) + optionaler Hinweis. */
@@ -103,9 +131,8 @@ fun MetadataSheetFieldLabel(title: String, hint: String? = null) {
 }
 
 /**
- * iOS: `MetadataSheetTextField` — Label oben, eingelassenes Feld darunter. Android: M3 Outlined
- * Text Field ([AbstandOutlinedTextField]) — [title] als schwebendes Label, [hint] als
- * Supporting Text darunter. [minLines]/[maxLines] ersetzen iOS `axis: .vertical` + `lineLimit`.
+ * iOS: `MetadataSheetTextField` — Label oben, eingelassenes Feld darunter. [minLines]/[maxLines]
+ * ersetzen iOS `axis: .vertical` + `lineLimit`.
  */
 @Composable
 fun MetadataSheetTextField(
@@ -122,20 +149,36 @@ fun MetadataSheetTextField(
     autoCorrect: Boolean = true,
     imeAction: ImeAction = ImeAction.Done,
     onSubmit: (() -> Unit)? = null,
-    errorText: String? = null,
 ) {
-    AbstandOutlinedTextField(
-        label = title, value = value, onValueChange = onValueChange, modifier = modifier,
-        placeholder = placeholder, supportingText = hint, errorText = errorText,
-        keyboardType = keyboardType, capitalization = capitalization, autoCorrect = autoCorrect,
-        imeAction = imeAction, onSubmit = onSubmit, minLines = minLines, maxLines = maxLines,
-    )
+    val palette = Theme.palette
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(MetadataSheetMetrics.labelToContentSpacing)) {
+        MetadataSheetFieldLabel(title, hint)
+        Box(Modifier.metadataSheetFieldChrome()) {
+            if (value.isEmpty() && placeholder != null) {
+                Text(placeholder, style = AppType.bodyLarge, color = palette.textSecondary.copy(alpha = 0.55f))
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = maxLines == 1,
+                minLines = minLines,
+                maxLines = maxLines,
+                textStyle = AppType.bodyLarge.copy(color = palette.textPrimary),
+                cursorBrush = SolidColor(Theme.accent),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = capitalization, autoCorrectEnabled = autoCorrect,
+                    keyboardType = keyboardType, imeAction = imeAction,
+                ),
+                keyboardActions = KeyboardActions(onAny = { onSubmit?.invoke() }),
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = title },
+            )
+        }
+    }
 }
 
 /**
- * Kurzes Feld ohne eigene Überschrift (Serienname/-nummer, Dialog-Eingaben): M3 Outlined Text
- * Field mit [placeholder] als schwebendem Label; [label] ist der Accessibility-Name. [centered]
- * für kurze Zahlenfelder.
+ * Eingelassenes Feld ohne Label (Serienname/-nummer, Dialog-Eingaben): [metadataSheetFieldChrome]
+ * + Platzhalter; [label] dient als Accessibility-Name. [centered] für kurze Zahlenfelder.
  */
 @Composable
 fun AbstandInsetTextField(
@@ -148,12 +191,22 @@ fun AbstandInsetTextField(
     capitalization: KeyboardCapitalization = KeyboardCapitalization.None,
     centered: Boolean = false,
 ) {
-    AbstandOutlinedTextField(
-        label = placeholder, value = value, onValueChange = onValueChange, modifier = modifier,
-        keyboardType = keyboardType, capitalization = capitalization,
-        textAlign = if (centered) TextAlign.Center else TextAlign.Start,
-        contentDescription = label,
-    )
+    val palette = Theme.palette
+    Box(
+        modifier.metadataSheetFieldChrome(horizontalPadding = if (centered) AppTheme.Layout.inlineSpacing else MetadataSheetMetrics.fieldInsetH),
+        contentAlignment = if (centered) Alignment.Center else Alignment.CenterStart,
+    ) {
+        if (value.isEmpty()) Text(placeholder, style = AppType.bodyLarge, color = palette.textSecondary.copy(alpha = 0.55f))
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = AppType.bodyLarge.copy(color = palette.textPrimary, textAlign = if (centered) TextAlign.Center else TextAlign.Start),
+            cursorBrush = SolidColor(Theme.accent),
+            keyboardOptions = KeyboardOptions(capitalization = capitalization, autoCorrectEnabled = false, keyboardType = keyboardType),
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
+        )
+    }
 }
 
 /**

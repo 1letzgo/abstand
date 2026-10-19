@@ -4,15 +4,18 @@ import kotlin.math.abs
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -43,6 +46,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.model.PlayerWiring
 import de.letzgo.abstand.player.AudioEQPreset
@@ -285,12 +289,14 @@ private fun androidx.compose.foundation.layout.RowScope.TransportIcon(
             Icon(
                 icon,
                 contentDescription = null,
-                tint = palette.textPrimary.copy(alpha = if (enabled) 1f else AppTheme.disabledContentAlpha),
+                tint = palette.textPrimary.copy(alpha = if (enabled) 1f else DISABLED_ALPHA),
                 modifier = Modifier.size(MiniPlayerMetrics.transportSymbolSize),
             )
         }
     }
 }
+
+private const val DISABLED_ALPHA = 0.35f
 
 // MARK: - Utility-Leiste (iOS: `FullPlayerUtilityBar`)
 
@@ -378,7 +384,7 @@ fun FullPlayerUtilityBar(wiring: PlayerWiring, modifier: Modifier = Modifier) {
                     AbstandProgressBar(dlState.progress, Modifier.padding(horizontal = AppTheme.Layout.screenPadding))
                 }
                 dlState?.isDownloading == true -> UtilityColumn("Download", "Queued", onClick = null) {
-                    Icon(SF.arrowDownCircle, contentDescription = null, tint = accent.copy(alpha = AppTheme.disabledContentAlpha))
+                    Icon(SF.arrowDownCircle, contentDescription = null, tint = accent.copy(alpha = DISABLED_ALPHA))
                 }
                 else -> UtilityColumn("Download", "Download", onClick = { wiring.startDownloadForActivePlayback() }) {
                     Icon(SF.arrowDownCircle, contentDescription = null, tint = palette.textPrimary)
@@ -414,7 +420,7 @@ private fun androidx.compose.foundation.layout.RowScope.SleepTimerColumn(wiring:
     }
     UtilityColumn("Sleep", "Sleep timer, $label", onClick = { menu = true }, menu = {
         AbstandMenu(menu, { menu = false }) {
-            item(SleepTimerMetrics.offLabel(), { player.applySleepTimer(0) }, selected = mode == SleepTimerMode.Off, selectable = true)
+            item(SleepTimerMetrics.offLabel(), { player.applySleepTimer(0) }, selected = mode == SleepTimerMode.Off)
             divider()
             picker(SleepTimerMetrics.minutePresets, (mode as? SleepTimerMode.Minutes)?.minutes, { SleepTimerMetrics.minutesLabel(it) }, { player.applySleepTimer(it) })
             val options = remember(menu, chapterCount) { player.sleepTimerChapterOptions() }
