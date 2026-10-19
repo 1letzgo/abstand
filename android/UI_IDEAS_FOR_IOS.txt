@@ -24,6 +24,8 @@ Kopfzeile der Tab-Roots
 
 Inhalt
 ------
+- [offen] Kartenstil-Auswahl (Compact row / Cover card) entfernt — es gibt nur noch die kompakte Zeile;
+  Settings › Appearance › Views zeigt nur noch „Home“.
 - [offen] Eine einzige Abschnittsüberschrift für alle Ansichten (Home-Regale, Stats, Books/Podcasts-
   Bereiche, Settings): kleine Zwischenüberschrift in Akzentfarbe, bündig mit der Kartenkante —
   statt großer weißer `TabContentSectionTitle` neben kleinen Settings-Überschriften. (2eef79b, 39e3e15)
@@ -32,10 +34,38 @@ Inhalt
 - [offen] „Compact row“-Karten in Books/Podcasts mit 80er- statt 100er-Cover. (e3cc40d)
 - [offen] Home nur mit Kompaktkarten — auch „Continue listening“ (statt Hero-Karten); Bücher und
   Folgen mit Play-Pille unten rechts wie in Books, Serien/Autoren ohne. (18ba21a)
+- [offen] Oben auf Home nur „Continue listening“; die übrigen Regale (Continue series, Recently added,
+  Recommended, Listen again, New authors …) sind Einträge im Bereichs-Dropdown der jeweiligen
+  Bibliothek (Bücher-Regale bei Books, Folgen-Regale bei Podcasts) und zeigen sich dort als Liste.
+- [offen] Settings › Appearance › Views entfernt (keine Regal-Auswahl/-Reihenfolge mehr): alle Regale
+  mit Inhalt erscheinen im Bereichs-Menü der jeweiligen Bibliothek, „Continue listening/reading“ oben.
+- [offen] eBooks ohne Trennung „Audiobooks with eBook“: eine Liste aus reinen eBooks und Hörbüchern mit
+  eBook, lokal nach der gewählten Sortierung gemischt. „Continue reading“ läuft im Hero-Pager oben mit.
+- [offen] Leisten-Aktionen (Filter, Sortieren, +, Zahnrad) als Symbol-Pillen in Form und Fläche der
+  Dropdown-Pills; aktiver Filter als Akzent-Pille.
+- [offen] Bibliotheksansichten ohne Abschnittsüberschrift — der gewählte Bereich steht schon in der
+  Pill (nur „Audiobooks with eBook“ trennt in eBooks noch zwei Gruppen).
+- [offen] Home als gemeinsame Bibliotheksansicht; die Tabs Books und Podcasts entfallen (Tab-Leiste:
+  Home · Settings · Search). Kopfzeile = Kategorie-Pills der Regale (+ Offline-Button), darunter das
+  gewählte Regal als horizontale Kartenreihe, darunter eine beim Scrollen fixierte Bibliotheksleiste
+  (kompakte Bibliotheks-Pill mit allen Books- UND Podcast-Bibliotheken, Bereichs-Pill mit den
+  Books-Sektionen bzw. „New“ + Sendungen, rechts die alten Tab-Aktionen) und der Bereichsinhalt wie
+  bisher in den Tabs. Sprünge „zur Sendung“/„zum Katalog“ landen auf Home mit passender Auswahl.
+- [offen] Design-Hierarchie auf Home: Akzentfarbe nur für Handlung/Zustand (Play-Button mit Restzeit,
+  Fortschrittslinie, Fertig-Haken, aktiver Filter); Auswahl-Pills tonal (`secondaryContainer`), Kopf-
+  Symbole gedeckt. Hero-Karte „Continue listening“: Titel zweizeilig, gefüllter Play-Button „2 hrs 48 min“
+  statt Laufzeit-Fußzeile; Regal-Listen in derselben Kartengröße wie die Bibliothek (80); im Bereichs-
+  Menü Trenner zwischen Bereichen und Regalen.
+- [offen] „Continue listening“ oben als Pager: genau eine Karte pro Seite mit normalem Seitenabstand (keine hereinragende Nachbarkarte) (Cover 144; Listen 80), darunter Seiten-Indikator — Punkte in Akzentfarbe, ab 11 Karten „n / m“.
+- [offen] Keine Tab-Leiste mehr: Home ist die einzige Wurzel; Search (Lupe) und Settings (Zahnrad)
+  sitzen mit dem Offline-Wölkchen rechts in einer eigenen Titelzeile „abstand“ über den Kategorie-Pills und öffnen sich als
+  gepushte Seiten mit Zurück-Pfeil vor ihrer Kopfzeile (Suchfeld mit Autofokus bzw. Settings-Tabs).
+  Suche leert sich beim Verlassen, Settings merkt den Bereich. Mini-Player dockt direkt am unteren
+  Rand an.
 
 Player
 ------
-- [offen] Mini-Player fest über der Tab-Bar angedockt (volle Breite, ohne Ecken/Schatten,
+- [offen] Mini-Player fest unten (früher über der Tab-Bar) angedockt (volle Breite, ohne Ecken/Schatten,
   Fortschrittslinie oben) statt schwebender Karte. (3286a9f)
 - [offen] Now Playing öffnet als Container-Transform aus der Mini-Leiste; Wischen schrumpft ihn
   kontinuierlich zurück. (cefdac9) — iOS hat eine eigene Zoom-Transition, prüfen ob übertragbar.

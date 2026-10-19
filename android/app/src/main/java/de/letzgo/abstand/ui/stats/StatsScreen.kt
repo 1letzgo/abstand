@@ -15,7 +15,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -99,26 +98,6 @@ fun LazyListScope.statsHubSections() {
                 }
             }
         }
-    }
-}
-
-/** Stats als eigene Seite (z. B. von Home): gleiche Inhalte wie der Settings-Bereich. */
-data object StatsDestination : TabDestination {
-    override val key = "stats"
-
-    @Composable
-    override fun Content(navigator: TabNavigator) = StatsScreen(onBack = { navigator.pop() })
-}
-
-/** Öffentliche Stats-Seite: lädt Achievements und Stats beim Erscheinen, Pull-to-Refresh. */
-@Composable
-fun StatsScreen(onBack: () -> Unit, stats: StatsStore = StatsStore.shared) {
-    LaunchedEffect(Unit) {
-        stats.prepareListeningAchievementsForStatsTab()
-        stats.loadListeningStats()
-    }
-    StatsRefreshBox(stats) {
-        SettingsSubpageScaffold(title = "Stats", onBack = onBack) { statsHubSections() }
     }
 }
 

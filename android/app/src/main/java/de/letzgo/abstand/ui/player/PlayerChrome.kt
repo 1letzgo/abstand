@@ -37,15 +37,13 @@ object MiniPlayerMetrics {
     val accessoryPlayHeight = AppTheme.Layout.buttonHeight
     /** Seitlicher Innenabstand der Leiste (M3-Listen-Rand: 16 dp). */
     val accessoryHorizontalPadding = AppTheme.Layout.screenPadding
-    /** Ecke der schwebenden Leiste (M3 large). */
-    /** Angedockt (fest über der Navigation Bar): keine Ecken. */
+    /** Angedockt (unten über der System-Navigationsleiste): keine Ecken. */
     val accessoryCornerRadius = 0.dp
     /** Angedockt: kein Schatten (Abgrenzung über die Containerfarbe). */
     val accessoryShadowElevation = 0.dp
     /** Fortschrittslinie am Fuß der Leiste (M3 Linear Progress). */
     val accessoryProgressHeight = 4.dp
-    /** Abstand der Leiste zur Navigationsleiste. */
-    /** Angedockt: kein Abstand zur Navigation Bar. */
+    /** Angedockt: kein Abstand zum unteren Rand / zur Navigationsleiste. */
     val accessoryBottomGap = 0.dp
 
     /** iOS: `fullPlayerCoverInset`. */
@@ -81,7 +79,6 @@ object MiniPlayerMetrics {
     /** M3-Slider: Griff 4 × 40 dp, Spur 16 dp, 4 dp Lücke zum Griff, Stopp-Punkt am Ende. */
     val progressRowHeight = 40.dp
     val progressTrackHeight = 16.dp
-    val scrubThumbDiameter = 16.dp
     val scrubberBlockSpacing = 8.dp
     val scrubberPaddingAboveBar = 8.dp
     val scrubberBarToTimeSpacing = 4.dp

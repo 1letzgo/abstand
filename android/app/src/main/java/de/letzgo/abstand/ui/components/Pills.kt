@@ -1,25 +1,14 @@
 package de.letzgo.abstand.ui.components
 
 import androidx.compose.foundation.border
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,16 +32,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.library.LibraryRowLayout
 
 // Pillen, Badges und Chips — Cover-Overlays, Status-Labels, Filter-/Browse-Chips.
 
@@ -61,8 +47,6 @@ object AbstandCoverPillMetrics {
     /** Abstand der Pille zum Cover-Rand. */
     val inset = AppTheme.Layout.inlineSpacing
     val iconSize = 12.dp
-    /** Fortschrittsring eines laufenden Downloads. */
-    val spinnerSize = 12.dp
     /** Symbol im runden Eck-Badge ([AbstandCoverCornerBadge]). */
     val cornerBadgeIconSize = 12.dp
 }
@@ -77,14 +61,6 @@ fun AbstandCoverPill(modifier: Modifier = Modifier, content: @Composable () -> U
             .padding(horizontal = AppTheme.Layout.inlineSpacing, vertical = AppTheme.Layout.pillVerticalPadding),
         contentAlignment = Alignment.Center,
     ) { content() }
-}
-
-/** [AbstandCoverPill] mit Symbol (Medientyp, „Downloaded“). */
-@Composable
-fun AbstandCoverPillIcon(icon: ImageVector, contentDescription: String?, modifier: Modifier = Modifier) {
-    AbstandCoverPill(modifier) {
-        Icon(icon, contentDescription = contentDescription, tint = AppTheme.coverOverlayForeground, modifier = Modifier.size(AbstandCoverPillMetrics.iconSize))
-    }
 }
 
 /** [AbstandCoverPill] mit kurzem Text („12 Books“, Rang). */
@@ -104,27 +80,6 @@ fun AbstandCoverCornerBadge(icon: ImageVector, contentDescription: String?, modi
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = contentDescription, tint = AppTheme.coverOverlayForeground, modifier = Modifier.size(AbstandCoverPillMetrics.cornerBadgeIconSize))
-    }
-}
-
-/**
- * iOS: `ContinueListeningHeroOfflineBadge` — fertiger Download (Symbol) oder laufender Download
- * (Ring) als [AbstandCoverPill]; sonst nichts.
- */
-@Composable
-fun AbstandCoverDownloadBadge(isDownloaded: Boolean, isDownloading: Boolean, downloadProgress: Double, modifier: Modifier = Modifier) {
-    when {
-        isDownloaded -> AbstandCoverPillIcon(SF.arrowDownCircleFill, "Downloaded", modifier)
-        isDownloading -> AbstandCoverPill(modifier) {
-            AbstandProgressRing(
-                downloadProgress,
-                color = AppTheme.coverOverlayForeground,
-                size = AbstandCoverPillMetrics.spinnerSize,
-                strokeWidth = AbstandProgressMetrics.miniRingStrokeWidth,
-                trackColor = AppTheme.coverOverlayForeground.copy(alpha = AppTheme.disabledContentAlpha),
-                contentDescription = "Downloading",
-            )
-        }
     }
 }
 
@@ -240,58 +195,6 @@ private val AbstandChipIconSize = AppTheme.Layout.smallIconSize
 internal val AbstandChipShape = RoundedCornerShape(AppTheme.Layout.cornerSmall)
 
 /**
- * iOS: `AbstandExpandingDockChip` (Kreis → Akzent-Kapsel). Android: M3 Filter Chip mit immer
- * sichtbarem Label — gewählt secondaryContainer mit Häkchen (bzw. Cover), sonst outlineVariant-
- * Rand mit Symbol/Cover. Einziger Dock-Chip (Browse-Strip, Podcast-Shows).
- */
-@Composable
-fun AbstandDockChip(
-    label: String,
-    icon: ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    coverItemId: String? = null,
-    /** Aktiver Chip: Häkchen statt Symbol (Filter-Chip-Stil); `false` = Symbol bleibt (Dock-Buttons). */
-    checkmarkWhenSelected: Boolean = true,
-) {
-    val dock = AppTheme.ExpandingDock
-    val colors = AppTheme.ExpandingDock.Colors.of(Theme.palette, Theme.accent)
-    val foreground = if (selected) colors.activeForeground else colors.inactiveForeground
-    Surface(
-        onClick = onClick,
-        shape = AbstandChipShape,
-        color = if (selected) colors.activeBackground else Color.Transparent,
-        contentColor = foreground,
-        border = if (selected) null else BorderStroke(AppTheme.Layout.hairlineWidth, Theme.palette.scheme.outlineVariant),
-        modifier = modifier
-            .height(dock.activeHeight)
-            .animateContentSize(spring(dampingRatio = 0.72f, stiffness = dock.selectionAnimation.stiffness))
-            .semantics {
-                this.selected = selected
-                role = Role.Tab
-                contentDescription = label
-                stateDescription = if (selected) "Selected" else ""
-            },
-    ) {
-        Row(
-            Modifier.padding(start = dock.activeLeadingPadding, end = dock.activeTrailingPadding).fillMaxHeight(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(dock.iconLabelSpacing),
-        ) {
-            when {
-                coverItemId != null -> Box(Modifier.size(dock.activeCoverSize).clip(CircleShape)) {
-                    CoverImage(itemId = coverItemId, modifier = Modifier.fillMaxSize())
-                }
-                selected && checkmarkWhenSelected -> Icon(SF.checkmark, contentDescription = null, modifier = Modifier.size(dock.iconSize))
-                else -> Icon(icon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
-            }
-            Text(label, style = AppType.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-/**
  * iOS: `AbstandBrowseStripDropdownPill` — Akzent-Kapsel mit aktuellem Eintrag; Tippen öffnet
  * ein [AbstandMenu] mit allen Einträgen (Bibliothek/Sektion, wenn mehrere Bibliotheken).
  */
@@ -314,9 +217,9 @@ fun AbstandDropdownPill(
         Surface(
             onClick = { expanded = true },
             shape = AbstandChipShape,
-            // Dropdown-Pills in der Appearance-Akzentfarbe (nicht tonal).
-            color = Theme.accent,
-            contentColor = Theme.onAccent,
+            // M3 Filled Tonal: Auswahl-Pills in `secondaryContainer` — Akzent bleibt Play/Fortschritt vorbehalten.
+            color = Theme.palette.scheme.secondaryContainer,
+            contentColor = Theme.palette.scheme.onSecondaryContainer,
             // 48-dp-Trefferfläche (M3), sichtbare Pill bleibt 32 dp.
             modifier = (if (iconOnly) Modifier else Modifier.fillMaxWidth()).minimumInteractiveComponentSize().height(dock.activeHeight).semantics {
                 contentDescription = "$accessibilityLabel: ${current?.label.orEmpty()}"
@@ -340,8 +243,53 @@ fun AbstandDropdownPill(
         }
         AbstandMenu(expanded, { expanded = false }) {
             items.forEach { entry ->
+                if (entry.dividerBefore) divider()
                 item(entry.label, onClick = { if (entry.id != selectionId) onSelect(entry.id) }, icon = entry.icon, selected = entry.id == selectionId, selectable = true)
             }
+        }
+    }
+}
+
+/**
+ * Android: Symbol-Pille für Leisten-Aktionen (Filter, Sortieren, +, Zahnrad) in derselben Form und
+ * Fläche wie [AbstandDropdownPill] (32 dp, `secondaryContainer`); [active] (z. B. Filter gesetzt) =
+ * Akzentfläche. Sichtbar 48×32 dp, Trefferfläche 48 dp.
+ */
+@Composable
+fun AbstandPillIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    active: Boolean = false,
+) {
+    val dock = AppTheme.ExpandingDock
+    val scheme = Theme.palette.scheme
+    val container = when {
+        !enabled -> scheme.onSurface.copy(alpha = AppTheme.disabledContainerAlpha)
+        active -> Theme.accent
+        else -> scheme.secondaryContainer
+    }
+    val content = when {
+        !enabled -> scheme.onSurface.copy(alpha = AppTheme.disabledContentAlpha)
+        active -> Theme.onAccent
+        else -> scheme.onSecondaryContainer
+    }
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = AbstandChipShape,
+        color = container,
+        contentColor = content,
+        modifier = modifier
+            .minimumInteractiveComponentSize()
+            .height(dock.activeHeight)
+            .width(dock.activeHeight + dock.activeLeadingPadding * 2)
+            .semantics { this.contentDescription = contentDescription },
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
         }
     }
 }

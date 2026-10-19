@@ -9,7 +9,6 @@ import androidx.compose.ui.Modifier
 import de.letzgo.abstand.data.AbsPodcastEpisodeListItem
 import de.letzgo.abstand.logic.BooksEntityDetailNav
 import de.letzgo.abstand.model.AppModel
-import de.letzgo.abstand.model.MainTab
 import de.letzgo.abstand.model.NowPlayingState
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.TabDestination
@@ -39,7 +38,8 @@ data class BookDetailDestination(val itemId: String) : TabDestination {
 
 /**
  * iOS: Sendung aus Home/Suche → Podcasts-Tab mit gewählter Sendung (`selectPodcastShowFilter`).
- * Der Eintrag springt sofort in den Podcasts-Tab und nimmt sich selbst vom Stapel.
+ * Android: Home mit der Podcast-Bibliothek in der Bibliotheksleiste und der Sendung als Bereich;
+ * der Eintrag nimmt sich sofort selbst vom Stapel.
  */
 data class PodcastShowDestination(val itemId: String) : TabDestination {
     override val key: String get() = "podcast/$itemId"
@@ -48,9 +48,9 @@ data class PodcastShowDestination(val itemId: String) : TabDestination {
     override fun Content(navigator: TabNavigator) {
         LaunchedEffect(itemId) {
             val model = AppModel.shared
-            model.podcasts.selectStripSection(itemId)
             navigator.pop()
-            model.session.selectMainTab(MainTab.podcasts)
+            model.session.showPodcastLibraryOnHome()
+            model.podcasts.selectStripSection(itemId)
         }
         DetailScaffold(onBack = { navigator.pop() }, title = "Podcast") { padding ->
             AbstandLoadingSpinner(Modifier.padding(padding))

@@ -20,6 +20,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import de.letzgo.abstand.model.AdminStore
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.SessionStore
+import de.letzgo.abstand.model.ShellRoute
+import de.letzgo.abstand.ui.TabDestination
+import de.letzgo.abstand.ui.TabNavigator
 import de.letzgo.abstand.model.StatsStore
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.SF
@@ -51,12 +54,23 @@ enum class SettingsHubSection(val label: String, val icon: ImageVector) {
 }
 
 /**
- * iOS: `SettingsHubRootView` — Settings-Tab: Icon-Leiste unter dem Titel, darunter der Inhalt des
- * gewählten Bereichs. Pull-to-Refresh lädt Account (Bibliotheken) bzw. Stats neu.
+ * Android: Settings als gepushte Seite auf Home (Zahnrad in der Home-Kopfzeile; iOS: Settings-Tab).
+ * Fester Schlüssel — der gewählte Bereich bleibt wie beim früheren Tab über mehrere Öffnungen erhalten.
+ */
+object SettingsDestination : TabDestination {
+    override val key: String = "settings"
+
+    @Composable
+    override fun Content(navigator: TabNavigator) = SettingsScreen(onBack = { navigator.pop() })
+}
+
+/**
+ * iOS: `SettingsHubRootView` — Settings: Material-Tabs in der Kopfzeile (mit Zurück-Pfeil), darunter
+ * der Inhalt des gewählten Bereichs. Pull-to-Refresh lädt Account (Bibliotheken) bzw. Stats neu.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsTabRoot(model: AppModel = AppModel.shared) {
+fun SettingsScreen(onBack: () -> Unit, model: AppModel = AppModel.shared) {
     val session = model.session
     val isServerRoot by session.isServerRoot.collectAsState()
     val offline by session.offlineHomeMode.collectAsState()
@@ -86,7 +100,8 @@ fun SettingsTabRoot(model: AppModel = AppModel.shared) {
     }
 
     TabRootScaffold(
-        title = "Settings",
+        title = ShellRoute.settings.label,
+        onBack = onBack,
         header = {
             SettingsIconStrip(
                 items = sections.map { SettingsStripItem(it, it.label, it.icon) },

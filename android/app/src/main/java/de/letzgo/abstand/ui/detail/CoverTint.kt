@@ -18,7 +18,6 @@ import de.letzgo.abstand.ui.AppColorPalette
 import de.letzgo.abstand.ui.Rgb
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.LocalCoverEnvironment
-import de.letzgo.abstand.ui.components.abstandDetailScrollBackground
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

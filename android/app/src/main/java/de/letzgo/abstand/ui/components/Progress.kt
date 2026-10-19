@@ -12,7 +12,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -31,8 +30,6 @@ object AbstandProgressMetrics {
     val barHeight = 4.dp
     /** Strichstärke des Download-Rings (M3 Circular Progress: 4 dp). */
     val ringStrokeWidth = 4.dp
-    /** Dünnere Strichstärke für Mini-Ringe (12 dp auf Cover-Pillen), wo 4 dp den Ring zulaufen ließen. */
-    val miniRingStrokeWidth = 2.dp
     /** Standard-Ringgröße in Toolbars/Zeilen (= M3-Symbol 24 dp). */
     val ringSize = AppTheme.Layout.iconSize
 }

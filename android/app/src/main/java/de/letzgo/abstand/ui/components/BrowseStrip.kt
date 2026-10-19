@@ -4,35 +4,19 @@ import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Tab
 import androidx.compose.material3.PrimaryScrollableTabRow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.Surface
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.foundation.layout.Column
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.AppType
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.draw.clip
 import androidx.compose.material3.Text
-import androidx.compose.material3.Icon
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -62,20 +46,21 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.SF
 import kotlinx.coroutines.launch
 
-/** iOS: `AbstandBrowseStripItem` — Eintrag im Browse-Streifen (Symbol oder Cover). */
+/** iOS: `AbstandBrowseStripItem` — Eintrag im Bereichs-Menü der Dropdown-Pills. */
 data class AbstandBrowseStripItem(
     val id: String,
     val label: String,
     val icon: ImageVector,
-    /** Optional: Cover statt Symbol (z. B. Podcast-Sendungen). */
-    val coverItemId: String? = null,
+    /** Trenner im Menü vor diesem Eintrag (Gruppenwechsel). */
+    val dividerBefore: Boolean = false,
 )
 
 /**
- * Bereichsumschalter unter der Titelzeile mit den Dropdown-Pills aus iOS `AbstandPinnedBrowseStrip`:
+ * Bereichsumschalter mit den Dropdown-Pills aus iOS `AbstandPinnedBrowseStrip` / `AbstandExpandingDockBrowseStrip`
+ * (Home-Bibliotheksleiste):
  * links die Bibliothek als kompakte Pill (nur Symbol + Chevron, Namen im Menü), daneben der Bereich
  * über die restliche Breite — **immer** beide, auch bei nur einer aktiven Bibliothek. Ohne
- * Bibliotheksauswahl (Settings) füllt die Bereichs-Pill die Zeile allein.
+ * Bibliotheksauswahl füllt die Bereichs-Pill die Zeile allein.
  */
 @Composable
 fun AbstandBrowsePills(
@@ -117,57 +102,14 @@ fun AbstandBrowsePills(
 }
 
 /**
- * iOS: `AbstandExpandingDockBrowseStrip`. Android: [AbstandBrowsePills]; [pinnedLeadingItem]
- * (Podcast „New“) steht als erster Eintrag im Menü.
- */
-@Composable
-fun AbstandExpandingDockBrowseStrip(
-    items: List<AbstandBrowseStripItem>,
-    selectionId: String,
-    onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    pinnedLeadingItem: AbstandBrowseStripItem? = null,
-) {
-    val ordered = if (pinnedLeadingItem == null) items else listOf(pinnedLeadingItem) + items.filter { it.id != pinnedLeadingItem.id }
-    AbstandBrowsePills(ordered, selectionId, onSelect, modifier)
-}
-
-/**
- * iOS: `AbstandPinnedBrowseStrip` — zwei Dropdown-Pills (Bibliothek | Bereich), siehe [AbstandBrowsePills].
- */
-@Composable
-fun AbstandPinnedBrowseStrip(
-    secondaryItems: List<AbstandBrowseStripItem>,
-    secondarySelectionId: String,
-    onSelectSecondary: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    libraryPickerItems: List<AbstandBrowseStripItem> = emptyList(),
-    libraryPickerSelectionId: String = "",
-    onSelectLibrary: ((String) -> Unit)? = null,
-    pinnedLeadingItem: AbstandBrowseStripItem? = null,
-    secondaryAccessibilityLabel: String = "Browse",
-) {
-    val ordered = if (pinnedLeadingItem == null) secondaryItems
-    else listOf(pinnedLeadingItem) + secondaryItems.filter { it.id != pinnedLeadingItem.id }
-    AbstandBrowsePills(
-        items = ordered,
-        selectionId = secondarySelectionId,
-        onSelect = onSelectSecondary,
-        modifier = modifier,
-        libraryItems = libraryPickerItems,
-        librarySelectionId = libraryPickerSelectionId,
-        onSelectLibrary = onSelectLibrary,
-        sectionAccessibilityLabel = secondaryAccessibilityLabel,
-    )
-}
-
-/**
- * iOS: `AbstandFixedBrowseStripSectionsLayout` — Großtitel → fixer Browse-Streifen → je Sektion
- * eine eigene scrollende Liste. Die Scroll-Position jeder besuchten Sektion bleibt erhalten
- * (Compose: ein `SaveableStateHolder` je Sektions-ID statt `ScrollPosition`-Map), Pull-to-Refresh
- * über [onRefresh]. [scrollToTopTrigger] (Sort/Filter) springt in der aktiven Sektion nach oben.
- * Die iOS-Workarounds (`relayoutTrigger`, `bottomInsetRevalidationTrigger`) braucht Compose nicht:
- * `LazyColumn` layoutet bei geänderter Höhe/Inset selbst neu.
+ * iOS: `AbstandFixedBrowseStripSectionsLayout` — Titelzeile → fester Bereich ([belowStrip]) → je
+ * Sektion eine eigene scrollende Liste. Android (nur Home): die Titelzeile zeigt [title] und
+ * [actions], der fixe Browse-Streifen von iOS ist entfallen — Home setzt stattdessen Continue
+ * listening + Bibliotheksleiste in [belowStrip]. Die Scroll-Position jeder besuchten Sektion
+ * bleibt erhalten (Compose: ein `SaveableStateHolder` je Sektions-ID statt `ScrollPosition`-Map),
+ * Pull-to-Refresh über [onRefresh]. [scrollToTopTrigger] (Sort/Filter) springt in der aktiven
+ * Sektion nach oben. Die iOS-Workarounds (`relayoutTrigger`, `bottomInsetRevalidationTrigger`)
+ * braucht Compose nicht: `LazyColumn` layoutet bei geänderter Höhe/Inset selbst neu.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -175,18 +117,13 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
     title: String,
     selection: ID,
     modifier: Modifier = Modifier,
-    showsStrip: Boolean = true,
     actions: (@Composable RowScope.() -> Unit)? = null,
     scrollToTopTrigger: Any? = null,
     onRefresh: (suspend () -> Unit)? = null,
-    strip: @Composable () -> Unit = {},
+    /** Fester Bereich unter der Titelzeile (scrollt nicht mit). */
+    belowStrip: (@Composable () -> Unit)? = null,
     sectionSpacing: Dp = AppTheme.Layout.sectionSpacing,
-    /**
-     * `true`: Liste ohne horizontales Padding — Sektionen setzen `tabPaddingH` selbst, horizontale
-     * Reihen laufen randlos mit Innenabstand (Material-„uncontained carousel“).
-     */
-    fullBleed: Boolean = false,
-    /** Optional eigener Listen-Zustand (Home: Pill springt zu Regalen und folgt der Scroll-Position). */
+    /** Optional eigener Listen-Zustand (Home: Bereichswechsel springt nach oben). */
     listState: LazyListState? = null,
     sectionBody: LazyListScope.(ID) -> Unit,
 ) {
@@ -197,7 +134,8 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
         title = title,
         modifier = modifier,
         actions = actions,
-        header = if (showsStrip) strip else null,
+        belowHeader = belowStrip,
+        showsTitleRow = true,
     ) { padding ->
         holder.SaveableStateProvider(selection) {
             val ownState = rememberLazyListState()
@@ -206,14 +144,17 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
                 if (scrollToTopTrigger != null) state.scrollToItem(0)
             }
             val list = @Composable {
+                // Liste beginnt UNTER der (deckenden) Kopfzeile statt dahinter — sonst kleben
+                // `stickyHeader`s unsichtbar hinter der Kopfzeile (Home: Bibliotheksleiste).
+                val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
                 LazyColumn(
                     state = state,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = if (fullBleed) {
-                        PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding())
-                    } else {
-                        padding
-                    },
+                    modifier = Modifier.fillMaxSize().padding(top = padding.calculateTopPadding()),
+                    contentPadding = PaddingValues(
+                        start = padding.calculateStartPadding(layoutDirection),
+                        end = padding.calculateEndPadding(layoutDirection),
+                        bottom = padding.calculateBottomPadding(),
+                    ),
                     verticalArrangement = Arrangement.spacedBy(sectionSpacing),
                 ) { sectionBody(selection) }
             }
@@ -241,7 +182,7 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
 
 /**
  * Standard-Material-3-Tabs (`PrimaryScrollableTabRow`, Text-Tabs, 48 dp — gleiche Höhe wie die
- * Pill-Leisten der anderen Tabs) als Bereichsumschalter in der Kopfzeile. Akzent für das aktive
+ * Home-Bibliotheksleiste) als Bereichsumschalter in der Settings-Kopfzeile. Akzent für das aktive
  * Label und den Indikator (M3: 3 dp, [AppTheme.Layout.browseTabIndicatorHeight]), darunter der
  * M3-Trenner (1 dp `outlineVariant`).
  */
