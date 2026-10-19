@@ -58,7 +58,7 @@ fun TranscriptWordLookupSheet(selection: PlayerTranscriptWordLookupSelection, on
     val options = remember { TranslationTargetLanguage.pickerOptions() }
     val samePair = TranslationTargetLanguage.sameLanguage(selection.sourceLocale, target)
 
-    AbstandSheet(title = "Look up & translate", onDismiss = onDismiss, onConfirm = onDismiss, confirmLabel = "Done") {
+    AbstandSheet(title = "Look up & translate", onDismiss = onDismiss) {
         Text(selection.term, style = AppType.headlineSmall, color = palette.textPrimary, modifier = Modifier.fillMaxWidth())
 
         selection.sourceLocale?.let { source ->

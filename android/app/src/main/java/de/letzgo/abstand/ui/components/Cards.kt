@@ -73,7 +73,7 @@ fun Modifier.abstandCardListRowFrame(): Modifier =
 /** iOS: `abstandHeroCardOutline(palette:)` — dezente Kante statt Schatten in horizontalen Reihen. */
 fun Modifier.abstandHeroCardOutline(palette: AppColorPalette): Modifier = border(
     AppTheme.Layout.hairlineWidth,
-    palette.textSecondary.copy(alpha = 0.22f),
+    palette.scheme.outlineVariant,
     RoundedCornerShape(AppTheme.Layout.continueHeroCardCornerRadius),
 )
 

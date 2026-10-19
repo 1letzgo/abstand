@@ -82,10 +82,10 @@ fun AbstandListRow(
     }
 }
 
-/** Hairline-Trenner zwischen Listenzeilen (ohne Abstand; Settings-Karten: [SettingsCardDivider]). */
+/** Hairline-Trenner zwischen Listenzeilen (M3 Divider: 1 dp `outlineVariant`; Settings-Karten: [SettingsCardDivider]). */
 @Composable
-fun AbstandDivider(modifier: Modifier = Modifier, opacity: Float = 0.2f) {
-    HorizontalDivider(modifier, thickness = AppTheme.Layout.hairlineWidth, color = Theme.palette.textSecondary.copy(alpha = opacity))
+fun AbstandDivider(modifier: Modifier = Modifier) {
+    HorizontalDivider(modifier, thickness = AppTheme.Layout.hairlineWidth, color = Theme.palette.scheme.outlineVariant)
 }
 
 /** Symbolgröße in [AbstandCapsLabel] (iOS: `.caption2.weight(.semibold)`). */
@@ -154,7 +154,8 @@ fun LibraryRowCollapsedMetaLine(
 
 /**
  * iOS: `Picker(.segmented)` — **der** Segment-Umschalter (M3 Segmented Buttons, 40 dp hoch,
- * `labelLarge`, in Akzentfarbe, volle Breite).
+ * `labelLarge`, volle Breite): gewählt `secondaryContainer`/`onSecondaryContainer` mit Häkchen,
+ * sonst transparent mit `onSurface`, Rand `outline`.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -165,22 +166,24 @@ fun <T> AbstandSegmentedControl(
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val palette = Theme.palette
+    val scheme = Theme.palette.scheme
     SingleChoiceSegmentedButtonRow(modifier.fillMaxWidth()) {
         options.forEachIndexed { index, option ->
+            val selected = option == selection
             SegmentedButton(
-                selected = option == selection,
+                selected = selected,
                 onClick = { onSelect(option) },
                 shape = SegmentedButtonDefaults.itemShape(index, options.size),
                 colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = Theme.accent,
-                    activeContentColor = Theme.onAccent,
-                    activeBorderColor = Theme.accent,
-                    inactiveContainerColor = palette.card,
-                    inactiveContentColor = palette.textPrimary,
-                    inactiveBorderColor = palette.textSecondary.copy(alpha = 0.35f),
+                    activeContainerColor = scheme.secondaryContainer,
+                    activeContentColor = scheme.onSecondaryContainer,
+                    activeBorderColor = scheme.outline,
+                    inactiveContainerColor = Color.Transparent,
+                    inactiveContentColor = scheme.onSurface,
+                    inactiveBorderColor = scheme.outline,
                 ),
-                icon = {},
+                // M3: Häkchen nur am gewählten Segment.
+                icon = { SegmentedButtonDefaults.Icon(selected) },
             ) { Text(label(option), style = AppType.labelLarge, maxLines = 1) }
         }
     }

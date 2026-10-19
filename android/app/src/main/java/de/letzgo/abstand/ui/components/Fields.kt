@@ -1,14 +1,13 @@
 package de.letzgo.abstand.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -16,6 +15,13 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextFieldColors
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,14 +48,12 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
-import de.letzgo.abstand.ui.medium
-
-/** M3-Textfeld: 16 dp Innenabstand (mit `bodyLarge` 56 dp hoch; iOS: 12 pt). */
-private val FieldInnerPadding = 16.dp
 
 /**
- * iOS: `abstandSearchFieldChrome()` — Android: M3 Search Bar (`palette.card`, volle Rundung,
- * 56 dp hoch, 16 dp seitlich) um selbst gebaute Eingabezeilen (Symbol + Feld).
+ * iOS: `abstandSearchFieldChrome()` — Android: bewusst **kein** 56-dp-M3-Search-Bar, sondern
+ * dieselbe kompakte Form wie die Bereichs-Pills der Kopfzeilen (32 dp hoch, [AbstandChipShape]
+ * mit 8-dp-Ecken, `surfaceContainerHigh`, 8 dp seitlich) um selbst gebaute Eingabezeilen
+ * (Symbol + Feld). Gewollte Design-Entscheidung — nicht auf 56 dp „korrigieren“.
  */
 fun Modifier.abstandSearchFieldChrome(): Modifier = composed {
     // Gleiche Form/Höhe wie die Bereichs-Pills der Kopfzeilen (AbstandChipShape, `activeHeight`).
@@ -58,10 +62,127 @@ fun Modifier.abstandSearchFieldChrome(): Modifier = composed {
 }
 
 /**
- * iOS: `AbstandLabeledTextField` — beschriftetes Eingabefeld (Login, Formulare): Label
- * `caption.medium`/`textSecondary` oben, Feld auf `palette.card` darunter. [isSecure] maskiert
- * und zeigt den Android-üblichen Sichtbarkeits-Schalter. Keine Autokorrektur/-Großschreibung
- * (wie iOS `.never`/`.autocorrectionDisabled()`).
+ * Kern-Vorlage für Formularfelder (M3 Outlined Text Field): Label im Feld (schwebt beim Fokus
+ * bzw. mit Inhalt in die Kontur), Eingabe `bodyLarge`, Kontur 4 dp (extra-small), Fokus
+ * `primary`, unfokussiert `outline`, Label `onSurfaceVariant`. [supportingText] steht unter dem
+ * Feld (Hinweis/Fußnote); [errorText] setzt `isError` und ersetzt den Hinweis in `error`.
+ * [isSecure] maskiert und zeigt den Android-üblichen Sichtbarkeits-Schalter; [trailing] ist ein
+ * eigenes Endsymbol (nur ohne [isSecure]). [monospace] für technische Werte (Header-Namen).
+ * Nur in Formularen auf Kartenflächen — die kompakte Such-Pill bleibt [AbstandSearchField].
+ */
+@Composable
+fun AbstandOutlinedTextField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String? = null,
+    supportingText: String? = null,
+    errorText: String? = null,
+    isSecure: Boolean = false,
+    keyboardType: KeyboardType = if (isSecure) KeyboardType.Password else KeyboardType.Text,
+    capitalization: KeyboardCapitalization = KeyboardCapitalization.None,
+    autoCorrect: Boolean = false,
+    imeAction: ImeAction = ImeAction.Done,
+    onSubmit: (() -> Unit)? = null,
+    enabled: Boolean = true,
+    minLines: Int = 1,
+    maxLines: Int = 1,
+    textAlign: TextAlign = TextAlign.Start,
+    monospace: Boolean = false,
+    trailing: (@Composable () -> Unit)? = null,
+    /** Accessibility-Name, falls er vom sichtbaren Label abweicht (z. B. „#“ → „Series number“). */
+    contentDescription: String = label,
+) {
+    val palette = Theme.palette
+    val scheme = palette.scheme
+    var revealed by rememberSaveable { mutableStateOf(false) }
+    val isError = errorText != null
+    val footer = errorText ?: supportingText
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier.fillMaxWidth().semantics { this.contentDescription = contentDescription },
+        enabled = enabled,
+        textStyle = AppType.bodyLarge.copy(
+            textAlign = textAlign,
+            fontFamily = if (monospace && !isSecure) FontFamily.Monospace else null,
+        ),
+        label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        placeholder = placeholder?.let { { Text(it, style = AppType.bodyLarge, maxLines = maxLines) } },
+        trailingIcon = when {
+            isSecure -> {
+                {
+                    AbstandIconButton(
+                        if (revealed) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                        if (revealed) "Hide password" else "Show password",
+                        onClick = { revealed = !revealed },
+                        tint = scheme.onSurfaceVariant,
+                    )
+                }
+            }
+            else -> trailing
+        },
+        supportingText = footer?.let { { Text(it, style = AppType.bodySmall) } },
+        isError = isError,
+        visualTransformation = if (isSecure && !revealed) PasswordVisualTransformation() else VisualTransformation.None,
+        keyboardOptions = KeyboardOptions(
+            capitalization = capitalization,
+            autoCorrectEnabled = autoCorrect && !isSecure,
+            keyboardType = keyboardType,
+            imeAction = imeAction,
+        ),
+        keyboardActions = KeyboardActions(onAny = { onSubmit?.invoke() ?: defaultKeyboardAction(imeAction) }),
+        singleLine = maxLines == 1,
+        minLines = minLines,
+        maxLines = maxLines,
+        shape = AbstandFieldShape,
+        colors = abstandTextFieldColors(),
+    )
+}
+
+/** M3-Farbrollen der Formularfelder aus `palette.scheme` (Fokus = `primary` = App-Akzent). */
+@Composable
+fun abstandTextFieldColors(): TextFieldColors {
+    val scheme = Theme.palette.scheme
+    return OutlinedTextFieldDefaults.colors(
+        focusedTextColor = scheme.onSurface,
+        unfocusedTextColor = scheme.onSurface,
+        disabledTextColor = scheme.onSurface.copy(alpha = DisabledContentAlpha),
+        errorTextColor = scheme.onSurface,
+        focusedContainerColor = Color.Transparent,
+        unfocusedContainerColor = Color.Transparent,
+        disabledContainerColor = Color.Transparent,
+        errorContainerColor = Color.Transparent,
+        cursorColor = scheme.primary,
+        errorCursorColor = scheme.error,
+        focusedBorderColor = scheme.primary,
+        unfocusedBorderColor = scheme.outline,
+        disabledBorderColor = scheme.onSurface.copy(alpha = DisabledBorderAlpha),
+        errorBorderColor = scheme.error,
+        focusedLabelColor = scheme.primary,
+        unfocusedLabelColor = scheme.onSurfaceVariant,
+        disabledLabelColor = scheme.onSurface.copy(alpha = DisabledContentAlpha),
+        errorLabelColor = scheme.error,
+        focusedPlaceholderColor = scheme.onSurfaceVariant,
+        unfocusedPlaceholderColor = scheme.onSurfaceVariant,
+        focusedSupportingTextColor = scheme.onSurfaceVariant,
+        unfocusedSupportingTextColor = scheme.onSurfaceVariant,
+        errorSupportingTextColor = scheme.error,
+        focusedTrailingIconColor = scheme.onSurfaceVariant,
+        unfocusedTrailingIconColor = scheme.onSurfaceVariant,
+        errorTrailingIconColor = scheme.error,
+    )
+}
+
+/** M3: deaktivierter Inhalt 38 %, deaktivierte Kontur 12 %. */
+private const val DisabledContentAlpha = 0.38f
+private const val DisabledBorderAlpha = 0.12f
+
+/**
+ * iOS: `AbstandLabeledTextField` — beschriftetes Eingabefeld (Login, Formulare). Android: M3
+ * Outlined Text Field über [AbstandOutlinedTextField] ([title] = schwebendes Label). Keine
+ * Autokorrektur/-Großschreibung (wie iOS `.never`/`.autocorrectionDisabled()`).
  */
 @Composable
 fun AbstandLabeledTextField(
@@ -74,47 +195,20 @@ fun AbstandLabeledTextField(
     imeAction: ImeAction = ImeAction.Done,
     onSubmit: (() -> Unit)? = null,
     enabled: Boolean = true,
+    supportingText: String? = null,
+    errorText: String? = null,
 ) {
-    val palette = Theme.palette
-    var revealed by rememberSaveable { mutableStateOf(false) }
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
-        Text(title, style = AppType.labelMedium, color = palette.textSecondary)
-        Row(
-            Modifier.fillMaxWidth().clip(AbstandFieldShape).background(palette.card),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                enabled = enabled,
-                singleLine = true,
-                textStyle = AppType.labelLarge.copy(color = palette.textPrimary),
-                cursorBrush = SolidColor(Theme.accent),
-                visualTransformation = if (isSecure && !revealed) PasswordVisualTransformation() else VisualTransformation.None,
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.None,
-                    autoCorrectEnabled = false,
-                    keyboardType = keyboardType,
-                    imeAction = imeAction,
-                ),
-                keyboardActions = KeyboardActions(onAny = { onSubmit?.invoke() }),
-                modifier = Modifier.weight(1f).padding(FieldInnerPadding).semantics { contentDescription = title },
-            )
-            if (isSecure) {
-                AbstandIconButton(
-                    if (revealed) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                    if (revealed) "Hide password" else "Show password",
-                    onClick = { revealed = !revealed },
-                    tint = palette.textSecondary,
-                )
-            }
-        }
-    }
+    AbstandOutlinedTextField(
+        label = title, value = value, onValueChange = onValueChange, modifier = modifier,
+        isSecure = isSecure, keyboardType = keyboardType, imeAction = imeAction, onSubmit = onSubmit,
+        enabled = enabled, supportingText = supportingText, errorText = errorText,
+    )
 }
 
 /**
- * Suchfeld im App-Stil (iOS: `HStack { Image("magnifyingglass"); TextField }.abstandSearchFieldChrome()`).
- * Löschen-Symbol erscheint bei Text.
+ * Suchfeld im App-Stil (iOS: `HStack { Image("magnifyingglass"); TextField }.abstandSearchFieldChrome()`):
+ * kompakte 32-dp-Pill ([abstandSearchFieldChrome]), Lupe `onSurfaceVariant`, Eingabe `bodyLarge`
+ * (passt in 32 dp), Löschen-Knopf als [AbstandIconButton] (48-dp-Trefferfläche), sobald Text da ist.
  */
 @Composable
 fun AbstandSearchField(
@@ -130,14 +224,14 @@ fun AbstandSearchField(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppTheme.ExpandingDock.iconLabelSpacing),
     ) {
-        Icon(SF.magnifyingglass, contentDescription = null, tint = Theme.accent, modifier = Modifier.size(SearchIconSize))
+        Icon(SF.magnifyingglass, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(SearchIconSize))
         Box(Modifier.weight(1f)) {
-            if (query.isEmpty()) Text(placeholder, style = AppType.labelLarge, color = palette.textSecondary, maxLines = 1)
+            if (query.isEmpty()) Text(placeholder, style = AppType.bodyLarge, color = palette.textSecondary, maxLines = 1)
             BasicTextField(
                 value = query,
                 onValueChange = onQueryChange,
                 singleLine = true,
-                textStyle = AppType.labelLarge.copy(color = palette.textPrimary),
+                textStyle = AppType.bodyLarge.copy(color = palette.textPrimary),
                 cursorBrush = SolidColor(Theme.accent),
                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSubmit?.invoke() }),
@@ -145,11 +239,13 @@ fun AbstandSearchField(
             )
         }
         if (query.isNotEmpty()) {
-            Icon(
+            AbstandIconButton(
                 SF.xmarkCircleFill,
-                contentDescription = "Clear",
+                "Clear",
+                onClick = { onQueryChange("") },
+                size = AppTheme.Layout.compactIconButtonSize,
+                iconSize = SearchIconSize,
                 tint = palette.textSecondary,
-                modifier = Modifier.size(SearchIconSize).clip(CircleShape).clickable { onQueryChange("") },
             )
         }
     }

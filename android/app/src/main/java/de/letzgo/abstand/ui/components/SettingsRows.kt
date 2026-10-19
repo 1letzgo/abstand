@@ -1,6 +1,5 @@
 package de.letzgo.abstand.ui.components
 
-import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,8 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
@@ -36,13 +33,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,9 +50,6 @@ import de.letzgo.abstand.ui.bold
 // [AbstandGroupedCard], getrennt durch [SettingsCardDivider].
 
 /** iOS: `ServerAdminLayoutMetrics.inputFieldMaxWidth` — max. Breite von Eingaben in Kartenzeilen. */
-private val InputFieldMaxWidth = 180.dp
-/** iOS: `.opacity(isEnabled ? 1 : 0.45)` deaktivierter Zeilen. */
-private const val DisabledRowOpacity = 0.45f
 /** Symbolgröße in Settings-Zeilen (M3-Listen-Leading-Icon: 24 dp). */
 private val RowIconSize = AppTheme.Layout.iconSize
 /** Trailing-Symbol (Chevron, Statussymbol; M3: 24 dp). */
@@ -88,7 +78,7 @@ fun SettingsCardIcon(icon: ImageVector, tint: Color? = null) {
     }
 }
 
-/** iOS: `SettingsCardDivider` — Trenner (`textSecondary` 25 %) mit `settingsCardDividerSpacing`. */
+/** iOS: `SettingsCardDivider` — Trenner (M3 `outlineVariant`) mit `settingsCardDividerSpacing`. */
 @Composable
 fun SettingsCardDivider(modifier: Modifier = Modifier) {
     HorizontalDivider(
@@ -113,19 +103,19 @@ private fun SettingsRow(
         modifier.abstandCardListRowFrame()
             .heightIn(min = if (twoLine) AppTheme.Layout.listItemTwoLineHeight else AppTheme.Layout.listItemOneLineHeight)
             .padding(vertical = AppTheme.Layout.rowVerticalPadding)
-            .alpha(if (enabled) 1f else DisabledRowOpacity),
+            .alpha(if (enabled) 1f else AppTheme.disabledContentAlpha),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
         content = content,
     )
 }
 
-/** Titel (+ optionaler Untertitel) als Textspalte einer Zeile. */
+/** Titel (M3-Listen-Headline `bodyLarge`) + optionaler Untertitel als Textspalte einer Zeile. */
 @Composable
-private fun RowTitles(title: String, subtitle: String?, titleColor: Color, titleMedium: Boolean, modifier: Modifier, subtitleMaxLines: Int = Int.MAX_VALUE) {
+private fun RowTitles(title: String, subtitle: String?, titleColor: Color, modifier: Modifier, subtitleMaxLines: Int = Int.MAX_VALUE) {
     val palette = Theme.palette
     Column(modifier) {
-        Text(title, style = if (titleMedium) AppType.titleMedium else AppType.bodyLarge, color = titleColor)
+        Text(title, style = AppType.bodyLarge, color = titleColor)
         if (subtitle != null) {
             Text(subtitle, style = AppType.bodyMedium, color = palette.textSecondary, maxLines = subtitleMaxLines, overflow = TextOverflow.Ellipsis)
         }
@@ -137,7 +127,7 @@ private fun RowTitles(title: String, subtitle: String?, titleColor: Color, title
 fun SettingsCardNavRow(icon: ImageVector, title: String, onClick: () -> Unit, subtitle: String? = null) {
     SettingsRow(Modifier.clickable(onClick = onClick), twoLine = subtitle != null) {
         SettingsCardIcon(icon)
-        RowTitles(title, subtitle, Theme.palette.textPrimary, titleMedium = true, modifier = Modifier.weight(1f))
+        RowTitles(title, subtitle, Theme.palette.textPrimary, modifier = Modifier.weight(1f))
         Icon(SF.chevronRight, contentDescription = null, tint = Theme.palette.textSecondary, modifier = Modifier.size(TrailingIconSize))
     }
 }
@@ -158,7 +148,7 @@ fun SettingsCardToggleRow(
         twoLine = subtitle != null,
     ) {
         SettingsCardIcon(icon)
-        RowTitles(title, subtitle, Theme.palette.textPrimary, titleMedium = false, modifier = Modifier.weight(1f))
+        RowTitles(title, subtitle, Theme.palette.textPrimary, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = null, enabled = enabled, colors = abstandSwitchColors())
     }
 }
@@ -290,32 +280,25 @@ private fun ChannelSlider(label: String, value: Float, onChange: (Float) -> Unit
     }
 }
 
-/** iOS: `SettingsCardSecureFieldRow` — Titel links, maskierte Eingabe rechts (max. 180 dp). */
+/**
+ * iOS: `SettingsCardSecureFieldRow` — Titel links, maskierte Eingabe rechts. Android: Symbol +
+ * M3 Outlined Text Field ([AbstandOutlinedTextField], [title] als schwebendes Label, maskiert mit
+ * Sichtbarkeits-Schalter); [supportingText] (z. B. „Optional“/„Required“) steht darunter.
+ */
 @Composable
 fun SettingsCardSecureFieldRow(
     icon: ImageVector,
     title: String,
     value: String,
     onValueChange: (String) -> Unit,
-    placeholder: String = "••••••••",
+    supportingText: String? = null,
 ) {
-    val palette = Theme.palette
     SettingsRow {
         SettingsCardIcon(icon)
-        Text(title, style = AppType.bodyLarge, color = palette.textPrimary, modifier = Modifier.weight(1f))
-        Box(Modifier.widthIn(max = InputFieldMaxWidth), contentAlignment = Alignment.CenterEnd) {
-            if (value.isEmpty()) Text(placeholder, style = AppType.bodyLarge, color = palette.textSecondary.copy(alpha = 0.55f))
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                singleLine = true,
-                textStyle = AppType.bodyLarge.copy(color = palette.textPrimary, textAlign = TextAlign.End),
-                cursorBrush = SolidColor(Theme.accent),
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = title },
-            )
-        }
+        AbstandOutlinedTextField(
+            label = title, value = value, onValueChange = onValueChange, isSecure = true,
+            supportingText = supportingText, modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -372,7 +355,7 @@ fun SettingsCardActionRow(
     val palette = Theme.palette
     SettingsRow(Modifier.clickable(enabled = enabled && !isBusy, onClick = onClick), enabled = enabled, twoLine = subtitle != null) {
         SettingsCardIcon(icon, tint)
-        RowTitles(title, subtitle, tint ?: palette.textPrimary, titleMedium = true, modifier = Modifier.weight(1f))
+        RowTitles(title, subtitle, tint ?: palette.textPrimary, modifier = Modifier.weight(1f))
         if (isBusy) {
             AbstandInlineSpinner()
         } else if (trailingIcon != null) {
@@ -393,7 +376,7 @@ fun SettingsCardInfoRow(
     val palette = Theme.palette
     SettingsRow(twoLine = subtitle != null) {
         SettingsCardIcon(icon)
-        RowTitles(title, subtitle, palette.textPrimary, titleMedium = true, modifier = Modifier.weight(1f), subtitleMaxLines = 2)
+        RowTitles(title, subtitle, palette.textPrimary, modifier = Modifier.weight(1f), subtitleMaxLines = 2)
         if (trailingIcon != null) {
             Icon(trailingIcon, contentDescription = null, tint = trailingTint ?: palette.textSecondary, modifier = Modifier.size(TrailingIconSize))
         }

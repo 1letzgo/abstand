@@ -42,7 +42,7 @@ fun TranscriptRecapSheet(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val controller = remember { PlayerLiveTranscriptionController.shared(context) }
     LaunchedEffect(Unit) { controller.generateRecap() }
-    AbstandSheet(title = "Recap", onDismiss = onDismiss, onConfirm = onDismiss, confirmLabel = "Done") {
+    AbstandSheet(title = "Recap", onDismiss = onDismiss) {
         Box(Modifier.fillMaxWidth().heightIn(min = RecapMinHeight, max = RecapMaxHeight)) {
             TranscriptRecapContent(controller)
         }

@@ -29,12 +29,12 @@ import de.letzgo.abstand.ui.Theme
 object AbstandProgressMetrics {
     /** Dünner Balken in Zeilen/Downloads (iOS: `ProgressView(.linear)` ≈ 4 pt). */
     val barHeight = 4.dp
-    /** Strichstärke des Download-Rings. */
-    val ringStrokeWidth = 2.dp
+    /** Strichstärke des Download-Rings (M3 Circular Progress: 4 dp). */
+    val ringStrokeWidth = 4.dp
+    /** Dünnere Strichstärke für Mini-Ringe (12 dp auf Cover-Pillen), wo 4 dp den Ring zulaufen ließen. */
+    val miniRingStrokeWidth = 2.dp
     /** Standard-Ringgröße in Toolbars/Zeilen (= M3-Symbol 24 dp). */
     val ringSize = AppTheme.Layout.iconSize
-    /** Deckkraft der Ring-Spur relativ zur Ringfarbe. */
-    const val ringTrackOpacity = 0.25f
 }
 
 /**
@@ -70,8 +70,9 @@ fun AbstandProgressBar(
 }
 
 /**
- * Bestimmter Fortschrittsring (laufender Download). [color] Standard Akzent, Spur = [color] mit
- * 25 %. Für unbestimmtes Laden [AbstandInlineSpinner]/[AbstandLoadingSpinner] nehmen.
+ * Bestimmter Fortschrittsring (laufender Download). M3: 4-dp-Strich, [color] Standard Akzent,
+ * Spur [trackColor] Standard `secondaryContainer`. Für unbestimmtes Laden
+ * [AbstandInlineSpinner]/[AbstandLoadingSpinner] nehmen.
  */
 @Composable
 fun AbstandProgressRing(
@@ -80,13 +81,14 @@ fun AbstandProgressRing(
     color: Color = Theme.accent,
     size: Dp = AbstandProgressMetrics.ringSize,
     strokeWidth: Dp = AbstandProgressMetrics.ringStrokeWidth,
+    trackColor: Color = Theme.palette.scheme.secondaryContainer,
     contentDescription: String? = null,
 ) {
     CircularProgressIndicator(
         progress = { value.toFloat().coerceIn(0f, 1f) },
         color = color,
         strokeWidth = strokeWidth,
-        trackColor = color.copy(alpha = AbstandProgressMetrics.ringTrackOpacity),
+        trackColor = trackColor,
         modifier = modifier.size(size).let { m ->
             if (contentDescription != null) m.semantics { this.contentDescription = contentDescription } else m
         },

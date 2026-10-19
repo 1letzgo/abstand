@@ -100,7 +100,9 @@ fun AbstandBrowsePills(
     Row(
         modifier
             .fillMaxWidth()
-            .padding(start = AppTheme.Layout.tabPaddingH, end = AppTheme.Layout.stackSpacing, top = dock.verticalPadding, bottom = dock.verticalPadding),
+            // Kein vertikaler Innenabstand: die Pills tragen selbst das 48-dp-Touch-Ziel
+            // (minimumInteractiveComponentSize), die Zeilenhöhe bleibt damit 48 dp wie zuvor.
+            .padding(start = AppTheme.Layout.tabPaddingH, end = AppTheme.Layout.stackSpacing),
         horizontalArrangement = Arrangement.spacedBy(dock.itemSpacing),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -238,183 +240,10 @@ fun <ID : Any> AbstandFixedBrowseStripSectionsLayout(
 }
 
 /**
- * Bereichsumschalter als Icon-Tabs (wie stashy `NativeTabStrip`): nur Symbol, der aktive Tab
- * Symbol + Label mit Akzent-Indikator — für Bereiche ohne Bibliothek (Settings), wo eine Pill
- * mehr Platz kostet als sie bringt.
- */
-@Composable
-fun AbstandBrowseIconTabs(
-    items: List<AbstandBrowseStripItem>,
-    selectionId: String,
-    onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    if (items.isEmpty()) return
-    val haptics = LocalHapticFeedback.current
-    val selectedIndex = items.indexOfFirst { it.id == selectionId }.coerceAtLeast(0)
-    CompactIconTabs(
-        items, selectedIndex,
-        { item ->
-            if (item.id != selectionId) {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onSelect(item.id)
-            }
-        },
-        pinFirst = false,
-        modifier = modifier.fillMaxWidth(),
-    )
-}
-
-/**
- * Icon-Tabs (stashy `CompactIconTabs`): eigene Zeile statt `ScrollableTabRow`, weil diese jedem
- * Tab 90 dp Mindestbreite gibt und reine Symbol-Tabs weit auseinanderzieht.
- */
-@Composable
-private fun CompactIconTabs(
-    items: List<AbstandBrowseStripItem>,
-    selectedIndex: Int,
-    onSelect: (AbstandBrowseStripItem) -> Unit,
-    pinFirst: Boolean,
-    modifier: Modifier,
-) {
-    val scrolling = if (pinFirst) items.drop(1) else items
-    val offset = if (pinFirst) 1 else 0
-    val scrollIndex = (selectedIndex - offset).takeIf { it >= 0 }
-    val state = rememberLazyListState()
-    LaunchedEffect(scrollIndex) { scrollIndex?.let { state.animateScrollToItem((it - 1).coerceAtLeast(0)) } }
-    Column(modifier) {
-    Row(Modifier.fillMaxWidth().heightIn(min = AppTheme.Layout.minTapTarget), verticalAlignment = Alignment.CenterVertically) {
-        if (pinFirst) {
-            Spacer(Modifier.width(AppTheme.Layout.stackSpacing))
-            CompactIconTab(items[0], selectedIndex == 0, onSelect)
-        }
-        LazyRow(
-            Modifier.weight(1f).heightIn(min = AppTheme.Layout.minTapTarget),
-            state = state,
-            contentPadding = PaddingValues(horizontal = AppTheme.Layout.stackSpacing),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            items(scrolling.size, key = { scrolling[it].id }) { i ->
-                CompactIconTab(scrolling[i], i + offset == selectedIndex, onSelect)
-            }
-        }
-    }
-    // M3 Tabs: Trennlinie outlineVariant unter der Leiste.
-    HorizontalDivider(thickness = AppTheme.Layout.hairlineWidth, color = Theme.palette.scheme.outlineVariant)
-    }
-}
-
-/**
- * M3 Primary Tab (Symbol über Label, 64 dp): gewählt `primary` mit 3-dp-Indikator, sonst
- * `onSurfaceVariant`. Label immer sichtbar (statt iOS-Dock „nur aktiv mit Label“).
- */
-@Composable
-private fun CompactIconTab(item: AbstandBrowseStripItem, isSelected: Boolean, onSelect: (AbstandBrowseStripItem) -> Unit) {
-    val accent = Theme.accent
-    val color = if (isSelected) accent else Theme.palette.textSecondary
-    Box(
-        Modifier
-            .heightIn(min = AppTheme.Layout.primaryTabHeight)
-            .clickable(role = Role.Tab) { onSelect(item) }
-            .semantics { selected = isSelected }
-            .padding(horizontal = AppTheme.Layout.rowSpacing),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            Modifier.padding(vertical = AppTheme.Layout.stackSpacing),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.hairlineSpacing),
-        ) {
-            Icon(item.icon, contentDescription = null, tint = color, modifier = Modifier.size(AppTheme.Layout.iconSize))
-            Text(item.label, style = AppType.titleSmall, color = color, maxLines = 1)
-        }
-        if (isSelected) {
-            Box(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .width(AppTheme.Layout.browseTabIndicatorWidth)
-                    .height(AppTheme.Layout.browseTabIndicatorHeight)
-                    .background(accent, RoundedCornerShape(topStart = AppTheme.Layout.browseTabIndicatorHeight, topEnd = AppTheme.Layout.browseTabIndicatorHeight)),
-            )
-        }
-    }
-}
-
-/**
- * iOS: `AbstandExpandingDockBrowseStrip` / `SettingsIconStrip` — Bereichs-Buttons: alle in derselben
- * eckigen Form (abgerundetes Rechteck, gleiche Höhe); inaktiv nur Symbol auf tonaler Fläche, der
- * aktive Bereich farblich markiert (Akzent) mit Symbol + Label. Horizontal scrollbar, der aktive
- * Bereich wird ins Bild gescrollt.
- */
-@Composable
-fun AbstandDockButtons(
-    items: List<AbstandBrowseStripItem>,
-    selectionId: String,
-    onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    if (items.isEmpty()) return
-    val haptics = LocalHapticFeedback.current
-    val dock = AppTheme.ExpandingDock
-    val state = rememberLazyListState()
-    val selectedIndex = items.indexOfFirst { it.id == selectionId }
-    LaunchedEffect(selectedIndex) { if (selectedIndex >= 0) state.animateScrollToItem((selectedIndex - 1).coerceAtLeast(0)) }
-    LazyRow(
-        modifier.fillMaxWidth(),
-        state = state,
-        contentPadding = PaddingValues(start = AppTheme.Layout.tabPaddingH, end = AppTheme.Layout.stackSpacing, top = dock.verticalPadding, bottom = dock.verticalPadding),
-        horizontalArrangement = Arrangement.spacedBy(dock.itemSpacing),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        items(items.size, key = { items[it].id }) { i ->
-            val item = items[i]
-            DockSectionButton(item, item.id == selectionId) {
-                if (item.id != selectionId) {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onSelect(item.id)
-                }
-            }
-        }
-    }
-}
-
-/** Ein Bereichs-Button: eckige Fläche, aktiv in Akzentfarbe mit Label, inaktiv nur Symbol. */
-@Composable
-private fun DockSectionButton(item: AbstandBrowseStripItem, isSelected: Boolean, onClick: () -> Unit) {
-    val dock = AppTheme.ExpandingDock
-    val palette = Theme.palette
-    val container = if (isSelected) Theme.accent else palette.scheme.secondaryContainer
-    val content = if (isSelected) Theme.onAccent else palette.scheme.onSecondaryContainer
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(AppTheme.Layout.cornerSmall),
-        color = container,
-        contentColor = content,
-        modifier = Modifier
-            .height(dock.activeHeight)
-            .widthIn(min = dock.activeHeight)
-            .animateContentSize()
-            .semantics {
-                selected = isSelected
-                role = Role.Tab
-                contentDescription = item.label
-            },
-    ) {
-        Row(
-            Modifier.padding(horizontal = if (isSelected) dock.activeLeadingPadding else 0.dp),
-            horizontalArrangement = Arrangement.spacedBy(dock.iconLabelSpacing, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(item.icon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
-            if (isSelected) Text(item.label, style = AppType.labelLarge, maxLines = 1)
-        }
-    }
-}
-
-/**
  * Standard-Material-3-Tabs (`PrimaryScrollableTabRow`, Text-Tabs, 48 dp — gleiche Höhe wie die
  * Pill-Leisten der anderen Tabs) als Bereichsumschalter in der Kopfzeile. Akzent für das aktive
- * Label und den Indikator, kein Trenner (die Kopfzeile hat keinen).
+ * Label und den Indikator (M3: 3 dp, [AppTheme.Layout.browseTabIndicatorHeight]), darunter der
+ * M3-Trenner (1 dp `outlineVariant`).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -438,10 +267,11 @@ fun AbstandMaterialTabs(
             TabRowDefaults.PrimaryIndicator(
                 Modifier.tabIndicatorOffset(selectedIndex, matchContentSize = true),
                 width = Dp.Unspecified,
+                height = AppTheme.Layout.browseTabIndicatorHeight,
                 color = accent,
             )
         },
-        divider = {},
+        divider = { HorizontalDivider(thickness = AppTheme.Layout.hairlineWidth, color = Theme.palette.scheme.outlineVariant) },
     ) {
         items.forEachIndexed { index, item ->
             Tab(

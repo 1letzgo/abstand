@@ -206,12 +206,10 @@ private fun DismissGrabber(onDismiss: () -> Unit) {
         Box(
             Modifier
                 .size(MiniPlayerMetrics.dismissGrabberWidth, MiniPlayerMetrics.dismissGrabberHeight)
-                .background(Theme.palette.textSecondary.copy(alpha = GRABBER_ALPHA), CircleShape),
+                .background(Theme.palette.textSecondary.copy(alpha = AppTheme.grabberAlpha), CircleShape),
         )
     }
 }
-
-private const val GRABBER_ALPHA = 0.5f
 
 /** iOS: `playerHeaderArea` — Cover oder aufgeklapptes Panel, mit Überblendung. */
 @Composable

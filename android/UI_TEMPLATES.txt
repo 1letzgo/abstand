@@ -56,7 +56,10 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/stats/ListeningAchievementCard.kt:113  AlertDialog(
 
 ## Bottom-Sheets (ModalBottomSheet / AbstandSheetScaffold)
-   → Vorlage: AbstandSheet (Griff, Cancel/Titel/Confirm) · MetadataSheetScaffold (Formulare)
+   → Vorlage: AbstandSheet (M3: Griff, optionaler Titel titleLarge linksbündig 24 dp, Inhalt; nur mit
+     Bestätigung unten rechts „Cancel“-Text-Button + Filled-Button, destructive = error; ohne
+     Bestätigung keine Buttons, Schließen per Wischen/Scrim) · MetadataSheetScaffold (Vollbild-Dialog
+     für Formulare: ✕ links, Titel, „Save“-Text-Aktion rechts)
    Fundstellen vorher: 5
    - ui/components/Scaffolds.kt:336  fun AbstandSheetScaffold(
    - ui/components/Scaffolds.kt:347  ModalBottomSheet(
@@ -273,7 +276,12 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/stats/StatsScreen.kt:346  color = Color.White,
 
 ## Freitext-Eingaben (OutlinedTextField / InsetField)
-   → Vorlage: AbstandInsetTextField · AbstandLabeledTextField · MetadataSheetTextField · AbstandSearchField
+   → Vorlage: AbstandOutlinedTextField (Kern, M3 Outlined Text Field: Label im Feld/schwebend,
+     bodyLarge, Ecke 4 dp, Fokus primary, Kontur outline, Label onSurfaceVariant, supportingText
+     darunter, errorText = isError + error-Farbe, isSecure mit Sichtbarkeits-Schalter) ·
+     AbstandLabeledTextField · MetadataSheetTextField (hint → supportingText) · AbstandInsetTextField
+     (Platzhalter → Label) · SettingsCardSecureFieldRow (Symbol + Outlined-Feld) — alle darauf
+     aufgebaut · AbstandSearchField bleibt bewusst die kompakte 32-dp-Pill
    Fundstellen vorher: 2
    - ui/metadata/EditMetadataSheet.kt:372  private fun InsetField(
    - ui/player/NowPlayingPanels.kt:244  OutlinedTextField(
@@ -304,7 +312,6 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    AbstandStatusBadges: 4
    AbstandBadge: 5
    AbstandChip: 1
-   AbstandDockChip: 2
    AbstandSegmentedControl: 2
    AbstandListRow: 5
    AbstandDivider: 3
@@ -329,27 +336,42 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    Listenzeile 1/2/3-zeilig                   56 / 72 / 88             50 (listRowMin)    56 / 72 (mit Untertitel)
    Listenzeile Innenabstand/Gap               16 seitl., 8 vert., 16   16 / 8 / 12        16 / 8 / 16 (rowSpacing)
    Listen-Icons leading/trailing              24 / 24                  22 / 18            24 / 24
-   Karte Ecke (cardCornerRadius)              12 (medium)              14                 12
-   Hero-Karte Ecke                            16 (large)               16                 16
+   Karte Ecke (cardCornerRadius)              12 (medium)              14                 12 (alle Karten inkl. Library/Home/Folgen)
+   Karten-Variante                            Filled Card              Füllung + Kante    Filled: palette.card, kein Rand
    Karten-Innenabstand (cardPadding)          16                       14                 16
-   Karten-Elevation                           Level 1 = 1 dp           3 / 6              Standard 1, Hero 3
+   Karten-Elevation                           Filled 0 / Elevated 1    3 / 6              Standard 0, Hero 1
    Cover-Ecken                                8 (small)                11                 8
    Button (Primary/Prominent)                 40 hoch, voll rund, 24   ~48, 14er Ecke     40, CircleShape, 24 seitl., labelLarge
    Text-Button                                40 hoch, 12 seitl.       Default, body      Default (12), labelLarge
    Button-/Chip-Icon                          18                       20                 18 (smallIconSize)
    Play-Pille                                 Button 40 / XS 32        ~30–34             40 mit Text, 32 nur Symbol
    Chip (AbstandChip)                         32 hoch, 8 Ecke, 16/8    44, Kapsel         32, 8er Ecke, 16 (8 mit Icon), Ziel 48
-   Dock-Chip (Expanding Dock)                 Chip 32–40, Gap 8        46, Gap 10         40, Gap 8, Icon 20, Cover 24/32
-   Menü-Eintrag                               48 hoch, 12 seitl.       44, 16 seitl.      48, 12, Icon 24, labelLarge
+   Menü-Eintrag                               48 hoch, 12 seitl.       44, 16 seitl.      48, 12, Icon 24 onSurfaceVariant, labelLarge;
+                                                                                          Häkchen-Spalte nur bei Auswahl-Menüs
    Menü Breite / Ecke / Elevation             112–280 / 4 / Level 2    ≥200 / 14 / 6      112–280 / 4 / 3
    Dialog Ecke / Innenabstand / Titel         28 / 24 / headlineSmall  20 / – / headline  28 / 24 / headlineSmall
+   Dialog-Aktionen                            Text-Buttons primary     Akzent/textPrimary alle primary, destruktiv error
    Bottom Sheet Ecke / Griff                  28 / 32×4                20 / 36×5          28 / 32×4
-   Textfeld / Suchfeld                        56 hoch, 16, Ecke 4/voll 12er Padding/Ecke  16 Padding (56), Ecke 4; Suche 56 voll rund
-   Segmented Button                           40 hoch, labelLarge      Default, subhead.  Default (40), labelLarge
+   Textfeld / Suchfeld                        56 hoch, 16, Ecke 4/voll 12er Padding/Ecke  M3 OutlinedTextField (56), Ecke 4; Suche bewusst 32-dp-Pill
+                                                                                          (8er-Ecke wie Bereichs-Pills), bodyLarge, Lupe
+                                                                                          onSurfaceVariant, Löschen = AbstandIconButton
+   Segmented Button                           40 hoch, labelLarge      Default, subhead.  Default (40), labelLarge; gewählt secondaryContainer
+                                                                                          + Häkchen, sonst transparent/onSurface, Rand outline
    Spinner groß / Linear-Progress             48×4 / 4                 36×3,5 / 4         48×4 / 4 (Small 20, Regular 32)
+   Fortschrittsring (AbstandProgressRing)     4 dp, Spur secCont.      2 dp, Farbe 25 %   4 dp, Spur secondaryContainer (Cover-Mini-Ring 12 dp: 2 dp)
+   Tabs (AbstandMaterialTabs)                 Indikator 3, Divider 1   —                  Indikator 3 dp, Divider 1 dp outlineVariant
+   Deaktiviert / beendet                      38 % Inhalt, 12 % Fläche 35/45/50 %         AppTheme.disabledContentAlpha 0.38 / disabledContainerAlpha 0.12;
+                                                                                          beendete Karten: nur Cover + Play-Pille 38 %, Titel onSurfaceVariant
+   Trenner / Ränder                           outlineVariant           textSecondary α    scheme.outlineVariant (Segmented: outline)
+   Destruktiv / Fehler                        error / onError          fest Rot           AppTheme.danger = scheme.error, onDanger = onError
+   Top-App-Bar-Symbole                        Nav onSurface, Aktionen  Akzent/textPrimary Nav onSurface, Aktionen onSurfaceVariant (aktiver
+                                              onSurfaceVariant                            Zustand primary)
+   Symbole                                    Outlined, Filled = aktiv gemischt            SF ohne .fill → Outlined; Filled nur aktiv/gewählt
+   Settings-Zeilen-Titel                      bodyLarge                titleMedium        bodyLarge
+   Sheet-Griff                                onSurfaceVariant 40 %    0,4 / 0,5          AppTheme.grabberAlpha 0.4 (Sheets + Player)
    Mini-Player                                64 hoch (üblich)         48+16, Cover 32    64, Cover 48, Ecke 16, Play 56×40
    Vollplayer Play / Transport                72–96 / ≥48              72×44 / 44         96×56 / 48, Symbole 32/36
-   Sektionsabstand (sectionSpacing)           Vielfache von 8          22                 24 (Home-Regale 32)
+   Sektionsabstand (sectionSpacing)           Vielfache von 8          22                 24
    withinSectionSpacing / compactSpacing      8 / 4                    10 / 6             8 / 4
    Typografie                                 M3 Type Scale (Roboto)   iOS Dynamic Type   AppType = MaterialTheme.typography
 
@@ -361,8 +383,8 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
 
    Bewusst abweichend: AppTheme.Layout.hairlineSpacing 2 dp (= M3 SegmentedGap), Strichstärken 2 dp
    (boldStrokeWidth, Ring), Fortschritts-/Kartenkanten 1 dp; Cover-/Karussell-Breiten aus Viewport-
-   Formeln (iOS-Logik) und libraryRowCoverSide 100 dp (Cover-Maß); Detail-Play/Neben-Aktionen 56 dp
-   (FAB-Höhe) statt 40-dp-Button, weil sie die Hauptaktion der Seite sind; Dock-Strip nutzt jetzt
+   Formeln (iOS-Logik) und libraryRowCoverSide 100 dp (Cover-Maß); Detail-Play (Filled) /Neben-Aktion
+   (Tonal Icon Button) 56 dp (FAB-Höhe) statt 40-dp-Button, weil sie die Hauptaktion der Seite sind; Dock-Strip nutzt jetzt
    M3 Filter Chips (siehe „Material 3 Komponenten“).
 
 ## Material 3 colors (Android; iOS-Palette nur noch als Seed)
@@ -393,25 +415,30 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    Vorher: Dark fest #353535/#454545, alle Container = card, secondary = tertiary = Akzent.
 
 ## Material 3 Komponenten (Umbau, alle zentral in ui/components bzw. Theme)
-   Expanding Dock / AbstandDockChip   → M3 Filter Chip: 32 dp, 8er-Ecke, Label immer sichtbar,
-                                         gewählt secondaryContainer + Häkchen, sonst outlineVariant-Rand
-   AbstandChip                         → dito (Häkchen, wenn kein Symbol)
+   AbstandChip                         → M3 Filter Chip: 32 dp, 8er-Ecke, Label immer sichtbar, gewählt
+                                         secondaryContainer + Häkchen (wenn kein Symbol), sonst outlineVariant-Rand
+   (entfernt: AbstandDockChip, AbstandStaticPill, AbstandBrowseIconTabs, AbstandDockButtons — ungenutzt)
    AbstandDropdownPill                 → Tonal-Chip (secondaryContainer, 8er-Ecke, kein Schatten)
    Settings-Icon-Leiste                → Bereichs-Pill wie Books/Podcasts (AbstandBrowsePills)
    Home-Kopfzeile                      → Bereichs-Pill wie Books/Podcasts: zeigt aktuelles Regal, Menü springt zum Regal
    ServerAdminSection-Titel            → M3-Listen-Subheader (titleSmall, primary)
    SettingsCardIcon                    → onSurfaceVariant statt Akzent; Divider outlineVariant
-   Karten (CardElevation)              → Filled Cards ohne Schatten (Subtle/Standard 0), Hero Level 1
+   Karten (CardElevation)              → Filled Cards ohne Schatten und ohne Rand (Subtle/Standard 0), Hero Level 1;
+                                         Home-/Library-/Folgen-Karten über AbstandCard bzw. abstandCardChrome, 12 dp
    AbstandPlayPill                     → mit Restzeit Filled Button (primary), nur Symbol Filled Tonal
    AbstandIconButton Tonal             → secondaryContainer / onSecondaryContainer
-   Buttons deaktiviert                 → onSurface 12 % / 38 %
+   Buttons deaktiviert                 → onSurface 12 % / 38 % (auch Tonal/Filled AbstandIconButton)
+   AbstandPlayPill kompakt, Dropdown-Pills → minimumInteractiveComponentSize (48-dp-Ziel, Optik unverändert)
+   AbstandSegmentedControl             → secondaryContainer + Häkchen / transparent, Rand outline
+   AbstandProgressRing                 → 4-dp-Strich, Spur secondaryContainer
    AbstandCapsLabel, Meta-Labels       → keine Versalien, labelLarge
    Player-Scrubber                     → M3-Slider (Spur 16, Griff 4×40, Lücke 4, Stopp-Punkt)
    Menüs / Sheets / Mini-Player        → surfaceContainer / surfaceContainerLow / surfaceContainerHighest
    Top App Bar gescrollt               → surfaceContainer
 
 ## Bewusst nicht vereinheitlicht
-   - DetailHeroPrimaryButton / DetailHeroCircularButton (Fortschritts-Kapsel mit Füllung) — Einzelstück der Detail-Hero.
+   - DetailHeroPrimaryButton (AbstandProminentButton + Fortschritts-Überlagerung) / DetailHeroCircularButton
+     (Tonal AbstandIconButton) — Einzelstück der Detail-Hero, 56 dp hoch.
    - Transport-Knöpfe im Player (TransportIcon, Play-Kapsel, MiniTransport-Play) — eigene Maße aus MiniPlayerMetrics.
    - Mini-Player-Hülle (Surface in MiniPlayer.kt) und Now-Playing-Overlay (eigenes Vollbild-Chrome).
    - Domänen-Karten (BookRowCard, BrowseEntityRowCard, PodcastEpisodeListRow, Hero-/Kompaktkarten) — eigene

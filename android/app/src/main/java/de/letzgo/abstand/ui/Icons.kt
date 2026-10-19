@@ -1,22 +1,22 @@
 package de.letzgo.abstand.ui
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.automirrored.filled.Notes
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.automirrored.filled.VolumeDown
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
+import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.automirrored.outlined.ListAlt
+import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.automirrored.outlined.ManageSearch
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.automirrored.outlined.Notes
+import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.automirrored.outlined.VolumeDown
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -26,21 +26,25 @@ import androidx.compose.ui.graphics.vector.ImageVector
  * damit Ports die iOS-Symbole 1:1 wiederfinden. Enthält jedes `systemImage:`/`Image(systemName:)`
  * aus den iOS-Quellen (`abstand/`). Dynamische Symbolnamen (z. B. aus Shelf-Kategorien) über [SF.named].
  * Neue Symbole hier ergänzen statt pro Screen ad hoc Icons zu wählen.
+ *
+ * M3-Konvention: SF-Namen **ohne** `.fill` → Outlined-Variante (Toolbars, Aktionen), `…Fill` →
+ * Filled — gefüllte Symbole nur für ausgewählte/aktive Zustände (Filter aktiv, Play/Pause,
+ * fertig/heruntergeladen). Transport-Symbole des Players bleiben gefüllt.
  */
 object SF {
-    val arrowClockwise = Icons.Filled.Refresh
+    val arrowClockwise = Icons.Outlined.Refresh
     val arrowClockwiseCircle = Icons.Outlined.Refresh
-    val arrowCounterclockwise = Icons.Filled.Replay
+    val arrowCounterclockwise = Icons.Outlined.Replay
     val arrowCounterclockwiseCircleFill = Icons.Filled.Restore
     val arrowDown = Icons.Filled.ArrowDownward
     val arrowDownCircle = Icons.Outlined.ArrowCircleDown
     val arrowDownCircleFill = Icons.Filled.ArrowCircleDown
     val arrowDownCircleBadgeXmark = Icons.Outlined.FileDownloadOff
-    val arrowRight = Icons.AutoMirrored.Filled.ArrowForward
-    val arrowTriangle2Circlepath = Icons.Filled.Sync
+    val arrowRight = Icons.AutoMirrored.Outlined.ArrowForward
+    val arrowTriangle2Circlepath = Icons.Outlined.Sync
     val arrowUp = Icons.Filled.ArrowUpward
-    val arrowUpArrowDown = Icons.Filled.SwapVert
-    val arrowUturnBackward = Icons.AutoMirrored.Filled.Undo
+    val arrowUpArrowDown = Icons.Outlined.SwapVert
+    val arrowUturnBackward = Icons.AutoMirrored.Outlined.Undo
     val backwardEnd = Icons.Filled.SkipPrevious
     val forwardEnd = Icons.Filled.SkipNext
     val boltFill = Icons.Filled.Bolt
@@ -72,13 +76,13 @@ object SF {
     val circleLefthalfFilled = Icons.Outlined.Contrast
     val clock = Icons.Outlined.Schedule
     val clockFill = Icons.Filled.Schedule
-    val clockArrowCirclepath = Icons.Filled.History
+    val clockArrowCirclepath = Icons.Outlined.History
     val docText = Icons.Outlined.Description
     val docTextMagnifyingglass = Icons.Outlined.FindInPage
-    val dotRadiowavesLeftAndRight = Icons.Filled.Podcasts
-    val dotRadiowavesUpForward = Icons.Filled.RssFeed
+    val dotRadiowavesLeftAndRight = Icons.Outlined.Podcasts
+    val dotRadiowavesUpForward = Icons.Outlined.RssFeed
     /** iOS-„⋯“-Menü → Android-Überlaufmenü „⋮“. */
-    val ellipsisCircle = Icons.Filled.MoreVert
+    val ellipsisCircle = Icons.Outlined.MoreVert
     val exclamationmarkTriangle = Icons.Outlined.Warning
     val flameFill = Icons.Filled.LocalFireDepartment
     val folder = Icons.Outlined.Folder
@@ -100,20 +104,20 @@ object SF {
     val internaldrive = Icons.Outlined.Storage
     val ladybug = Icons.Outlined.BugReport
     val lightbulbFill = Icons.Filled.Lightbulb
-    val line3Horizontal = Icons.Filled.Menu
+    val line3Horizontal = Icons.Outlined.Menu
     val line3HorizontalDecreaseCircle = Icons.Outlined.FilterAlt
     val line3HorizontalDecreaseCircleFill = Icons.Filled.FilterAlt
-    val link = Icons.Filled.Link
-    val listBullet = Icons.AutoMirrored.Filled.List
+    val link = Icons.Outlined.Link
+    val listBullet = Icons.AutoMirrored.Outlined.List
     val listBulletBelowRectangle = Icons.AutoMirrored.Outlined.ListAlt
     val listStar = Icons.Outlined.Stars
     val lockFill = Icons.Filled.Lock
     val lockOpenFill = Icons.Filled.LockOpen
-    val lockRotation = Icons.Filled.ScreenLockRotation
-    val magnifyingglass = Icons.Filled.Search
+    val lockRotation = Icons.Outlined.ScreenLockRotation
+    val magnifyingglass = Icons.Outlined.Search
     val mic = Icons.Outlined.Mic
     val micFill = Icons.Filled.Mic
-    val minus = Icons.Filled.Remove
+    val minus = Icons.Outlined.Remove
     val minusCircle = Icons.Outlined.RemoveCircleOutline
     val minusCircleFill = Icons.Filled.RemoveCircle
     val moon = Icons.Outlined.DarkMode
@@ -136,40 +140,40 @@ object SF {
     val playCircle = Icons.Outlined.PlayCircle
     val playCircleFill = Icons.Filled.PlayCircle
     val playFill = Icons.Filled.PlayArrow
-    val plus = Icons.Filled.Add
+    val plus = Icons.Outlined.Add
     val plusCircle = Icons.Outlined.AddCircleOutline
     val plusCircleFill = Icons.Filled.AddCircle
     val plusRectangleOnRectangle = Icons.Outlined.LibraryAdd
-    val rectanglePortraitAndArrowRight = Icons.AutoMirrored.Filled.Logout
+    val rectanglePortraitAndArrowRight = Icons.AutoMirrored.Outlined.Logout
     val rectangleStack = Icons.Outlined.CollectionsBookmark
     val rectangleStackFill = Icons.Filled.CollectionsBookmark
     val scroll = Icons.Outlined.HistoryEdu
     val serverRack = Icons.Outlined.Dns
-    val sliderHorizontal3 = Icons.Filled.Tune
-    val sparkles = Icons.Filled.AutoAwesome
-    val speakerWave1 = Icons.AutoMirrored.Filled.VolumeDown
-    val speakerWave3 = Icons.AutoMirrored.Filled.VolumeUp
-    val squareAndArrowUp = Icons.Filled.Share
+    val sliderHorizontal3 = Icons.Outlined.Tune
+    val sparkles = Icons.Outlined.AutoAwesome
+    val speakerWave1 = Icons.AutoMirrored.Outlined.VolumeDown
+    val speakerWave3 = Icons.AutoMirrored.Outlined.VolumeUp
+    val squareAndArrowUp = Icons.Outlined.Share
     val squareGrid2x2 = Icons.Outlined.GridView
     val squareGrid2x2Fill = Icons.Filled.GridView
     val sunMax = Icons.Outlined.LightMode
     val sunMaxFill = Icons.Filled.LightMode
     val tag = Icons.Outlined.Sell
     val tagFill = Icons.Filled.Sell
-    val textAlignleft = Icons.AutoMirrored.Filled.Notes
+    val textAlignleft = Icons.AutoMirrored.Outlined.Notes
     val textBookClosed = Icons.Outlined.ImportContacts
     val textBubble = Icons.Outlined.ChatBubbleOutline
     val textMagnifyingglass = Icons.AutoMirrored.Outlined.ManageSearch
     val textPage = Icons.AutoMirrored.Outlined.Article
-    val textQuote = Icons.Filled.FormatQuote
+    val textQuote = Icons.Outlined.FormatQuote
     val textWordSpacing = Icons.Outlined.SpaceBar
-    val textformatSizeLarger = Icons.Filled.TextIncrease
-    val textformatSizeSmaller = Icons.Filled.TextDecrease
-    val translate = Icons.Filled.Translate
+    val textformatSizeLarger = Icons.Outlined.TextIncrease
+    val textformatSizeSmaller = Icons.Outlined.TextDecrease
+    val translate = Icons.Outlined.Translate
     val trash = Icons.Outlined.Delete
     val trayFull = Icons.Outlined.Inbox
     val waveform = Icons.Filled.GraphicEq
-    val xmark = Icons.Filled.Close
+    val xmark = Icons.Outlined.Close
     val xmarkCircle = Icons.Outlined.Cancel
     val xmarkCircleFill = Icons.Filled.Cancel
 

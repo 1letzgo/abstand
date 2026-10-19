@@ -46,25 +46,23 @@ import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 
-/** iOS: `AbstandPrimaryButtonStyle.fillOpacity` — deaktiviert 35 % Akzent. */
-private const val DisabledFillOpacity = 0.35f
 /** Icon-Größe in Button-Labels (M3: 18 dp). */
 private val ButtonIconSize = AppTheme.Layout.smallIconSize
 /** M3 Filled Button: 24 dp seitlich, Höhe [AppTheme.Layout.buttonHeight] (40 dp). */
 private val ButtonContentPadding = PaddingValues(horizontal = AppTheme.Layout.buttonHorizontalPadding)
 
-/** Akzent- bzw. bei [destructive] Danger-Fläche (iOS: `.environment(\.themeAccent, AppTheme.danger)`). */
+/** Akzent- bzw. bei [destructive] Error-Fläche (M3 `error`/`onError`; iOS: `AppTheme.danger`). */
 @Composable
 private fun accentButtonColors(destructive: Boolean = false): androidx.compose.material3.ButtonColors {
     val fill = if (destructive) AppTheme.danger else Theme.accent
-    val content = if (destructive) Theme.palette.foregroundOnAccent(AppTheme.danger) else Theme.onAccent
+    val content = if (destructive) AppTheme.onDanger else Theme.onAccent
     // M3: deaktiviert = onSurface 12 % Fläche / 38 % Inhalt.
     val onSurface = Theme.palette.scheme.onSurface
     return ButtonDefaults.buttonColors(
         containerColor = fill,
         contentColor = content,
-        disabledContainerColor = onSurface.copy(alpha = 0.12f),
-        disabledContentColor = onSurface.copy(alpha = 0.38f),
+        disabledContainerColor = onSurface.copy(alpha = AppTheme.disabledContainerAlpha),
+        disabledContentColor = onSurface.copy(alpha = AppTheme.disabledContentAlpha),
     )
 }
 
@@ -178,16 +176,15 @@ enum class AbstandIconButtonStyle {
 object AbstandIconButtonDefaults {
     /** Symbolgröße (M3: 24 dp, iOS: SF-Symbol in `.title3`). */
     val iconSize = AppTheme.Layout.iconSize
-    /** Deckkraft deaktivierter Symbole. */
-    const val disabledOpacity = 0.35f
 }
 
 /**
  * **Der** Icon-Button der App (M3: 40-dp-Container, 24-dp-Symbol). [size] = sichtbarer Container
  * (`iconButtonSize`, `compactIconButtonSize`, größere Player-Knöpfe); die Trefferfläche ist immer
  * mindestens `minTapTarget` (48 dp, `minimumInteractiveComponentSize`). [tint] `Unspecified` = Toolbar-/Inhaltsfarbe (Plain), Akzent (Tonal),
- * `onAccent` (Filled). [containerColor] überschreibt die Tonal-Fläche (Standard `palette.card`).
- * Deaktiviert: Symbol mit 35 % Deckkraft.
+ * `onAccent` (Filled). [containerColor] überschreibt die Tonal-/Filled-Fläche (Standard
+ * `secondaryContainer` bzw. Akzent). Deaktiviert (M3): Symbol 38 % ([AppTheme.disabledContentAlpha]),
+ * Tonal/Filled-Fläche onSurface 12 %.
  */
 @Composable
 fun AbstandIconButton(
@@ -227,11 +224,15 @@ fun AbstandIconButton(
         style == AbstandIconButtonStyle.Filled -> Theme.onAccent
         else -> LocalContentColor.current
     }
-    val container = when (style) {
-        AbstandIconButtonStyle.Plain -> Color.Transparent
-        AbstandIconButtonStyle.Tonal -> if (containerColor != Color.Unspecified) containerColor else palette.scheme.secondaryContainer
-        AbstandIconButtonStyle.Filled -> if (containerColor != Color.Unspecified) containerColor else Theme.accent
+    val container = when {
+        style == AbstandIconButtonStyle.Plain -> Color.Transparent
+        !enabled -> palette.scheme.onSurface.copy(alpha = AppTheme.disabledContainerAlpha)
+        containerColor != Color.Unspecified -> containerColor
+        style == AbstandIconButtonStyle.Tonal -> palette.scheme.secondaryContainer
+        else -> Theme.accent
     }
+    // Deaktivierte Tonal/Filled-Knöpfe: Symbol in onSurface (auf der 12-%-Fläche), sonst Vordergrund.
+    val disabledForeground = if (style == AbstandIconButtonStyle.Plain) foreground else palette.scheme.onSurface
     IconButton(
         onClick = onClick,
         enabled = enabled,
@@ -242,8 +243,8 @@ fun AbstandIconButton(
             .background(container)
             .let { m -> if (contentDescription != null) m.semantics { this.contentDescription = contentDescription } else m },
     ) {
-        CompositionLocalProvider(LocalContentColor provides foreground) {
-            Box(Modifier.alpha(if (enabled) 1f else AbstandIconButtonDefaults.disabledOpacity), contentAlignment = Alignment.Center) {
+        CompositionLocalProvider(LocalContentColor provides if (enabled) foreground else disabledForeground) {
+            Box(Modifier.alpha(if (enabled) 1f else AppTheme.disabledContentAlpha), contentAlignment = Alignment.Center) {
                 content()
             }
         }
@@ -292,6 +293,8 @@ fun AbstandPlayPill(
     val onAccent = if (caption != null) Theme.onAccent else scheme.onSecondaryContainer
     Row(
         modifier
+            // Kompakte Pille (32 dp): Trefferfläche auf 48 dp erweitern, Optik bleibt.
+            .let { if (caption == null) it.minimumInteractiveComponentSize() else it }
             .height(height)
             .clip(CircleShape)
             .background(container)
@@ -316,8 +319,10 @@ fun AbstandPlayPill(
 // MARK: - Text-Aktion
 
 /**
- * Text-Knopf ohne Fläche (Dialog-/Toolbar-Aktionen, „Show all“): Akzent, [destructive] = danger,
- * [emphasized] = semibold, [compact] = schmalerer Innenabstand (8 dp) für Aktionen im Inhalt.
+ * Text-Knopf ohne Fläche (Dialog-/Toolbar-Aktionen, „Show all“): Akzent, [destructive] =
+ * `AppTheme.danger` (M3 `error`), [compact] = schmalerer Innenabstand (8 dp) für Aktionen im Inhalt.
+ * [emphasized] ist seit der M3-Umstellung ohne Wirkung (alle Text-Buttons `labelLarge`) und bleibt
+ * nur für Aufrufstellen-Kompatibilität.
  * M3 Text Button: `labelLarge`, 12 dp seitlich, 40 dp hoch. Ersetzt rohes `TextButton { Text(…) }`.
  */
 @Composable
@@ -342,8 +347,8 @@ fun AbstandTextButton(
     ) {
         Text(
             text,
-            style = if (emphasized) AppType.labelLarge else AppType.labelLarge,
-            color = if (enabled) base else Theme.palette.textSecondary.copy(alpha = 0.5f),
+            style = AppType.labelLarge,
+            color = if (enabled) base else Theme.palette.scheme.onSurface.copy(alpha = AppTheme.disabledContentAlpha),
             maxLines = 1,
         )
     }

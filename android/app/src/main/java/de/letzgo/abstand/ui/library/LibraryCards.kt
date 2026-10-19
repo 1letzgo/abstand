@@ -76,11 +76,10 @@ import de.letzgo.abstand.ui.components.AbstandStatusBadges
 /** iOS: `LibraryRowLayout` — Konstanten der Library-Zeilen. */
 object LibraryRowLayout {
     val coverSide: Dp = AppTheme.Layout.libraryRowCoverSide
-    val cornerRadius: Dp = AppTheme.Layout.continueHeroCardCornerRadius
+    /** M3-Karten: alle Karten 12 dp ([AppTheme.Layout.cardCornerRadius]). */
+    val cornerRadius: Dp = AppTheme.Layout.cardCornerRadius
     val cardInset: Dp = AppTheme.Layout.libraryRowCardInset
     val textInset: Dp = AppTheme.Layout.libraryRowTextInset
-    /** Beendete Titel: Cover/Text/Play zurückgenommen (Download-Status bleibt voll). */
-    const val finishedContentOpacity: Float = 0.35f
     val cardShape = RoundedCornerShape(cornerRadius)
     val coverClipShape = RoundedCornerShape(topStart = cornerRadius, bottomStart = cornerRadius)
 
@@ -183,7 +182,8 @@ private fun HeroPlayPill(libraryItemId: String, caption: String, onClick: () -> 
 /**
  * iOS: `BookRowCard` — kompakte Zeile: Cover 1:1 links, Titel + Status oben, Autor, Laufzeit/
  * Lesefortschritt unten links, Play-Pille unten rechts; Fortschrittsstreifen am Kartenfuß.
- * Karte ohne Schatten, mit dezenter Kante (wie iOS); Tipp öffnet das Detail.
+ * M3 Filled Card (ohne Schatten und ohne Rand); Tipp öffnet das Detail. Beendet: Cover und
+ * Play-Pille mit [AppTheme.disabledContentAlpha], Titel in `onSurfaceVariant`.
  */
 @Composable
 fun BookRowCard(
@@ -206,13 +206,14 @@ fun BookRowCard(
     else prog != null && !prog.isFinished && prog.duration > 0
     val barValue = if (ebookMetrics) live.ebookFraction ?: 0.0 else if (prog != null && prog.duration > 0) prog.progress else 0.0
     val isFinished = if (ebookMetrics) (live.ebookFraction ?: 0.0) >= 0.995 else prog?.isFinished == true
-    val fade = if (isFinished) LibraryRowLayout.finishedContentOpacity else 1f
+    val fade = if (isFinished) AppTheme.disabledContentAlpha else 1f
+    val titleColor = if (isFinished) palette.textSecondary else palette.textPrimary
     val supplementaryBadge = showEbookBadge || AppModel.shared.catalog.bookShowsSupplementaryEbookBadge(book)
     val revision = coverRevisionFor(book.updatedAt)
 
     CompositionLocalProvider(LocalAbstandCardShadowEnabled provides false) {
         AbstandCard(
-            modifier = modifier.fillMaxWidth().border(AppTheme.Layout.hairlineWidth, palette.textSecondary.copy(alpha = 0.22f), LibraryRowLayout.cardShape),
+            modifier = modifier.fillMaxWidth(),
             shape = LibraryRowLayout.cardShape,
             onClick = onOpen,
         ) {
@@ -237,8 +238,8 @@ fun BookRowCard(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.compactSpacing)) {
                             Text(
-                                book.displayTitle, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 1,
-                                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).alpha(fade),
+                                book.displayTitle, style = AppType.titleMedium, color = titleColor, maxLines = 1,
+                                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                             )
                             AbstandStatusBadges(
                                 isFinished = isFinished,
@@ -247,14 +248,14 @@ fun BookRowCard(
                                 downloadProgress = live.downloadProgress,
                             )
                         }
-                        LibraryRowCollapsedMetaLine("Author", book.displayAuthorsCardLine, Modifier.alpha(fade))
+                        LibraryRowCollapsedMetaLine("Author", book.displayAuthorsCardLine, valueMaxLines = 1, valueColor = if (isFinished) titleColor else null)
                         Spacer(Modifier.weight(1f))
                         Row(verticalAlignment = Alignment.Bottom) {
-                            Box(Modifier.weight(1f).alpha(fade)) {
+                            Box(Modifier.weight(1f)) {
                                 val label = if (ebookMetrics) LibraryRowLiveState.ebookProgressLabel(live.ebookFraction)
                                 else formatPlaybackTime(book.media.duration ?: 0.0)
                                 if (label != null) {
-                                    Text(label, style = AppType.bodyMedium.copy(fontFamily = FontFamily.Default), color = palette.textSecondary, maxLines = 1)
+                                    Text(label, style = AppType.bodyMedium, color = palette.textSecondary, maxLines = 1)
                                 }
                             }
                             if (showsPlaybackControls && book.isPlayableAudiobook && !ebookMetrics) {
@@ -299,17 +300,17 @@ fun LibraryHeroBookCard(
     val heroProgress: Double? = if (ebookMetrics) live.ebookFraction?.takeIf { it > 0.005 && it < 0.995 }
     else prog?.takeIf { !it.isFinished && it.duration > 0 }?.progress?.coerceIn(0.0, 1.0)
     val isFinished = if (ebookMetrics) (live.ebookFraction ?: 0.0) >= 0.995 else prog?.isFinished == true
-    val fade = if (isFinished) LibraryRowLayout.finishedContentOpacity else 1f
+    val fade = if (isFinished) AppTheme.disabledContentAlpha else 1f
     val supplementaryBadge = showEbookBadge || AppModel.shared.catalog.bookShowsSupplementaryEbookBadge(book)
     val inset = AppTheme.Layout.libraryRowCardInset
-    val outer = RoundedCornerShape(AppTheme.Layout.continueHeroCardCornerRadius)
+    val outer = LibraryRowLayout.cardShape
     val coverTop = RoundedCornerShape(topStart = AppTheme.Layout.coverCornerRadius, topEnd = AppTheme.Layout.coverCornerRadius)
     val authorLine = book.displayAuthorsCardLine.trim().ifEmpty { "—" }
     val totalDuration = maxOf(book.media.duration ?: 0.0, prog?.duration ?: 0.0)
 
     CompositionLocalProvider(LocalAbstandCardShadowEnabled provides false) {
         AbstandCard(
-            modifier = modifier.fillMaxWidth().border(AppTheme.Layout.hairlineWidth, palette.textSecondary.copy(alpha = 0.22f), outer),
+            modifier = modifier.fillMaxWidth(),
             shape = outer,
             onClick = onOpen,
         ) {
@@ -321,13 +322,13 @@ fun LibraryHeroBookCard(
                 }
                 if (book.isPureEbookLibraryItem) AbstandCoverPillIcon(SF.bookClosedFill, "eBook", Modifier.align(Alignment.TopStart))
                 Row(Modifier.align(Alignment.TopEnd)) {
-                    if (isFinished) AbstandCoverPillIcon(SF.checkmarkCircleFill, "Finished", Modifier.alpha(LibraryRowLayout.finishedContentOpacity))
+                    if (isFinished) AbstandCoverPillIcon(SF.checkmarkCircleFill, "Finished")
                     if (supplementaryBadge) AbstandCoverPillIcon(SF.bookClosedFill, "eBook available")
                     if (showsDownloadStatus) AbstandCoverDownloadBadge(live.isDownloaded, live.isDownloading, live.downloadProgress)
                 }
             }
             Column(
-                Modifier.fillMaxWidth().alpha(fade).padding(
+                Modifier.fillMaxWidth().padding(
                     start = inset, end = inset,
                     top = AppTheme.Layout.continueHeroMetadataVerticalPadding,
                     bottom = AppTheme.Layout.continueHeroMetadataExtraBottomPadding,
@@ -335,12 +336,13 @@ fun LibraryHeroBookCard(
                 verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.continueHeroMetadataTitleDetailSpacing),
             ) {
                 Text(
-                    book.displayTitle, style = AppType.titleMedium, color = palette.textPrimary, maxLines = 2,
+                    book.displayTitle, style = AppType.titleMedium,
+                    color = if (isFinished) palette.textSecondary else palette.textPrimary, maxLines = 2,
                     minLines = 2, overflow = TextOverflow.Ellipsis,
                 )
                 LibraryRowCollapsedMetaLine("Author", authorLine, valueMaxLines = 1)
                 if (book.isPlayableAudiobook) {
-                    Box(Modifier.padding(top = AppTheme.Layout.continueHeroMetadataPlayPillTopPadding)) {
+                    Box(Modifier.padding(top = AppTheme.Layout.continueHeroMetadataPlayPillTopPadding).alpha(fade)) {
                         HeroPlayPill(book.id, BookDetailLogic.remainingCaption(totalDuration, prog)) {
                             LibraryPlayback.toggle(context, book, prog?.isFinished == true)
                         }

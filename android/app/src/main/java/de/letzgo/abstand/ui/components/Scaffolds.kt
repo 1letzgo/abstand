@@ -29,7 +29,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -83,11 +83,18 @@ fun Modifier.abstandDetailScrollBackground(tint: Color): Modifier = composed {
 @Composable
 fun abstandScrollBottomPadding(): Dp = AppTheme.Layout.scrollBottomInsetBase + LocalScrollBottomInset.current
 
-/** Zurück-Pfeil für Top-App-Bars (Android-Ersatz für den iOS-Back-Button). */
+/** Zurück-Pfeil für Top-App-Bars (Android-Ersatz für den iOS-Back-Button; M3: Navigation-Icon `onSurface`). */
 @Composable
 fun AbstandBackButton(onBack: () -> Unit, tint: Color = Theme.palette.textPrimary) {
-    AbstandIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack, tint = tint)
+    AbstandIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onClick = onBack, tint = tint)
 }
+
+/**
+ * M3 Top App Bar: Aktions-Symbole in `onSurfaceVariant` (Navigation-Icon `onSurface`). Aktionen
+ * mit aktivem Zustand (Filter aktiv, Download fertig) setzen selbst `primary` als `tint`.
+ */
+private val topBarActionColor: Color
+    @Composable get() = Theme.palette.textSecondary
 
 /**
  * iOS: Tab-Root (`.toolbarTitleDisplayMode(.inlineLarge)` + `abstandTabScreenChrome()` +
@@ -130,7 +137,7 @@ fun TabRootScaffold(
                 ) {
                     Box(Modifier.weight(1f)) { header() }
                     if (actions != null) {
-                        CompositionLocalProvider(LocalContentColor provides Theme.accent) {
+                        CompositionLocalProvider(LocalContentColor provides topBarActionColor) {
                             Row(verticalAlignment = Alignment.CenterVertically, content = actions)
                         }
                     }
@@ -144,7 +151,8 @@ fun TabRootScaffold(
                         containerColor = palette.background,
                         scrolledContainerColor = palette.scheme.surfaceContainer,
                         titleContentColor = palette.textPrimary,
-                        actionIconContentColor = Theme.accent,
+                        navigationIconContentColor = palette.textPrimary,
+                        actionIconContentColor = topBarActionColor,
                     ),
                 )
             }
@@ -194,7 +202,7 @@ fun DetailScaffold(
                     scrolledContainerColor = Color.Transparent,
                     titleContentColor = palette.textPrimary,
                     navigationIconContentColor = palette.textPrimary,
-                    actionIconContentColor = palette.textPrimary,
+                    actionIconContentColor = topBarActionColor,
                 ),
             )
         },
@@ -238,7 +246,7 @@ fun SettingsSubpageScaffold(
                     scrolledContainerColor = palette.scheme.surfaceContainer,
                     titleContentColor = palette.textPrimary,
                     navigationIconContentColor = palette.textPrimary,
-                    actionIconContentColor = Theme.accent,
+                    actionIconContentColor = topBarActionColor,
                 ),
             )
         },
@@ -308,6 +316,8 @@ fun MetadataSheetScaffold(
                         containerColor = palette.background,
                         scrolledContainerColor = palette.scheme.surfaceContainer,
                         titleContentColor = palette.textPrimary,
+                        navigationIconContentColor = palette.textPrimary,
+                        actionIconContentColor = topBarActionColor,
                     ),
                 )
             },

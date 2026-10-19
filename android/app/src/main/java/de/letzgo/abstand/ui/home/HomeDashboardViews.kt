@@ -163,7 +163,12 @@ fun HomeTabRoot(model: AppModel = AppModel.shared) {
 /** iOS: `HomeGoOfflineToolbarButton` — statischer Offline-/Online-Schalter (nur Symbol). */
 @Composable
 private fun HomeGoOfflineToolbarButton(offline: Boolean, onClick: () -> Unit) {
-    AbstandIconButton(if (offline) SF.icloudSlash else SF.icloud, if (offline) "Go online" else "Go offline", onClick = onClick)
+    AbstandIconButton(
+        if (offline) SF.icloudSlash else SF.icloud,
+        if (offline) "Go online" else "Go offline",
+        onClick = onClick,
+        tint = if (offline) Theme.accent else Theme.palette.textSecondary,
+    )
 }
 
 /** iOS: `startDashboardShelfContent` — Continue listening als Hero-Karten, sonst Kompaktkarten. */
