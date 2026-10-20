@@ -82,7 +82,7 @@ internal fun <F> PodcastSortMenuButton(
     onSelectField: (F) -> Unit,
     onSelectDescending: (Boolean) -> Unit,
 ) {
-    AbstandMenuButton(SF.arrowUpArrowDown, "Sort", pill = true) {
+    AbstandMenuButton(SF.arrowUpArrowDown, "Sort", tint = Theme.palette.textSecondary) {
         picker(fields, selected, title, onSelectField, title = "Sort by")
         if (showsOrder) {
             divider()

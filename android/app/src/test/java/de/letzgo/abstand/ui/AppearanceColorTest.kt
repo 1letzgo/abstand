@@ -129,6 +129,7 @@ class AppearanceColorTest {
         // 12 + 48 + 4 + 20 + 8 + 40 + 12
         assertEquals(144.dp, l.continueHeroMetadataBlockHeight)
         assertEquals(320.dp, l.continueHeroCardTotalHeight)
+        assertEquals(96.dp, l.libraryHeroMetadataBlockHeight)
     }
 
     @Test fun carouselWidthsMatchIosFormula() {

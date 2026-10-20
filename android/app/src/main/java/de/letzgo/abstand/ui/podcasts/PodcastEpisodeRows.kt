@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.AbsPodcastEpisodeListItem
 import de.letzgo.abstand.data.AbsUserMediaProgress
 import de.letzgo.abstand.ui.AppTheme
@@ -24,9 +25,11 @@ import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCard
 import de.letzgo.abstand.ui.components.AbstandCardBottomProgress
 import de.letzgo.abstand.ui.components.CoverImage
+import de.letzgo.abstand.ui.components.LibraryRowCollapsedMetaLine
 import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.components.AbstandPlayPill
 import de.letzgo.abstand.ui.components.AbstandStatusBadges
+import de.letzgo.abstand.ui.library.LibraryRowLayout
 
 /** iOS: `LibraryRowLayout` (Ausschnitt) — Maße der Library-Zeilen. */
 internal object PodcastRowLayout {
@@ -34,6 +37,8 @@ internal object PodcastRowLayout {
     val cardInset = AppTheme.Layout.libraryRowCardInset
     /** M3-Karten: 12 dp wie alle Karten. */
     val rowShape = RoundedCornerShape(AppTheme.Layout.cardCornerRadius)
+    val statusIconSize = 16.dp
+    val playPillIconSize = 12.dp
 }
 
 /** Live-Zustand einer Folgen-Zeile (iOS: `LibraryPodcastEpisodeRowLiveState`). */

@@ -1,7 +1,10 @@
 package de.letzgo.abstand.ui.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
@@ -11,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -19,10 +23,13 @@ import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.DownloadBadgeState
 import de.letzgo.abstand.model.DownloadStatusSource
 import de.letzgo.abstand.model.NowPlayingState
+import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.CoverImage
 import de.letzgo.abstand.ui.components.CoverImageContentMode
+import de.letzgo.abstand.ui.library.LibraryRowLayout
 import de.letzgo.abstand.ui.components.LocalCoverEnvironment
+import de.letzgo.abstand.ui.components.abstandCardChrome
 
 /**
  * Cover-abgeleitete Kartenfarbe (iOS: `CoverDerivedTintLoader` / `ContinueHeroTintCache`).
@@ -31,6 +38,16 @@ import de.letzgo.abstand.ui.components.LocalCoverEnvironment
  */
 @Composable
 fun coverTint(@Suppress("UNUSED_PARAMETER") itemId: String): Color = Theme.palette.card
+
+/**
+ * iOS: `libraryRowCardChrome` — Kartenfläche mit dezenter Kante statt Schatten, Tap öffnet.
+ * (Füllung + Form + Kante gebündelt wie `abstandCardChrome`; in horizontalen Reihen ohne Schatten.)
+ */
+fun Modifier.libraryRowCardChrome(fill: Color, outline: Color, onClick: (() -> Unit)?): Modifier = this
+    .clip(LibraryRowLayout.cardShape)
+    .background(fill)
+    .border(AppTheme.Layout.hairlineWidth, outline, LibraryRowLayout.cardShape)
+    .let { if (onClick != null) it.clickable(onClick = onClick) else it }
 
 /** Platzhalter für Serien/Autoren ohne Bild (iOS: `HomeEntityCoverPlaceholder`). */
 @Composable
@@ -72,4 +89,10 @@ fun rememberDownloadBadge(itemId: String, episodeId: String? = null): DownloadBa
 fun rememberNowPlaying(): NowPlayingState {
     val state by AppModel.shared.playbackLauncher.nowPlaying.collectAsState()
     return state
+}
+
+/** Overlay-Ausrichtung oben links/rechts auf Covern. */
+@Composable
+fun BoxScope.TopCornerSlot(alignment: Alignment, content: @Composable () -> Unit) {
+    Box(Modifier.align(alignment)) { content() }
 }

@@ -43,6 +43,7 @@ import de.letzgo.abstand.logic.CatalogLogic
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.EntityDetailLoader
 import de.letzgo.abstand.model.EntityDetailState
+import de.letzgo.abstand.model.LibraryBookCardStyle
 import de.letzgo.abstand.store.CoverImageCache
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
@@ -223,7 +224,7 @@ private fun EntitySectionHeading(title: String) {
 /** iOS: `AuthorDetailBookListCard` — immer kompakte Zeile; Cover mittig beschnitten (außer reine eBooks). */
 @Composable
 private fun EntityBookCard(book: AbsBook) {
-    LibraryBookListCard(book, usesSquareCenterCropCover = !book.isPureEbookLibraryItem)
+    LibraryBookListCard(book, LibraryBookCardStyle.compact, forceCompact = true, usesSquareCenterCropCover = !book.isPureEbookLibraryItem)
 }
 
 /** iOS: `authorGroupedBooksSection` — je Serie eine Gruppe, dann „Books"/„Other books". */

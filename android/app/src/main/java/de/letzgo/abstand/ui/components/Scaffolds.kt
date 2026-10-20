@@ -48,7 +48,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import de.letzgo.abstand.ui.AppTheme
-import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.LocalScrollBottomInset
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
@@ -103,8 +102,7 @@ private val topBarActionColor: Color
  * Titel steht von Anfang an in der Leiste (wie `.inlineLarge`), kein Ein-/Ausklappen; [header] = fixer Browse-Strip unter dem Titel (bleibt stehen).
  * [content] bekommt das fertige Content-Padding (Top-Bar, `tabPaddingH`, Abstand Titel →
  * Inhalt, unterer Mini-Player-Inset) und soll es an seine `LazyColumn`/`LazyVerticalGrid` geben.
- * Keine Bottom-Insets hier: System-Navigationsleiste + Mini-Player stecken in [LocalScrollBottomInset].
- * [onBack] ≠ `null` (als Seite gepusht, z. B. Search/Settings): Zurück-Pfeil vor dem [header].
+ * Die NavigationBar gehört der Tab-Shell; hier keine Bottom-Insets.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,15 +111,9 @@ fun TabRootScaffold(
     modifier: Modifier = Modifier,
     actions: (@Composable RowScope.() -> Unit)? = null,
     header: (@Composable () -> Unit)? = null,
-    /** Fester Bereich unter der Kopfzeile (scrollt nicht mit), z. B. Home: Continue listening + Bibliotheksleiste. */
-    belowHeader: (@Composable () -> Unit)? = null,
-    onBack: (() -> Unit)? = null,
-    /** `true` (Home): eigene Titelzeile mit [title] und [actions] statt der M3-`TopAppBar`. */
-    showsTitleRow: Boolean = false,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val palette = Theme.palette
-    val headerActions = if (showsTitleRow) null else actions
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -129,53 +121,30 @@ fun TabRootScaffold(
         contentColor = palette.textPrimary,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            if (header != null || showsTitleRow) {
-                // Keine Titelzeile: die Bereichs-Pills/Tabs/das Suchfeld sind die Top-Leiste, die
-                // Aktionen (Filter, Sortieren, …) stehen rechts, ein Zurück-Pfeil links in derselben Zeile.
-                Column(Modifier.fillMaxWidth().background(palette.background).windowInsetsPadding(WindowInsets.statusBars)) {
-                    if (showsTitleRow) {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = AppTheme.Layout.minTapTarget)
-                                .padding(start = AppTheme.Layout.tabPaddingH, end = AppTheme.Layout.tightSpacing)
-                                .semantics { heading() },
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(title, style = AppType.titleLarge, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            if (actions != null) {
-                                CompositionLocalProvider(LocalContentColor provides topBarActionColor) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, content = actions)
-                                }
-                            }
+            if (header != null) {
+                // Keine Titelzeile (der Tab-Name steht in der Navigation Bar): die Bereichs-Pills sind
+                // die Top-Leiste, die Aktionen (Filter, Sortieren, …) stehen rechts in derselben Zeile.
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(palette.background)
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        // Gleiche Kopfzeilenhöhe in allen Tabs (Pills, Tabs, Überschrift, Aktionen).
+                        .heightIn(min = AppTheme.Layout.minTapTarget)
+                        .padding(end = if (actions != null) AppTheme.Layout.tightSpacing else AppTheme.Layout.tabPaddingH - AppTheme.Layout.stackSpacing)
+                        .semantics { heading(); contentDescription = title },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.weight(1f)) { header() }
+                    if (actions != null) {
+                        CompositionLocalProvider(LocalContentColor provides topBarActionColor) {
+                            Row(verticalAlignment = Alignment.CenterVertically, content = actions)
                         }
                     }
-                    if (header != null) Row(
-                        Modifier
-                            .fillMaxWidth()
-                            // Gleiche Kopfzeilenhöhe auf allen Wurzelseiten (Tabs, Suchfeld, Titelzeile, Aktionen).
-                            .heightIn(min = AppTheme.Layout.minTapTarget)
-                            .padding(
-                                start = if (onBack != null) AppTheme.Layout.tightSpacing else 0.dp,
-                                end = if (headerActions != null) AppTheme.Layout.tightSpacing else AppTheme.Layout.tabPaddingH - AppTheme.Layout.stackSpacing,
-                            )
-                            .semantics { heading(); contentDescription = title },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (onBack != null) AbstandBackButton(onBack)
-                        Box(Modifier.weight(1f)) { header() }
-                        if (headerActions != null) {
-                            CompositionLocalProvider(LocalContentColor provides topBarActionColor) {
-                                Row(verticalAlignment = Alignment.CenterVertically, content = headerActions)
-                            }
-                        }
-                    }
-                    if (belowHeader != null) Box(Modifier.fillMaxWidth().background(palette.background)) { belowHeader() }
                 }
             } else {
                 TopAppBar(
                     title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    navigationIcon = { if (onBack != null) AbstandBackButton(onBack) },
                     actions = actions ?: {},
                     scrollBehavior = scrollBehavior,
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -193,7 +162,7 @@ fun TabRootScaffold(
             PaddingValues(
                 start = AppTheme.Layout.tabPaddingH,
                 end = AppTheme.Layout.tabPaddingH,
-                top = inner.calculateTopPadding() + if (header == null && !showsTitleRow) AppTheme.Layout.tabTitleToHeaderBlockSpacing else 0.dp,
+                top = inner.calculateTopPadding() + if (header == null) AppTheme.Layout.tabTitleToHeaderBlockSpacing else 0.dp,
                 bottom = abstandScrollBottomPadding(),
             ),
         )

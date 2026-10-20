@@ -57,6 +57,29 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
+/** iOS: `LibraryBookCardStyle` (AppAppearance.swift) — gleiche Raw-Values unter `Keys.libraryBookCardStyle`. */
+enum class LibraryBookCardStyle(val rawValue: String, val label: String) {
+    compact("compact", "Compact row"),
+    heroCover("heroCover", "Cover card");
+
+    /** Mehrspaltiges Cover-Raster statt einspaltiger Liste. */
+    val usesMultiColumnGrid: Boolean get() = this == heroCover
+
+    /** Spalten auf dem Phone; Tablets legen zwei drauf (`LibraryHeroMultiColumnRows`). */
+    val phoneGridColumns: Int get() = if (this == heroCover) 2 else 1
+
+    fun persist() = Prefs.setString(Keys.libraryBookCardStyle, rawValue)
+
+    companion object {
+        /** iOS: `load` — entfernter Stil „coverOnly" → „Cover card". */
+        fun load(): LibraryBookCardStyle {
+            val raw = Prefs.string(Keys.libraryBookCardStyle) ?: return compact
+            if (raw == "coverOnly") return heroCover
+            return entries.firstOrNull { it.rawValue == raw } ?: compact
+        }
+    }
+}
+
 /** Sortierzustand des Bücher-Tabs (iOS: die `catalogSort*`/`browse*Sort*`-`@Published` mit `didSet`-Persistenz). */
 data class CatalogSortState(
     val catalogField: CatalogSortField,
@@ -188,6 +211,10 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
 
     private val _browse = MutableStateFlow(BrowseListsState())
     val browse: StateFlow<BrowseListsState> = _browse.asStateFlow()
+
+    private val _cardStyle = MutableStateFlow(LibraryBookCardStyle.load())
+    /** iOS: `libraryBookCardStyle`. */
+    val libraryBookCardStyle: StateFlow<LibraryBookCardStyle> = _cardStyle.asStateFlow()
 
     private val _downloadedItemIds = MutableStateFlow<Set<String>>(emptySet())
     /** iOS: `downloadedItemIds` — Speicher-IDs fertiger Downloads (Ordner mit `download.json`). */
@@ -531,10 +558,10 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
 
     // MARK: - Sektionen + Sortierung
 
-    /** iOS: `selectBooksBrowseSection` — „Search" öffnet die Suche (Android: gepushte Seite). */
+    /** iOS: `selectBooksBrowseSection` — „Search" springt in den Such-Tab. */
     fun selectBooksBrowseSection(section: BooksBrowseSection) {
         if (section == BooksBrowseSection.SEARCH) {
-            session.openSearch()
+            session.selectMainTab(MainTab.search)
             return
         }
         _booksBrowseSection.value = section
@@ -670,6 +697,13 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
         _sort.update { it.copy(tagsDescending = descending) }
         Prefs.setBool(Keys.browseTagsSortDescending, descending)
         resortBrowseTagsDisplay()
+    }
+
+    /** iOS: `libraryBookCardStyle = …` (Settings „Appearance"). */
+    fun setLibraryBookCardStyle(style: LibraryBookCardStyle) {
+        if (_cardStyle.value == style) return
+        _cardStyle.value = style
+        style.persist()
     }
 
     private fun resortBrowseNarratorsDisplay() = _sort.value.let { s ->

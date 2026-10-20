@@ -32,6 +32,7 @@ import de.letzgo.abstand.ui.DetailMetaLabelIcon
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.medium
 
 /** iOS: `MetadataSheetMetrics` — Maße der Admin-Metadaten-Sheets. */
 object MetadataSheetMetrics {

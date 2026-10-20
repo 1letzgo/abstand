@@ -10,9 +10,8 @@ import java.util.Locale
 
 /**
  * iOS: die einfachen `@Published`-Einstellungen von `AppModel` (`openPlayerWhenStartPlaying`,
- * `readAlongPrefetchEnabled`, `translationTargetLanguageCode`, `smartDownloadOnWiFi`,
- * `smartDownloadRemoveWhenFinished`). Die iOS-Kartenstil-Auswahl (`libraryBookCardStyle`/
- * `libraryPodcastCardStyle`) gibt es auf Android nicht — es existiert nur die kompakte Zeile.
+ * `readAlongPrefetchEnabled`, `translationTargetLanguageCode`, `libraryBookCardStyle`,
+ * `libraryPodcastCardStyle`, `smartDownloadOnWiFi`, `smartDownloadRemoveWhenFinished`).
  * Gleiche Prefs-Keys und Defaults wie iOS; Leser beobachten die `StateFlow`s.
  */
 object AppSettings {
@@ -27,6 +26,14 @@ object AppSettings {
     private val _translationTargetLanguageCode = MutableStateFlow(TranslationTargetLanguage.load())
     /** iOS: `translationTargetLanguageCode`. */
     val translationTargetLanguageCode: StateFlow<String> = _translationTargetLanguageCode.asStateFlow()
+
+    private val _libraryBookCardStyle = MutableStateFlow(LibraryCardStyle.loadBook())
+    /** iOS: `libraryBookCardStyle` (`compact` / `heroCover`). */
+    val libraryBookCardStyle: StateFlow<LibraryCardStyle> = _libraryBookCardStyle.asStateFlow()
+
+    private val _libraryPodcastCardStyle = MutableStateFlow(LibraryCardStyle.loadPodcast())
+    /** iOS: `libraryPodcastCardStyle`. */
+    val libraryPodcastCardStyle: StateFlow<LibraryCardStyle> = _libraryPodcastCardStyle.asStateFlow()
 
     private val _smartDownloadOnWiFi = MutableStateFlow(if (prefsReady()) DownloadManager.smartDownloadOnWiFi else false)
     val smartDownloadOnWiFi: StateFlow<Boolean> = _smartDownloadOnWiFi.asStateFlow()
@@ -57,6 +64,16 @@ object AppSettings {
         Prefs.setString(Keys.translationTargetLanguageCode, normalized)
     }
 
+    fun setLibraryBookCardStyle(style: LibraryCardStyle) {
+        _libraryBookCardStyle.value = style
+        Prefs.setString(Keys.libraryBookCardStyle, style.raw)
+    }
+
+    fun setLibraryPodcastCardStyle(style: LibraryCardStyle) {
+        _libraryPodcastCardStyle.value = style
+        Prefs.setString(Keys.libraryPodcastCardStyle, style.raw)
+    }
+
     fun setSmartDownloadOnWiFi(value: Boolean) {
         DownloadManager.smartDownloadOnWiFi = value
         _smartDownloadOnWiFi.value = value
@@ -74,6 +91,29 @@ object AppSettings {
 
     /** Unit-Tests ohne `Prefs.init` — dann Defaults. */
     internal fun prefsReady(): Boolean = runCatching { Prefs.prefs }.isSuccess
+}
+
+/** iOS: `LibraryBookCardStyle` / `LibraryPodcastCardStyle` (gleiche Raw-Values und Labels). */
+enum class LibraryCardStyle(val raw: String, val label: String) {
+    compact("compact", "Compact row"),
+    heroCover("heroCover", "Cover card");
+
+    companion object {
+        /** iOS: entfernter Stil „Cover only“ → „Cover card“. */
+        private const val REMOVED_COVER_ONLY = "coverOnly"
+
+        fun fromRaw(raw: String?, migrateCoverOnly: Boolean): LibraryCardStyle {
+            if (raw == null) return compact
+            if (migrateCoverOnly && raw == REMOVED_COVER_ONLY) return heroCover
+            return entries.firstOrNull { it.raw == raw } ?: compact
+        }
+
+        fun loadBook(): LibraryCardStyle =
+            fromRaw(if (AppSettings.prefsReady()) Prefs.string(Keys.libraryBookCardStyle) else null, migrateCoverOnly = true)
+
+        fun loadPodcast(): LibraryCardStyle =
+            fromRaw(if (AppSettings.prefsReady()) Prefs.string(Keys.libraryPodcastCardStyle) else null, migrateCoverOnly = false)
+    }
 }
 
 /** iOS: `TranslationTargetLanguage` (AppAppearance.swift) — Zielsprache der Teleprompter-Wortübersetzung. */

@@ -13,6 +13,7 @@ import de.letzgo.abstand.data.AbsUserMediaProgress
 import de.letzgo.abstand.data.ServerM4BEncodeJob
 import de.letzgo.abstand.logic.ListeningAchievementKind
 import de.letzgo.abstand.model.AdminLogic
+import de.letzgo.abstand.model.LibraryCardStyle
 import de.letzgo.abstand.model.StatsLogicExt
 import de.letzgo.abstand.model.TranslationTargetLanguage
 import de.letzgo.abstand.store.LocalAchievementState
@@ -77,6 +78,14 @@ class SettingsLogicTest {
         val options = TranslationTargetLanguage.pickerOptions("ja", Locale.US)
         assertTrue(options.any { it.first == "ja" && it.second == "Japanese" })
         assertEquals(options.sortedBy { it.second }, options)
+    }
+
+    @Test
+    fun cardStyleRawValues() {
+        assertEquals(LibraryCardStyle.heroCover, LibraryCardStyle.fromRaw("coverOnly", migrateCoverOnly = true))
+        assertEquals(LibraryCardStyle.compact, LibraryCardStyle.fromRaw("coverOnly", migrateCoverOnly = false))
+        assertEquals(LibraryCardStyle.compact, LibraryCardStyle.fromRaw(null, migrateCoverOnly = true))
+        assertEquals("Cover card", LibraryCardStyle.fromRaw("heroCover", false).label)
     }
 
     @Test

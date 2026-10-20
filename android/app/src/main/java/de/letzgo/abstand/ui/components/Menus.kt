@@ -224,14 +224,10 @@ fun AbstandMenuButton(
     modifier: Modifier = Modifier,
     tint: Color = Color.Unspecified,
     enabled: Boolean = true,
-    /** Auslöser als Symbol-Pille wie die Dropdown-Pills ([AbstandPillIconButton]); [active] = Akzentfläche. */
-    pill: Boolean = false,
-    active: Boolean = false,
     content: @Composable AbstandMenuScope.() -> Unit,
 ) {
     AbstandMenuBox(modifier, anchor = { open ->
-        if (pill) AbstandPillIconButton(icon, contentDescription, onClick = open, enabled = enabled, active = active)
-        else AbstandIconButton(icon, contentDescription, onClick = open, enabled = enabled, tint = tint)
+        AbstandIconButton(icon, contentDescription, onClick = open, enabled = enabled, tint = tint)
     }, content = content)
 }
 
