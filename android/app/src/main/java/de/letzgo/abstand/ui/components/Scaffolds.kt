@@ -138,7 +138,12 @@ fun TabRootScaffold(
                     Box(Modifier.weight(1f)) { header() }
                     if (actions != null) {
                         CompositionLocalProvider(LocalContentColor provides topBarActionColor) {
-                            Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+                            // Aktionen als Symbol-Pillen (Filter, Sortieren, +, Zahnrad) mit Dock-Abstand.
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(AppTheme.ExpandingDock.itemSpacing),
+                                content = actions,
+                            )
                         }
                     }
                 }

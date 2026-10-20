@@ -345,3 +345,47 @@ fun AbstandDropdownPill(
         }
     }
 }
+
+/**
+ * Android: Symbol-Pille für Leisten-Aktionen (Filter, Sortieren, +, Zahnrad) in derselben Form und
+ * Fläche wie [AbstandDropdownPill] (32 dp, `secondaryContainer`); [active] (z. B. Filter gesetzt) =
+ * Akzentfläche. Sichtbar 48×32 dp, Trefferfläche 48 dp.
+ */
+@Composable
+fun AbstandPillIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    active: Boolean = false,
+) {
+    val dock = AppTheme.ExpandingDock
+    val scheme = Theme.palette.scheme
+    val container = when {
+        !enabled -> scheme.onSurface.copy(alpha = AppTheme.disabledContainerAlpha)
+        active -> Theme.accent
+        else -> scheme.secondaryContainer
+    }
+    val content = when {
+        !enabled -> scheme.onSurface.copy(alpha = AppTheme.disabledContentAlpha)
+        active -> Theme.onAccent
+        else -> scheme.onSecondaryContainer
+    }
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = AbstandChipShape,
+        color = container,
+        contentColor = content,
+        modifier = modifier
+            .minimumInteractiveComponentSize()
+            .height(dock.activeHeight)
+            .width(dock.activeHeight + dock.activeLeadingPadding * 2)
+            .semantics { this.contentDescription = contentDescription },
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(dock.iconSize))
+        }
+    }
+}
