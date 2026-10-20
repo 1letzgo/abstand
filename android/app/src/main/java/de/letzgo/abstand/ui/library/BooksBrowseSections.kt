@@ -32,7 +32,6 @@ import de.letzgo.abstand.logic.BooksEntityDetailNav
 import de.letzgo.abstand.logic.CatalogLogic
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.CatalogStore
-import de.letzgo.abstand.model.LibraryBookCardStyle
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.LocalTabNavigator
@@ -71,13 +70,11 @@ internal fun BooksBrowseSectionPane(section: BooksBrowseSection, catalog: Catalo
     val loading by catalog.isLoadingLibrary.collectAsState()
     val filter by catalog.filter.collectAsState()
     val browse by catalog.browse.collectAsState()
-    val style by catalog.libraryBookCardStyle.collectAsState()
     val reachable by model.session.isNetworkReachable.collectAsState()
     val offline by model.session.offlineHomeMode.collectAsState()
     val offlineAuto by model.session.offlineHomeModeAuto.collectAsState()
     // eBook-Filter hängt am Lesefortschritt — bei Fortschrittsänderungen neu filtern.
     val progressMap by model.progress.progressByItemId.collectAsState()
-    val columns = libraryGridColumns(style)
     val tileColumns = facetColumns()
     val navigator = LocalTabNavigator.current
     val showsOfflineHint = !reachable && !(offline || offlineAuto)
@@ -118,7 +115,7 @@ internal fun BooksBrowseSectionPane(section: BooksBrowseSection, catalog: Catalo
                         loading && books.isEmpty() -> item(key = "books-loading") { AbstandLoadingSpinner() }
                         // Leerzustand verhindert eine „weiße" Liste nach Filter/Mark-as-finished.
                         books.isEmpty() -> item(key = "books-empty") { AbstandSectionEmptyState("No books match the current filter.") }
-                        else -> bookCards(books, style, columns, "book", onAppear = { catalog.loadMoreIfNeeded(it.id) })
+                        else -> bookCards(books, "book", onAppear = { catalog.loadMoreIfNeeded(it.id) })
                     }
                 }
                 BooksBrowseSection.EBOOKS, BooksBrowseSection.EBOOKS_SUPPLEMENTARY -> {
@@ -133,13 +130,13 @@ internal fun BooksBrowseSectionPane(section: BooksBrowseSection, catalog: Catalo
                                 if (filter.ebookCatalogQuickFilter == null) "No eBooks in this library." else "No eBooks match the current filter.",
                             )
                         }
-                        else -> bookCards(pure, style, columns, "ebook", usesEbookProgressDisplay = true, onAppear = { catalog.loadMoreBrowseEbooksIfNeeded(it.id) })
+                        else -> bookCards(pure, "ebook", usesEbookProgressDisplay = true, onAppear = { catalog.loadMoreBrowseEbooksIfNeeded(it.id) })
                     }
                     if (supplementary.isNotEmpty()) {
                         item(key = "ebooks-supp-title") {
                             TabContentSectionTitle("Audiobooks with eBook", Modifier.padding(top = AppTheme.Layout.sectionSpacing))
                         }
-                        bookCards(supplementary, style, columns, "ebook-supp", usesEbookProgressDisplay = true)
+                        bookCards(supplementary, "ebook-supp", usesEbookProgressDisplay = true)
                     }
                 }
                 BooksBrowseSection.AUTHOR -> {
@@ -239,31 +236,16 @@ private fun BrowseOfflineHint() {
     )
 }
 
-/** Buchkarten als Liste oder zeilenweises Raster (iOS: `LibraryHeroMultiColumnRows`). */
+/** Buchkarten als Liste kompakter Zeilen (iOS: `LibraryBookListCard`-Liste). */
 internal fun LazyListScope.bookCards(
     books: List<AbsBook>,
-    style: LibraryBookCardStyle,
-    columns: Int,
     keyPrefix: String,
     usesEbookProgressDisplay: Boolean = false,
-    forceCompact: Boolean = false,
     onAppear: (suspend (AbsBook) -> Unit)? = null,
 ) {
-    if (!forceCompact && style.usesMultiColumnGrid && columns > 1) {
-        items(books.chunked(columns), key = { "$keyPrefix-row-${it.first().id}" }) { row ->
-            LibraryGridRow(row, columns) { book ->
-                LibraryBookListCard(book, style, usesEbookProgressDisplay = usesEbookProgressDisplay)
-            }
-            if (onAppear != null) LaunchedEffect(row.last().id) { onAppear(row.last()) }
-        }
-    } else {
-        items(books, key = { "$keyPrefix-${it.id}" }) { book ->
-            LibraryBookListCard(
-                book, style, usesEbookProgressDisplay = usesEbookProgressDisplay, forceCompact = forceCompact,
-                usesSquareCenterCropCover = forceCompact && !book.isPureEbookLibraryItem,
-            )
-            if (onAppear != null) LaunchedEffect(book.id) { onAppear(book) }
-        }
+    items(books, key = { "$keyPrefix-${it.id}" }) { book ->
+        LibraryBookListCard(book, usesEbookProgressDisplay = usesEbookProgressDisplay)
+        if (onAppear != null) LaunchedEffect(book.id) { onAppear(book) }
     }
 }
 

@@ -24,6 +24,8 @@ Kopfzeile der Tab-Roots
 
 Inhalt
 ------
+- [offen] Kartenstil-Auswahl (Compact row / Cover card) entfernt — es gibt nur noch die kompakte Zeile;
+  Settings › Appearance › Views zeigt nur noch „Home“.
 - [offen] Eine einzige Abschnittsüberschrift für alle Ansichten (Home-Regale, Stats, Books/Podcasts-
   Bereiche, Settings): kleine Zwischenüberschrift in Akzentfarbe, bündig mit der Kartenkante —
   statt großer weißer `TabContentSectionTitle` neben kleinen Settings-Überschriften. (2eef79b, 39e3e15)
