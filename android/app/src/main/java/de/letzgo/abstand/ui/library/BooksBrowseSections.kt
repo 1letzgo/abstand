@@ -70,6 +70,7 @@ internal fun BooksBrowseSectionPane(section: BooksBrowseSection, catalog: Catalo
     val loading by catalog.isLoadingLibrary.collectAsState()
     val filter by catalog.filter.collectAsState()
     val browse by catalog.browse.collectAsState()
+    val sort by catalog.sort.collectAsState()
     val reachable by model.session.isNetworkReachable.collectAsState()
     val offline by model.session.offlineHomeMode.collectAsState()
     val offlineAuto by model.session.offlineHomeModeAuto.collectAsState()
@@ -122,21 +123,17 @@ internal fun BooksBrowseSectionPane(section: BooksBrowseSection, catalog: Catalo
                     @Suppress("UNUSED_EXPRESSION") progressMap
                     val pure = catalog.browseEbooksFiltered(browse.ebooks, filter.ebookCatalogQuickFilter)
                     val supplementary = catalog.browseEbooksFiltered(browse.ebooksSupplementary, filter.ebookCatalogQuickFilter)
+                    // Android: eine Liste für reine eBooks und Hörbücher mit eBook (iOS trennt sie mit Überschrift).
+                    val ebooks = CatalogLogic.mergedEbookLists(pure, supplementary, sort.catalogField, sort.catalogDescending)
                     item(key = "ebooks-title") { TabContentSectionTitle(BooksBrowseSection.EBOOKS.title) }
                     when {
-                        browse.ebooksLoading && pure.isEmpty() && supplementary.isEmpty() -> item(key = "ebooks-loading") { AbstandLoadingSpinner() }
-                        pure.isEmpty() -> item(key = "ebooks-empty") {
+                        browse.ebooksLoading && ebooks.isEmpty() -> item(key = "ebooks-loading") { AbstandLoadingSpinner() }
+                        ebooks.isEmpty() -> item(key = "ebooks-empty") {
                             AbstandSectionEmptyState(
                                 if (filter.ebookCatalogQuickFilter == null) "No eBooks in this library." else "No eBooks match the current filter.",
                             )
                         }
-                        else -> bookCards(pure, "ebook", usesEbookProgressDisplay = true, onAppear = { catalog.loadMoreBrowseEbooksIfNeeded(it.id) })
-                    }
-                    if (supplementary.isNotEmpty()) {
-                        item(key = "ebooks-supp-title") {
-                            TabContentSectionTitle("Audiobooks with eBook", Modifier.padding(top = AppTheme.Layout.sectionSpacing))
-                        }
-                        bookCards(supplementary, "ebook-supp", usesEbookProgressDisplay = true)
+                        else -> bookCards(ebooks, "ebook", usesEbookProgressDisplay = true, onAppear = { catalog.loadMoreBrowseEbooksIfNeeded(it.id) })
                     }
                 }
                 BooksBrowseSection.AUTHOR -> {

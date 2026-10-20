@@ -284,6 +284,26 @@ object CatalogLogic {
      * iOS: `entityDetailSortBooksBySeriesOrder` — nur umsortieren, wenn mindestens zwei echte
      * Sequenznummern vorliegen (sonst bleibt die Server-Reihenfolge).
      */
+    /**
+     * Android: reine eBooks und Hörbücher mit eBook als EINE Liste. Beide kommen vom Server je für
+     * sich sortiert; für Titel/Autor/Hinzugefügt/Laufzeit wird lokal nach demselben Feld gemischt,
+     * sonst bleibt die Reihenfolge „reine eBooks, dann Hörbücher mit eBook“.
+     */
+    fun mergedEbookLists(pure: List<AbsBook>, supplementary: List<AbsBook>, field: CatalogSortField, descending: Boolean): List<AbsBook> {
+        val seen = HashSet<String>()
+        val all = (pure + supplementary).filter { seen.add(it.id) }
+        val collator = caseInsensitiveCollator()
+        val comparator: Comparator<AbsBook> = when (field) {
+            CatalogSortField.TITLE -> Comparator { a, b -> collator.compare(a.displayTitle, b.displayTitle) }
+            CatalogSortField.AUTHOR_NAME, CatalogSortField.AUTHOR_NAME_LF ->
+                Comparator { a, b -> collator.compare(a.displayAuthorsCardLine, b.displayAuthorsCardLine) }
+            CatalogSortField.ADDED_AT -> compareBy { it.addedAt ?: 0L }
+            CatalogSortField.DURATION -> compareBy { it.media.duration ?: 0.0 }
+            else -> return all
+        }
+        return all.sortedWith(if (descending) comparator.reversed() else comparator)
+    }
+
     fun sortBooksBySeriesOrder(books: List<AbsBook>, seriesId: String? = null, seriesName: String? = null): List<AbsBook> {
         if (books.size <= 1) return books
         val keyed = books.map { b -> seriesSortKey(b, seriesId, seriesName).let { Triple(b, it.first, it.second) } }
