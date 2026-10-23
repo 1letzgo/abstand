@@ -37,6 +37,10 @@ fun detailCoverTint(avg: CoverRgb?, palette: AppColorPalette): DetailCoverTint {
     return DetailCoverTint(bg.color(), card.color())
 }
 
+/** iOS: `detailSectionControlActiveTint(forCardTint:)` — aktiver Panel-Knopf auf Cover-Tint-Karte. */
+fun detailSectionControlActiveTint(card: Color, palette: AppColorPalette): Color =
+    CoverTintMath.detailSectionControlActiveTint(card.coverRgb(), palette.isDarkLike).color()
+
 /** iOS: `coverAverageRGB(from:)` — auf 32×32 verkleinert gemittelt (Area-Average-Näherung). */
 private fun averageRgb(bitmap: Bitmap): CoverRgb? {
     val small = Bitmap.createScaledBitmap(bitmap, 32, 32, true)

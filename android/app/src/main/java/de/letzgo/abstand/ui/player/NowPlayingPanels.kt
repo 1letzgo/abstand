@@ -1,6 +1,7 @@
 package de.letzgo.abstand.ui.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,12 +31,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import de.letzgo.abstand.data.AbsAudioBookmark
 import de.letzgo.abstand.data.AbsBook
+import de.letzgo.abstand.data.AbsChapter
 import de.letzgo.abstand.data.AbsListeningSession
 import de.letzgo.abstand.data.absPlainText
+import de.letzgo.abstand.logic.BookChapterPlayState
+import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.PlayerWiring
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
@@ -42,10 +52,14 @@ import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandCardEmptyState
 import de.letzgo.abstand.ui.components.AbstandDialog
+import de.letzgo.abstand.ui.components.AbstandDivider
 import de.letzgo.abstand.ui.components.AbstandIconButton
 import de.letzgo.abstand.ui.components.AbstandInsetTextField
 import de.letzgo.abstand.ui.components.AbstandProminentButton
 import de.letzgo.abstand.ui.detail.ListeningHistorySessionList
+import de.letzgo.abstand.ui.detail.LocalDetailSectionCardBackground
+import de.letzgo.abstand.ui.detail.detailSectionControlActiveTint
+import de.letzgo.abstand.ui.library.LibraryPlayback
 import de.letzgo.abstand.ui.formatPlaybackTime
 import kotlinx.coroutines.launch
 import de.letzgo.abstand.ui.components.AbstandListRow
@@ -55,46 +69,88 @@ import de.letzgo.abstand.ui.components.AbstandIconButtonStyle
 enum class FullPlayerCoverPanel { artwork, description, bookmarks, chapters, sessions, readAlong }
 
 /**
- * iOS: `FullPlayerCoverOverlayButton` — runder Panel-Knopf (aktiv: Akzent-Füllung).
+ * iOS: `FullPlayerCoverOverlayButton` — runder Panel-Knopf. Mit Cover-Tint ([LocalDetailSectionCardBackground])
+ * inaktiv in der Kartenfarbe, aktiv stärker abgesetzt in derselben Farbfamilie
+ * (`detailSectionControlActiveTint`); ohne Tint Palette-Karte bzw. Akzent (`AppTheme.ExpandingDock.Colors`).
+ * Inaktives Symbol `textSecondary` 72 %, aktives in `foregroundOnAccent` und gefüllt ([activeIcon]).
  */
 @Composable
-fun FullPlayerPanelButton(icon: ImageVector, active: Boolean, accessibilityLabel: String, onClick: () -> Unit) =
-    FullPlayerPanelButton(icon, active, accessibilityLabel, dimmed = false, onClick = onClick)
+fun FullPlayerPanelButton(icon: ImageVector, active: Boolean, accessibilityLabel: String, activeIcon: ImageVector = icon, onClick: () -> Unit) =
+    FullPlayerPanelButton(icon, active, accessibilityLabel, dimmed = false, activeIcon = activeIcon, onClick = onClick)
 
 /** [dimmed]: antippbar (für den Hinweis), aber optisch zurückgenommen (iOS: `opacity(0.45)`). */
 @Composable
-fun FullPlayerPanelButton(icon: ImageVector, active: Boolean, accessibilityLabel: String, dimmed: Boolean, onClick: () -> Unit) {
+fun FullPlayerPanelButton(
+    icon: ImageVector,
+    active: Boolean,
+    accessibilityLabel: String,
+    dimmed: Boolean,
+    activeIcon: ImageVector = icon,
+    onClick: () -> Unit,
+) {
+    val colors = panelButtonColors()
     AbstandIconButton(
-        icon, accessibilityLabel, onClick = onClick,
-        modifier = Modifier.alpha(if (dimmed) DIMMED_ALPHA else 1f),
-        style = if (active) AbstandIconButtonStyle.Filled else AbstandIconButtonStyle.Tonal,
+        if (active) activeIcon else icon, accessibilityLabel, onClick = onClick,
+        modifier = Modifier.alpha(if (dimmed) DIMMED_ALPHA else 1f).semantics { selected = active },
+        style = AbstandIconButtonStyle.Tonal,
         size = MiniPlayerMetrics.panelControlButtonSize,
-        tint = if (active) Theme.onAccent else Theme.palette.textPrimary,
+        tint = if (active) colors.activeForeground else colors.inactiveForeground,
+        containerColor = if (active) colors.activeBackground else colors.inactiveBackground,
     )
 }
 
 private const val DIMMED_ALPHA = 0.45f
+/** iOS: `AppTheme.ExpandingDock.inactiveIconOpacity`. */
+private const val INACTIVE_ICON_ALPHA = 0.72f
 
-/** iOS: kompakte Kreise auf der Teleprompter-Karte (±). */
+/** iOS: `AppTheme.ExpandingDock.Colors` für die Panel-Knöpfe (mit/ohne Cover-Tint). */
+private data class PanelButtonColors(
+    val activeBackground: Color,
+    val activeForeground: Color,
+    val inactiveBackground: Color,
+    val inactiveForeground: Color,
+)
+
+@Composable
+private fun panelButtonColors(): PanelButtonColors {
+    val palette = Theme.palette
+    val card = LocalDetailSectionCardBackground.current
+    val activeBg = if (card != null) detailSectionControlActiveTint(card, palette) else Theme.accent
+    return PanelButtonColors(
+        activeBackground = activeBg,
+        activeForeground = palette.foregroundOnAccent(activeBg),
+        inactiveBackground = card ?: palette.card,
+        inactiveForeground = palette.textSecondary.copy(alpha = INACTIVE_ICON_ALPHA),
+    )
+}
+
+/** iOS: kompakte Kreise auf der Teleprompter-Karte (±, `FullPlayerCoverOverlayButton(compact: true)`). */
 @Composable
 fun CompactPanelButton(icon: ImageVector, accessibilityLabel: String, onClick: () -> Unit) {
+    val colors = panelButtonColors()
     AbstandIconButton(
         icon, accessibilityLabel, onClick = onClick,
         style = AbstandIconButtonStyle.Tonal,
         size = AppTheme.Layout.compactIconButtonSize,
-        tint = Theme.palette.textPrimary,
-        containerColor = Theme.palette.background,
+        tint = colors.inactiveForeground,
+        containerColor = colors.inactiveBackground,
     )
 }
 
-/** iOS: `fullPlayerExpandedCoverCard` — Kartenfläche des aufgeklappten Panels (volle Höhe). */
+/**
+ * iOS: `fullPlayerExpandedCoverCard` — Kartenfläche des aufgeklappten Panels (volle Höhe, ohne Schatten):
+ * Karte 35 %, Haarlinie, 24er-Ecken.
+ */
 @Composable
 fun FullPlayerPanelCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val palette = Theme.palette
+    val shape = RoundedCornerShape(MiniPlayerMetrics.coverSurfaceCornerRadius)
     Box(
         modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(MiniPlayerMetrics.coverSurfaceCornerRadius))
-            .background(Theme.palette.card),
+            .clip(shape)
+            .background(palette.card.copy(alpha = MiniPlayerMetrics.expandedPanelCardAlpha))
+            .border(AppTheme.Layout.hairlineWidth, palette.scheme.outlineVariant.copy(alpha = MiniPlayerMetrics.coverCardBorderAlpha), shape),
     ) { content() }
 }
 
@@ -117,42 +173,57 @@ fun DescriptionPanel(book: AbsBook) {
     )
 }
 
-/** iOS: Kapitel-Panel — aktuelles Kapitel hervorgehoben, Tippen springt an den Anfang. */
+/**
+ * iOS: Kapitel-Panel (`BookChapterListView` / `BookChapterRowView`) — Titel, „Start – Ende“, Status
+ * (fertig / laufend) und Play-Symbol; Trenner dazwischen. Tippen springt an den Kapitelanfang und
+ * startet die Wiedergabe (iOS: `play(book:resumeAtOverride:autoPlay: true)`).
+ */
 @Composable
 fun ChaptersPanel(wiring: PlayerWiring) {
     val player = wiring.player
-    val palette = Theme.palette
     val book by player.activeBook.collectAsState()
     val ordinal by player.currentChapterOrdinal.collectAsState()
+    val progressMap by AppModel.shared.progress.progressByItemId.collectAsState()
     val chapters = remember(book?.id, book?.media?.chapters) { player.sortedChapters }
     if (chapters.isEmpty()) {
-        AbstandCardEmptyState("No chapters", Modifier.padding(AppTheme.Layout.cardPadding))
+        AbstandCardEmptyState("No chapters available.", Modifier.padding(AppTheme.Layout.cardPadding))
         return
     }
+    val progress = book?.id?.let { progressMap[it] }
     val current = (ordinal - 1).coerceAtLeast(0)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = (current - 2).coerceAtLeast(0))
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
         itemsIndexed(chapters, key = { i, c -> "${c.id}-$i" }) { i, c ->
-            val active = i == current
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { player.seek(c.start) }
-                    .padding(horizontal = AppTheme.Layout.cardPadding, vertical = AppTheme.Layout.rowVerticalPadding),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.rowSpacing),
-            ) {
-                Text(
-                    c.title.trim().ifEmpty { "Chapter ${i + 1}" },
-                    style = if (active) AppType.titleMedium else AppType.bodyLarge,
-                    color = if (active) Theme.accent else palette.textPrimary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(formatPlaybackTime(c.start), style = AppType.bodySmall, color = palette.textSecondary)
+            PlayerChapterRow(c, BookChapterPlayState.resolve(c, progress)) {
+                player.seek(c.start)
+                player.play()
             }
+            if (i < chapters.lastIndex) AbstandDivider(Modifier.padding(horizontal = AppTheme.Layout.cardPadding))
         }
+    }
+}
+
+/** iOS: `BookChapterRowView` — Status-Symbol nur für fertig/laufend, dahinter `play.circle` in Akzent. */
+@Composable
+private fun PlayerChapterRow(chapter: AbsChapter, playState: BookChapterPlayState, onPlay: () -> Unit) {
+    val accent = Theme.accent
+    AbstandListRow(
+        title = chapter.title,
+        subtitle = "${formatPlaybackTime(chapter.start)} – ${formatPlaybackTime(chapter.end)}",
+        onClick = onPlay,
+        titleStyle = AppType.titleMedium,
+        titleMaxLines = Int.MAX_VALUE,
+        verticalPadding = AppTheme.Layout.withinSectionSpacing,
+        modifier = Modifier
+            .padding(horizontal = AppTheme.Layout.cardPadding)
+            .semantics(mergeDescendants = true) { contentDescription = "Play from chapter ${chapter.title}" },
+    ) {
+        when (playState) {
+            BookChapterPlayState.Completed -> Icon(SF.checkmarkCircleFill, contentDescription = null, tint = accent)
+            BookChapterPlayState.InProgress -> Icon(SF.playCircleFill, contentDescription = null, tint = accent)
+            BookChapterPlayState.NotStarted -> Unit
+        }
+        Icon(SF.playCircle, contentDescription = null, tint = accent)
     }
 }
 
@@ -178,11 +249,11 @@ fun SessionsPanel(wiring: PlayerWiring, isEpisode: Boolean) {
     }
 }
 
-/** iOS: `bookmarksCoverCard` — Liste oben, „Add“ unten rechts; Tippen springt, Löschen mit Rückfrage. */
+/** iOS: `bookmarksCoverCard` — Liste oben, „Add“ unten rechts; Tippen springt und spielt (`jumpToBookmark(autoPlay: true)`), Löschen mit Rückfrage. */
 @Composable
 fun BookmarksPanel(wiring: PlayerWiring, audiobookId: String) {
-    val palette = Theme.palette
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val all by wiring.bookmarks.collectAsState()
     val list = remember(all, audiobookId) { all.filter { it.libraryItemId == audiobookId }.sortedBy { it.time } }
     var adding by remember { mutableStateOf(false) }
@@ -200,7 +271,7 @@ fun BookmarksPanel(wiring: PlayerWiring, audiobookId: String) {
                     AbstandListRow(
                         title = b.title.ifBlank { "Bookmark" },
                         subtitle = formatPlaybackTime(b.time.toDouble()),
-                        onClick = { wiring.player.seek(b.time.toDouble()) },
+                        onClick = { scope.launch { LibraryPlayback.jumpToBookmark(context, b, autoPlay = true) } },
                         titleMaxLines = 2,
                         modifier = Modifier.padding(start = AppTheme.Layout.cardPadding),
                     ) {

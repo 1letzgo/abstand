@@ -1,12 +1,11 @@
 package de.letzgo.abstand.ui.player
 
-import kotlin.math.abs
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -31,13 +31,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
@@ -46,6 +54,7 @@ import androidx.compose.ui.text.style.TextAlign
 import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.model.PlayerWiring
 import de.letzgo.abstand.player.AudioEQPreset
+import de.letzgo.abstand.player.ChapterTimeline
 import de.letzgo.abstand.player.PlaybackController
 import de.letzgo.abstand.player.PlaybackSkipDefaults
 import de.letzgo.abstand.player.SleepTimerMetrics
@@ -60,13 +69,21 @@ import de.letzgo.abstand.ui.components.AbstandPickerMenu
 import de.letzgo.abstand.ui.components.AbstandProgressBar
 import de.letzgo.abstand.ui.formatPlaybackTime
 import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 // MARK: - Scrubber (iOS: `FullPlayerScrubberSection` + `FullPlayerProgressTrack`)
 
+/** iOS: `.accessibilityHint` der Scrubber-Sektion. */
+private const val SCRUB_ACCESSIBILITY_HINT = "Long press and drag on the bar to seek."
+
 /**
- * iOS: `FullPlayerProgressTrack` — Kapsel-Spur mit Füllung und Kapitelmarken; Daumen nur beim Ziehen.
- * Antippen springt, horizontales Ziehen scrubbt (iOS: Long-Press + Ziehen).
+ * iOS: `FullPlayerProgressTrack` — Kapsel-Spur mit Füllung und Kapitelmarken; Daumen nur beim Scrubben.
+ * Geste wie iOS (`LongPressGesture(0.35)` vor `DragGesture`): erst 350 ms halten, dann ziehen
+ * (Live-Vorschau über [onScrub]); gesprungen wird erst beim Loslassen ([onSeek]). Antippen tut nichts.
+ * Werte in [onScrub]/[onSeek] beziehen sich auf das beim Scrub-Start gültige [total].
+ * TalkBack: Schritte von max(15 s, 2 % der Dauer) als „Skip forward/back“ (iOS: `accessibilityAdjustableAction`).
  */
 @Composable
 private fun ProgressTrack(
@@ -75,14 +92,22 @@ private fun ProgressTrack(
     enabled: Boolean,
     chapterMarkers: List<Double>,
     accessibilityLabel: String,
+    onScrubStart: () -> Unit = {},
     onScrub: (Double?) -> Unit,
     onSeek: (Double) -> Unit,
 ) {
     val palette = Theme.palette
     val accent = Theme.accent
+    val haptics = LocalHapticFeedback.current
     val fraction = if (total > 0) (value / total).coerceIn(0.0, 1.0) else 0.0
     var scrubbing by remember { mutableStateOf(false) }
+    // pointerInput(enabled) lebt über Recompositions hinweg — immer die aktuellen Werte/Lambdas lesen
+    // (sonst springt der Kapitel-Scrubber nach Kapitelwechsel mit dem alten Kapitelstart).
     val currentTotal by rememberUpdatedState(total)
+    val currentValue by rememberUpdatedState(value)
+    val currentOnScrubStart by rememberUpdatedState(onScrubStart)
+    val currentOnScrub by rememberUpdatedState(onScrub)
+    val currentOnSeek by rememberUpdatedState(onSeek)
     val markerColor = palette.textSecondary.copy(alpha = 0.65f)
     val hairline = with(LocalDensity.current) { AppTheme.Layout.hairlineWidth.toPx() }
     Box(
@@ -90,66 +115,86 @@ private fun ProgressTrack(
             .fillMaxWidth()
             .height(MiniPlayerMetrics.progressRowHeight + MiniPlayerMetrics.scrubberPaddingAboveBar)
             .semantics {
-                contentDescription = accessibilityLabel
-                stateDescription = "${(fraction * 100).toInt()} percent"
+                contentDescription = "$accessibilityLabel. $SCRUB_ACCESSIBILITY_HINT"
+                val pct = (fraction * 100).roundToInt()
+                stateDescription = if (chapterMarkers.isEmpty()) "$pct percent" else "$pct percent, ${chapterMarkers.size + 1} chapters"
                 progressBarRangeInfo = ProgressBarRangeInfo(fraction.toFloat(), 0f..1f)
-                if (enabled) setProgress { v -> onSeek(v.toDouble() * currentTotal); true }
+                if (enabled && total > 0) {
+                    val step = max(15.0, total * 0.02)
+                    setProgress { v -> currentOnSeek(v.toDouble() * currentTotal); true }
+                    customActions = listOf(
+                        CustomAccessibilityAction("Skip forward") { currentOnSeek(min(currentTotal, currentValue + step)); true },
+                        CustomAccessibilityAction("Skip back") { currentOnSeek(max(0.0, currentValue - step)); true },
+                    )
+                }
             }
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
-                detectTapGestures { o -> onSeek((o.x / size.width).coerceIn(0f, 1f) * currentTotal) }
-            }
-            .pointerInput(enabled) {
-                if (!enabled) return@pointerInput
-                var x = 0f
-                detectHorizontalDragGestures(
-                    onDragStart = { o ->
-                        scrubbing = true
-                        x = o.x
-                        onScrub((x / size.width).coerceIn(0f, 1f) * currentTotal)
-                    },
-                    onDragEnd = {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var x = down.position.x
+                    // Long-Press abwarten; Loslassen oder Bewegen über die Touch-Schwelle bricht ab
+                    // (dann gehört die Geste z. B. dem Wischen zum Schließen) — Ergebnis null = gehalten.
+                    val aborted = withTimeoutOrNull(MiniPlayerMetrics.scrubLongPressMillis) {
+                        var abort = false
+                        while (!abort) {
+                            val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
+                            abort = c == null || !c.pressed || c.isConsumed ||
+                                (c.position - down.position).getDistance() > viewConfiguration.touchSlop
+                            if (c != null) x = c.position.x
+                        }
+                        true
+                    }
+                    if (aborted != null) return@awaitEachGesture
+                    val t = currentTotal
+                    fun rel() = (x / size.width).coerceIn(0f, 1f) * t
+                    scrubbing = true
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    try {
+                        currentOnScrubStart()
+                        currentOnScrub(rel())
+                        while (true) {
+                            val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                            if (!c.pressed) {
+                                c.consume()
+                                currentOnSeek(rel())
+                                break
+                            }
+                            x = c.position.x
+                            c.consume()
+                            currentOnScrub(rel())
+                        }
+                    } finally {
                         scrubbing = false
-                        onSeek((x / size.width).coerceIn(0f, 1f) * currentTotal)
-                        onScrub(null)
-                    },
-                    onDragCancel = {
-                        scrubbing = false
-                        onScrub(null)
-                    },
-                ) { change, dx ->
-                    change.consume()
-                    x += dx
-                    onScrub((x / size.width).coerceIn(0f, 1f) * currentTotal)
+                        currentOnScrub(null)
+                    }
                 }
             },
         contentAlignment = Alignment.BottomStart,
     ) {
-        // M3-Slider (2024): aktive Spur | Lücke | Griff | Lücke | inaktive Spur mit Stopp-Punkt.
         Canvas(Modifier.fillMaxWidth().height(MiniPlayerMetrics.progressRowHeight)) {
-            if (size.width <= AppTheme.Layout.tightSpacing.toPx() * 4) return@Canvas
+            val w = size.width
+            if (w <= 0f) return@Canvas
             val trackH = MiniPlayerMetrics.progressTrackHeight.toPx()
-            val gap = AppTheme.Layout.tightSpacing.toPx()
-            val handleW = AppTheme.Layout.tightSpacing.toPx()
-            val handleH = if (scrubbing) size.height else size.height * 0.8f
             val cy = size.height / 2
             val top = cy - trackH / 2
-            val radius = CornerRadius(trackH / 2)
-            val hx = (size.width * fraction.toFloat()).coerceIn(handleW / 2, size.width - handleW / 2)
-            val activeEnd = hx - handleW / 2 - gap
-            if (activeEnd > 0f) drawRoundRect(accent, Offset(0f, top), Size(activeEnd, trackH), radius)
-            val inactiveStart = hx + handleW / 2 + gap
-            if (inactiveStart < size.width) {
-                drawRoundRect(palette.progressTrack, Offset(inactiveStart, top), Size(size.width - inactiveStart, trackH), radius)
-                drawCircle(accent, handleW / 2, Offset(size.width - trackH / 2, cy))
-            }
-            chapterMarkers.forEach { m ->
-                val x = size.width * m.toFloat()
-                if (abs(x - hx) > handleW / 2 + gap) {
-                    drawRect(markerColor, topLeft = Offset(max(0f, x - hairline / 2), top), size = Size(hairline, trackH))
+            val fillW = w * fraction.toFloat()
+            // iOS: Spur, Füllung und Marken als gerade Rechtecke — erst die Kapsel schneidet sie rund zu.
+            val capsule = Path().apply { addRoundRect(RoundRect(0f, top, w, top + trackH, CornerRadius(trackH / 2))) }
+            clipPath(capsule) {
+                drawRect(palette.progressTrack, Offset(0f, top), Size(w, trackH))
+                if (fillW > 0f) drawRect(accent, Offset(0f, top), Size(fillW, trackH))
+                chapterMarkers.forEach { m ->
+                    drawRect(markerColor, Offset(max(0f, w * m.toFloat() - hairline / 2), top), Size(hairline, trackH))
                 }
             }
-            drawRoundRect(accent, Offset(hx - handleW / 2, cy - handleH / 2), Size(handleW, handleH), CornerRadius(handleW / 2))
+            if (scrubbing) {
+                val r = MiniPlayerMetrics.scrubThumbDiameter.toPx() / 2
+                val stroke = AppTheme.Layout.boldStrokeWidth.toPx()
+                val center = Offset(max(r, fillW), cy)
+                drawCircle(accent, r, center)
+                drawCircle(palette.background, r - stroke / 2, center, style = Stroke(stroke))
+            }
         }
     }
 }
@@ -174,7 +219,8 @@ private fun TimesRow(elapsed: Double, remaining: Double, caption: String, showTi
 
 /**
  * iOS: `FullPlayerScrubberSection` — Buch-Scrubber mit Kapitelmarken, darunter (bei Kapiteln) der
- * Kapitel-Scrubber. Position gedrosselt (iOS: `TimelineView(.periodic(by: 0.5))`).
+ * Kapitel-Scrubber. Position gedrosselt (iOS: `TimelineView(.periodic(by: 0.5))`). Scrubben nur mit
+ * aktivem Titel, bekannter Dauer und ohne Puffern (iOS: `scrubEnabled`).
  */
 @Composable
 fun FullPlayerScrubberSection(wiring: PlayerWiring) {
@@ -187,6 +233,8 @@ fun FullPlayerScrubberSection(wiring: PlayerWiring) {
     val buffering by player.isBuffering.collectAsState()
     val book by player.activeBook.collectAsState()
     var scrubGlobal by remember { mutableStateOf<Double?>(null) }
+    // Kapitel beim Scrub-Start festhalten — die Spur bleibt beim Ziehen bis ans Kapitelende stabil.
+    var scrubChapter by remember { mutableStateOf<ChapterTimeline.ChapterProgress?>(null) }
     val markers = remember(chapterCount, totalDuration, book?.id) { player.chapterMarkerFractions }
     val dur = max(totalDuration, 1.0)
     val display = (scrubGlobal ?: position).coerceIn(0.0, dur)
@@ -199,15 +247,28 @@ fun FullPlayerScrubberSection(wiring: PlayerWiring) {
         }
         // Kapitelzeile reservieren, solange es Kapitel gibt — sonst springt der Block beim Einblenden.
         if (chapterCount > 0) {
-            val chapter = player.currentChapterProgress(display)
+            val chapter = scrubChapter?.let { c -> c.copy(position = display - c.start) } ?: player.currentChapterProgress(display)
             val chDur = chapter?.duration ?: 1.0
             val chPos = (chapter?.position ?: 0.0).coerceIn(0.0, chDur)
             val caption = chapterTitle.trim().ifEmpty { if (chapterOrdinal > 0) "Chapter $chapterOrdinal" else "Chapter" }
             Column(verticalArrangement = Arrangement.spacedBy(MiniPlayerMetrics.scrubberBarToTimeSpacing)) {
                 ProgressTrack(
                     chPos, chDur, enabled && chapter != null, emptyList(), "Chapter position",
-                    onScrub = { rel -> scrubGlobal = rel?.let { (chapter?.start ?: 0.0) + it } },
-                    onSeek = { rel -> player.seek((chapter?.start ?: 0.0) + rel) },
+                    onScrubStart = { scrubChapter = player.currentChapterProgress(display) },
+                    onScrub = { rel ->
+                        val c = scrubChapter
+                        if (rel == null || c == null) {
+                            scrubGlobal = null
+                            scrubChapter = null
+                        } else {
+                            scrubGlobal = c.start + rel
+                        }
+                    },
+                    // Spur zeigt kapitel-relative Zeit — auf die globale Zeit umrechnen (frischer Kapitelstart).
+                    onSeek = { rel ->
+                        val c = scrubChapter ?: player.currentChapterProgress(display)
+                        if (c != null) player.seek(c.start + rel)
+                    },
                 )
                 TimesRow(chPos, max(0.0, chDur - chPos), caption, showTimes = chapter != null)
             }
@@ -228,10 +289,18 @@ fun FullPlayerTransportRow(wiring: PlayerWiring, modifier: Modifier = Modifier) 
     val chapterCount by player.chapterCount.collectAsState()
     val back by player.skipBackwardSeconds.collectAsState()
     val fwd by player.skipForwardSeconds.collectAsState()
-    // Kapitel-Ränder hängen von der Position ab — nur bei Kapitelwechsel neu prüfen.
-    val ordinal by player.currentChapterOrdinal.collectAsState()
-    val canPrev = remember(ordinal, chapterCount, book?.id) { player.canSkipToPreviousChapter }
-    val canNext = remember(ordinal, chapterCount, book?.id) { player.canSkipToNextChapter }
+    // Kapitel-Ränder hängen von der Position ab (iOS: „Zurück“ im ersten Kapitel erst nach 1,5 s) —
+    // Position nur im derivedStateOf lesen, damit die Zeile nur beim Umschalten neu zeichnet.
+    val globalPosition = player.globalPosition.collectAsState()
+    val canPrev by remember(chapterCount, book?.id) { derivedStateOf { globalPosition.value; player.canSkipToPreviousChapter } }
+    val canNext by remember(chapterCount, book?.id) { derivedStateOf { globalPosition.value; player.canSkipToNextChapter } }
+    // iOS: `.sensoryFeedback(.impact(weight: .light), trigger: isPlaying)` — nicht beim ersten Aufbau.
+    val haptics = LocalHapticFeedback.current
+    var lastPlaying by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(isPlaying) {
+        if (lastPlaying != null && lastPlaying != isPlaying) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        lastPlaying = isPlaying
+    }
     val hasBook = book != null
     val busy = hasBook && buffering
     val hasChapters = chapterCount > 0
@@ -347,6 +416,10 @@ fun FullPlayerUtilityBar(wiring: PlayerWiring, modifier: Modifier = Modifier) {
     val downloadStates by wiring.downloads.states.collectAsState()
     val dlState = sid?.let { downloadStates[it] }
     val activeDownload by DownloadManager.activeItemId.collectAsState()
+    val queued by DownloadManager.queuedItemIds.collectAsState()
+    val downloadProgress by DownloadManager.progress.collectAsState()
+    // iOS: `.disabled(!isLoggedIn)` am Download-Knopf.
+    val loggedIn by wiring.loggedIn.collectAsState()
     var eqMenu by remember { mutableStateOf(false) }
     var rateMenu by remember { mutableStateOf(false) }
 
@@ -371,17 +444,18 @@ fun FullPlayerUtilityBar(wiring: PlayerWiring, modifier: Modifier = Modifier) {
 
         if (sid != null) {
             when {
-                dlState?.isDownloaded == true -> UtilityColumn("Download", "Remove download", onClick = { wiring.removeLocalDownloadForActivePlayback() }) {
+                dlState?.isDownloaded == true -> UtilityColumn("Download", "Remove download", onClick = { wiring.removeLocalDownloadForActivePlayback() }.takeIf { loggedIn }) {
                     Icon(SF.arrowDownCircleFill, contentDescription = null, tint = accent)
                 }
-                dlState?.isDownloading == true && activeDownload == sid -> UtilityColumn("Download", "Download in progress", onClick = null) {
-                    AbstandProgressBar(dlState.progress, Modifier.padding(horizontal = AppTheme.Layout.screenPadding))
+                activeDownload == sid -> UtilityColumn("Download", "Download in progress", onClick = null) {
+                    AbstandProgressBar(dlState?.progress ?: downloadProgress, Modifier.padding(horizontal = AppTheme.Layout.screenPadding))
                 }
-                dlState?.isDownloading == true -> UtilityColumn("Download", "Queued", onClick = null) {
-                    Icon(SF.arrowDownCircle, contentDescription = null, tint = accent.copy(alpha = AppTheme.disabledContentAlpha))
+                // iOS: wartend in der Download-Warteschlange → gestrichelter Kreis in Akzent.
+                sid in queued -> UtilityColumn("Download", "Queued", onClick = null) {
+                    Icon(SF.circleDashed, contentDescription = null, tint = accent)
                 }
-                else -> UtilityColumn("Download", "Download", onClick = { wiring.startDownloadForActivePlayback() }) {
-                    Icon(SF.arrowDownCircle, contentDescription = null, tint = palette.textPrimary)
+                else -> UtilityColumn("Download", "Download", onClick = { wiring.startDownloadForActivePlayback() }.takeIf { loggedIn }) {
+                    Icon(SF.arrowDownCircle, contentDescription = null, tint = palette.textPrimary.copy(alpha = if (loggedIn) 1f else AppTheme.disabledContentAlpha))
                 }
             }
         }
@@ -407,12 +481,14 @@ private fun androidx.compose.foundation.layout.RowScope.SleepTimerColumn(wiring:
         }
     }
     val seconds = remember(tick, mode, endDate) { player.sleepTimerDisplaySeconds() }
-    val label = when (val m = mode) {
-        SleepTimerMode.Off -> SleepTimerMetrics.offLabel()
-        is SleepTimerMode.Minutes -> SleepTimerMetrics.minutesLabel(m.minutes)
-        is SleepTimerMode.Chapters -> SleepTimerMetrics.chaptersMenuLabel(m.chapters)
+    val chapters = (mode as? SleepTimerMode.Chapters)?.chapters ?: 0
+    // iOS: `sleepAccessibilityLabel`.
+    val a11yLabel = when {
+        seconds != null && seconds > 0 -> "Sleep timer, ${formatPlaybackTime(max(0.0, seconds))} remaining"
+        chapters > 0 -> "Sleep timer, $chapters chapter(s)"
+        else -> "Sleep timer, Off"
     }
-    UtilityColumn("Sleep", "Sleep timer, $label", onClick = { menu = true }, menu = {
+    UtilityColumn("Sleep", a11yLabel, onClick = { menu = true }, menu = {
         AbstandMenu(menu, { menu = false }) {
             item(SleepTimerMetrics.offLabel(), { player.applySleepTimer(0) }, selected = mode == SleepTimerMode.Off, selectable = true)
             divider()
@@ -424,11 +500,12 @@ private fun androidx.compose.foundation.layout.RowScope.SleepTimerColumn(wiring:
             }
         }
     }) {
+        // iOS: `SleepTimerUtilityMenuLabel` — Countdown, sonst „n ch/chs“ (Akzent), sonst „Off“.
         val s = seconds
-        if (s != null && s > 0) {
-            Text(formatPlaybackTime(s), style = AppType.titleSmall, color = accent, maxLines = 1)
-        } else {
-            Icon(SF.moon, contentDescription = null, tint = if (mode == SleepTimerMode.Off) palette.textPrimary else accent)
+        when {
+            s != null && s > 0 -> Text(formatPlaybackTime(s), style = AppType.titleSmall, color = accent, maxLines = 1)
+            chapters > 0 -> Text(if (chapters == 1) "$chapters ch" else "$chapters chs", style = AppType.titleSmall, color = accent, maxLines = 1)
+            else -> Text("Off", style = AppType.titleSmall, color = palette.textSecondary, maxLines = 1)
         }
     }
 }

@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,7 +52,15 @@ import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandAlert
 import de.letzgo.abstand.ui.components.AbstandEmptyScreen
-import de.letzgo.abstand.ui.components.AbstandLoadingSpinner
+import de.letzgo.abstand.ui.components.AbstandLabeledLoadingState
+import de.letzgo.abstand.ui.components.LocalCoverEnvironment
+import de.letzgo.abstand.ui.components.abstandCardChrome
+import de.letzgo.abstand.ui.components.abstandDetailScrollBackground
+import de.letzgo.abstand.ui.detail.DetailSectionCardsTinted
+import de.letzgo.abstand.ui.detail.rememberDetailCoverTint
+import de.letzgo.abstand.ui.library.coverRevisionFor
+import de.letzgo.abstand.data.AbsApiClient
+import de.letzgo.abstand.store.CoverImageCache
 import de.letzgo.abstand.ui.components.CoverImage
 import de.letzgo.abstand.ui.components.CoverImageContentMode
 
@@ -81,6 +90,7 @@ fun NowPlayingScreen(
     val book by player.activeBook.collectAsState()
     val episodeId by player.activePlaybackEpisodeId.collectAsState()
     val preparing by wiring.isPreparingPlayback.collectAsState()
+    val restoringLaunch by wiring.isRestoringLaunchPlayback.collectAsState()
     // iOS: Startzustand aus dem Player — laufender Teleprompter öffnet direkt die Read-along-Karte.
     var panel by rememberSaveable {
         mutableStateOf(if (readAlong?.isModeActive?.value == true) FullPlayerCoverPanel.readAlong else FullPlayerCoverPanel.artwork)
@@ -91,21 +101,33 @@ fun NowPlayingScreen(
     LaunchedEffect(book?.id, episodeId) { if (panel != FullPlayerCoverPanel.readAlong) panel = FullPlayerCoverPanel.artwork }
     if (readAlong == null && panel == FullPlayerCoverPanel.readAlong) panel = FullPlayerCoverPanel.artwork
 
+    // iOS: `resolvedFullPlayerCoverTint` + `fullPlayerBackground` — Cover-Tint wie Buch-Detail (gleicher
+    // Hero-Cache-Key wie das sichtbare Cover; Folgen: Stub-ID = Sendung). Palette-Wechsel rechnen neu.
+    val tintBook = book
+    val env = LocalCoverEnvironment.current
+    val coverRevision = coverRevisionFor(tintBook?.updatedAt)
+    val heroUrl = tintBook?.let { bk -> env.serverBaseURL?.let { AbsApiClient.itemCoverURL(it, bk.id, CoverImageTier.hero) } }
+    val heroKey = tintBook?.let { CoverImageCache.cacheKey(CoverImageCache.scopeId(it.id, CoverImageTier.hero), coverRevision) }
+    val tint = rememberDetailCoverTint(heroUrl, heroKey, persistItemId = tintBook?.id)
+
     BoxWithConstraints(
         modifier
             .fillMaxSize()
-            .background(palette.background)
+            .then(if (tintBook != null) Modifier.abstandDetailScrollBackground(tint.background) else Modifier.background(palette.background))
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(horizontal = MiniPlayerMetrics.fullPlayerCoverInset),
     ) {
+      // iOS: `.detailSectionCardsTinted(fromBackgroundTint:)` — Panel-Knöpfe in Cover-Kartenfarbe.
+      DetailSectionCardsTinted(tint.card) {
         val landscape = maxWidth > maxHeight
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             DismissGrabber(onDismiss)
             val b = book
             if (b == null) {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    if (preparing) {
-                        AbstandLoadingSpinner()
+                    // iOS: `showsConnectionLoading` (`isRestoringLaunchPlayback || isPreparingPlayback`).
+                    if (preparing || restoringLaunch) {
+                        AbstandLabeledLoadingState(text = if (restoringLaunch) "Loading last position…" else "Loading…")
                     } else {
                         AbstandEmptyScreen(title = "Nothing playing", icon = SF.waveform, description = "Choose an audiobook in the library.")
                     }
@@ -180,6 +202,7 @@ fun NowPlayingScreen(
                 Column(Modifier.widthIn(max = MiniPlayerMetrics.fullPlayerContentMaxWidth).fillMaxWidth()) { controls() }
             }
         }
+      }
     }
     if (downloadWarning) ReadAlongDownloadWarning { downloadWarning = false }
     if (recapOpen) readAlong?.recapSheet?.invoke { recapOpen = false }
@@ -227,16 +250,19 @@ private fun PlayerHeaderArea(
     ) { p ->
         when (p) {
             FullPlayerCoverPanel.artwork -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                // iOS: `fullPlayerSquareCoverCard` — Karte mit Schatten und Haarlinie (`.separator` 35 %).
+                val shape = RoundedCornerShape(MiniPlayerMetrics.coverCornerRadius)
                 Box(
                     Modifier
                         .padding(MiniPlayerMetrics.fullPlayerCoverCardMargin / 2)
                         .aspectRatio(1f, matchHeightConstraintsFirst = true)
-                        .clip(RoundedCornerShape(MiniPlayerMetrics.coverCornerRadius))
-                        .background(Theme.palette.card),
+                        .abstandCardChrome(Theme.palette.card, shape, AppTheme.CardElevation.Hero)
+                        .border(AppTheme.Layout.hairlineWidth, Theme.palette.scheme.outlineVariant.copy(alpha = MiniPlayerMetrics.coverCardBorderAlpha), shape),
                 ) {
                     CoverImage(
                         itemId = book.id,
                         tier = CoverImageTier.hero,
+                        cacheRevision = coverRevisionFor(book.updatedAt),
                         contentMode = CoverImageContentMode.Fit,
                         modifier = Modifier.fillMaxSize(),
                         contentDescription = book.displayTitle,
@@ -307,8 +333,8 @@ private fun PanelControlRow(
         kinds.forEach { k ->
             val on = active == k
             when (k) {
-                FullPlayerCoverPanel.description -> FullPlayerPanelButton(SF.docText, on, if (on) "Hide description" else "Show description") { onToggle(k) }
-                FullPlayerCoverPanel.bookmarks -> FullPlayerPanelButton(SF.textBookClosed, on, if (on) "Hide bookmarks" else "Show bookmarks") { onToggle(k) }
+                FullPlayerCoverPanel.description -> FullPlayerPanelButton(SF.docText, on, activeIcon = SF.docTextFill, accessibilityLabel = if (on) "Hide description" else "Show description") { onToggle(k) }
+                FullPlayerCoverPanel.bookmarks -> FullPlayerPanelButton(SF.textBookClosed, on, activeIcon = SF.textBookClosedFill, accessibilityLabel = if (on) "Hide bookmarks" else "Show bookmarks") { onToggle(k) }
                 FullPlayerCoverPanel.chapters -> FullPlayerPanelButton(SF.listBullet, on, if (on) "Hide chapters" else "Show chapters") { onToggle(k) }
                 FullPlayerCoverPanel.sessions -> FullPlayerPanelButton(SF.clockArrowCirclepath, on, if (on) "Hide listening history" else "Show listening history") { onToggle(k) }
                 FullPlayerCoverPanel.readAlong -> {
@@ -319,6 +345,6 @@ private fun PanelControlRow(
                 FullPlayerCoverPanel.artwork -> Unit
             }
         }
-        onOpenEbook?.let { FullPlayerPanelButton(SF.bookClosedFill, false, "Open ebook", it) }
+        onOpenEbook?.let { FullPlayerPanelButton(SF.bookClosedFill, false, "Open ebook", onClick = it) }
     }
 }

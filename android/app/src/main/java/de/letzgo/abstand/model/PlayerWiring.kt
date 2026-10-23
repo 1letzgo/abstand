@@ -76,6 +76,10 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
     /** iOS: `isPreparingPlayback` — Start läuft (Metadaten, Session). */
     val isPreparingPlayback: StateFlow<Boolean> = _isPreparingPlayback.asStateFlow()
 
+    private val _isRestoringLaunchPlayback = MutableStateFlow(false)
+    /** iOS: `isRestoringLaunchPlayback` — letzte Wiedergabe wird beim Start (pausiert) geladen. */
+    val isRestoringLaunchPlayback: StateFlow<Boolean> = _isRestoringLaunchPlayback.asStateFlow()
+
     /** iOS: `bookmarks` (Quelle: [ProgressStore]). */
     val bookmarks: StateFlow<List<AbsAudioBookmark>> get() = progressStore.bookmarks
 
@@ -384,6 +388,15 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
 
     override suspend fun restoreLastPlayedOnLaunch() {
         if (player.activeBook.value != null) return
+        _isRestoringLaunchPlayback.value = true
+        try {
+            restoreLastPlayedOnLaunchBody()
+        } finally {
+            _isRestoringLaunchPlayback.value = false
+        }
+    }
+
+    private suspend fun restoreLastPlayedOnLaunchBody() {
         val c = session.client ?: (if (session.offlineHomeUIActive) session.clientForOfflineLocalPlayback() else null) ?: return
         progressStore.ensureLocalProgressLoaded()
         val progress = launchResumeProgress()
@@ -607,6 +620,9 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
 
     /** iOS: `model.isNetworkReachable` für den Leertext der Sessions-Liste. */
     val networkReachable: StateFlow<Boolean> get() = session.isNetworkReachable
+
+    /** iOS: `model.isLoggedIn` — Download-Knopf im Vollplayer nur angemeldet. */
+    val loggedIn: StateFlow<Boolean> get() = session.isLoggedIn
 
     /**
      * iOS: Sessions-Panel — Folge über `loadPodcastEpisodeListeningSessions`, sonst Buchdetail (für die

@@ -62,8 +62,12 @@ object MiniPlayerMetrics {
     val fullPlayerContentMaxWidth = 800.dp
     /** Großes Cover (M3 medium). */
     val coverCornerRadius = AppTheme.Layout.cornerMedium
-    /** iOS: `FullPlayerCoverOverlayMetrics.coverSurfaceCornerRadius` (M3 extra-large). */
-    val coverSurfaceCornerRadius = AppTheme.Layout.cornerExtraLarge
+    /** iOS: `FullPlayerCoverOverlayMetrics.coverSurfaceCornerRadius` (24 pt). */
+    val coverSurfaceCornerRadius = 24.dp
+    /** iOS: `fullPlayerExpandedCoverCard(cardOpacity: 0.35)` — Kartenfläche des aufgeklappten Panels. */
+    const val expandedPanelCardAlpha = 0.35f
+    /** iOS: `.separator.opacity(0.35)` — Haarlinie um Cover- und Panel-Karte. */
+    const val coverCardBorderAlpha = 0.35f
     /** Symbole der Neben-Transportknöpfe (iOS 30 pt). */
     val transportSymbolSize = 32.dp
     /** Symbol im Play-Knopf (iOS `.largeTitle`). */
@@ -75,10 +79,15 @@ object MiniPlayerMetrics {
     /** iOS: `FullPlayerUtilityBarLayout` — Zeilenhöhe = M3-Touch-Ziel. */
     val utilityPrimaryRowHeight = AppTheme.Layout.minTapTarget
     val utilityRowSpacing = 4.dp
-    /** iOS: `FullPlayerProgressLayout` / `FullPlayerScrubberLayout`. */
-    /** M3-Slider: Griff 4 × 40 dp, Spur 16 dp, 4 dp Lücke zum Griff, Stopp-Punkt am Ende. */
-    val progressRowHeight = 40.dp
-    val progressTrackHeight = 16.dp
+    /**
+     * iOS: `FullPlayerProgressLayout` / `FullPlayerScrubberLayout` — Kapsel-Spur (iOS 12 pt in 14-pt-Zeile),
+     * runder Daumen (16 pt) nur beim Scrubben.
+     */
+    val progressRowHeight = 16.dp
+    val progressTrackHeight = 12.dp
+    val scrubThumbDiameter = 16.dp
+    /** iOS: `LongPressGesture(minimumDuration: 0.35)` vor dem Ziehen. */
+    const val scrubLongPressMillis = 350L
     val scrubberBlockSpacing = 8.dp
     val scrubberPaddingAboveBar = 8.dp
     val scrubberBarToTimeSpacing = 4.dp

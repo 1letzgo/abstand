@@ -78,6 +78,7 @@ object SF {
     val clockFill = Icons.Filled.Schedule
     val clockArrowCirclepath = Icons.Outlined.History
     val docText = Icons.Outlined.Description
+    val docTextFill = Icons.Filled.Description
     val docTextMagnifyingglass = Icons.Outlined.FindInPage
     val dotRadiowavesLeftAndRight = Icons.Outlined.Podcasts
     val dotRadiowavesUpForward = Icons.Outlined.RssFeed
@@ -162,6 +163,7 @@ object SF {
     val tagFill = Icons.Filled.Sell
     val textAlignleft = Icons.AutoMirrored.Outlined.Notes
     val textBookClosed = Icons.Outlined.ImportContacts
+    val textBookClosedFill = Icons.Filled.ImportContacts
     val textBubble = Icons.Outlined.ChatBubbleOutline
     val textMagnifyingglass = Icons.AutoMirrored.Outlined.ManageSearch
     val textPage = Icons.AutoMirrored.Outlined.Article
