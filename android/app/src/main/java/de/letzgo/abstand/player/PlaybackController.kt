@@ -834,6 +834,9 @@ class PlaybackController private constructor(private val appContext: Context) {
     private fun refreshGlobalFromPlayer() {
         val p = exo ?: return
         if (p.mediaItemCount == 0 || timeline.isEmpty) return
+        // iOS: `reliablePlayerGlobalPosition` — nach einem Wiedergabefehler nicht der Engine-Zeit trauen
+        // (Wiederherstellung soll an der letzten guten Position weitermachen, nicht bei 0).
+        if (p.playerError != null) return
         val g = timeline.globalTime(p.currentMediaItemIndex, p.currentPosition / 1000.0)
         if (g.isFinite() && g >= 0) _globalPosition.value = g
     }

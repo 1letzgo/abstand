@@ -225,6 +225,20 @@ final class PlaybackController: NSObject, ObservableObject {
   private var loadGeneration = 0
   /// Zwischen Track-Index-Wechsel und neuem `AVPlayerItem`: Position nicht aus dem alten Item ableiten.
   private var isSwitchingTrack = false
+  /// Ziel eines noch laufenden Seeks (global). Solange gesetzt, gilt es als Position — `currentTime()`
+  /// meldet bis zum Abschluss die alte Zeit (bzw. 0 bei frisch ersetztem/ausgefallenem Item). Sonst
+  /// rechnen schnelle Sprünge (CarPlay, 3× +30 s) von einer falschen Basis und landen bei 0.
+  private var pendingSeekTarget: Double? {
+    didSet { pendingSeekSince = pendingSeekTarget == nil ? nil : Date() }
+  }
+  private var pendingSeekSince: Date?
+  /// Spätestens danach gilt der Player wieder als Quelle (Seek-Abschluss kam nie, z. B. Item ausgefallen).
+  private static let pendingSeekTimeoutSeconds: TimeInterval = 5
+  /// Zählt Seeks hoch — nur der Abschluss des jüngsten Seeks darf `pendingSeekTarget` lösen.
+  private var seekGeneration = 0
+  /// Zählt Track-Ladevorgänge hoch — ein älteres `loadCurrentTrack` ersetzt das Item nicht mehr,
+  /// wenn inzwischen ein neueres gestartet wurde (schnelle Sprünge über Track-Grenzen).
+  private var trackLoadGeneration = 0
   private var lastListenTick: Date = .init()
   private var syncTask: Task<Void, Never>?
 
@@ -647,8 +661,7 @@ final class PlaybackController: NSObject, ObservableObject {
       syncPlayingStateFromPlayerIfNeeded()
       return
     }
-    let local = player?.currentTime().seconds ?? 0
-    let offset = local.isFinite ? max(0, local) : 0
+    let offset = resumeOffsetInCurrentTrack()
     Task { @MainActor [weak self] in
       guard let self else { return }
       await self.loadCurrentTrack(play: resume, localOffset: offset, pauseOnFailure: false)
@@ -910,6 +923,7 @@ final class PlaybackController: NSObject, ObservableObject {
     tracks = []
     trackStarts = []
     isSwitchingTrack = false
+    pendingSeekTarget = nil
     sortedChapters = []
     chapterCount = 0
     currentChapterOrdinal = 0
@@ -1472,11 +1486,46 @@ final class PlaybackController: NSObject, ObservableObject {
     lastListenTick = now
   }
 
-  private func refreshGlobalFromPlayer() {
-    guard !isSwitchingTrack, let p = player, let item = p.currentItem else { return }
+  /// Position aus dem Player — nur, wenn sie verlässlich ist: kein Track-Wechsel, kein laufender
+  /// Seek, Item spielbereit. Ein ausgefallenes (`.failed`) oder noch ladendes Item meldet sonst 0.
+  private func reliablePlayerGlobalPosition() -> Double? {
+    guard !isSwitchingTrack, pendingSeekTarget == nil,
+      let p = player, let item = p.currentItem, item.status == .readyToPlay
+    else { return nil }
     let local = p.currentTime().seconds
-    if local.isFinite {
-      globalPosition = globalTime(trackIndex: currentTrackIndex, localSeconds: local)
+    guard local.isFinite, local >= 0 else { return nil }
+    let g = globalTime(trackIndex: currentTrackIndex, localSeconds: local)
+    return g.isFinite && g >= 0 ? g : nil
+  }
+
+  /// Seek-Ziel lösen, sobald der Player dort steht (Abschluss-Callback verpasst) oder die Frist um ist.
+  private func releasePendingSeekIfReached(item: AVPlayerItem) {
+    guard let target = pendingSeekTarget, !isSwitchingTrack else { return }
+    if let since = pendingSeekSince, Date().timeIntervalSince(since) > Self.pendingSeekTimeoutSeconds {
+      pendingSeekTarget = nil
+      return
+    }
+    guard item.status == .readyToPlay, let p = player else { return }
+    let local = p.currentTime().seconds
+    guard local.isFinite else { return }
+    if abs(globalTime(trackIndex: currentTrackIndex, localSeconds: local) - target) < 1.5 {
+      pendingSeekTarget = nil
+    }
+  }
+
+  /// Offset im aktuellen Track zum Neu-Laden nach Fehler/Unterbrechung/Reset: verlässliche
+  /// Player-Zeit, sonst laufendes Seek-Ziel bzw. letzter bekannter Stand — nie die 0 eines kaputten Items.
+  private func resumeOffsetInCurrentTrack() -> Double {
+    let g = reliablePlayerGlobalPosition() ?? pendingSeekTarget ?? globalPosition
+    guard currentTrackIndex < trackStarts.count else { return max(0, g) }
+    return max(0, g - trackStarts[currentTrackIndex])
+  }
+
+  private func refreshGlobalFromPlayer() {
+    guard let item = player?.currentItem else { return }
+    releasePendingSeekIfReached(item: item)
+    if let g = reliablePlayerGlobalPosition() {
+      globalPosition = g
     }
     if item.status == .failed {
       isBuffering = false
@@ -1490,14 +1539,8 @@ final class PlaybackController: NSObject, ObservableObject {
 
   /// Live-Position für Read-Along (AVPlayer), falls verfügbar — sonst `globalPosition`.
   var liveGlobalPlaybackPosition: Double {
-    if !isSwitchingTrack, let p = player, p.currentItem != nil {
-      let local = p.currentTime().seconds
-      if local.isFinite {
-        let g = globalTime(trackIndex: currentTrackIndex, localSeconds: local)
-        if g.isFinite, g >= 0 { return g }
-      }
-    }
-    let raw = globalPosition
+    if let g = reliablePlayerGlobalPosition() { return g }
+    let raw = pendingSeekTarget ?? globalPosition
     guard raw.isFinite, raw >= 0 else { return 0 }
     return raw
   }
@@ -1571,8 +1614,11 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   private func loadCurrentTrack(play: Bool, localOffset: Double, pauseOnFailure: Bool = true) async {
-    // Erfolg setzt das Flag schon in `replacePlayerItem` zurück — hier nur für Abbruch-/Fehlerpfade.
-    defer { isSwitchingTrack = false }
+    trackLoadGeneration &+= 1
+    let loadGen = trackLoadGeneration
+    // Erfolg setzt das Flag schon in `replacePlayerItem` zurück — hier nur für Abbruch-/Fehlerpfade;
+    // ein inzwischen gestartetes neueres Laden behält es.
+    defer { if loadGen == trackLoadGeneration { isSwitchingTrack = false } }
     guard let book = activeBook else { return }
     if let root = localRoot, Self.allTracksPresent(root: root, book: book) {
       let man = ABSDownloadManifest.load(from: root)
@@ -1587,6 +1633,7 @@ final class PlaybackController: NSObject, ObservableObject {
       if #available(iOS 15.0, *) {
         _ = try? await asset.load(.isPlayable)
       }
+      guard loadGen == trackLoadGeneration else { return }
       replacePlayerItem(AVPlayerItem(asset: asset), localOffset: localOffset, play: play)
       return
     }
@@ -1600,6 +1647,7 @@ final class PlaybackController: NSObject, ObservableObject {
         trackIndex: tracks[currentTrackIndex].index
       )
       let asset = AVURLAsset(url: streamURL, options: AVURLAsset.httpHeaderOptions(token: await client.currentToken(), url: streamURL))
+      guard loadGen == trackLoadGeneration else { return }
       replacePlayerItem(AVPlayerItem(asset: asset), localOffset: localOffset, play: play)
     } catch {
       if pauseOnFailure {
@@ -1621,15 +1669,27 @@ final class PlaybackController: NSObject, ObservableObject {
     // Replace + Seek melden `.paused` — bei play=true nicht als echte Pause übernehmen.
     if play { beginSuppressingEnginePauseSync(for: 3) }
 
+    // Kam während des Ladens ein weiterer Sprung in diesen Track, gilt dessen Ziel.
+    var effectiveOffset = localOffset
+    if let target = pendingSeekTarget, currentTrackIndex < trackStarts.count,
+      trackIndex(forGlobal: target) == currentTrackIndex
+    {
+      effectiveOffset = max(0, target - trackStarts[currentTrackIndex])
+    }
+    seekGeneration &+= 1
+    let generation = seekGeneration
+    pendingSeekTarget = globalTime(trackIndex: currentTrackIndex, localSeconds: effectiveOffset)
+
     player?.replaceCurrentItem(with: item)
     installObservers()
     applyEQToCurrentItem()
-    let offsetSnapshot = localOffset
-    player?.seek(to: CMTime(seconds: localOffset, preferredTimescale: 600)) { [weak self] _ in
+    let offsetSnapshot = effectiveOffset
+    player?.seek(to: CMTime(seconds: effectiveOffset, preferredTimescale: 600)) { [weak self] _ in
       guard let self else { return }
       let shouldPlay = play
       Task { @MainActor [weak self] in
         guard let self else { return }
+          if generation == self.seekGeneration { self.pendingSeekTarget = nil }
           let g = self.globalTime(trackIndex: self.currentTrackIndex, localSeconds: offsetSnapshot)
           self.globalPosition = g
           self.updateChapterUI(global: g)
@@ -1760,8 +1820,7 @@ final class PlaybackController: NSObject, ObservableObject {
     }
 
     if let item = player?.currentItem, item.status == .failed {
-      let local = player?.currentTime().seconds ?? 0
-      let offset = local.isFinite ? max(0, local) : 0
+      let offset = resumeOffsetInCurrentTrack()
       prefersTrackReloadAfterInterruption = false
       await loadCurrentTrack(play: true, localOffset: offset)
       beginPlaybackEngine()
@@ -1774,8 +1833,7 @@ final class PlaybackController: NSObject, ObservableObject {
     if prefersTrackReloadAfterInterruption, player?.currentItem != nil {
       prefersTrackReloadAfterInterruption = false
       reloadedAfterInterruption = true
-      let local = player?.currentTime().seconds ?? 0
-      let offset = local.isFinite ? max(0, local) : 0
+      let offset = resumeOffsetInCurrentTrack()
       DebugLogCollector.shared.log(
         "playResume: reload track after interruption offset=\(String(format: "%.1f", offset))"
       )
@@ -1839,8 +1897,7 @@ final class PlaybackController: NSObject, ObservableObject {
 
     // Lokale Dateien: nur wenn in diesem Resume noch nicht neu gebunden.
     if !alreadyReloadedTrack, isUsingLocalTrackFiles || localRoot != nil {
-      let local = player?.currentTime().seconds ?? 0
-      let offset = local.isFinite ? max(0, local) : 0
+      let offset = resumeOffsetInCurrentTrack()
       DebugLogCollector.shared.log(
         "playKickstart: reload local track offset=\(String(format: "%.1f", offset))"
       )
@@ -1919,7 +1976,8 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   func skip(seconds: Double) {
-    seek(global: globalPosition + seconds)
+    // Mehrfach schnell hintereinander: vom Ziel des noch laufenden Seeks weiterrechnen.
+    seek(global: (pendingSeekTarget ?? globalPosition) + seconds)
   }
 
   /// Vorheriges Kapitel: zuerst Kapitelanfang, sonst vorheriges Kapitel.
@@ -1953,17 +2011,11 @@ final class PlaybackController: NSObject, ObservableObject {
 
   /// Aktuelle Abspielposition (frisch vom Player, falls möglich).
   func playbackGlobalPosition() -> Double {
-    if !isSwitchingTrack, let p = player, p.currentItem != nil {
-      let local = p.currentTime().seconds
-      if local.isFinite {
-        let g = globalTime(trackIndex: currentTrackIndex, localSeconds: local)
-        if g.isFinite, g >= 0 {
-          globalPosition = g
-          return g
-        }
-      }
+    if let g = reliablePlayerGlobalPosition() {
+      globalPosition = g
+      return g
     }
-    return globalPosition
+    return pendingSeekTarget ?? globalPosition
   }
 
   /// Index des laufenden Kapitels (0-basiert); laufendes Kapitel zählt als 1.
@@ -2021,6 +2073,9 @@ final class PlaybackController: NSObject, ObservableObject {
     let idx = trackIndex(forGlobal: g)
     guard idx < trackStarts.count else { return }
     let offset = g - trackStarts[idx]
+    seekGeneration &+= 1
+    let generation = seekGeneration
+    pendingSeekTarget = g
     if idx != currentTrackIndex {
       let wasPlaying = isPlaying
       prepareForTrackSwitch(keepsPlayingIntent: wasPlaying)
@@ -2029,12 +2084,18 @@ final class PlaybackController: NSObject, ObservableObject {
       Task {
         await loadCurrentTrack(play: wasPlaying, localOffset: offset)
       }
+    } else if isSwitchingTrack {
+      // Dieser Track lädt gerade noch: kein Seek aufs alte Item — `replacePlayerItem` springt
+      // direkt ans jüngste Ziel (`pendingSeekTarget`).
     } else {
       let position = g
-      player?.seek(to: CMTime(seconds: offset, preferredTimescale: 600)) { [weak self] _ in
+      player?.seek(to: CMTime(seconds: offset, preferredTimescale: 600)) { [weak self] finished in
         guard let self else { return }
         Task { @MainActor [weak self] in
-          guard let self else { return }
+          guard let self, generation == self.seekGeneration else { return }
+          // Abgebrochen (neuer Seek) oder Item ausgefallen: Ziel bleibt maßgeblich.
+          guard finished else { return }
+          self.pendingSeekTarget = nil
           self.globalPosition = position
           self.updateChapterUI(global: position)
           self.updateNowPlaying()
