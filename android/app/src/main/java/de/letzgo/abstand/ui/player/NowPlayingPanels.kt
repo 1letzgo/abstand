@@ -1,5 +1,8 @@
 package de.letzgo.abstand.ui.player
 
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -154,6 +157,32 @@ fun FullPlayerPanelCard(modifier: Modifier = Modifier, content: @Composable () -
     ) { content() }
 }
 
+/**
+ * iOS: `fullPlayerCoverPanelContent(title:)` — Panel-Überschrift: `caption.bold`, Großbuchstaben,
+ * leicht gesperrt, `textSecondary`; Innenabstand wie der Karteninhalt.
+ */
+@Composable
+private fun PlayerPanelHeader(title: String) {
+    Text(
+        title.uppercase(),
+        style = AppType.labelMedium.copy(fontWeight = FontWeight.Bold),
+        color = Theme.palette.textSecondary,
+        maxLines = 1,
+        modifier = Modifier
+            .padding(start = AppTheme.Layout.cardPadding, end = AppTheme.Layout.cardPadding, top = AppTheme.Layout.cardPadding)
+            .semantics { heading() },
+    )
+}
+
+/** Panel-Gerüst: Überschrift, darunter der Inhalt über die restliche Höhe. */
+@Composable
+private fun PlayerPanelScaffold(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
+        PlayerPanelHeader(title)
+        content()
+    }
+}
+
 /** iOS: Description-Panel (`resolvedBookDescriptionText`). */
 @Composable
 fun DescriptionPanel(book: AbsBook) {
@@ -161,16 +190,19 @@ fun DescriptionPanel(book: AbsBook) {
     val text = remember(book.id, book.media.metadata.description) {
         book.media.metadata.descriptionPlain?.trim()?.ifEmpty { null } ?: absPlainText(book.media.metadata.description).trim()
     }
-    if (text.isEmpty()) {
-        AbstandCardEmptyState("No description", Modifier.padding(AppTheme.Layout.cardPadding))
-        return
+    PlayerPanelScaffold("Description") {
+        if (text.isEmpty()) {
+            AbstandCardEmptyState("No description", Modifier.padding(horizontal = AppTheme.Layout.cardPadding))
+        } else {
+            Text(
+                text,
+                style = AppType.bodyLarge,
+                color = palette.textPrimary,
+                modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                    .padding(start = AppTheme.Layout.cardPadding, end = AppTheme.Layout.cardPadding, bottom = AppTheme.Layout.cardPadding),
+            )
+        }
     }
-    Text(
-        text,
-        style = AppType.bodyLarge,
-        color = palette.textPrimary,
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(AppTheme.Layout.cardPadding),
-    )
 }
 
 /**
@@ -185,14 +217,15 @@ fun ChaptersPanel(wiring: PlayerWiring) {
     val ordinal by player.currentChapterOrdinal.collectAsState()
     val progressMap by AppModel.shared.progress.progressByItemId.collectAsState()
     val chapters = remember(book?.id, book?.media?.chapters) { player.sortedChapters }
-    if (chapters.isEmpty()) {
-        AbstandCardEmptyState("No chapters available.", Modifier.padding(AppTheme.Layout.cardPadding))
-        return
-    }
     val progress = book?.id?.let { progressMap[it] }
     val current = (ordinal - 1).coerceAtLeast(0)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = (current - 2).coerceAtLeast(0))
-    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+    PlayerPanelScaffold("Chapters") {
+    if (chapters.isEmpty()) {
+        AbstandCardEmptyState("No chapters available.", Modifier.padding(horizontal = AppTheme.Layout.cardPadding))
+        return@PlayerPanelScaffold
+    }
+    LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
         itemsIndexed(chapters, key = { i, c -> "${c.id}-$i" }) { i, c ->
             PlayerChapterRow(c, BookChapterPlayState.resolve(c, progress)) {
                 player.seek(c.start)
@@ -200,6 +233,7 @@ fun ChaptersPanel(wiring: PlayerWiring) {
             }
             if (i < chapters.lastIndex) AbstandDivider(Modifier.padding(horizontal = AppTheme.Layout.cardPadding))
         }
+    }
     }
 }
 
@@ -238,7 +272,9 @@ fun SessionsPanel(wiring: PlayerWiring, isEpisode: Boolean) {
     val episodeId by wiring.player.activePlaybackEpisodeId.collectAsState()
     var sessions by remember(book?.id, episodeId) { mutableStateOf<List<AbsListeningSession>>(emptyList()) }
     LaunchedEffect(book?.id, episodeId) { sessions = wiring.loadListeningSessionsForActivePlayback() }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(AppTheme.Layout.cardPadding)) {
+    PlayerPanelScaffold("Listening history") {
+    Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+        .padding(start = AppTheme.Layout.cardPadding, end = AppTheme.Layout.cardPadding, bottom = AppTheme.Layout.cardPadding)) {
         ListeningHistorySessionList(
             sessions = sessions,
             isNetworkReachable = reachable,
@@ -246,6 +282,7 @@ fun SessionsPanel(wiring: PlayerWiring, isEpisode: Boolean) {
             emptyOfflineText = "No listening history cached yet.",
             onJump = wiring::playFromListeningSessionStart,
         )
+    }
     }
 }
 
@@ -260,7 +297,7 @@ fun BookmarksPanel(wiring: PlayerWiring, audiobookId: String) {
     var deleting by remember { mutableStateOf<AbsAudioBookmark?>(null) }
     var busy by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize()) {
+    PlayerPanelScaffold("Bookmarks") {
         if (list.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 AbstandCardEmptyState("No bookmarks", Modifier.padding(AppTheme.Layout.cardPadding), message = "Add a bookmark at the current position.")
