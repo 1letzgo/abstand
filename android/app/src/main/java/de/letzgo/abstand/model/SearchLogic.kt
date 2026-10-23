@@ -64,7 +64,7 @@ object SearchLogic {
         }
     }
 
-    /** Sichtbare Sektionen (leere fallen weg, Podcast-Sektionen nur mit Podcasts-Tab). */
+    /** Sichtbare Sektionen (leere fallen weg, Podcast-Sektionen nur mit Podcast-Bibliothek, iOS: `showPodcastsTab`). */
     fun visibleSections(results: SearchResults, showPodcasts: Boolean): List<SearchSection> = buildList {
         if (results.books.isNotEmpty()) add(SearchSection.Books)
         if (results.authors.isNotEmpty()) add(SearchSection.Authors)

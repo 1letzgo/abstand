@@ -143,7 +143,7 @@ private val EpubReaderTheme.icon get() = when (this) {
     EpubReaderTheme.dark -> SF.moon
 }
 
-/** Für `ui/AppRoot.kt`: zeigt den Reader über den Tabs, solange [EbookReaderLauncher.session] gesetzt ist. */
+/** Für `ui/AppRoot.kt`: zeigt den Reader über der App-Shell, solange [EbookReaderLauncher.session] gesetzt ist. */
 @Composable
 fun EbookReaderOverlay() {
     val session by EbookReaderLauncher.session.collectAsState()

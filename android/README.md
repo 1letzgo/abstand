@@ -15,7 +15,7 @@ What is language-neutral is shared 1:1:
 
 **The Android app is its own product and the UI test bed:** layout/design ideas are tried here first and may diverge from iOS; proven ones are collected in `UI_IDEAS_FOR_IOS.txt` and ported to iOS later. Logic, data, API and bug fixes stay in parity with iOS.
 
-**Baseline: behave like the iOS app, look like a standard Material 3 app** — same tabs, order, labels
+**Baseline: behave like the iOS app, look like a standard Material 3 app** — same screens (exception: no tab bar — Home is the only root, Books/Podcasts live in the Home library bar, Search/Settings are pushed), order, labels
 (English UI), defaults, features, accent and screen structure as iOS; colors are a Material 3
 scheme generated from the iOS accent (accent = seed = `primary`, see `UI_TEMPLATES.txt` → "Material 3 colors"); dimensions, spacing,
 typography and component sizes follow **Material 3** (4-dp grid, 48-dp touch targets, M3 type
@@ -83,7 +83,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `ui/Theme.kt`, `ui/components/` | `AppTheme`, `AppAppearance`, shared view building blocks (UI templates, see Conventions + `UI_TEMPLATES.txt`) |
 | `ui/components/Menus.kt`, `Overlays.kt`, `Pills.kt`, `Progress.kt`, `Rows.kt` | SwiftUI `Menu`/`Picker(.menu)`, `.alert`/`.sheet`, cover pills/badges/chips, `ProgressView`, list rows/segmented `Picker` |
 | `ui/Icons.kt` | SF Symbols mapping |
-| `ui/AppRoot.kt`, `ui/TabNavigation.kt` | `abstandApp` / `AppRootContainer` / `MainTabShellView` / `MainRootView` (tabs, per-tab `NavigationStack`) |
+| `ui/AppRoot.kt`, `ui/TabNavigation.kt` | `abstandApp` / `AppRootContainer` / `MainTabShellView` / `MainRootView` (tabs, per-tab `NavigationStack`) — Android: no tab bar, one navigator with Home as root; Search/Settings are pushed (`ShellRoute` requests from `SessionStore.openSearch()/openSettings()/openHome()`) |
 | `store/LocalLibraryModels.kt`, `store/LocalLibraryDao.kt` (Room, schema in `app/schemas/`) | `LocalLibraryModels.swift` (SwiftData `@Model`s, schema V4) |
 | `store/LocalLibraryStore.kt` (`LocalLibraryStore`, `LocalLibraryStoreManager`) | `LocalLibraryStore.swift` |
 | `store/LocalLibraryQueries.kt` | `LocalLibraryQueries` (in `LocalLibraryStore.swift`) |
@@ -93,7 +93,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `store/EbookLocalStore.kt` | `EbookLocalStore.swift` |
 | `store/CoverImageCache.kt` (`CoverImageCache`, `CoverImageLoader`, Coil fetcher) | `CoverImageCache.swift`, `CoverImageLoader.swift` |
 | `ui/components/CoverImage.kt` | `CoverImageView.swift` (`CoverImageView`, `SquareCoverImageView`) |
-| `model/AppModel.kt` (facade), `model/SessionParticipant.kt` (`MainTab`, extension points) | `AppModel` (split into stores) |
+| `model/AppModel.kt` (facade), `model/SessionParticipant.kt` (`ShellRoute` ≙ `MainTab`, extension points) | `AppModel` (split into stores) |
 | `model/SessionStore.kt`, `model/SessionLogic.kt` | `AppModelSessionAuth.swift` + bootstrap/login/account/library parts of `AppModel.swift` |
 | `ui/login/LoginScreen.kt` | `LoginView.swift` |
 | `ui/login/ServerCustomHeadersEditor.kt` | `ServerCustomHeadersEditor.swift` |
@@ -107,7 +107,6 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `downloads/DownloadManager.kt`, `downloads/DownloadQueue.kt`, `downloads/DownloadWorker.kt` | `DownloadManager` (WorkManager `dataSync` worker) |
 | `downloads/PodcastAutoDownloadInterval.kt` | `PodcastAutoDownloadSchedule` |
 | `downloads/DownloadMaintenance.kt` | `LocalStoreMaintenance.removeStaleDownloadTempFiles` |
-| `ui/AppRoot.kt` | `abstandApp` / `AppRootContainer` / `MainTabShellView` |
 | `logic/FoundationText.kt` | Foundation string semantics (`folding`, `CharacterSet`, `Character`) used by the alignment |
 | `logic/EbookReadAlong.kt` (`ReadAlongText`, `EbookReadAlongIndex`, `EbookNarrationJump`) | `EbookReadAlong.swift` (index + narration-jump logic of `EbookNarrationJumpController`), `TeleprompterEbookText.swift` (index input) |
 | `logic/EbookAudioAlignment.kt` | `EbookAudioAlignment.swift` (builder, gap aligner, `a<track>-<locale>.bin`) |
@@ -125,7 +124,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `model/PodcastStore.kt` (`PodcastStore`, `PodcastDirectoryState`, `PodcastShowAdminState`) | `AppModelCatalogPodcasts.swift`, `AppModelPodcastDirectory.swift`, podcast parts of `AppModel.swift` |
 | `model/PodcastLogic.kt` (`PodcastLogic`, `PodcastCatalogSortField`, `PodcastEpisodeSortField`, `PodcastAutoDownloadInterval`) | static podcast helpers in `AppModel.swift`, `CatalogBrowseTypes.swift`, `PodcastAutoDownloadSchedule.swift` |
 | `ui/podcasts/PodcastActions.kt` | player/download bridge (`playPodcastEpisode`, `startDownloadPodcastEpisode`, `downloadedItemIds`) |
-| `ui/podcasts/PodcastsTabRoot.kt` | podcasts root in `MainRootView.swift` + `PodcastCatalogTabShell`/`PodcastCatalogToolbarContent` (`LibraryToolbarState.swift`) |
+| `ui/podcasts/PodcastsBrowseSection.kt` | podcasts root content in `MainRootView.swift` + `PodcastCatalogToolbarContent` (`LibraryToolbarState.swift`) — Android: list builder + toolbar for the Home library bar (no Podcasts tab) |
 | `ui/podcasts/PodcastEpisodeRows.kt` | `PodcastEpisodeRowCard` (`LibraryCardViews.swift`; badges/play pill via `AbstandStatusBadges`/`AbstandPlayPill`) |
 | `ui/podcasts/PodcastTabSheets.kt` | `PodcastTabSheets.swift` (Add podcast: search, charts, storefront) + `AbstandCatalogSortToolbarMenu` |
 | `ui/podcasts/PodcastDirectoryShowView.kt` | `PodcastDirectoryShowView.swift` |
@@ -134,15 +133,12 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `model/HomeStore.kt` (`HomeStore`), `model/HomeShelfLogic.kt` (pure, tested) | Home parts of `AppModel.swift` (`startShelves`, `loadStartDashboard`, Continue listening/reading, New episodes, `startCategoryOrder`/`startDisabledCategories`/`homeBrowseCategory`, `progressByItemId`) |
 | `model/SearchStore.kt`, `model/SearchLogic.kt` (pure, tested) | search parts of `AppModel.swift` (`scheduleUnifiedSearch`, `performSearch`, `performPodcastLibrarySearch`, local-first results) |
 | `model/PlaybackLauncher.kt` (`PlaybackLauncher`, `NowPlayingState`, `DownloadStatusSource`) | card → player/download bridge (`model.play`, `player.$isPlaying`, `LibraryBookRowLiveState` download flags) |
-| `ui/home/HomeDashboardViews.kt` | `HomeDashboardViews.swift` (`HomeTabRootView`, `StartDashboardView`, Home carousels) |
+| `ui/home/HomeDashboardViews.kt` | `HomeDashboardViews.swift` (`HomeTabRootView`, `StartDashboardView`, Home carousels) — Android: Home is the combined library view (title row with Offline/Search/Settings, Continue-listening pager, sticky library bar with Books + Podcasts and the remaining shelves in its section menu) |
+| `model/HomeLibraryLogic.kt` (pure, tested) | — (Android-only: combined Books/Podcasts library choice of the Home library bar) |
 | `ui/home/HomeCompactCards.kt` | `HomeCompactCards.swift` |
 | `ui/home/ContinueListeningHeroViews.kt` | `ContinueListeningHeroViews.swift` + `ContinueListeningHeroBookCard`/`…PodcastCard` (LibraryCardViews.swift) |
 | `ui/home/HomeCardSupport.kt` | cover-tint placeholder, author image, live-state helpers (`LibraryRowLayout` lives in `ui/library/LibraryCards.kt`, `LibraryRowCollapsedMetaLine` and cover pills in `ui/components/`) |
 | `ui/home/HomeShelfSettings.kt` | `SettingsAppearanceHomeView` (ServerAdminViews.swift) |
-| `ui/components/BrowseStrip.kt` | `AbstandExpandingDockBrowseStrip.swift` (`AbstandPinnedBrowseStrip`, dropdown pills), `AbstandFixedBrowseStripSectionsLayout` (AppTheme.swift) |
-| `ui/search/SearchTabViews.kt` | `SearchTabViews.swift` |
-| `ui/destinations/Destinations.kt` | Home/Search `navigationDestination` targets → `ui/detail/` screens, `PodcastEpisodeDetailView`, Podcasts tab show filter |
-| `model/AppSettings.kt` (`AppSettings`, `LibraryCardStyle`, `TranslationTargetLanguage`) | simple `@Published` settings of `AppModel`, `LibraryBookCardStyle`/`LibraryPodcastCardStyle`/`TranslationTargetLanguage` (`AppAppearance.swift`) |
 | `ui/components/BrowseStrip.kt` | `AbstandExpandingDockBrowseStrip.swift` (`AbstandPinnedBrowseStrip` → `AbstandBrowsePills`), `AbstandFixedBrowseStripSectionsLayout` (AppTheme.swift) |
 | `ui/search/SearchTabViews.kt` | `SearchTabViews.swift` — Android: `SearchDestination` pushed from the Home header (no Search tab) |
 | `ui/destinations/Destinations.kt` | Home/Search `navigationDestination` targets → `ui/detail/` screens, `PodcastEpisodeDetailView`, show filter in the Home library bar |
@@ -150,7 +146,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `model/AdminStore.kt` (`AdminStore`, `AdminLogic`) | server-admin part of `AppModel` (users, library stats/scan, M4B encode + polling, media-cache purge, `changeAccountPassword`) |
 | `model/StatsStore.kt` (`StatsStore`, `StatsLogicExt`) | listening-stats part of `AppModel` (`loadListeningStats`, achievements snapshot, stats navigation stubs) |
 | `data/AdminSocketClient.kt` (`AdminSocketClient`, `AdminSocketProtocol`) | `ABSAdminSocketClient.swift` (OkHttp WebSocket) |
-| `ui/settings/SettingsHub.kt`, `SettingsIconStrip.kt` | `SettingsHubRootView`, `SettingsHubSection`, `SettingsIconStrip` (`ServerAdminViews.swift`) |
+| `ui/settings/SettingsHub.kt`, `SettingsIconStrip.kt` | `SettingsHubRootView`, `SettingsHubSection`, `SettingsIconStrip` (`ServerAdminViews.swift`) — Android: `SettingsDestination` pushed from the Home header (no Settings tab) |
 | `ui/settings/SettingsAccountSections.kt`, `SettingsAccountPages.kt` | `SettingsAccountView`, `SettingsChangePasswordView` (+ Android-only connection/custom-headers page) |
 | `ui/settings/SettingsAppearance.kt` | `SettingsAppearanceView`, `SettingsAppearanceHomeView`, `SettingsHomeShelfCard` |
 | `ui/settings/SettingsPlayback.kt` | `SettingsPlaybackView` (Playback + Teleprompter) |
@@ -168,8 +164,6 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `model/CatalogStore.kt` (`CatalogStore`, `CatalogSortState`, `CatalogFilterState`, `BrowseListsState`) | catalog/browse parts of `AppModel.swift` + `AppModelCatalogPodcasts.reloadLibrary`, book actions (detail load, mark finished, reset, bookmarks, delete) |
 | `model/EntityDetailLoader.kt` | `reloadEntityDetail`/`loadMoreEntityDetailIfNeeded`/`applyEntityDetailFromLocalCache` (per screen instead of shared `entityDetail*`) |
 | `logic/CatalogLogic.kt`, `logic/BookDetailLogic.kt` | pure catalog/entity/detail helpers of `AppModel.swift`, `BookDetailView.swift`, `BookListeningDetailSections.swift` |
-| `ui/library/BooksLibraryTabRoot.kt`, `ui/library/BooksBrowseSections.kt` | `MainRootView` books root, `BooksLibraryTabShell`/`BooksLibraryToolbarContent` (`LibraryToolbarState.swift`), `MainRootBrowseSections.swift` |
-| `ui/library/LibraryCards.kt` | `LibraryCardViews.swift` (book row + cover card, browse entity row, facet tile, badges, play pills) |
 | `ui/library/BooksLibraryToolbar.kt`, `ui/library/BooksBrowseSections.kt` | `BooksLibraryToolbarContent` (`LibraryToolbarState.swift`), books root content of `MainRootView` / `MainRootBrowseSections.swift` — Android: list builder + toolbar for the Home library bar (no Books tab) |
 | `ui/library/LibraryCards.kt` | `LibraryCardViews.swift` (book row only — no cover card on Android, browse entity row, facet tile, badges, play pills) |
 | `ui/library/LibraryToolbarMenus.kt` | `LibrarySortToolbars.swift`, `LibraryFilterViews.swift` |
@@ -197,7 +191,6 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `ui/player/NowPlayingPresenter.kt` | `NowPlayingZoomPresenter.swift` + `FullScreenOverlayPresenter` (zoom from the mini player, drag-to-dismiss) |
 | `ui/player/AudioOutputSwitcher.kt` | `FullPlayerAirPlayButton` (`AVRoutePickerView` → system output switcher) |
 | `ui/AppIntegration.kt` | cross-feature wiring (detail admin sheets, Stats navigation, `bookUpdated`, Settings hooks, transcript prefetch) |
-| `ui/destinations/Destinations.kt` | detail `navigationDestination` targets (placeholders until the detail screens are ported) |
 | `reader/ReadiumReaderService.kt` (`ReadiumReaderService`, `EbookTextIndexProvider`) | `ReadiumReaderService.swift` (Readium Kotlin 3.1.2 streamer, initial locator, locator persistence, EPUB preferences), `TeleprompterEbookTextProvider.swift` + `EbookReadAlongIndex.build(publication:)` |
 | `reader/ReaderProgressLogic.kt` (pure, tested) | `ReadiumReaderProgressInfo`, `ReadiumReaderDelegate.bookWidePageProgress`, `ServerPositionOffer`, eBook progress rules of `AppModel` |
 | `reader/EbookProgressSync.kt` | eBook progress part of `AppModel` (`scheduleEbookProgressSync`, `flushEbookProgressSync`, `serverEbookFractionForReader`, `markEbookAsFinished`, `resetEbookReadingProgress`) |
@@ -241,8 +234,8 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
   - Sheets: `AbstandSheet(title, onDismiss, onConfirm, cancelLabel)` (bottom sheet with grabber), `MetadataSheetScaffold` (full-screen forms).
   - Buttons: `AbstandPrimaryButton`, `AbstandProminentButton` (`destructive`), `AbstandIconButton` (Plain/Tonal/Filled,
     container `iconButtonSize` 40 / `compactIconButtonSize` 32, always ≥ 48-dp touch target), `AbstandTextButton`, `AbstandPlayPill`.
-  - Pills/badges/chips: `AbstandCoverPill(Icon|Text)`, `AbstandCoverCornerBadge`, `AbstandCoverDownloadBadge`, `AbstandStatusBadges`,
-    `AbstandBadge` (Neutral/Accent), `AbstandChip` (filter/category), `AbstandDockChip` (expanding dock).
+  - Pills/badges/chips: `AbstandCoverPill(Icon|Text)`, `AbstandCoverCornerBadge`, `AbstandStatusBadges`,
+    `AbstandBadge` (Neutral/Accent), `AbstandChip` (filter/category), `AbstandBrowsePills` / `AbstandDropdownPill` (library bar).
   - Progress/state: `AbstandProgressBar`, `AbstandCardBottomProgress`, `AbstandProgressRing`, `AbstandInlineSpinner`, `AbstandLoadingSpinner`,
     `AbstandLabeledLoadingState`, `AbstandEmptyScreen` / `AbstandSectionEmptyState` / `AbstandCardEmptyState`.
   - Rows/text: `AbstandListRow` (leading/below/trailing slots), `SettingsCard*Row`, `AbstandDivider`, `AbstandCapsLabel`,
@@ -267,6 +260,6 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 - Downloads: `filesDir/Downloads/<storage id>/` with `download.json` byte-identical to iOS
   (`shared/fixtures/download_manifest.json`); the queue is persisted and run by one WorkManager worker.
 - eBooks: open only through `EbookReaderLauncher.open(itemId)` (or `open(book)`); `AppRoot` shows
-  `EbookReaderOverlay` above the tabs. The page-exact Readium locator stays local (`EbookLocalStore`,
+  `EbookReaderOverlay` above the shell. The page-exact Readium locator stays local (`EbookLocalStore`,
   same JSON files as iOS); the server only gets `ebookProgress` via `EbookProgressSync` — never while
   the "read further elsewhere" offer is open. No automatic page sync / read-along (see `CLAUDE.md`).

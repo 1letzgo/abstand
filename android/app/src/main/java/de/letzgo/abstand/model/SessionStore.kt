@@ -32,7 +32,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -146,16 +149,19 @@ class SessionStore internal constructor(
     private val _showAudiobooksTab = MutableStateFlow(
         SessionLogic.cachedTabVisibility(cachedBool(Keys.showAudiobooksTab), Prefs.string(Keys.booksLibrary)),
     )
-    /** Books-Tab — aus gecachter Präferenz (nicht erst nach `libraries`-Fetch). */
+    /** iOS: `showAudiobooksTab` (Books-Bibliothek vorhanden) — aus gecachter Präferenz (nicht erst nach `libraries`-Fetch). */
     val showAudiobooksTab: StateFlow<Boolean> = _showAudiobooksTab.asStateFlow()
     private val _showPodcastsTab = MutableStateFlow(
         SessionLogic.cachedTabVisibility(cachedBool(Keys.showPodcastsTab), Prefs.string(Keys.podcastsLibrary)),
     )
     val showPodcastsTab: StateFlow<Boolean> = _showPodcastsTab.asStateFlow()
 
-    private val _mainTab = MutableStateFlow(MainTab.start)
-    /** iOS: `mainTab`. */
-    val mainTab: StateFlow<MainTab> = _mainTab.asStateFlow()
+    private val _shellRouteRequests = MutableSharedFlow<ShellRoute>(extraBufferCapacity = 8)
+    /**
+     * iOS: `mainTab = …` — Android hat keine Tab-Leiste mehr: Search und Settings sind gepushte
+     * Seiten auf dem Home-Navigator. Die App-Shell setzt diese Anforderungen um ([ShellRoute]).
+     */
+    val shellRouteRequests: SharedFlow<ShellRoute> = _shellRouteRequests.asSharedFlow()
 
     // MARK: - Verbindung / Offline
 
@@ -238,7 +244,7 @@ class SessionStore internal constructor(
         }
         scheduleHomeLaunchRestoreFromLocalStore()
         if (offlineHomeUIActive) {
-            _mainTab.value = MainTab.start
+            openHome()
             scope.launch { loadStartDashboard(skipAuthorizeRefresh = false, force = true) }
         } else if (_isLoggedIn.value) {
             // Overlay bis Home/Player bereit; Bootstrap sofort (nicht auf die erste Komposition warten).
@@ -546,7 +552,7 @@ class SessionStore internal constructor(
                     if (!SessionLogic.isAuthHTTPStatus(error)) {
                         _isServerReachable.value = false
                         _offlineHomeModeAuto.value = true
-                        _mainTab.value = MainTab.start
+                        openHome()
                         prepareForOfflineHomeMode()
                         bootstrapLocalSessionOnly()
                     }
@@ -784,7 +790,7 @@ class SessionStore internal constructor(
                 if (_isAppBootstrapInProgress.value) bootstrapSupersededByOffline = true
                 cancelDeferredBootstrapWork()
                 _isAppBootstrapInProgress.value = false
-                _mainTab.value = MainTab.start
+                openHome()
                 prepareForOfflineHomeMode()
                 bootstrapLocalSessionOnly()
             } else {
@@ -829,7 +835,7 @@ class SessionStore internal constructor(
             if (bootstrapSupersededByOffline || offlineHomeUIActive) return
             resolveLibrariesAfterServerFetch(res.userDefaultLibraryId)
             if (bootstrapSupersededByOffline || offlineHomeUIActive) return
-            _mainTab.value = MainTab.start
+            openHome()
             finishLaunchPresentationAfterBootstrap()
         } catch (e: CancellationException) {
             throw e
@@ -838,7 +844,7 @@ class SessionStore internal constructor(
             publishErrorUnlessBenignCancellation(e)
             if (serverSessionEstablished) {
                 _isServerReachable.value = true
-                _mainTab.value = MainTab.start
+                openHome()
                 finishLaunchPresentationAfterBootstrap()
                 return
             }
@@ -1082,7 +1088,7 @@ class SessionStore internal constructor(
     /** iOS: `clearInMemorySessionState` — Session-Zustand verwerfen; [clearCredentials] = Logout. */
     fun clearInMemorySessionState(clearCredentials: Boolean) {
         cancelDeferredBootstrapWork()
-        _mainTab.value = MainTab.start
+        openHome()
         if (clearCredentials) {
             cacheAccountDir()?.let { CoverImageCache.clearAll(appContext, it) }
             _coverImageCacheRevision.value += 1
@@ -1269,7 +1275,7 @@ class SessionStore internal constructor(
             _focusedBooksLibrary.value = lib
             participants.forEach { it.onBooksLibrarySelected(lib, changed = false) }
             setShowAudiobooksTab(true)
-            if (navigateToCatalog) navigateToMainTab(MainTab.library)
+            if (navigateToCatalog) showBooksLibraryOnHome(lib)
             return
         }
         _selectedBooksLibrary.value = lib
@@ -1279,7 +1285,7 @@ class SessionStore internal constructor(
         _focusedBooksLibrary.value = lib
         syncStoredAccountFromSession()
         setShowAudiobooksTab(true)
-        if (navigateToCatalog) navigateToMainTab(MainTab.library)
+        if (navigateToCatalog) showBooksLibraryOnHome(lib)
         participants.forEach { it.onBooksLibrarySelected(lib, changed = true) }
     }
 
@@ -1291,7 +1297,7 @@ class SessionStore internal constructor(
             _focusedPodcastLibrary.value = lib
             participants.forEach { it.onPodcastLibrarySelected(lib, changed = false) }
             setShowPodcastsTab(true)
-            if (navigateToCatalog && _showPodcastsTab.value) navigateToMainTab(MainTab.podcasts)
+            if (navigateToCatalog) showPodcastLibraryOnHome(lib)
             return
         }
         _selectedPodcastLibrary.value = lib
@@ -1301,7 +1307,7 @@ class SessionStore internal constructor(
         _focusedPodcastLibrary.value = lib
         syncStoredAccountFromSession()
         setShowPodcastsTab(true)
-        if (navigateToCatalog && _showPodcastsTab.value) navigateToMainTab(MainTab.podcasts)
+        if (navigateToCatalog) showPodcastLibraryOnHome(lib)
         participants.forEach { it.onPodcastLibrarySelected(lib, changed = true) }
     }
 
@@ -1457,23 +1463,19 @@ class SessionStore internal constructor(
 
     // MARK: - Tabs
 
-    /** iOS: `showAudiobooksTab.didSet` — persistieren; ausgeblendeten Tab verlassen. */
+    /**
+     * iOS: `showAudiobooksTab.didSet` — persistieren. Android: kein eigener Tab mehr (Books liegt in
+     * der Home-Bibliotheksleiste); das Flag sagt nur noch, ob es eine Books-Bibliothek gibt.
+     */
     private fun updateShowAudiobooksTab(visible: Boolean) {
         _showAudiobooksTab.value = visible
         Prefs.setBool(Keys.showAudiobooksTab, visible)
-        if (!visible && _mainTab.value == MainTab.library) _mainTab.value = preferredFallbackMediaTab(excluding = MainTab.library)
     }
 
+    /** Wie [updateShowAudiobooksTab] — Podcast-Bibliothek vorhanden (Suche, Home-Leiste). */
     private fun updateShowPodcastsTab(visible: Boolean) {
         _showPodcastsTab.value = visible
         Prefs.setBool(Keys.showPodcastsTab, visible)
-        if (!visible && _mainTab.value == MainTab.podcasts) _mainTab.value = preferredFallbackMediaTab(excluding = MainTab.podcasts)
-    }
-
-    private fun preferredFallbackMediaTab(excluding: MainTab): MainTab = when {
-        excluding != MainTab.library && _showAudiobooksTab.value -> MainTab.library
-        excluding != MainTab.podcasts && _showPodcastsTab.value -> MainTab.podcasts
-        else -> MainTab.start
     }
 
     /** Tab-Struktur bleibt während des Bootstraps stabil (iOS-Regel: kein strukturelles Umschalten). */
@@ -1487,7 +1489,10 @@ class SessionStore internal constructor(
         if (_showPodcastsTab.value != visible) updateShowPodcastsTab(visible)
     }
 
-    /** Tab-Leiste erst nach Bootstrap aktualisieren. */
+    /**
+     * Sichtbarkeits-Flags der Bibliotheken (`showAudiobooksTab`/`showPodcastsTab`; auf Android ohne
+     * Tab-Leiste: Suche und Home-Bibliotheksleiste) erst nach dem Bootstrap aktualisieren.
+     */
     fun flushTabVisibilityAfterBootstrap() {
         syncAudiobooksTabVisibilityFromLibraries()
         syncPodcastsTabVisibilityFromLibraries()
@@ -1506,14 +1511,72 @@ class SessionStore internal constructor(
         setShowAudiobooksTab(SessionLogic.tabVisibleFromLibraries(booksLibraryPreferenceIsNone, sortedBookLibraries.isNotEmpty()))
     }
 
-    /** iOS: `mainTab = …` aus Views (Tab-Leiste). Ausgeblendete Tabs werden nicht gewählt. */
-    fun selectMainTab(tab: MainTab) {
-        if (tab == MainTab.library && !_showAudiobooksTab.value) return
-        if (tab == MainTab.podcasts && !_showPodcastsTab.value) return
-        _mainTab.value = tab
+    /** iOS: `mainTab = .start` — zurück zur Home-Wurzel (Back-Stack leeren). */
+    fun openHome() {
+        _shellRouteRequests.tryEmit(ShellRoute.home)
     }
 
-    private fun navigateToMainTab(tab: MainTab) = selectMainTab(tab)
+    /** iOS: `mainTab = .search` — Suche als Seite auf Home öffnen. */
+    fun openSearch() {
+        _shellRouteRequests.tryEmit(ShellRoute.search)
+    }
+
+    /** iOS: `mainTab = .settings` — Settings als Seite auf Home öffnen. */
+    fun openSettings() {
+        _shellRouteRequests.tryEmit(ShellRoute.settings)
+    }
+
+    // MARK: - Home-Bibliotheksleiste (Android)
+
+    private val _homeLibraryChoiceId = MutableStateFlow(Prefs.string(HomeLibraryLogic.prefsKey).orEmpty())
+    /** Gewählte Bibliothek der Home-Bibliotheksleiste (`b:<id>` / `p:<id>`, siehe [HomeLibraryLogic]). */
+    val homeLibraryChoiceId: StateFlow<String> = _homeLibraryChoiceId.asStateFlow()
+
+    private val _homeLibraryRevealEpoch = MutableStateFlow(0)
+    /** Zählt hoch, wenn Home zur Bibliotheksleiste scrollen soll (Sprung aus Suche/Detail). */
+    val homeLibraryRevealEpoch: StateFlow<Int> = _homeLibraryRevealEpoch.asStateFlow()
+
+    /** Kombinierte Auswahl (aktive Books- + Podcast-Bibliotheken). */
+    val homeLibraryChoices: List<HomeLibraryLogic.Choice>
+        get() = HomeLibraryLogic.choices(activeBookLibraries, activePodcastLibraries)
+
+    /** Aktuell gültige Home-Bibliothek (gespeichert, sonst fokussiert, sonst erste). */
+    fun resolvedHomeLibraryChoice(): HomeLibraryLogic.Choice? = HomeLibraryLogic.resolve(
+        homeLibraryChoices, _homeLibraryChoiceId.value,
+        _focusedBooksLibrary.value?.id, _focusedPodcastLibrary.value?.id,
+    )
+
+    /** Bibliothek der Home-Leiste wählen (merken + fokussieren, damit Katalog bzw. Feed sie laden). */
+    fun selectHomeLibraryChoice(choiceId: String) {
+        val choice = homeLibraryChoices.firstOrNull { it.id == choiceId } ?: return
+        if (_homeLibraryChoiceId.value != choice.id) {
+            _homeLibraryChoiceId.value = choice.id
+            Prefs.setString(HomeLibraryLogic.prefsKey, choice.id)
+        }
+        if (choice.isPodcast) focusPodcastLibrary(choice.library) else focusBooksLibrary(choice.library)
+    }
+
+    /**
+     * Statt Books-Tab: Home mit der Books-Bibliothek in der Leiste zeigen (fokussiert, sonst Primary,
+     * sonst erste aktive) und zur Leiste scrollen.
+     */
+    fun showBooksLibraryOnHome(library: AbsLibrary? = null) {
+        val lib = library ?: _focusedBooksLibrary.value ?: _selectedBooksLibrary.value ?: activeBookLibraries.firstOrNull()
+        lib?.let { selectHomeLibraryChoice(HomeLibraryLogic.booksChoiceId(it.id)) }
+        revealHomeLibrary()
+    }
+
+    /** Statt Podcasts-Tab: Home mit der Podcast-Bibliothek in der Leiste zeigen. */
+    fun showPodcastLibraryOnHome(library: AbsLibrary? = null) {
+        val lib = library ?: _focusedPodcastLibrary.value ?: _selectedPodcastLibrary.value ?: activePodcastLibraries.firstOrNull()
+        lib?.let { selectHomeLibraryChoice(HomeLibraryLogic.podcastChoiceId(it.id)) }
+        revealHomeLibrary()
+    }
+
+    private fun revealHomeLibrary() {
+        openHome()
+        _homeLibraryRevealEpoch.value += 1
+    }
 
     private companion object {
         const val TAG = "SessionStore"

@@ -16,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import de.letzgo.abstand.data.AbsLibrary
 import de.letzgo.abstand.data.AbsStoredAccount
-import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.SessionStore
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.LocalTabNavigator

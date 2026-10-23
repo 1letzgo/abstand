@@ -27,7 +27,6 @@ import de.letzgo.abstand.data.CoverImageTier
 import de.letzgo.abstand.data.absPlainText
 import de.letzgo.abstand.data.swiftTrim
 import de.letzgo.abstand.model.AppModel
-import de.letzgo.abstand.model.MainTab
 import de.letzgo.abstand.model.PodcastStore
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.SF
@@ -179,9 +178,10 @@ fun PodcastEpisodeDetailView(
                         tertiaryParts = listOf(if (total > 0) formatPlaybackTime(total) else "—", publishedYearLabel(detail?.pubDate)),
                         onSubtitleClick = if (showName != null) {
                             {
-                                // iOS: `openPodcastShowCatalog` — Podcasts-Tab mit dieser Sendung.
+                                // iOS: `openPodcastShowCatalog` — Podcasts-Tab mit dieser Sendung;
+                                // Android: Home-Bibliotheksleiste (Podcast-Bibliothek + Sendung).
                                 navigator.popToRoot()
-                                session.selectMainTab(MainTab.podcasts)
+                                session.showPodcastLibraryOnHome(session.activePodcastLibraries.firstOrNull { it.id == episode.libraryId })
                                 store.selectStripSection(lid)
                             }
                         } else null,

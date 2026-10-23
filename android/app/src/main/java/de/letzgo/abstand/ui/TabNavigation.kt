@@ -6,12 +6,10 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.staticCompositionLocalOf
-import de.letzgo.abstand.model.MainTab
 
 /**
- * Ziel innerhalb eines Tabs (iOS: `NavigationLink`-Ziel im `NavigationStack` des Tabs). Spätere
- * Ports (Buch-Detail, Autor, Serie, Settings-Unterseiten, …) implementieren es und rufen
- * [TabNavigator.push] auf.
+ * Gepushte Seite (iOS: `NavigationLink`-Ziel im `NavigationStack` des Tabs). Buch-Detail, Autor,
+ * Serie, Search, Settings und deren Unterseiten implementieren es und rufen [TabNavigator.push] auf.
  */
 interface TabDestination {
     /** Stabiler Schlüssel (für gespeicherten UI-Zustand der Seite, z. B. `book/<id>`). */
@@ -21,9 +19,12 @@ interface TabDestination {
     fun Content(navigator: TabNavigator)
 }
 
-/** Eigener Back-Stack je Tab (iOS: ein `NavigationStack` pro Tab). Wurzel = Tab-Root, nicht im Stack. */
+/**
+ * Back-Stack der App (iOS: ein `NavigationStack` pro Tab). Android hat keine Tab-Leiste mehr, daher
+ * genau ein Navigator; Wurzel = Home, nicht im Stack.
+ */
 @Stable
-class TabNavigator(val tab: MainTab) {
+class TabNavigator {
     val backStack = mutableStateListOf<TabDestination>()
 
     val canPop: Boolean get() = backStack.isNotEmpty()
@@ -40,9 +41,15 @@ class TabNavigator(val tab: MainTab) {
     }
 
     fun popToRoot() = backStack.clear()
+
+    /** Pusht [destination], außer eine Seite derselben Art liegt schon oben (Doppeltippen). */
+    fun pushUnlessOnTop(destination: TabDestination) {
+        if (backStack.lastOrNull()?.let { it::class == destination::class } == true) return
+        push(destination)
+    }
 }
 
-/** Navigator des Tabs, in dem die aktuelle Seite liegt (`null` außerhalb der Tab-Shell). */
+/** Navigator der App-Shell (`null` außerhalb der Shell). */
 val LocalTabNavigator = staticCompositionLocalOf<TabNavigator?> { null }
 
 /** Zeigt Wurzel oder oberste Seite des Stacks; System-Zurück poppt. UI-Zustand je Seite bleibt erhalten. */
