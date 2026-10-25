@@ -457,6 +457,11 @@ class PlaybackController private constructor(private val appContext: Context) {
         attemptServerPlaySession: Boolean = true,
         preferClientResumePosition: Boolean = false,
     ): Unit = withContext(Dispatchers.Main.immediate) {
+        // iOS: `tearDownPlayer` löscht den Sleep-Timer — laufend/pausiert über den Neuaufbau retten;
+        // ein Kapitel-Ziel nur beim selben Titel.
+        val sameTitle = _activeBook.value?.id == book.id &&
+            (_activePlaybackEpisodeId.value ?: "") == (episodeId?.swiftTrim() ?: "")
+        val sleepTimerToKeep = sleepTimer.snapshot()?.takeIf { it.chapterTarget == null || sameTitle }
         tearDownPlayer()
         loadGeneration += 1
         val generation = loadGeneration
@@ -477,6 +482,7 @@ class PlaybackController private constructor(private val appContext: Context) {
                 startRemotePlayback(client, book, resumeAt, _activePlaybackEpisodeId.value, preferClientResumePosition, generation)
             }
             throwIfSuperseded(generation)
+            sleepTimerToKeep?.let { restoreSleepTimer(it) }
             startPeriodicSync()
             startTickLoop()
         } catch (e: Throwable) {

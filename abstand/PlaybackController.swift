@@ -507,6 +507,8 @@ final class PlaybackController: NSObject, ObservableObject {
 
   private func scheduleSleepTimerWakeIfNeeded() {
     guard let remaining = sleepTimerRemaining, remaining > 0, !sleepTimerPaused, isPlaying else {
+      // Restlaufzeit vorhanden, aber keine Wiedergabe: eingefroren halten statt verwerfen.
+      if (sleepTimerRemaining ?? 0) > 0, !isPlaying { sleepTimerPaused = true }
       sleepWakeTask?.cancel()
       sleepWakeTask = nil
       sleepEndDate = nil
@@ -529,6 +531,9 @@ final class PlaybackController: NSObject, ObservableObject {
 
   private func resumeSleepTimerIfNeeded() {
     guard sleepTimerMode != .off, let remaining = sleepTimerRemaining, remaining > 0 else { return }
+    // Ohne Wiedergabe pausiert lassen — `scheduleSleepTimerWakeIfNeeded` würde sonst `sleepEndDate = nil`
+    // bei `paused == false` setzen, und der `$sleepEndDate`-Sink schaltet den Timer ab.
+    guard isPlaying else { return }
     sleepTimerPaused = false
     scheduleSleepTimerWakeIfNeeded()
   }
@@ -699,8 +704,9 @@ final class PlaybackController: NSObject, ObservableObject {
         // Im Hintergrund abgelaufen — Wiedergabe stoppen.
         markSleepTimerExpired()
         pause()
-      } else {
-        // Noch Restlaufzeit — Timer fortsetzen, Countdown läuft wieder.
+      } else if isPlaying {
+        // Noch Restlaufzeit und Wiedergabe läuft — Countdown fortsetzen. Pausiert (z. B. nach
+        // Kopfhörer-Trennen) bleibt er eingefroren; sonst hielt der Sink den Timer für „aus“.
         resumeSleepTimerIfNeeded()
       }
       return
@@ -959,6 +965,12 @@ final class PlaybackController: NSObject, ObservableObject {
     if liveTranscription.isTeleprompterModeActive {
       await liveTranscription.disable()
     }
+    // `tearDownPlayer` löscht den Sleep-Timer — ein laufender/pausierter Timer überlebt den
+    // Neuaufbau (erneutes „Play“ auf Detailseite/CarPlay, Titelwechsel).
+    // Kapitel-Ziel gilt nur für denselben Titel (Kapitelindex wäre im anderen Buch bedeutungslos).
+    let sameTitle = activeBook?.id == book.id
+      && (activePlaybackEpisodeId ?? "") == (episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+    let sleepTimerToKeep = sleepTimerSnapshot().flatMap { $0.chapterTarget != nil && !sameTitle ? nil : $0 }
     tearDownPlayer()
     loadGeneration &+= 1
     let generation = loadGeneration
@@ -998,6 +1010,7 @@ final class PlaybackController: NSObject, ObservableObject {
         )
       }
       try throwIfSuperseded(generation)
+      if let sleepTimerToKeep { restoreSleepTimer(sleepTimerToKeep) }
       scheduleCoverLoad(for: book.id)
       startPeriodicSync()
     } catch {

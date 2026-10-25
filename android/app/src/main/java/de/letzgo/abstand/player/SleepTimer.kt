@@ -126,6 +126,8 @@ class SleepTimer(private val clockMillis: () -> Long = System::currentTimeMillis
     private fun scheduleWakeIfNeeded(isPlaying: Boolean) {
         val r = remaining
         if (r == null || r <= 0 || isPaused || !isPlaying) {
+            // Restlaufzeit, aber keine Wiedergabe: eingefroren halten — sonst wertet der Sink `null` als „aus“.
+            if (r != null && r > 0 && !isPlaying) isPaused = true
             setSleepEndDate(null)
             return
         }
@@ -146,6 +148,9 @@ class SleepTimer(private val clockMillis: () -> Long = System::currentTimeMillis
         if (_sleepTimerMode.value == SleepTimerMode.Off) return
         val r = remaining ?: return
         if (r <= 0) return
+        // iOS: ohne Wiedergabe pausiert lassen (nach Kopfhörer-Trennen + Rückkehr in den Vordergrund
+        // ging der Timer sonst verloren).
+        if (!isPlaying) return
         isPaused = false
         scheduleWakeIfNeeded(isPlaying)
     }
