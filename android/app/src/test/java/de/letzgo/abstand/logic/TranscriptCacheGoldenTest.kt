@@ -126,7 +126,7 @@ class TranscriptCacheGoldenTest {
 
     @Test
     fun versionMismatchIsRejected() {
-        val json = PlayerTranscriptCacheStore.encode(transcript()).replace("\"version\":1", "\"version\":2")
+        val json = PlayerTranscriptCacheStore.encode(transcript()).replace("\"version\":2", "\"version\":3")
         assertEquals(null, PlayerTranscriptCacheStore.decode(json))
     }
 

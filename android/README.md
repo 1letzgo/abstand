@@ -98,7 +98,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `ui/login/LoginScreen.kt` | `LoginView.swift` |
 | `ui/login/ServerCustomHeadersEditor.kt` | `ServerCustomHeadersEditor.swift` |
 | `ui/settings/SettingsAccountSections.kt` | Accounts/Account sections of `ServerAdminViews.swift` |
-| `player/PlaybackController.kt`, `player/PlaybackTimeline.kt`, `player/SleepTimer.kt` | `PlaybackController` (+ `SleepTimerMode`, `ABSPlaybackSkipDefaults`, sleep menu presets) |
+| `player/PlaybackController.kt`, `player/PlaybackTimeline.kt`, `player/SleepTimer.kt`, `player/LocalAwareMediaSourceFactory.kt` | `PlaybackController` (+ `localTrackAsset(url:)`, `SleepTimerMode`, `ABSPlaybackSkipDefaults`, sleep menu presets) |
 | `player/BookTimelinePlayer.kt`, `player/AbstandPlaybackService.kt`, `player/CoverBitmapLoader.kt` | `MPNowPlayingInfoCenter` / `MPRemoteCommandCenter`, `AudioSessionController`, `CarPlaySceneDelegate` |
 | `player/AutoBrowseTree.kt` | `CarPlayCoordinator` (Android Auto browse tree) |
 | `player/LocalDownloadSwitch.kt` | decision part of `AppModel.applyLocalPlaybackIfDownloadMatchesCurrent` (switch to local files when the streamed item's download finishes) |

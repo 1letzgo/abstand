@@ -88,7 +88,11 @@ data class PlayerTranscriptTrackCache(
     val allWords: List<Word> get() = swiftSorted(segments.flatMap { it.words }) { a, b -> a.s < b.s }
 
     companion object {
-        const val CURRENT_VERSION = 1
+        /**
+         * 2: Wortzeiten exakt verankert (MP3 sequenziell statt `seekTo`-Schätzung, Encoder-Delay
+         * abgezogen) — ältere Transkripte waren zeitversetzt und werden neu erzeugt. iOS zieht mit.
+         */
+        const val CURRENT_VERSION = 2
 
         /**
          * Swift `sorted(by:)` ist (seit Swift 5) stabil — `sortedWith` auf der JVM ebenfalls; bei

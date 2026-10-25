@@ -60,7 +60,20 @@ object PlayerTranscriptionAudioConverter {
             } ?: throw PlayerTranscriptProducerException.audioUnavailable()
             extractor.selectTrack(track)
             val format = extractor.getTrackFormat(track)
-            if (start > 0) extractor.seekTo((start * 1_000_000).toLong(), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            val isMp3 = format.getString(MediaFormat.KEY_MIME) == MediaFormat.MIMETYPE_AUDIO_MPEG
+            // MP3: Track-Zeit = Paketzeit − Encoder-Delay. ExoPlayer schneidet das Delay (LAME-Header)
+            // weg, seine Zeit 0 ist das erste echte Sample. Wir schneiden selbst (Keys aus dem Format,
+            // sonst trimmt der Decoder ab dem Einstiegspunkt mitten in der Datei echte Frames weg).
+            // AAC/MP4 bleibt unverändert: dort verschieben Extractor und ExoPlayer die Zeiten
+            // gleichermaßen über die Edit-List — ein pauschales 2112-Sample-Priming wäre doppelt.
+            val delaySeconds = if (isMp3) mp3EncoderDelaySeconds(format) else 0.0
+            if (isMp3) {
+                format.setInteger(KEY_ENCODER_DELAY, 0)
+                format.setInteger(KEY_ENCODER_PADDING, 0)
+                skipMp3Packets(extractor, start - MP3_PREROLL_SECONDS + delaySeconds)
+            } else if (start > 0) {
+                extractor.seekTo((start * 1_000_000).toLong(), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            }
             val c = try {
                 MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!).also {
                     it.configure(format, null, null, 0)
@@ -89,7 +102,7 @@ object PlayerTranscriptionAudioConverter {
                         val size = runCatching { extractor.readSampleData(buffer, 0) }.getOrDefault(-1)
                         val sampleTime = extractor.sampleTime
                         // Über das Bereichsende hinaus nichts mehr einspeisen.
-                        if (size < 0 || (end != null && sampleTime >= 0 && sampleTime / 1_000_000.0 >= end)) {
+                        if (size < 0 || (end != null && sampleTime >= 0 && sampleTime / 1_000_000.0 - delaySeconds >= end)) {
                             c.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             inputDone = true
                         } else {
@@ -125,7 +138,7 @@ object PlayerTranscriptionAudioConverter {
                             val ch = max(1, channels)
                             val rate = max(1, sampleRate)
                             val frames = shorts.size / ch
-                            val sampleStart = info.presentationTimeUs / 1_000_000.0
+                            val sampleStart = info.presentationTimeUs / 1_000_000.0 - delaySeconds
                             val window = DecodeWindow.trim(sampleStart, frames, rate, start, end)
                             if (window != null) {
                                 val slice = if (window.first == 0 && window.last == frames - 1) shorts
@@ -153,6 +166,38 @@ object PlayerTranscriptionAudioConverter {
             runCatching { extractor.release() }
         }
         return reached
+    }
+
+    /** Vorlauf vor dem Ziel: MP3-Frames hängen über das Bit-Reservoir an Vorgängern (verworfen per [DecodeWindow]). */
+    private const val MP3_PREROLL_SECONDS = 0.2
+    private const val SKIP_CANCEL_CHECK_INTERVAL = 2_048
+
+    // `MediaFormat.KEY_ENCODER_DELAY`/`KEY_ENCODER_PADDING` erst ab API 30 als Konstante.
+    private const val KEY_ENCODER_DELAY = "encoder-delay"
+    private const val KEY_ENCODER_PADDING = "encoder-padding"
+
+    private fun mp3EncoderDelaySeconds(format: MediaFormat): Double {
+        if (!format.containsKey(KEY_ENCODER_DELAY)) return 0.0
+        val delay = runCatching { format.getInteger(KEY_ENCODER_DELAY) }.getOrDefault(0)
+        val rate = runCatching { format.getInteger(MediaFormat.KEY_SAMPLE_RATE) }.getOrDefault(0)
+        return if (delay > 0 && rate > 0) delay.toDouble() / rate else 0.0
+    }
+
+    /**
+     * MP3 ohne `seekTo`: dessen Ziel schätzt der Extractor bei VBR aus Xing-TOC/Bitrate (Sekunden daneben),
+     * und die Paketzeiten danach erben den Fehler. Sequenziell ab 0 zählt er Frames exakt — ohne Dekodieren
+     * nur Header lesen und überspringen, bis das nächste Paket bei [targetPacketSeconds] liegt.
+     */
+    private suspend fun skipMp3Packets(extractor: MediaExtractor, targetPacketSeconds: Double) {
+        if (targetPacketSeconds <= 0) return
+        val targetUs = (targetPacketSeconds * 1_000_000).toLong()
+        var count = 0
+        while (true) {
+            val time = extractor.sampleTime
+            if (time < 0 || time >= targetUs) return
+            if (!extractor.advance()) return
+            if (++count % SKIP_CANCEL_CHECK_INTERVAL == 0) coroutineContext.ensureActive()
+        }
     }
 }
 

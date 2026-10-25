@@ -2,7 +2,7 @@
   "description" : "Only a handful of recognised words match the ebook: the alignment is below the reliability threshold and must stay empty.",
   "expected" : {
     "alignment" : {
-      "binBase64" : "MUxCQQEAAAARAAAAEwAAAEjhehSuxyJAAAAAAA==",
+      "binBase64" : "MUxCQQIAAAARAAAAEwAAAEjhehSuxyJAAAAAAA==",
       "ebookWordCount" : 17,
       "ends" : [
 

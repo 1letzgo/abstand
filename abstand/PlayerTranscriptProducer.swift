@@ -92,13 +92,14 @@ enum PlayerTranscriptProducer {
     let resultsTask = Task {
       for try await result in transcriber.results where result.isFinal {
         if Task.isCancelled { return }
-        let words = Self.words(from: result.text, offset: startSeconds)
+        // Ergebnisse kommen erst nach dem ersten gefütterten Buffer — der Ursprung steht dann fest.
+        let words = Self.words(from: result.text, offset: gate.timelineOrigin ?? startSeconds)
         if let end = words.last?.end { gate.advance(to: end) }
         guard !words.isEmpty else { continue }
         continuation.yield(
           PlayerTranscriptProductionBatch(
             words: words,
-            processedThrough: words.last?.end ?? startSeconds,
+            processedThrough: words.last?.end ?? (gate.timelineOrigin ?? startSeconds),
             isFinalBatch: false
           )
         )
@@ -121,7 +122,7 @@ enum PlayerTranscriptProducer {
       continuation.yield(
         PlayerTranscriptProductionBatch(
           words: [],
-          processedThrough: startSeconds + fedSeconds,
+          processedThrough: (gate.timelineOrigin ?? startSeconds) + fedSeconds,
           isFinalBatch: true
         )
       )
@@ -143,7 +144,9 @@ enum PlayerTranscriptProducer {
     input: AsyncStream<AnalyzerInput>.Continuation,
     gate: FeedGate
   ) async throws -> Double {
-    let asset = AVURLAsset(url: assetURL)
+    // Präzises Timing: bei VBR-MP3 schätzt AVFoundation die Startposition sonst aus der Bitrate
+    // (Sekunden daneben). Der Producer liest nur lokale Dateien.
+    let asset = AVURLAsset(url: assetURL, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
     let tracks = try await asset.loadTracks(withMediaType: .audio)
     guard let audioTrack = tracks.first else {
       throw PlayerTranscriptProducerError.audioUnavailable
@@ -178,10 +181,23 @@ enum PlayerTranscriptProducer {
     var converter: PlayerTranscriptionAudioConverter?
     var fedSeconds: Double = 0
     var sinceYield = 0
+    // Zeitachse der Erkennung beginnt beim ersten gefütterten Sample — dessen tatsächlicher PTS
+    // (nicht `startSeconds`: der Reader startet am Paket-/Frame-Raster, ggf. vor dem Ziel).
+    var origin = startSeconds
 
     while reader.status == .reading, !Task.isCancelled {
       guard let sample = output.copyNextSampleBuffer() else { break }
       guard let buffer = PlayerTranscriptProducer.pcmBuffer(from: sample) else { continue }
+      if gate.timelineOrigin == nil {
+        // Ausgabe-PTS berücksichtigt `TrimDurationAtStart` (Encoder-Delay/Priming).
+        let pts = CMSampleBufferGetOutputPresentationTimeStamp(sample)
+        if pts.isValid, pts.isNumeric { origin = max(0, pts.seconds) }
+        gate.setTimelineOrigin(origin)
+        let message = String(
+          format: "transcript producer: start=%.3f firstPTS=%.3f delta=%+.3f",
+          startSeconds, origin, origin - startSeconds)
+        Task { @MainActor in DebugLogCollector.shared.log(message) }
+      }
       if converter == nil {
         converter = PlayerTranscriptionAudioConverter(
           sourceFormat: buffer.format, targetFormat: targetFormat)
@@ -200,14 +216,14 @@ enum PlayerTranscriptProducer {
       // Gegendruck: nicht mehr als `maxFeedLeadSeconds` vor der Erkennung. Stille (keine Ergebnisse)
       // löst nach `stallNudge` einen Schub aus, damit das Füttern nie ganz stehen bleibt.
       var waited: UInt64 = 0
-      while startSeconds + fedSeconds - gate.analyzedThrough > Self.maxFeedLeadSeconds,
+      while origin + fedSeconds - gate.analyzedThrough > Self.maxFeedLeadSeconds,
         waited < Self.stallNudgeNanoseconds, !Task.isCancelled
       {
         try? await Task.sleep(nanoseconds: Self.throttleSleepNanoseconds)
         waited += Self.throttleSleepNanoseconds
       }
       if waited >= Self.stallNudgeNanoseconds {
-        gate.advance(to: startSeconds + fedSeconds - Self.maxFeedLeadSeconds / 2)
+        gate.advance(to: origin + fedSeconds - Self.maxFeedLeadSeconds / 2)
       }
     }
 
@@ -226,7 +242,8 @@ enum PlayerTranscriptProducer {
       guard !chunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
       let start = offset + range.start.seconds
       let end = max(start, offset + range.end.seconds)
-      // Ein Run kann mehrere Wörter enthalten — Zeit gleichmäßig verteilen.
+      // Ein Run kann mehrere Wörter enthalten — Zeit nach Zeichenzahl verteilen (lange Wörter
+      // dauern länger; gleichmäßig verteilt liefe die Markierung bei kurzen Wörtern hinterher).
       let pieces = chunk.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
       guard pieces.count > 1 else {
         out.append(
@@ -234,10 +251,14 @@ enum PlayerTranscriptProducer {
             text: chunk.trimmingCharacters(in: .whitespaces), start: start, end: end))
         continue
       }
-      let span = max(0.01, end - start) / Double(pieces.count)
+      let span = max(0.01, end - start)
+      let weights = pieces.map { Double(max(1, $0.count)) }
+      let total = weights.reduce(0, +)
+      var cumulative = 0.0
       for (i, piece) in pieces.enumerated() {
-        let s = start + Double(i) * span
-        out.append(PlayerTranscriptProducedWord(text: piece, start: s, end: s + span))
+        let s = start + span * cumulative / total
+        cumulative += weights[i]
+        out.append(PlayerTranscriptProducedWord(text: piece, start: s, end: start + span * cumulative / total))
       }
     }
     return out
@@ -248,14 +269,27 @@ enum PlayerTranscriptProducer {
       let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(desc),
       let format = AVAudioFormat(streamDescription: asbd)
     else { return nil }
-    let frames = AVAudioFrameCount(CMSampleBufferGetNumSamples(sample))
-    guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)
+    let total = CMSampleBufferGetNumSamples(sample)
+    // Getrimmte Frames (Encoder-Delay am Anfang, Padding am Ende) gehören nicht zur Zeitachse.
+    let trimStart = trimmedFrames(sample, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart, rate: format.sampleRate)
+    let trimEnd = trimmedFrames(sample, key: kCMSampleBufferAttachmentKey_TrimDurationAtEnd, rate: format.sampleRate)
+    let count = total - trimStart - trimEnd
+    guard count > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count))
     else { return nil }
-    buffer.frameLength = frames
+    buffer.frameLength = AVAudioFrameCount(count)
     let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
-      sample, at: 0, frameCount: Int32(frames), into: buffer.mutableAudioBufferList)
+      sample, at: Int32(trimStart), frameCount: Int32(count), into: buffer.mutableAudioBufferList)
     guard status == noErr else { return nil }
     return buffer
+  }
+
+  private nonisolated static func trimmedFrames(_ sample: CMSampleBuffer, key: CFString, rate: Double) -> Int {
+    guard let value = CMGetAttachment(sample, key: key, attachmentModeOut: nil),
+      CFGetTypeID(value) == CFDictionaryGetTypeID()
+    else { return 0 }
+    let time = CMTimeMakeFromDictionary((value as! CFDictionary))
+    guard time.isValid, time.isNumeric, time.seconds > 0 else { return 0 }
+    return Int((time.seconds * rate).rounded())
   }
 }
 
@@ -263,8 +297,21 @@ enum PlayerTranscriptProducer {
 private final class FeedGate: @unchecked Sendable {
   private let lock = NSLock()
   private var value: Double
+  private var origin: Double?
 
   init(analyzedThrough: Double) { value = analyzedThrough }
+
+  /// Track-Sekunde des ersten gefütterten Samples (Nullpunkt der Erkennungszeiten).
+  var timelineOrigin: Double? {
+    lock.lock(); defer { lock.unlock() }
+    return origin
+  }
+
+  func setTimelineOrigin(_ time: Double) {
+    lock.lock()
+    origin = time
+    lock.unlock()
+  }
 
   var analyzedThrough: Double {
     lock.lock(); defer { lock.unlock() }

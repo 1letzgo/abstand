@@ -2,10 +2,10 @@
   "description" : "Recogniser noise: contractions split (don't), hyphenated compounds, number written as digits vs words, wrong homophones, dropped and inserted words, OCR-style typos in the ebook.",
   "expected" : {
     "alignment" : {
-      "binBase64" : "MUxCQQEAAABJAAAATAAAAOxRuB6FC0VASQAAAAAAAAABAAAAAgAAAAMAAAAEAAAABQAAAAYAAAAHAAAACAAAAAkAAAAKAAAACwAAAAwAAAANAAAADgAAAA8AAAAQAAAAEQAAABIAAAATAAAAFAAAABUAAAAWAAAAFwAAABgAAAAZAAAAGgAAABsAAAAcAAAAHQAAAB4AAAAfAAAAIAAAACEAAAAiAAAAIwAAACQAAAAlAAAAJgAAACcAAAAoAAAAKQAAACoAAAArAAAALAAAAC0AAAAuAAAALwAAADAAAAAxAAAAMgAAADMAAAA0AAAANQAAADYAAAA3AAAAOAAAADkAAAA6AAAAOwAAADwAAAA9AAAAPgAAAD8AAABAAAAAQQAAAEIAAABDAAAARAAAAEUAAABGAAAARwAAAEgAAAAAAAA\/7FE4P1yPgj+4HsU\/rkcBQB+FK0BxPUpAZmZmQClcf0AzM4tA4XqsQFyPukCF69lAAADoQClc90AAAARBXI8OQZqZFUGuRx1B7FEkQXE9LkH2KDhBMzM\/QQrXW0FI4WJBAABsQexRdEFcj3pBCteBQexRhEFSuIlBuB6PQa5Hk0EK15dBZmacQXE9oEEpXKNBMzOnQUjhrEFcj7JBFK61QTMzuUFcj75BCtfNQbge00GPwtdBXI\/cQRSu30EK1+NBMzPrQT0K70F7FPRBSOH4QfYo\/kHhegBCXI8CQuxRBEKamQZCAAAIQuF6CkI9CgxCuB4OQj0KEEKkcBFCH4UTQqRwFUIAABdC4XobQrgeHkKamSBC9igiQoXrI0IzMyZC7FE4P9ejcD9I4bo\/7FH4P2ZmJkC4HkVArkdhQHE9ekAzM4tA4XqsQAAAuEApXMdApHDlQM3M9EBSuAJBrkcNQexRFEEAABxBPQojQcP1LEFI4TZBMzM\/QQrXW0GamWFBUrhqQT0Kc0GuR3lBMzOBQexRhEFSuIlBuB6PQdejkkEzM5dBj8KbQZqZn0FSuKJBXI+mQXE9rEGF67FBPQq1QVyPuEFcj75BCtfNQeF60kGPwtdBXI\/cQT0K30EzM+NB9ijoQWZm7kF7FPRBSOH4QR+F\/UH2KABCcT0CQgAABEKuRwZCFK4HQvYoCkJSuAtCzcwNQlK4D0K4HhFCMzMTQrgeFUIUrhZCj8IYQs3MHUKuRyBCCtchQpqZI0JI4SVCKVwoQgEBAQEBAQEBAQABAQEBAQEBAQEBAQEAAQEBAQEBAAABAQEBAQEBAQEBAQABAQABAQEBAQABAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+      "binBase64" : "MUxCQQIAAABJAAAATAAAAOxRuB6FC0VASQAAAAAAAAABAAAAAgAAAAMAAAAEAAAABQAAAAYAAAAHAAAACAAAAAkAAAAKAAAACwAAAAwAAAANAAAADgAAAA8AAAAQAAAAEQAAABIAAAATAAAAFAAAABUAAAAWAAAAFwAAABgAAAAZAAAAGgAAABsAAAAcAAAAHQAAAB4AAAAfAAAAIAAAACEAAAAiAAAAIwAAACQAAAAlAAAAJgAAACcAAAAoAAAAKQAAACoAAAArAAAALAAAAC0AAAAuAAAALwAAADAAAAAxAAAAMgAAADMAAAA0AAAANQAAADYAAAA3AAAAOAAAADkAAAA6AAAAOwAAADwAAAA9AAAAPgAAAD8AAABAAAAAQQAAAEIAAABDAAAARAAAAEUAAABGAAAARwAAAEgAAAAAAAA\/4XpUP1yPgj+4HsU\/rkcBQB+FK0BxPUpAZmZmQClcf0AzM4tA4XqsQFyPukCF69lAAADoQClc90AAAARBXI8OQZqZFUGuRx1B7FEkQXE9LkH2KDhBMzM\/QQrXW0FI4WJBAABsQexRdEFcj3pBCteBQexRhEG4HotBuB6PQa5Hk0EK15dBZmacQXE9oEEpXKNBMzOnQUjhrEFcj7JBFK61QTMzuUEK18lBCtfNQbge00GPwtdBXI\/cQRSu30EK1+NBMzPrQT0K70F7FPRBSOH4QfYo\/kHhegBCXI8CQuxRBEKamQZCAAAIQuF6CkI9CgxCuB4OQj0KEEKkcBFCH4UTQqRwFUIAABdC4XobQrgeHkKamSBC9igiQoXrI0IzMyZC4XpUP9ejcD9I4bo\/7FH4P2ZmJkC4HkVArkdhQHE9ekAzM4tAfMWfQAAAuEApXMdApHDlQM3M9EBSuAJBrkcNQexRFEEAABxBPQojQcP1LEFI4TZBMzM\/QTMzR0GamWFBUrhqQT0Kc0GuR3lBMzOBQexRhEHsUYhBuB6PQdejkkEzM5dBj8KbQZqZn0FSuKJBXI+mQXE9rEGF67FBPQq1QVyPuEFcj75BCtfNQeF60kGPwtdB2VTcQT0K30EzM+NB9ijoQWZm7kF7FPRBexT4QR+F\/UH2KABCcT0CQgAABEKuRwZCFK4HQvYoCkJSuAtCzcwNQlK4D0K4HhFCMzMTQrgeFUIUrhZCj8IYQs3MHUKuRyBCCtchQpqZI0JI4SVCKVwoQgEBAQEBAQEBAQABAQEBAQEBAQEBAQEAAQEBAQEBAAABAQEBAQEBAQEBAQABAQABAQEBAQABAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
       "ebookWordCount" : 73,
       "ends" : [
-        0.72000002861022949,
+        0.82999998331069946,
         0.93999999761581421,
         1.4600000381469727,
         1.940000057220459,
@@ -14,7 +14,7 @@
         3.5199999809265137,
         3.9100000858306885,
         4.3499999046325684,
-        5.3899998664855957,
+        4.9928569793701172,
         5.75,
         6.2300000190734863,
         7.1700000762939453,
@@ -27,14 +27,14 @@
         10.810000419616699,
         11.430000305175781,
         11.949999809265137,
-        13.739999771118164,
+        12.449999809265137,
         14.100000381469727,
         14.670000076293945,
         15.189999580383301,
         15.579999923706055,
         16.149999618530273,
         16.540000915527344,
-        17.215000152587891,
+        17.040000915527344,
         17.889999389648438,
         18.329999923706055,
         18.899999618530273,
@@ -50,13 +50,13 @@
         25.729999542236328,
         26.309999465942383,
         26.969999313354492,
-        27.569999694824219,
+        27.54142951965332,
         27.879999160766602,
         28.399999618530273,
         29.020000457763672,
         29.799999237060547,
         30.510000228881836,
-        31.110000610351562,
+        31.010000228881836,
         31.690000534057617,
         32.040000915527344,
         32.560001373291016,
@@ -158,7 +158,7 @@
       "spokenWordCount" : 76,
       "starts" : [
         0.5,
-        0.72000002861022949,
+        0.82999998331069946,
         1.0199999809265137,
         1.5399999618530273,
         2.0199999809265137,
@@ -187,7 +187,7 @@
         15.659999847412109,
         16.229999542236328,
         16.540000915527344,
-        17.215000152587891,
+        17.389999389648438,
         17.889999389648438,
         18.409999847412109,
         18.979999542236328,
@@ -199,7 +199,7 @@
         22.319999694824219,
         22.709999084472656,
         23.149999618530273,
-        23.819999694824219,
+        25.229999542236328,
         25.729999542236328,
         26.389999389648438,
         26.969999313354492,
@@ -315,7 +315,7 @@
     ],
     "displayWords" : [
       {
-        "end" : 0.72000002861022949,
+        "end" : 0.82999998331069946,
         "id" : "e-0",
         "start" : 0.5,
         "text" : "\"Don'"
@@ -323,7 +323,7 @@
       {
         "end" : 0.93999999761581421,
         "id" : "e-1",
-        "start" : 0.72000002861022949,
+        "start" : 0.82999998331069946,
         "text" : "t "
       },
       {
@@ -369,7 +369,7 @@
         "text" : "was "
       },
       {
-        "end" : 5.3899998664855957,
+        "end" : 4.9928569793701172,
         "id" : "e-9",
         "start" : 4.3499999046325684,
         "text" : "already "
@@ -447,7 +447,7 @@
         "text" : "since "
       },
       {
-        "end" : 13.739999771118164,
+        "end" : 12.449999809265137,
         "id" : "e-22",
         "start" : 11.949999809265137,
         "text" : "1984, "
@@ -489,7 +489,7 @@
         "text" : "it "
       },
       {
-        "end" : 17.215000152587891,
+        "end" : 17.040000915527344,
         "id" : "e-29",
         "start" : 16.540000915527344,
         "text" : "off. "
@@ -497,7 +497,7 @@
       {
         "end" : 17.889999389648438,
         "id" : "e-30",
-        "start" : 17.215000152587891,
+        "start" : 17.389999389648438,
         "text" : "Its "
       },
       {
@@ -569,7 +569,7 @@
       {
         "end" : 25.729999542236328,
         "id" : "e-42",
-        "start" : 23.819999694824219,
+        "start" : 25.229999542236328,
         "text" : "Tbe "
       },
       {
@@ -585,7 +585,7 @@
         "text" : "gathered "
       },
       {
-        "end" : 27.569999694824219,
+        "end" : 27.54142951965332,
         "id" : "e-45",
         "start" : 26.969999313354492,
         "text" : "around "
@@ -621,7 +621,7 @@
         "text" : "whispered "
       },
       {
-        "end" : 31.110000610351562,
+        "end" : 31.010000228881836,
         "id" : "e-51",
         "start" : 30.510000228881836,
         "text" : "their "
@@ -1181,12 +1181,12 @@
         "decorations" : [
           {
             "after" : " Its gears turned slowly, tick by tick, ",
-            "before" : " late. The well-known inventor had left ",
-            "highlight" : "his machine running since 1984, and nobody dared to switch it off.",
+            "before" : "y too late. The well-known inventor had ",
+            "highlight" : "left his machine running since 1984, and nobody dared to switch it off.",
             "id" : "recent-1",
             "sentence" : 1,
             "wordEnd" : 30,
-            "wordStart" : 18
+            "wordStart" : 17
           },
           {
             "after" : null,
@@ -1196,19 +1196,10 @@
             "sentence" : 2,
             "wordEnd" : 42,
             "wordStart" : 30
-          },
-          {
-            "after" : "children gathered around it every evenin",
-            "before" : null,
-            "highlight" : "Tbe",
-            "id" : "recent-3",
-            "sentence" : 3,
-            "wordEnd" : 43,
-            "wordStart" : 42
           }
         ],
         "t" : 25,
-        "word" : 42
+        "word" : 41
       },
       {
         "decorations" : [
@@ -1439,15 +1430,15 @@
       },
       {
         "t" : 24,
-        "word" : 42
+        "word" : 41
       },
       {
         "t" : 24.5,
-        "word" : 42
+        "word" : 41
       },
       {
         "t" : 25,
-        "word" : 42
+        "word" : 41
       },
       {
         "t" : 25.5,

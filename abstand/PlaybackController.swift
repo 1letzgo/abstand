@@ -229,11 +229,20 @@ final class PlaybackController: NSObject, ObservableObject {
   /// meldet bis zum Abschluss die alte Zeit (bzw. 0 bei frisch ersetztem/ausgefallenem Item). Sonst
   /// rechnen schnelle Sprünge (CarPlay, 3× +30 s) von einer falschen Basis und landen bei 0.
   private var pendingSeekTarget: Double? {
-    didSet { pendingSeekSince = pendingSeekTarget == nil ? nil : Date() }
+    didSet {
+      pendingSeekSince = pendingSeekTarget == nil ? nil : Date()
+      pendingSeekInterrupted = false
+    }
   }
   private var pendingSeekSince: Date?
+  /// Der jüngste Seek kam mit `finished == false` zurück, ohne dass ein neuerer Seek läuft (Item
+  /// ausgefallen, System-Unterbrechung): Es ist kein Seek mehr unterwegs — das Ziel nur noch kurz halten,
+  /// sonst laufen Position und Teleprompter bis zur Frist am Player vorbei.
+  private var pendingSeekInterrupted = false
   /// Spätestens danach gilt der Player wieder als Quelle (Seek-Abschluss kam nie, z. B. Item ausgefallen).
   private static let pendingSeekTimeoutSeconds: TimeInterval = 5
+  /// Frist nach abgebrochenem Seek (s. `pendingSeekInterrupted`).
+  private static let interruptedSeekTimeoutSeconds: TimeInterval = 1.5
   /// Zählt Seeks hoch — nur der Abschluss des jüngsten Seeks darf `pendingSeekTarget` lösen.
   private var seekGeneration = 0
   /// Zählt Track-Ladevorgänge hoch — ein älteres `loadCurrentTrack` ersetzt das Item nicht mehr,
@@ -1056,6 +1065,13 @@ final class PlaybackController: NSObject, ObservableObject {
     "track_\(index).abs"
   }
 
+  /// Asset für eine lokale Track-Datei: präzises Timing, sonst schätzt AVFoundation bei VBR-MP3 Dauer und
+  /// Seek-Ziele aus der Bitrate — Position und Teleprompter laufen dann sekundenweise auseinander.
+  /// Bewusst nur lokal: beim Streamen würde der Schlüssel das Laden der ganzen Datei erzwingen.
+  static func localTrackAsset(url: URL) -> AVURLAsset {
+    AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+  }
+
   /// Lokale Track-Datei mit erkennbarer Endung (AVPlayer erkennt `.abs` oft nicht).
   static func resolvedLocalTrackURL(root: URL, trackIndex: Int, manifest: ABSDownloadManifest?) -> URL? {
     let preferred =
@@ -1234,7 +1250,7 @@ final class PlaybackController: NSObject, ObservableObject {
       let url = Self.resolvedLocalTrackURL(
         root: root, trackIndex: tracks[currentTrackIndex].index, manifest: manifest)
     else { throw ABSPlaybackError.noTracks }
-    let asset = AVURLAsset(url: url)
+    let asset = Self.localTrackAsset(url: url)
     if #available(iOS 15.0, *) {
       _ = try? await asset.load(.isPlayable)
     }
@@ -1514,11 +1530,17 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Seek-Ziel lösen, sobald der Player dort steht (Abschluss-Callback verpasst) oder die Frist um ist.
   private func releasePendingSeekIfReached(item: AVPlayerItem) {
     guard let target = pendingSeekTarget, !isSwitchingTrack else { return }
-    if let since = pendingSeekSince, Date().timeIntervalSince(since) > Self.pendingSeekTimeoutSeconds {
+    let timeout = pendingSeekInterrupted ? Self.interruptedSeekTimeoutSeconds : Self.pendingSeekTimeoutSeconds
+    if let since = pendingSeekSince, Date().timeIntervalSince(since) > timeout {
       pendingSeekTarget = nil
       return
     }
     guard item.status == .readyToPlay, let p = player else { return }
+    // Abgebrochener Seek, Item spielt wieder: die Player-Zeit ist verlässlich, auch wenn sie nicht am Ziel steht.
+    if pendingSeekInterrupted, p.timeControlStatus == .playing {
+      pendingSeekTarget = nil
+      return
+    }
     let local = p.currentTime().seconds
     guard local.isFinite else { return }
     if abs(globalTime(trackIndex: currentTrackIndex, localSeconds: local) - target) < 1.5 {
@@ -1642,7 +1664,7 @@ final class PlaybackController: NSObject, ObservableObject {
         if pauseOnFailure { pause() }
         return
       }
-      let asset = AVURLAsset(url: url)
+      let asset = Self.localTrackAsset(url: url)
       if #available(iOS 15.0, *) {
         _ = try? await asset.load(.isPlayable)
       }
@@ -2106,8 +2128,14 @@ final class PlaybackController: NSObject, ObservableObject {
         guard let self else { return }
         Task { @MainActor [weak self] in
           guard let self, generation == self.seekGeneration else { return }
-          // Abgebrochen (neuer Seek) oder Item ausgefallen: Ziel bleibt maßgeblich.
-          guard finished else { return }
+          // Ein neuerer Seek kehrt oben über die Generation zurück (Ziel bleibt maßgeblich, schnelles
+          // Skippen rechnet weiter davon). Hier wurde der jüngste Seek selbst abgebrochen: Ziel nur noch
+          // kurz halten bzw. lösen, sobald das Item wieder spielt.
+          guard finished else {
+            self.pendingSeekInterrupted = true
+            if let item = self.player?.currentItem { self.releasePendingSeekIfReached(item: item) }
+            return
+          }
           self.pendingSeekTarget = nil
           self.globalPosition = position
           self.updateChapterUI(global: position)

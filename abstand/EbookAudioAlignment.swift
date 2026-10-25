@@ -23,7 +23,8 @@ nonisolated struct AlignmentInputWord: Sendable {
 /// Ausgerichtete eBook-Wörter eines Tracks, streng aufsteigend nach eBook-Position und damit auch
 /// nach Zeit. Nicht ausgerichtete Wörter (nur im Buch oder nur im Hörbuch vorhanden) fehlen.
 nonisolated struct EbookTrackAlignment: Sendable {
-  static let formatVersion: UInt32 = 1
+  // 2: Tokenzeiten nach Zeichenzahl, Lückenfüllung mit Pausen (alte Dateien werden neu berechnet).
+  static let formatVersion: UInt32 = 2
   private static let magic: UInt32 = 0x4142_4C31
 
   /// Für die Gültigkeit der gespeicherten Datei: eBook und Transkript, mit denen gerechnet wurde.
@@ -170,6 +171,25 @@ nonisolated enum EbookAlignmentBuilder {
   /// Mindestanzahl erkannter Wörter und Anteil am Transkript, damit der Abgleich als verlässlich gilt.
   private static let minimumMatches = 12
   private static let minimumMatchRatio = 0.2
+  /// Lückenfüllung: Höchstdauer eines nicht erkannten Worts mittlerer Länge (Gewicht
+  /// `referenceWordWeight` = 5 Zeichen + 2); längere Wörter dürfen anteilig länger dauern.
+  private static let maxFilledWordSeconds = 0.5
+  private static let referenceWordWeight = 7.0
+  /// Kürzere Reste gelten nicht als Pause (Rundung), die Wörter füllen die Lücke dann ganz.
+  private static let minimumFilledPauseSeconds = 0.05
+
+  /// Wo die Pause in einer Lücke hinter eBook-Wort `previousE` mit `gap` Wörtern steht: Index des
+  /// ersten Lückenworts nach der Pause (`gap` = direkt vor dem nächsten erkannten Wort). Bevorzugt
+  /// die letzte Satzgrenze in der Lücke, sonst direkt vor dem nächsten erkannten Wort.
+  static func pauseSlot(afterWord previousE: Int, gap: Int, index: EbookReadAlongIndex) -> Int {
+    var slot = gap
+    while slot >= 0 {
+      let before = previousE + slot
+      if index.words[before].sentence != index.words[before + 1].sentence { return slot }
+      slot -= 1
+    }
+    return gap
+  }
 
   static func build(words input: [AlignmentInputWord], index: EbookReadAlongIndex) -> EbookTrackAlignment {
     let spokenEnd = input.last?.end ?? 0
@@ -177,7 +197,8 @@ nonisolated enum EbookAlignmentBuilder {
       ebookWordCount: index.words.count, spokenWordCount: input.count, spokenEnd: spokenEnd)
     guard !index.isEmpty, input.count >= 8 else { return empty }
 
-    // Erkannte Wörter in eBook-Tokens zerlegen („don't" → „don", „t"), Zeit anteilig verteilen.
+    // Erkannte Wörter in eBook-Tokens zerlegen („don't" → „don", „t"), Zeit nach Zeichenzahl verteilen
+    // (ein langes Wort dauert länger als ein kurzes — gleichmäßig verteilt liefe die Markierung voraus).
     var sNorm: [String] = []
     var sStart: [Double] = []
     var sEnd: [Double] = []
@@ -186,11 +207,14 @@ nonisolated enum EbookAlignmentBuilder {
       let tokens = ReadAlongText.words(in: word.text)
       guard !tokens.isEmpty else { continue }
       let duration = max(0, word.end - word.start)
-      let share = duration / Double(tokens.count)
+      let weights = tokens.map { Double(max(1, $0.word.count)) }
+      let total = weights.reduce(0, +)
+      var cumulative = 0.0
       for (offset, token) in tokens.enumerated() {
         sNorm.append(token.word)
-        sStart.append(word.start + share * Double(offset))
-        sEnd.append(word.start + share * Double(offset + 1))
+        sStart.append(word.start + duration * cumulative / total)
+        cumulative += weights[offset]
+        sEnd.append(word.start + duration * cumulative / total)
       }
     }
     let n = sNorm.count
@@ -295,15 +319,25 @@ nonisolated enum EbookAlignmentBuilder {
           if plausible {
             let weights = ((previousE + 1)..<e).map { Double(max(1, index.words[$0].normalized.count) + 2) }
             let total = weights.reduce(0, +)
+            // Je Wort höchstens so lange wie gesprochen plausibel; der Rest ist eine Pause (Atempause,
+            // Satzende) und wird nicht über die Wörter verschmiert — sonst läuft die Markierung hinterher.
+            let lengths = weights.map { weight in
+              min(span * weight / total, Self.maxFilledWordSeconds * max(1, weight / Self.referenceWordWeight))
+            }
+            var pause = span - lengths.reduce(0, +)
+            if pause < Self.minimumFilledPauseSeconds { pause = 0 }
+            let pauseBefore =
+              pause > 0 ? Self.pauseSlot(afterWord: previousE, gap: weights.count, index: index) : weights.count
             var cursor = from
-            for (offset, weight) in weights.enumerated() {
-              let length = span * weight / total
+            for (offset, length) in lengths.enumerated() {
+              if offset == pauseBefore { cursor += pause }
               outWords.append(Int32(previousE + 1 + offset))
               outStarts.append(Float(cursor))
               outEnds.append(Float(cursor + length))
               outFlags.append(0)
               cursor += length
             }
+            if pauseBefore == weights.count { cursor += pause }
             lastEnd = cursor
           }
         }

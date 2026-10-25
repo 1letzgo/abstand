@@ -89,7 +89,8 @@ class EbookTrackAlignment(
     }
 
     companion object {
-        const val FORMAT_VERSION: Int = 1
+        /** 2: Tokenzeiten nach Zeichenzahl, Lückenfüllung mit Pausen (alte Dateien werden neu berechnet). */
+        const val FORMAT_VERSION: Int = 2
         /** `0x4142_4C31` („ABL1"). */
         const val MAGIC: Int = 0x41424C31
 
@@ -131,6 +132,28 @@ object EbookAlignmentBuilder {
     /** Mindestanzahl erkannter Wörter und Anteil am Transkript. */
     private const val MINIMUM_MATCHES = 12
     private const val MINIMUM_MATCH_RATIO = 0.2
+    /**
+     * Lückenfüllung: Höchstdauer eines nicht erkannten Worts mittlerer Länge (Gewicht
+     * [REFERENCE_WORD_WEIGHT] = 5 Zeichen + 2); längere Wörter dürfen anteilig länger dauern.
+     */
+    private const val MAX_FILLED_WORD_SECONDS = 0.5
+    private const val REFERENCE_WORD_WEIGHT = 7.0
+    /** Kürzere Reste gelten nicht als Pause (Rundung), die Wörter füllen die Lücke dann ganz. */
+    private const val MINIMUM_FILLED_PAUSE_SECONDS = 0.05
+
+    /**
+     * iOS: `pauseSlot(afterWord:gap:index:)` — Index des ersten Lückenworts nach der Pause (`gap` =
+     * direkt vor dem nächsten erkannten Wort). Bevorzugt die letzte Satzgrenze in der Lücke.
+     */
+    fun pauseSlot(previousE: Int, gap: Int, index: EbookReadAlongIndex): Int {
+        var slot = gap
+        while (slot >= 0) {
+            val before = previousE + slot
+            if (index.words[before].sentence != index.words[before + 1].sentence) return slot
+            slot -= 1
+        }
+        return gap
+    }
 
     private data class Anchor(val e: Int, val s: Int)
 
@@ -139,7 +162,8 @@ object EbookAlignmentBuilder {
         val empty = EbookTrackAlignment.empty(index.words.size, input.size, spokenEnd)
         if (index.isEmpty || input.size < 8) return empty
 
-        // Erkannte Wörter in eBook-Tokens zerlegen („don't" → „don", „t"), Zeit anteilig verteilen.
+        // Erkannte Wörter in eBook-Tokens zerlegen („don't" → „don", „t"), Zeit nach Zeichenzahl verteilen
+        // (ein langes Wort dauert länger als ein kurzes — gleichmäßig verteilt liefe die Markierung voraus).
         val sNorm = ArrayList<String>(input.size)
         val sStartList = ArrayList<Double>(input.size)
         val sEndList = ArrayList<Double>(input.size)
@@ -147,11 +171,16 @@ object EbookAlignmentBuilder {
             val tokens = ReadAlongText.words(word.text)
             if (tokens.isEmpty()) continue
             val duration = maxOf(0.0, word.end - word.start)
-            val share = duration / tokens.size.toDouble()
+            val weights = DoubleArray(tokens.size) { maxOf(1, FoundationText.characterCount(tokens[it].word)).toDouble() }
+            // Swift `reduce(0, +)`: linksassoziativ von 0 an.
+            var total = 0.0
+            for (w in weights) total += w
+            var cumulative = 0.0
             for ((offset, token) in tokens.withIndex()) {
                 sNorm.add(token.word)
-                sStartList.add(word.start + share * offset.toDouble())
-                sEndList.add(word.start + share * (offset + 1).toDouble())
+                sStartList.add(word.start + duration * cumulative / total)
+                cumulative += weights[offset]
+                sEndList.add(word.start + duration * cumulative / total)
             }
         }
         val n = sNorm.size
@@ -252,15 +281,27 @@ object EbookAlignmentBuilder {
                         // Swift `reduce(0, +)`: linksassoziativ von 0 an.
                         var total = 0.0
                         for (w in weights) total += w
+                        // Je Wort höchstens so lange wie gesprochen plausibel; der Rest ist eine Pause
+                        // (Atempause, Satzende) und wird nicht über die Wörter verschmiert.
+                        val lengths = DoubleArray(weights.size) {
+                            val weight = weights[it]
+                            minOf(span * weight / total, MAX_FILLED_WORD_SECONDS * maxOf(1.0, weight / REFERENCE_WORD_WEIGHT))
+                        }
+                        var used = 0.0
+                        for (l in lengths) used += l
+                        var pause = span - used
+                        if (pause < MINIMUM_FILLED_PAUSE_SECONDS) pause = 0.0
+                        val pauseBefore = if (pause > 0) pauseSlot(previousE, weights.size, index) else weights.size
                         var cursor = from
-                        for ((offset, weight) in weights.withIndex()) {
-                            val length = span * weight / total
+                        for ((offset, length) in lengths.withIndex()) {
+                            if (offset == pauseBefore) cursor += pause
                             outWords.add(previousE + 1 + offset)
                             outStarts.add(cursor.toFloat())
                             outEnds.add((cursor + length).toFloat())
                             outFlags.add(0)
                             cursor += length
                         }
+                        if (pauseBefore == weights.size) cursor += pause
                         lastEnd = cursor
                     }
                 }

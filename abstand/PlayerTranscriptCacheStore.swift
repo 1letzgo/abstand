@@ -9,7 +9,9 @@ import Foundation
 /// Abdeckung wird als Segmentliste geführt, weil beim ersten Einschalten typischerweise nur
 /// ab der Abspielposition transkribiert wird und der Rest später dazukommt.
 struct PlayerTranscriptTrackCache: Codable {
-  static let currentVersion = 1
+  // 2: Wortzeiten am PTS des ersten dekodierten Samples verankert, präzises VBR-Timing,
+  // Mehrwort-Runs nach Zeichenzahl verteilt — ältere Transkripte waren zeitversetzt.
+  static let currentVersion = 2
 
   struct Word: Codable {
     /// Kurze Schlüssel: eine Stunde Hörbuch sind ~9.000 Wörter pro Datei.

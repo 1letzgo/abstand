@@ -20,7 +20,6 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import de.letzgo.abstand.BuildConfig
@@ -680,7 +679,7 @@ class PlaybackController private constructor(private val appContext: Context) {
             .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
             .build()
         val p = ExoPlayer.Builder(appContext, renderers)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSources))
+            .setMediaSourceFactory(LocalAwareMediaSourceFactory(dataSources))
             .setAudioAttributes(attributes, true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
