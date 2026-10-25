@@ -30,6 +30,9 @@ final class CarPlayCoordinator: NSObject {
   private let continueTemplate = CPListTemplate(title: "Continue", sections: [])
   private let downloadsTemplate = CPListTemplate(title: "Downloads", sections: [])
   private var tabBarTemplate: CPTabBarTemplate?
+  /// Kurzes Bestätigen nach „Lesezeichen setzen“ (gefülltes Symbol), dann wieder normal.
+  private var bookmarkConfirmTask: Task<Void, Never>?
+  private static let bookmarkConfirmSeconds: UInt64 = 2
 
   private override init() {
     super.init()
@@ -121,6 +124,7 @@ final class CarPlayCoordinator: NSObject {
 
   private func refreshTemplatesIfConnected() {
     guard interfaceController != nil else { return }
+    updateNowPlayingBookmarkControls()
     guard tabBarTemplate != nil else {
       setRootTemplate()
       return
@@ -302,14 +306,99 @@ final class CarPlayCoordinator: NSObject {
 
   private func configureNowPlayingTemplate() {
     let nowPlaying = CPNowPlayingTemplate.shared
-    nowPlaying.isUpNextButtonEnabled = false
     nowPlaying.isAlbumArtistButtonEnabled = false
-    // Hörbuch-Tempo ist die einzige Einstellung, die im Auto wirklich gebraucht wird.
-    nowPlaying.updateNowPlayingButtons([
+    // „Up Next“ dient als Lesezeichen-Liste (Hörbücher haben keine Warteschlange).
+    nowPlaying.upNextTitle = String(localized: "Bookmarks")
+    nowPlaying.remove(self)
+    nowPlaying.add(self)
+    updateNowPlayingBookmarkControls()
+  }
+
+  /// Tempo immer; Lesezeichen (Knopf + Liste) nur bei laufendem Hörbuch — Podcast-Folgen haben keine.
+  private func updateNowPlayingBookmarkControls(confirmed: Bool = false) {
+    let nowPlaying = CPNowPlayingTemplate.shared
+    var buttons: [CPNowPlayingButton] = [
       CPNowPlayingPlaybackRateButton { [weak self] _ in
         self?.advancePlaybackRate()
       }
-    ])
+    ]
+    let hasAudiobook = activeAudiobookId != nil
+    if hasAudiobook, let image = UIImage(systemName: confirmed ? "bookmark.fill" : "bookmark") {
+      buttons.append(
+        CPNowPlayingImageButton(image: image) { [weak self] _ in
+          self?.addBookmarkFromCarPlay()
+        })
+    }
+    nowPlaying.updateNowPlayingButtons(buttons)
+    nowPlaying.isUpNextButtonEnabled = hasAudiobook
+  }
+
+  /// Id des laufenden Hörbuchs (keine Podcast-Folge), sonst `nil`.
+  private var activeAudiobookId: String? {
+    guard let player = appModel?.player, let id = player.activeBook?.id else { return nil }
+    let ep = player.activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return ep.isEmpty ? id : nil
+  }
+
+  /// Lesezeichen an der aktuellen Position — ohne Namen (Titel = Zeit), damit im Auto keine Tastatur nötig ist.
+  private func addBookmarkFromCarPlay() {
+    guard let model = appModel, let id = activeAudiobookId else { return }
+    let time = model.player.snapshotPlaybackTimeSeconds()
+    Task { @MainActor [weak self] in
+      let ok = await model.createBookmark(libraryItemId: id, time: time, title: "")
+      guard let self else { return }
+      if ok {
+        self.flashBookmarkConfirmation()
+      } else {
+        self.presentCarPlayNotice(String(localized: "Bookmark not saved. A server connection is required."))
+      }
+    }
+  }
+
+  private func flashBookmarkConfirmation() {
+    bookmarkConfirmTask?.cancel()
+    updateNowPlayingBookmarkControls(confirmed: true)
+    bookmarkConfirmTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(nanoseconds: Self.bookmarkConfirmSeconds * 1_000_000_000)
+      guard !Task.isCancelled else { return }
+      self?.updateNowPlayingBookmarkControls()
+    }
+  }
+
+  private func presentCarPlayNotice(_ message: String) {
+    guard let interfaceController, interfaceController.presentedTemplate == nil else { return }
+    let ok = CPAlertAction(title: String(localized: "OK"), style: .cancel) { [weak interfaceController] _ in
+      interfaceController?.dismissTemplate(animated: true, completion: nil)
+    }
+    interfaceController.presentTemplate(
+      CPAlertTemplate(titleVariants: [message], actions: [ok]), animated: true, completion: nil)
+  }
+
+  /// Lesezeichen des laufenden Hörbuchs; Antippen springt hin, spielt und kehrt zu Now Playing zurück.
+  private func showBookmarks() {
+    guard let interfaceController, let model = appModel, let id = activeAudiobookId else { return }
+    let marks = model.bookmarks(for: id)
+    let section: CPListSection
+    if marks.isEmpty {
+      section = messageSection(String(localized: "No bookmarks yet. Tap the bookmark button to add one."))
+    } else {
+      let items: [CPListItem] = marks.map { mark in
+        let title = mark.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let time = model.defaultBookmarkTitle(atSeconds: mark.time)
+        let item = CPListItem(text: title.isEmpty ? time : title, detailText: title.isEmpty ? nil : time)
+        item.handler = { [weak self] _, completion in
+          Task { @MainActor [weak self] in
+            await model.jumpToBookmark(mark, autoPlay: true)
+            self?.interfaceController?.popTemplate(animated: true, completion: nil)
+            completion()
+          }
+        }
+        return item
+      }
+      section = CPListSection(items: items)
+    }
+    let template = CPListTemplate(title: String(localized: "Bookmarks"), sections: clamped([section]))
+    interfaceController.pushTemplate(template, animated: true, completion: nil)
   }
 
   /// Nächstes Preset aus `PlaybackController.playbackRatePresets` (zyklisch).
@@ -335,6 +424,14 @@ final class CarPlayCoordinator: NSObject {
 }
 
 extension CarPlayCoordinator: CPInterfaceControllerDelegate {}
+
+extension CarPlayCoordinator: CPNowPlayingTemplateObserver {
+  nonisolated func nowPlayingTemplateUpNextButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
+    MainActor.assumeIsolated { showBookmarks() }
+  }
+
+  nonisolated func nowPlayingTemplateAlbumArtistButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {}
+}
 
 /// Schwache Referenz auf eine CarPlay-Zeile; `CPListItem` ist nicht Sendable, daher MainActor.
 @MainActor

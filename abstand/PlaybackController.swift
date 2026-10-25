@@ -300,6 +300,10 @@ final class PlaybackController: NSObject, ObservableObject {
   private var wasPlayingBeforeInterruption = false
   /// Nach Media-Services-Reset: Player-Item ist unbrauchbar, Track einmal neu laden.
   private var prefersTrackReloadAfterInterruption = false
+  /// Zeitpunkt des letzten Unterbrechungsendes bzw. Routenwechsels — manche Autos schicken danach einen
+  /// Positionsbefehl auf 0 (CarPlay nach Navi-Ansage); der darf das Hörbuch nicht an den Anfang setzen.
+  private var lastAudioDisruptionAt: Date?
+  private static let spuriousRemoteSeekWindowSeconds: TimeInterval = 8
   /// Bewusstes Resume/Reload: kurzzeitiges Engine-`.paused` (Seek/Item-Replace) nicht als Pause werten.
   /// Sonst stoppt die Wiedergabe ~1–2 s nach Session-/Track-Neustart wieder.
   private var suppressEnginePauseSyncUntil: Date?
@@ -354,6 +358,7 @@ final class PlaybackController: NSObject, ObservableObject {
       let raw = (n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber)?.uintValue ?? 0
       MainActor.assumeIsolated {
         guard let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { return }
+        self.lastAudioDisruptionAt = Date()
         if reason == .oldDeviceUnavailable {
           self.syncPlayingStateFromPlayerIfNeeded()
         }
@@ -638,6 +643,9 @@ final class PlaybackController: NSObject, ObservableObject {
         "audioSession interruption began wasPlaying=\(wasPlayingBeforeInterruption)"
       )
       guard isPlaying else { return }
+      // Nach Navi-Ansage/Telefonat ist das Item samt EQ-Tap oft „stumm“ (Zeit läuft, kein Ton) —
+      // beim Fortsetzen den Track einmal an der letzten guten Position neu binden.
+      prefersTrackReloadAfterInterruption = true
       // Kein zusätzliches `player.pause()` — das System hat den Ton schon gestoppt.
       accumulateListenTime()
       isPlaying = false
@@ -649,6 +657,7 @@ final class PlaybackController: NSObject, ObservableObject {
       let shouldResume = opts.contains(.shouldResume)
       let resumePlayback = wasPlayingBeforeInterruption && shouldResume
       wasPlayingBeforeInterruption = false
+      lastAudioDisruptionAt = Date()
       DebugLogCollector.shared.log(
         "audioSession interruption ended shouldResume=\(shouldResume) resume=\(resumePlayback)"
       )
@@ -871,7 +880,16 @@ final class PlaybackController: NSObject, ObservableObject {
       guard let e = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
       let t = e.positionTime
       guard let self else { return .commandFailed }
-      MainActor.assumeIsolated { self.seek(global: t) }
+      MainActor.assumeIsolated {
+        // Fahrzeug-Artefakt: Sprung auf 0 kurz nach Navi-Ansage/Routenwechsel ignorieren.
+        if self.isSpuriousRemoteSeekToStart(t) {
+          DebugLogCollector.shared.log(
+            "remote changePlaybackPosition to \(String(format: "%.1f", t)) ignored (after audio disruption, pos=\(Int(self.globalPosition)))"
+          )
+          return
+        }
+        self.seek(global: t)
+      }
       return .success
     }
   }
@@ -2013,6 +2031,16 @@ final class PlaybackController: NSObject, ObservableObject {
   func skip(seconds: Double) {
     // Mehrfach schnell hintereinander: vom Ziel des noch laufenden Seeks weiterrechnen.
     seek(global: (pendingSeekTarget ?? globalPosition) + seconds)
+  }
+
+  /// Remote-Sprung an den Anfang, der direkt nach einer Unterbrechung/Routenwechsel ankommt, während
+  /// das Hörbuch deutlich weiter ist — von manchen CarPlay-Autos nach Navi-Ansagen gesendet.
+  private func isSpuriousRemoteSeekToStart(_ target: Double) -> Bool {
+    guard target < 2, (pendingSeekTarget ?? globalPosition) > 30,
+      let at = lastAudioDisruptionAt,
+      Date().timeIntervalSince(at) < Self.spuriousRemoteSeekWindowSeconds
+    else { return false }
+    return true
   }
 
   /// Vorheriges Kapitel: zuerst Kapitelanfang, sonst vorheriges Kapitel.
