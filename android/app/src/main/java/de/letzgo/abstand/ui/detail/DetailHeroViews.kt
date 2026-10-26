@@ -1,6 +1,8 @@
 package de.letzgo.abstand.ui.detail
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -47,8 +50,10 @@ import de.letzgo.abstand.ui.DetailMetaLabelIcon
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.bold
 import de.letzgo.abstand.ui.components.abstandCardChrome
 import de.letzgo.abstand.ui.components.abstandCardElevation
+import de.letzgo.abstand.ui.semibold
 import de.letzgo.abstand.ui.components.AbstandIconButton
 import de.letzgo.abstand.ui.components.AbstandProgressRing
 import de.letzgo.abstand.ui.components.AbstandTextButton
@@ -75,6 +80,7 @@ object DetailHeroLayoutMetrics {
 
 /** iOS: `DetailMetaLayoutMetrics`. */
 object DetailMetaLayoutMetrics {
+    val thumbnailSize = 48.dp
     val labelToContentSpacing: Dp = AppTheme.Layout.compactSpacing
     val linkRowSpacing: Dp = AppTheme.Layout.withinSectionSpacing
     val disclosureContentTopPadding: Dp = AppTheme.Layout.compactSpacing

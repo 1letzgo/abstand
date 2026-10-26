@@ -1,9 +1,9 @@
 package de.letzgo.abstand.ui
 
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import de.letzgo.abstand.model.AdminStore
 import de.letzgo.abstand.reader.EbookReaderLauncher
 import de.letzgo.abstand.reader.EbookTextIndexProvider
@@ -17,10 +17,13 @@ import de.letzgo.abstand.ui.metadata.EditMetadataSheet
 import de.letzgo.abstand.ui.metadata.MatchMetadataSheet
 import de.letzgo.abstand.ui.metadata.MetadataActions
 import de.letzgo.abstand.ui.podcasts.PodcastEpisodeDetailDestination
+import de.letzgo.abstand.ui.settings.HomeShelfSettings
 import de.letzgo.abstand.ui.settings.SettingsIntegration
 import de.letzgo.abstand.transcript.TranscriptSettings
 import de.letzgo.abstand.ui.stats.StatsNavigation
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -56,7 +59,8 @@ object AppIntegration {
         }
         // Transkript-Vorproduktion an den App-Lebenszyklus koppeln.
         TranscriptSettings.install(model.appContext)
-        // Settings-Andockpunkte (Vorproduktions-Status, Download löschen).
+        // Settings-Andockpunkte (Home-Regale, Vorproduktions-Status, Download löschen).
+        SettingsIntegration.homeShelfSettings = HomeShelfSettingsAdapter(model)
         SettingsIntegration.transcriptPrefetchStatus =
             TranscriptSettings.prefetchSubtitle().stateIn(model.scope, SharingStarted.WhileSubscribed(STATUS_STOP_TIMEOUT_MS), null)
         SettingsIntegration.removeLocalDownload = { id -> model.player.downloads.removeLocalDownload(id) }
@@ -67,6 +71,18 @@ object AppIntegration {
     }
 
     private const val STATUS_STOP_TIMEOUT_MS = 5_000L
+
+    /** iOS: `SettingsAppearanceHomeView` auf dem Home-Store. */
+    private class HomeShelfSettingsAdapter(private val model: AppModel) : HomeShelfSettings {
+        override val categories: StateFlow<List<Pair<String, String>>> =
+            model.home.startSettingsCategoryList.map { rows -> rows.map { it.category to it.label } }
+                .stateIn(model.scope, SharingStarted.Eagerly, model.home.startSettingsCategoryList.value.map { it.category to it.label })
+        override val disabledCategories: StateFlow<Set<String>> get() = model.home.startDisabledCategories
+        override fun refreshLabels() = model.home.refreshStartSettingsCategoryListLabels()
+        override fun setEnabled(category: String, enabled: Boolean) = model.home.setStartCategoryEnabled(category, enabled)
+        override fun move(dragging: String, onto: String) = model.home.moveStartSettingsCategory(dragging, onto)
+    }
+
     /** In der Tab-Shell: zeigt das angeforderte Metadaten-Sheet. */
     @Composable
     fun MetadataSheetsHost() {

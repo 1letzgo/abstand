@@ -186,7 +186,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/reader/ReaderScreen.kt:794  CircularProgressIndicator(Modifier.size(AppTheme.Layout.blockSpacing), color = foreground,
 
 ## Filter-/Kategorie-Chips (FilterChip, Kapsel-Box im Dock-Farbschema)
-   → Vorlage: AbstandChip · AbstandBrowsePills
+   → Vorlage: AbstandChip · AbstandDockChip · AbstandPinnedBrowseStrip
    Fundstellen vorher: 4
    - ui/library/BooksLibraryTabRoot.kt:207  FilterChip(
    - ui/library/BooksLibraryTabRoot.kt:232  FilterChip(
@@ -200,7 +200,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/podcasts/PodcastTabSheets.kt:181  SegmentedButton(
 
 ## Cover-Pillen / Badges / Offline-Badge (CoverPill, CoverPillIcon, CoverOfflineBadge, CoverCornerBadge, Kapsel-Labels)
-   → Vorlage: AbstandCoverPill · AbstandCoverPillText · AbstandCoverCornerBadge · AbstandBadge (Neutral/Accent)
+   → Vorlage: AbstandCoverPill · AbstandCoverPillIcon · AbstandCoverPillText · AbstandCoverCornerBadge · AbstandCoverDownloadBadge · AbstandBadge (Neutral/Accent)
    Fundstellen vorher: 10
    - ui/admin/ServerUsers.kt:131  "root",
    - ui/home/ContinueListeningHeroViews.kt:145  fun ContinueListeningHeroOfflineBadge(isDownloaded: Boolean, isDownloading: Boolean, downl
@@ -246,7 +246,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - ui/settings/SettingsDownloads.kt:316  private fun DownloadManageSavedRow(row: DownloadManageRow, onDelete: () -> Unit) {
 
 ## Doppelte Ports (gleiche Funktion in zwei Paketen)
-   → Vorlage: eine Implementierung: library.LibraryRowLayout, components.LibraryRowCollapsedMetaLine, library.BrowseEntityRowCard/FacetBrowseTileCard, DetailMetaLabelIcon.icon, AbstandBrowsePills
+   → Vorlage: eine Implementierung: library.LibraryRowLayout, components.LibraryRowCollapsedMetaLine, library.BrowseEntityRowCard/FacetBrowseTileCard, DetailMetaLabelIcon.icon, AbstandPinnedBrowseStrip
    Fundstellen vorher: 12
    - ui/browse/BrowseFacetSections.kt:92  fun BrowseEntityRowCard(
    - ui/browse/BrowseFacetSections.kt:144  fun FacetBrowseTileCard(kind: BooksBrowseSection, title: String, count: Int?, onClick: () 
@@ -304,9 +304,11 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    AbstandProgressBar: 7
    AbstandProgressRing: 3
    AbstandInlineSpinner: 12
-   AbstandCoverPill: 1
+   AbstandCoverPill: 3
+   AbstandCoverPillIcon: 5
    AbstandCoverPillText: 2
    AbstandCoverCornerBadge: 2
+   AbstandCoverDownloadBadge: 2
    AbstandStatusBadges: 4
    AbstandBadge: 5
    AbstandChip: 1
@@ -330,7 +332,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    Icon-Button (iconButtonSize)               40 Container, 24 Icon    40 / 44 plain      40 Container + 48 Ziel, Icon 24
    kompakter Icon-Button                      — (32 XS)                36                 32 Container, Ziel 48
    Top App Bar                                64, Titel titleLarge     64, title2.bold    64, titleLarge, fix (kein Collapse)
-   Navigation Bar                             80, Indicator 64×32      Material-Default   entfällt (keine Tab-Leiste)
+   Navigation Bar                             80, Indicator 64×32      Material-Default   unverändert (NavigationBar)
    Listenzeile 1/2/3-zeilig                   56 / 72 / 88             50 (listRowMin)    56 / 72 (mit Untertitel)
    Listenzeile Innenabstand/Gap               16 seitl., 8 vert., 16   16 / 8 / 12        16 / 8 / 16 (rowSpacing)
    Listen-Icons leading/trailing              24 / 24                  22 / 18            24 / 24
@@ -356,7 +358,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    Segmented Button                           40 hoch, labelLarge      Default, subhead.  Default (40), labelLarge; gewählt secondaryContainer
                                                                                           + Häkchen, sonst transparent/onSurface, Rand outline
    Spinner groß / Linear-Progress             48×4 / 4                 36×3,5 / 4         48×4 / 4 (Small 20, Regular 32)
-   Fortschrittsring (AbstandProgressRing)     4 dp, Spur secCont.      2 dp, Farbe 25 %   4 dp, Spur secondaryContainer
+   Fortschrittsring (AbstandProgressRing)     4 dp, Spur secCont.      2 dp, Farbe 25 %   4 dp, Spur secondaryContainer (Cover-Mini-Ring 12 dp: 2 dp)
    Tabs (AbstandMaterialTabs)                 Indikator 3, Divider 1   —                  Indikator 3 dp, Divider 1 dp outlineVariant
    Deaktiviert / beendet                      38 % Inhalt, 12 % Fläche 35/45/50 %         AppTheme.disabledContentAlpha 0.38 / disabledContainerAlpha 0.12;
                                                                                           beendete Karten: nur Cover + Play-Pille 38 %, Titel onSurfaceVariant
@@ -382,8 +384,8 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    Bewusst abweichend: AppTheme.Layout.hairlineSpacing 2 dp (= M3 SegmentedGap), Strichstärken 2 dp
    (boldStrokeWidth, Ring), Fortschritts-/Kartenkanten 1 dp; Cover-/Karussell-Breiten aus Viewport-
    Formeln (iOS-Logik) und libraryRowCoverSide 100 dp (Cover-Maß); Detail-Play (Filled) /Neben-Aktion
-   (Tonal Icon Button) 56 dp (FAB-Höhe) statt 40-dp-Button, weil sie die Hauptaktion der Seite sind; die Bibliotheksleiste
-   nutzt Dropdown-Pills in Chip-Maßen (siehe „Material 3 Komponenten“).
+   (Tonal Icon Button) 56 dp (FAB-Höhe) statt 40-dp-Button, weil sie die Hauptaktion der Seite sind; Dock-Strip nutzt jetzt
+   M3 Filter Chips (siehe „Material 3 Komponenten“).
 
 ## Material 3 colors (Android; iOS-Palette nur noch als Seed)
    Quelle: m3.material.io Color roles / Tonal palettes. Umsetzung: ui/MaterialScheme.kt (CIELAB-
@@ -406,6 +408,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    onSurfaceVariant               NV80       NV30        textSecondary
    outline / outlineVariant       NV60/NV30  NV50/NV80
    secondaryContainer             S30        S90         progressTrack
+   Navigation Bar                 M3-Defaults (surfaceContainer, Indicator secondaryContainer)
    Switch aus                     Spur surfaceContainerHighest, Daumen/Rand outline
    AbstandBadge Accent            secondaryContainer / onSecondaryContainer
 
@@ -416,10 +419,8 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
                                          secondaryContainer + Häkchen (wenn kein Symbol), sonst outlineVariant-Rand
    (entfernt: AbstandDockChip, AbstandStaticPill, AbstandBrowseIconTabs, AbstandDockButtons — ungenutzt)
    AbstandDropdownPill                 → Tonal-Chip (secondaryContainer, 8er-Ecke, kein Schatten)
-   AbstandPillIconButton               → Symbol-Pille 48×32 in gleicher Fläche/Form (Leisten-Aktionen Filter/Sort/+/Zahnrad; aktiv = Akzent)
-   Settings-Icon-Leiste                → M3 scrollbare Text-Tabs (AbstandMaterialTabs)
-   Home-Kopfzeile                      → Titelzeile „abstand“ + Offline/Search/Settings; Bibliotheksleiste mit
-                                         Bibliothek- und Bereichs-Pill (AbstandBrowsePills), Regale im Bereichs-Menü
+   Settings-Icon-Leiste                → Bereichs-Pill wie Books/Podcasts (AbstandBrowsePills)
+   Home-Kopfzeile                      → Bereichs-Pill wie Books/Podcasts: zeigt aktuelles Regal, Menü springt zum Regal
    ServerAdminSection-Titel            → M3-Listen-Subheader (titleSmall, primary)
    SettingsCardIcon                    → onSurfaceVariant statt Akzent; Divider outlineVariant
    Karten (CardElevation)              → Filled Cards ohne Schatten und ohne Rand (Subtle/Standard 0), Hero Level 1;

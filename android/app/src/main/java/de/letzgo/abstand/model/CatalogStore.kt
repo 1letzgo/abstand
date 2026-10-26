@@ -531,10 +531,10 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
 
     // MARK: - Sektionen + Sortierung
 
-    /** iOS: `selectBooksBrowseSection` — „Search" öffnet die Suche (Android: gepushte Seite). */
+    /** iOS: `selectBooksBrowseSection` — „Search" springt in den Such-Tab. */
     fun selectBooksBrowseSection(section: BooksBrowseSection) {
         if (section == BooksBrowseSection.SEARCH) {
-            session.openSearch()
+            session.selectMainTab(MainTab.search)
             return
         }
         _booksBrowseSection.value = section

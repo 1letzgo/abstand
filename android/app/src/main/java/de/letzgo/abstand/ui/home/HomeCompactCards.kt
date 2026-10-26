@@ -1,7 +1,6 @@
 package de.letzgo.abstand.ui.home
 
-import de.letzgo.abstand.logic.BookDetailLogic
-import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,16 +35,13 @@ import de.letzgo.abstand.ui.formatPlaybackTime
 import de.letzgo.abstand.ui.components.AbstandStatusBadges
 import de.letzgo.abstand.ui.library.LibraryRowLayout
 import de.letzgo.abstand.ui.components.abstandCardChrome
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.aspectRatio
 
 // Home-Regale (Android: alle, auch „Continue listening“): Kompaktkarte — Cover 1:1 links, rechts Titel
 // (eine Zeile), Metazeile, unten Laufzeit/Status und (Bücher/Folgen) die Play-Pille wie in Books,
 // ≈ 3/4 der Regalbreite; Tippen auf die Karte öffnet die Detailseite (iOS: HomeCompactCards.swift).
-
-/** Cover-Kantenlänge (= Kartenhöhe) der Kompaktkarten; „Continue listening“ setzt sie größer. */
-val LocalHomeCompactCardCoverSide = staticCompositionLocalOf { AppTheme.Layout.libraryRowCoverSide }
-
-/** `true` nur in „Continue listening“: Titel zweizeilig, gefüllte Play-Pille mit Restzeit statt Laufzeit-Fußzeile. */
-val LocalHomeCompactCardIsHero = staticCompositionLocalOf { false }
 
 /** iOS: `HomeCompactCard` — Grundaufbau. */
 @Composable
@@ -67,9 +63,8 @@ fun HomeCompactCard(
     playAction: (@Composable () -> Unit)? = null,
 ) {
     val palette = Theme.palette
-    val side = LocalHomeCompactCardCoverSide.current
-    val isHero = LocalHomeCompactCardIsHero.current
     val dim = if (isFinished) AppTheme.disabledContentAlpha else 1f
+    val side = AppTheme.Layout.homeCompactCardCoverSide
     Box(
         modifier
             .fillMaxWidth()
@@ -98,7 +93,7 @@ fun HomeCompactCard(
                     title,
                     style = AppType.titleMedium,
                     color = if (isFinished) palette.textSecondary else palette.textPrimary,
-                    maxLines = if (isHero) 2 else 1,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -150,7 +145,6 @@ fun HomeBookCompactCard(book: AbsBook, onOpen: () -> Unit, usesEbookProgressDisp
         else -> 0.0
     }
     val author = book.displayAuthorsCardLine.trim().ifEmpty { "—" }
-    val isHero = LocalHomeCompactCardIsHero.current
     HomeCompactCard(
         title = book.displayTitle,
         subtitleLabel = "Author",
@@ -162,20 +156,14 @@ fun HomeBookCompactCard(book: AbsBook, onOpen: () -> Unit, usesEbookProgressDisp
         progressValue = progressValue,
         cover = { SquareCoverImage(itemId = book.id, tint = coverTint(book.id)) },
         footer = {
-            when {
-                usesEbookMetrics -> ebookProgressLabel(ebookFraction)?.let { HomeCompactFooterText(it) }
-                // Hero: Restzeit steht in der Play-Pille, keine doppelte Zeitangabe.
-                isHero -> Unit
-                else -> HomeCompactFooterText(formatPlaybackTime(book.media.duration ?: 0.0))
+            if (usesEbookMetrics) {
+                ebookProgressLabel(ebookFraction)?.let { HomeCompactFooterText(it) }
+            } else {
+                HomeCompactFooterText(formatPlaybackTime(book.media.duration ?: 0.0))
             }
         },
         badges = { AbstandStatusBadges(isFinished, download.isDownloaded, download.isDownloading, download.progress) },
-        playAction = if (usesEbookMetrics) null else ({
-            HomeCompactPlayPill(
-                book.id, null, isFinished,
-                caption = if (isHero) BookDetailLogic.remainingCaption(book.media.duration ?: 0.0, progress) else null,
-            )
-        }),
+        playAction = if (usesEbookMetrics) null else ({ HomeCompactPlayPill(book.id, null, isFinished) }),
     )
 }
 
@@ -194,7 +182,6 @@ fun HomeEpisodeCompactCard(episode: AbsPodcastEpisodeListItem, onOpen: () -> Uni
     val total = ContinueHeroMath.episodeTotalSeconds(episode.duration, progress)
     val isFinished = progress?.isFinished == true
     val showsProgressBar = progress != null && !progress.isFinished && maxOf(progress.duration, total) > 0
-    val isHero = LocalHomeCompactCardIsHero.current
     HomeCompactCard(
         title = episode.episodeTitle,
         subtitleLabel = "Show",
@@ -205,14 +192,9 @@ fun HomeEpisodeCompactCard(episode: AbsPodcastEpisodeListItem, onOpen: () -> Uni
         showsProgressBar = showsProgressBar,
         progressValue = if (showsProgressBar) progress!!.progress.coerceIn(0.0, 1.0) else 0.0,
         cover = { SquareCoverImage(itemId = episode.libraryItemId, tint = coverTint(episode.libraryItemId)) },
-        footer = { if (!isHero) HomeCompactFooterText(formatPlaybackTime(total)) },
+        footer = { HomeCompactFooterText(formatPlaybackTime(total)) },
         badges = { AbstandStatusBadges(isFinished, download.isDownloaded, download.isDownloading, download.progress) },
-        playAction = {
-            HomeCompactPlayPill(
-                episode.libraryItemId, episode.episodeId, isFinished,
-                caption = if (isHero) BookDetailLogic.remainingCaption(total, progress) else null,
-            )
-        },
+        playAction = { HomeCompactPlayPill(episode.libraryItemId, episode.episodeId, isFinished) },
     )
 }
 
@@ -243,4 +225,42 @@ fun booksCountLabel(count: Int?): String = when {
     count == null || count <= 0 -> ""
     count == 1 -> "1 book"
     else -> "$count books"
+}
+
+/**
+ * iOS: `HomeEntityCoverCard` — Autor im Aufbau der Hero-Card (1:1-Cover oben, Titel + Meta darunter,
+ * ohne Play-Pille). Für Autoren im Continue-listening-Regal.
+ */
+@Composable
+fun HomeEntityCoverCard(
+    title: String,
+    detailLabel: String,
+    detailValue: String,
+    accessibilityHint: String,
+    cardWidth: Dp,
+    onOpen: () -> Unit,
+    cover: @Composable () -> Unit,
+) {
+    val palette = Theme.palette
+    val coverShape = RoundedCornerShape(topStart = AppTheme.Layout.coverCornerRadius, topEnd = AppTheme.Layout.coverCornerRadius)
+    Column(
+        Modifier
+            .width(cardWidth)
+            .libraryRowCardChrome(palette.card, palette.scheme.outlineVariant, onOpen)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                contentDescription = "$title. $accessibilityHint"
+            },
+    ) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(coverShape).background(palette.card)) { cover() }
+        ContinueListeningHeroMetadataBlock(
+            title = title,
+            detailLabel = detailLabel,
+            detailValue = detailValue,
+            horizontalInset = AppTheme.Layout.libraryRowCardInset,
+            blockHeight = AppTheme.Layout.libraryHeroMetadataBlockHeight,
+            onTitleTap = onOpen,
+            includesBottomPadding = true,
+        )
+    }
 }

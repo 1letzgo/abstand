@@ -1,7 +1,9 @@
 package de.letzgo.abstand.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,6 +23,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import de.letzgo.abstand.ui.AppColorPalette
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppTheme.CardElevation
 import de.letzgo.abstand.ui.LocalAbstandCardShadowEnabled
@@ -66,6 +69,13 @@ fun Modifier.abstandCardChrome(
 /** iOS: `abstandCardListRowFrame(alignment:)` — volle Breite, Mindesthöhe `listRowMinHeight`. */
 fun Modifier.abstandCardListRowFrame(): Modifier =
     fillMaxWidth().heightIn(min = AppTheme.Layout.listRowMinHeight)
+
+/** iOS: `abstandHeroCardOutline(palette:)` — dezente Kante statt Schatten in horizontalen Reihen. */
+fun Modifier.abstandHeroCardOutline(palette: AppColorPalette): Modifier = border(
+    AppTheme.Layout.hairlineWidth,
+    palette.scheme.outlineVariant,
+    RoundedCornerShape(AppTheme.Layout.continueHeroCardCornerRadius),
+)
 
 /**
  * Material-`ElevatedCard` in abstand-Optik — Container für alle Karten mit Inhalt

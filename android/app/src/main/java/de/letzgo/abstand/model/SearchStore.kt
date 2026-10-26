@@ -37,17 +37,12 @@ class SearchStore internal constructor(private val model: AppModel) : SessionPar
 
     private var searchJob: Job? = null
 
-    /** Such-Seite liegt im Back-Stack (auch unter einer daraus gepushten Detailseite). */
-    private var screenOpen = false
-
-    /**
-     * Von der App-Shell gemeldet. iOS: Search-Tab `onDisappear` — beim Verlassen der Suche (Seite
-     * vom Stack genommen) stoppen und leeren, nicht beim Pushen einer Detailseite darüber.
-     */
-    fun setScreenOpen(open: Boolean) {
-        if (open == screenOpen) return
-        screenOpen = open
-        if (!open) cancelAndClear()
+    init {
+        // iOS: Search-Tab `onDisappear` — beim Verlassen des Tabs Suche stoppen und leeren
+        // (nicht beim Pushen einer Detailseite innerhalb des Tabs).
+        model.scope.launch {
+            session.mainTab.collect { tab -> if (tab != MainTab.search) cancelAndClear() }
+        }
     }
 
     /** iOS: `searchText`-Binding + `scheduleUnifiedSearch` (Debounce 350 ms). */
@@ -66,7 +61,7 @@ class SearchStore internal constructor(private val model: AppModel) : SessionPar
 
     /** iOS: `scheduleUnifiedSearch`. */
     fun scheduleUnifiedSearch() {
-        if (!screenOpen) return
+        if (session.mainTab.value != MainTab.search) return
         searchJob?.cancel()
         val q = SearchLogic.normalizedQuery(_query.value)
         searchJob = model.scope.launch {
