@@ -181,8 +181,8 @@ private fun StartDashboardShelf(shelf: AbsStartShelfSection) {
             if (shelf.hasBooks || shelf.hasPodcastEpisodes) {
                 Column(verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.withinSectionSpacing)) {
                     TabContentSectionTitle(shelf.displayTitle, titleModifier)
-                    // Android: Kompaktkarten mit Play-Pille statt Hero-Karten.
-                    HomeContinueCompactCarousel(shelf, rowPadding)
+                    // iOS: „Continue listening“ als große Hero-Karten.
+                    ContinueListeningHeroCarousel(shelf, rowPadding)
                 }
             }
             if (shelf.hasAuthors) {
@@ -270,29 +270,6 @@ private fun HomeBooksCompactCarousel(books: List<AbsBook>, contentPadding: Paddi
     HomeCompactCardCarousel(books, { it.id }, contentPadding) { book, width ->
         Column(Modifier.width(width)) {
             HomeBookCompactCard(book, onOpen = { navigator?.push(BookDetailDestination(book.id)) }, usesEbookProgressDisplay = usesEbookProgressDisplay)
-        }
-    }
-}
-
-/**
- * Android: „Continue listening“ als Kompakt-Karussell — Bücher und Folgen gemischt nach
- * `lastUpdate` (Reihenfolge wie die Hero-Reihe, nur bei geänderter Rangfolge neu gebaut).
- */
-@Composable
-private fun HomeContinueCompactCarousel(shelf: AbsStartShelfSection, contentPadding: PaddingValues) {
-    val navigator = LocalTabNavigator.current
-    val progress by AppModel.shared.home.progressByItemId.collectAsState()
-    val merged = AbsStartShelfMergedRow.merged(shelf.books, shelf.podcastEpisodes, progress)
-    val signature = merged.joinToString("\u001f") { it.id }
-    val rows = remember(signature) { merged }
-    HomeCompactCardCarousel(rows, { it.id }, contentPadding) { row, width ->
-        Column(Modifier.width(width)) {
-            when (row) {
-                is AbsStartShelfMergedRow.Book ->
-                    HomeBookCompactCard(row.book, onOpen = { navigator?.push(BookDetailDestination(row.book.id)) })
-                is AbsStartShelfMergedRow.PodcastEpisode ->
-                    HomeEpisodeCompactCard(row.episode, onOpen = { navigator?.push(EpisodeDestination(row.episode.libraryItemId, row.episode.episodeId)) })
-            }
         }
     }
 }
