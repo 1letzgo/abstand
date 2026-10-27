@@ -224,7 +224,6 @@ struct PlayerTranscriptWordLookupSheet: View {
           Text(String(localized: "From", comment: "Teleprompter translation source language label"))
             .font(.caption.weight(.semibold))
             .foregroundStyle(model.appearancePalette.textSecondary)
-            .textCase(.uppercase)
           Text(PlayerTranscriptWordLookup.localizedLanguageName(for: sourceLocale))
             .font(.subheadline)
             .foregroundStyle(model.appearancePalette.textPrimary)
@@ -234,7 +233,6 @@ struct PlayerTranscriptWordLookupSheet: View {
           Text(String(localized: "To", comment: "Teleprompter translation target language label"))
             .font(.caption.weight(.semibold))
             .foregroundStyle(model.appearancePalette.textSecondary)
-            .textCase(.uppercase)
           Spacer(minLength: 0)
         }
       }
@@ -288,7 +286,6 @@ struct PlayerTranscriptWordLookupSheet: View {
       Text(title)
         .font(.caption.weight(.bold))
         .foregroundStyle(model.appearancePalette.textSecondary)
-        .textCase(.uppercase)
       Text(body)
         .font(.body)
         .foregroundStyle(model.appearancePalette.textPrimary)

@@ -270,7 +270,8 @@ enum DetailHeroLayoutMetrics {
 
 /// System-Typografie für Buch-/Folgen-Detail (Dynamic Type, HIG).
 enum DetailHeroTypography {
-  static let heroTitle = Font.title.bold()
+  /// Paper: Buchtitel in Serife (`AppTheme.Typography.titleDesign`).
+  static let heroTitle = Font.system(.title, design: AppTheme.Typography.titleDesign, weight: .semibold)
   static let heroSubtitle = Font.title2
   /// Künstler/Autor unter dem Titel (Apple-Music-Album-Ansicht).
   static let heroArtist = Font.title3
@@ -279,7 +280,8 @@ enum DetailHeroTypography {
   static let markIcon = Font.title3
   static let primaryAction = Font.headline
   static let compactPrimaryAction = Font.subheadline
-  static let metaLabel = Font.footnote.weight(.semibold)
+  /// Paper: Sektionslabels als ruhige Serife statt Versalien.
+  static let metaLabel = Font.system(.subheadline, design: AppTheme.Typography.titleDesign, weight: .semibold)
   static let metaValue = Font.body
   static let metaLink = Font.body
 }
@@ -817,10 +819,9 @@ struct DetailMetaDisclosureLabel: View {
           .foregroundStyle(model.appearancePalette.textSecondary)
           .accessibilityHidden(true)
       }
-      Text(title.uppercased())
+      Text(title)
         .font(DetailHeroTypography.metaLabel)
         .foregroundStyle(model.appearancePalette.textSecondary)
-        .tracking(0.6)
     }
   }
 }
@@ -911,10 +912,9 @@ struct DetailMetaField<Content: View>: View {
             .foregroundStyle(model.appearancePalette.textSecondary)
             .accessibilityHidden(true)
         }
-        Text(title.uppercased())
+        Text(title)
           .font(DetailHeroTypography.metaLabel)
           .foregroundStyle(model.appearancePalette.textSecondary)
-          .tracking(0.6)
       }
       content()
     }

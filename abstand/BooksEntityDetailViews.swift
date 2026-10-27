@@ -358,8 +358,8 @@ struct BooksEntityDetailView: View {
   }
 
   private func entityDetailSectionHeading(_ title: String) -> some View {
-    Text(title.uppercased())
-      .font(.caption.weight(.bold))
+    Text(title)
+      .font(DetailHeroTypography.metaLabel)
       .foregroundStyle(model.appearancePalette.textSecondary)
       .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -375,8 +375,8 @@ struct BooksEntityDetailView: View {
 
   private func entityDetailMetaRow(_ key: String, _ value: String) -> some View {
     HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
-      Text(key.uppercased())
-        .font(.caption.weight(.bold))
+      Text(key)
+        .font(.footnote)
         .foregroundStyle(model.appearancePalette.textSecondary)
         .frame(width: AppTheme.Layout.metaLabelColumnWidth, alignment: .leading)
       Text(value)

@@ -419,7 +419,6 @@ private struct StatsTimelineMetricCard: View {
         Text(title)
           .font(.caption.weight(.semibold))
           .foregroundStyle(palette.textSecondary)
-          .textCase(.uppercase)
           .lineLimit(2)
           .minimumScaleFactor(0.85)
         Text(value)

@@ -66,10 +66,9 @@ struct MetadataSheetSectionLabel: View {
           .foregroundStyle(model.appearancePalette.textSecondary)
           .accessibilityHidden(true)
       }
-      Text(title.uppercased())
+      Text(title)
         .font(DetailHeroTypography.metaLabel)
         .foregroundStyle(model.appearancePalette.textSecondary)
-        .tracking(0.6)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityAddTraits(.isHeader)

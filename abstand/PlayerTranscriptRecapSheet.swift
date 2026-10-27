@@ -9,10 +9,8 @@ struct PlayerTranscriptRecapCard: View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
       HStack(alignment: .firstTextBaseline, spacing: AppTheme.Layout.compactSpacing) {
         Text(String(localized: "Last 5 minutes", comment: "Read along recap title"))
-          .font(.caption.weight(.bold))
+          .font(DetailHeroTypography.metaLabel)
           .foregroundStyle(model.appearancePalette.textSecondary)
-          .textCase(.uppercase)
-          .tracking(0.6)
         if transcription.recapShowsTranscript {
           Text(String(localized: "transcript", comment: "Read along recap transcript badge"))
             .font(.caption2.weight(.medium))
