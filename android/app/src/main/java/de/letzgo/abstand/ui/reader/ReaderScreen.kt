@@ -73,6 +73,7 @@ import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.player.PlaybackController
 import de.letzgo.abstand.reader.BookPageProgress
 import de.letzgo.abstand.reader.EbookNarrationJumpController
+import de.letzgo.abstand.reader.EbookReadingAnchorStore
 import de.letzgo.abstand.reader.EbookProgressRules
 import de.letzgo.abstand.reader.EbookProgressSync
 import de.letzgo.abstand.reader.EbookReaderLauncher
@@ -247,6 +248,8 @@ fun ReaderScreen(session: EbookReaderSession, onClose: () -> Unit) {
         val reader = loaded
         if (reader is LoadedReader.Epub) {
             scope.launch { refreshEpubDisplay(reader, locator) }
+            // iOS: `EbookReadingAnchorStore.capture` — Grundlage für „Jump to ebook position" im Player.
+            scope.launch { EbookReadingAnchorStore.capture(reader.fragment, locator, id) }
         } else {
             applyProgress(fraction, locator.locations.position, null)
         }

@@ -1,11 +1,12 @@
 import Foundation
 
 // Abgleich Hörbuch ↔ eBook: genau eine Quelle der Wahrheit für „welches eBook-Wort wird wann gesprochen".
-// Nutzer: der Teleprompter (`displayWords()`) und der Reader-Button `EbookNarrationJumpController`
-// (springt zur Seite der Hörposition, markiert die letzten gesprochenen Wörter).
+// Nutzer: der Teleprompter (`displayWords()`), der Reader-Button `EbookNarrationJumpController`
+// (springt zur Seite der Hörposition, markiert die letzten gesprochenen Wörter) und der Player-Button
+// „Jump to ebook position" (`EbookNarrationSync.playbackPosition`, Rückrichtung Wort → Zeit).
 //
 // Je Track wird das Transkript (Erkennung, mit Zeiten) global-monoton gegen das eBook ausgerichtet:
-// eindeutige Trigramme als Fixpunkte (längste aufsteigende Teilfolge), Lücken rekursiv über eindeutige
+// eindeutige Trigramme und seltene lange Wörter als Fixpunkte (längste aufsteigende Teilfolge), Lücken rekursiv über eindeutige
 // Wörter und zuletzt per LCS. Ein falscher Treffer kann die Kette so nicht mehr verbiegen — er passt
 // nicht in die globale Ordnung und fällt heraus. Das Ergebnis wird je Track gespeichert.
 
@@ -24,7 +25,8 @@ nonisolated struct AlignmentInputWord: Sendable {
 /// nach Zeit. Nicht ausgerichtete Wörter (nur im Buch oder nur im Hörbuch vorhanden) fehlen.
 nonisolated struct EbookTrackAlignment: Sendable {
   // 2: Tokenzeiten nach Zeichenzahl, Lückenfüllung mit Pausen (alte Dateien werden neu berechnet).
-  static let formatVersion: UInt32 = 2
+  // 3: seltene Wörter als zusätzliche Fixpunkte.
+  static let formatVersion: UInt32 = 3
   private static let magic: UInt32 = 0x4142_4C31
 
   /// Für die Gültigkeit der gespeicherten Datei: eBook und Transkript, mit denen gerechnet wurde.
@@ -64,6 +66,40 @@ nonisolated struct EbookTrackAlignment: Sendable {
     let i = low - 1
     guard time <= Double(ends[i]) + maxGap else { return nil }
     return Int(words[i])
+  }
+
+  /// Zuletzt gesprochenes eBook-Wort bis zur Track-Zeit — anders als `ebookWord(atLocalTime:)` auch
+  /// über lange Pausen und nur im Hörbuch gesprochene Stellen hinweg („wo war ich?").
+  /// `nil` vor dem ersten ausgerichteten Wort des Tracks.
+  func lastEbookWord(atOrBeforeLocalTime time: Double) -> Int? {
+    guard !words.isEmpty else { return nil }
+    var low = 0
+    var high = words.count
+    while low < high {
+      let mid = (low + high) / 2
+      if Double(starts[mid]) <= time { low = mid + 1 } else { high = mid }
+    }
+    return low > 0 ? Int(words[low - 1]) : nil
+  }
+
+  /// Erstes und letztes ausgerichtetes eBook-Wort dieses Tracks.
+  var ebookWordRange: ClosedRange<Int>? {
+    guard let first = words.first, let last = words.last else { return nil }
+    return Int(first)...Int(last)
+  }
+
+  /// Track-Zeit, ab der das eBook-Wort gesprochen wird. Ein nicht ausgerichtetes Wort (nur im Buch
+  /// vorhanden) nimmt das nächste ausgerichtete danach. `nil` außerhalb von `ebookWordRange`.
+  func localTime(forEbookWord position: Int) -> Double? {
+    guard let range = ebookWordRange, range.contains(position) else { return nil }
+    let target = Int32(position)
+    var low = 0
+    var high = words.count
+    while low < high {
+      let mid = (low + high) / 2
+      if words[mid] < target { low = mid + 1 } else { high = mid }
+    }
+    return words.indices.contains(low) ? Double(starts[low]) : nil
   }
 
   // MARK: Persistenz
@@ -177,6 +213,8 @@ nonisolated enum EbookAlignmentBuilder {
   private static let referenceWordWeight = 7.0
   /// Kürzere Reste gelten nicht als Pause (Rundung), die Wörter füllen die Lücke dann ganz.
   private static let minimumFilledPauseSeconds = 0.05
+  /// Seltene Wörter als Fixpunkt erst ab dieser Länge — kurze Wörter sind zu oft Erkennungs-Zufall.
+  private static let rareWordMinimumLength = 7
 
   /// Wo die Pause in einer Lücke hinter eBook-Wort `previousE` mit `gap` Wörtern steht: Index des
   /// ersten Lückenworts nach der Pause (`gap` = direkt vor dem nächsten erkannten Wort). Bevorzugt
@@ -229,7 +267,7 @@ nonisolated enum EbookAlignmentBuilder {
       keys[i] = key
       firstPosition[key] = firstPosition[key] == nil ? i : -1
     }
-    var anchors: [(e: Int, s: Int)] = []
+    var anchors: [(e: Int, s: Int, length: Int)] = []
     for i in 0..<(n - 2) {
       let key = keys[i]
       guard firstPosition[key] == i, let positions = index.trigrams[key], positions.count == 1 else { continue }
@@ -238,15 +276,32 @@ nonisolated enum EbookAlignmentBuilder {
         sIds[i] >= 0, sIds[i] == index.ids[e],
         sIds[i + 1] == index.ids[e + 1], sIds[i + 2] == index.ids[e + 2]
       else { continue }
-      anchors.append((e, i))
+      anchors.append((e, i, 3))
     }
+
+    // 1b. Seltene lange Wörter, die im eBook und im Transkript genau einmal vorkommen. Ein einzelner
+    // Erkennungsfehler zerstört drei Trigramme, ein seltenes Wort („Thornfield") bleibt oft erhalten.
+    var spokenCount: [Int32: Int] = [:]
+    for id in sIds where id >= 0 { spokenCount[id, default: 0] += 1 }
+    let trigramStarts = Set(anchors.map(\.s))
+    var rare: [(e: Int, s: Int, length: Int)] = []
+    for s in 0..<n {
+      let id = sIds[s]
+      guard id >= 0, sNorm[s].count >= Self.rareWordMinimumLength, spokenCount[id] == 1,
+        let e = index.uniquePosition(ofWordId: id)
+      else { continue }
+      // Schon von einem Trigramm-Fixpunkt abgedeckt?
+      if trigramStarts.contains(s) || trigramStarts.contains(s - 1) || trigramStarts.contains(s - 2) { continue }
+      rare.append((e, s, 1))
+    }
+    if !rare.isEmpty { anchors = (anchors + rare).sorted { $0.s < $1.s } }
     guard !anchors.isEmpty else { return empty }
 
     // 2. Globale Ordnung: längste aufsteigende Teilfolge — Zufallstreffer fallen heraus.
     let chain = longestIncreasingSubsequence(anchors.map(\.e)).map { anchors[$0] }
 
     // 3. Kleine Inseln (unplausibles Tempo zum Nachbarn, weniger als drei Anker) verwerfen.
-    var clusters: [[(e: Int, s: Int)]] = []
+    var clusters: [[(e: Int, s: Int, length: Int)]] = []
     for anchor in chain {
       if let last = clusters.last?.last {
         let de = anchor.e - last.e
@@ -267,7 +322,7 @@ nonisolated enum EbookAlignmentBuilder {
     aligner.fill(
       eLo: max(0, first.e - (first.s * 2 + 12)), eHi: first.e, sLo: 0, sHi: first.s, depth: 0)
     for (i, anchor) in kept.enumerated() {
-      for k in 0..<3 { aligner.add(anchor.e + k, anchor.s + k) }
+      for k in 0..<anchor.length { aligner.add(anchor.e + k, anchor.s + k) }
       guard let lastE = aligner.matchE.last, let lastS = aligner.matchS.last else { continue }
       if i + 1 < kept.count {
         aligner.fill(

@@ -1150,6 +1150,8 @@ struct NowPlayingDetailView: View {
   @State private var coverImageForTint: UIImage?
   @State private var cachedCoverAverageRGB: (r: Double, g: Double, b: Double)?
   @State private var didSeedCoverTintFromCache = false
+  /// EPUB zum Hörbuch liegt auf dem Gerät — Voraussetzung für „Jump to ebook position".
+  @State private var hasCachedEbook = false
 
   private var player: PlaybackController { model.player }
 
@@ -1302,8 +1304,10 @@ struct NowPlayingDetailView: View {
       .task(id: activeBook?.id) {
         guard let book = activeBook else {
           coverTintColor = model.appearancePalette.background
+          hasCachedEbook = false
           return
         }
+        hasCachedEbook = isAudiobookPlayback && model.cachedEpubURL(libraryItemId: book.id) != nil
         seedCoverTintFromCacheIfNeeded(for: book)
         await loadFullPlayerCoverTint(for: book)
       }
@@ -1978,6 +1982,8 @@ struct NowPlayingDetailView: View {
     /// Lokale Zusammenfassung eines eigenständig transkribierten Fünf-Minuten-Fensters.
     case recap
     case readAlong
+    /// Spielt ab der Stelle, an der man im eBook gerade liest.
+    case ebookPosition
 
     var id: String {
       switch self {
@@ -1987,6 +1993,7 @@ struct NowPlayingDetailView: View {
       case .sessions: "sessions"
       case .recap: "recap"
       case .readAlong: "readAlong"
+      case .ebookPosition: "ebookPosition"
       }
     }
   }
@@ -2005,6 +2012,7 @@ struct NowPlayingDetailView: View {
       items.append(.recap)
       items.append(.readAlong)
     }
+    if hasCachedEbook, activeAudiobookBookmarkId != nil { items.append(.ebookPosition) }
     return items
   }
 
@@ -2094,6 +2102,8 @@ struct NowPlayingDetailView: View {
         isRecapActive = false
         coverPanel = .artwork
       }
+    case .ebookPosition:
+      EbookPositionPanelButton()
     }
   }
 
@@ -2252,6 +2262,66 @@ struct NowPlayingDetailView: View {
       description: Text("Choose an audiobook in the library.")
     )
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+/// „Jump to ebook position": spielt ab der Stelle, an der man im eBook zuletzt gelesen hat
+/// (Gegenstück zum Reader-Button „Audiobook position", Abgleich über `EbookNarrationSync`).
+private struct EbookPositionPanelButton: View {
+  @EnvironmentObject private var model: AppModel
+  @State private var isBusy = false
+  @State private var notice: String?
+  /// Berechnetes Ziel — der Sprung verlässt die aktuelle Hörposition, also erst nach Rückfrage.
+  @State private var pendingTarget: EbookNarrationSync.PlayerJumpTarget?
+
+  private func confirmationMessage(for target: EbookNarrationSync.PlayerJumpTarget) -> String {
+    let time = formatPlaybackTime(target.position)
+    let place = target.chapterTitle.map { "\($0) · \(time)" } ?? time
+    return String(
+      localized: "Playback continues at \(place), where you're reading in the ebook. Your current listening position will be replaced.",
+      comment: "Confirmation message")
+  }
+
+  var body: some View {
+    FullPlayerCoverOverlayButton(
+      systemName: "book",
+      isActive: false,
+      isBusy: isBusy,
+      accessibilityLabel: String(localized: "Jump to ebook position", comment: "Accessibility")
+    ) {
+      guard !isBusy else { return }
+      isBusy = true
+      Task { @MainActor in
+        switch await EbookNarrationSync.playerReadingTarget(model: model) {
+        case .success(let target): pendingTarget = target
+        case .failure(let error): notice = error.message
+        }
+        isBusy = false
+      }
+    }
+    // Mittiger Alert statt `.confirmationDialog` — der erscheint auf iOS 26 als kleines Popover am Button.
+    .alert(
+      String(localized: "Jump to ebook position?", comment: "Confirmation title"),
+      isPresented: Binding(get: { pendingTarget != nil }, set: { if !$0 { pendingTarget = nil } }),
+      presenting: pendingTarget
+    ) { target in
+      Button(String(localized: "Cancel", comment: "Dismiss"), role: .cancel) {}
+      Button(String(localized: "Jump", comment: "Confirmation action")) {
+        EbookNarrationSync.jumpPlayer(to: target, model: model)
+      }
+    } message: { target in
+      Text(confirmationMessage(for: target))
+    }
+    .accessibilityHint(
+      String(localized: "Plays from where you're reading in the ebook.", comment: "Accessibility"))
+    .alert(
+      String(localized: "Can't jump to the ebook position", comment: "Alert title"),
+      isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })
+    ) {
+      Button(String(localized: "OK", comment: "Dismiss"), role: .cancel) {}
+    } message: {
+      Text(notice ?? "")
+    }
   }
 }
 

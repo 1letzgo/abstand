@@ -2,7 +2,7 @@
   "description" : "Only a handful of recognised words match the ebook: the alignment is below the reliability threshold and must stay empty.",
   "expected" : {
     "alignment" : {
-      "binBase64" : "MUxCQQIAAAARAAAAEwAAAEjhehSuxyJAAAAAAA==",
+      "binBase64" : "MUxCQQMAAAARAAAAEwAAAEjhehSuxyJAAAAAAA==",
       "ebookWordCount" : 17,
       "ends" : [
 
@@ -134,121 +134,169 @@
     ],
     "queries" : [
       {
+        "last" : null,
         "t" : 0,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 0.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 1,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 1.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 2,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 2.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 3,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 3.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 4,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 4.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 5.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 6,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 6.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 7,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 7.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 8,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 8.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 9,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 9.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 10,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 10.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 11,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 11.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 12,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 12.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 13,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 13.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 14,
         "word" : null
       }
+    ],
+    "wordTimes" : [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
     ]
   },
   "generatedBy" : "Swift (abstand iOS EbookAudioAlignment.swift \/ ReadAlongText, unchanged) via android\/..\/shared fixture generator",

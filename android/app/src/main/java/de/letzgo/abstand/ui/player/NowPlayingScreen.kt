@@ -36,6 +36,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import de.letzgo.abstand.data.AbsEbookFormat
+import de.letzgo.abstand.model.AppModel
+import de.letzgo.abstand.reader.EbookNarrationSync
+import de.letzgo.abstand.store.EbookLocalStore
+import de.letzgo.abstand.ui.components.AbstandConfirmDialog
+import de.letzgo.abstand.ui.components.AbstandInlineSpinner
+import de.letzgo.abstand.ui.formatPlaybackTime
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -168,6 +178,11 @@ fun NowPlayingScreen(
                 }
             }
             val ebookAction = onOpenEbook?.takeIf { isAudiobook && b.hasEbook }
+            // iOS: `EbookPositionPanelButton` — nur mit EPUB auf dem Gerät.
+            val hasCachedEpub = remember(b.id) {
+                EbookLocalStore.cachedEbookIfPresent(AppModel.shared.session.cacheAccountDir(), b.id)?.second == AbsEbookFormat.epub
+            }
+            val ebookJump = if (isAudiobook && hasCachedEpub) rememberEbookPositionJump() else null
             val expanded = panel != FullPlayerCoverPanel.artwork
             val header: @Composable (Modifier) -> Unit = { m -> PlayerHeaderArea(wiring, b, panel, readAlong, m) }
             val controls: @Composable ColumnScope.() -> Unit = {
@@ -175,6 +190,7 @@ fun NowPlayingScreen(
                     panelKinds, panel, onToggle = onPanelButton, onRecap = onRecap,
                     readAlongDimmed = readAlong != null && !readAlong.isDownloadReady(),
                     onOpenEbook = ebookAction?.let { { it(b) } },
+                    ebookJump = ebookJump,
                 )
                 FullPlayerTransportRow(wiring, Modifier.padding(top = if (panelKinds.isEmpty()) MiniPlayerMetrics.spacingAbovePlayRow else AppTheme.Layout.tightSpacing))
                 FullPlayerUtilityBar(wiring)
@@ -322,8 +338,9 @@ private fun PanelControlRow(
     onRecap: (() -> Unit)?,
     readAlongDimmed: Boolean,
     onOpenEbook: (() -> Unit)?,
+    ebookJump: EbookPositionJumpState? = null,
 ) {
-    if (kinds.isEmpty() && onOpenEbook == null) return
+    if (kinds.isEmpty() && onOpenEbook == null && ebookJump == null) return
     Row(
         Modifier
             .fillMaxWidth()
@@ -346,6 +363,62 @@ private fun PanelControlRow(
                 FullPlayerCoverPanel.artwork -> Unit
             }
         }
+        ebookJump?.let { EbookPositionPanelButton(it) }
         onOpenEbook?.let { FullPlayerPanelButton(SF.bookClosedFill, false, "Open ebook", onClick = it) }
+    }
+}
+
+/** Zustand des Player-Buttons „Jump to ebook position" (Ziel wird erst berechnet, dann bestätigt). */
+class EbookPositionJumpState(private val scope: CoroutineScope) {
+    var isBusy by mutableStateOf(false)
+        private set
+    var notice by mutableStateOf<String?>(null)
+    var pendingTarget by mutableStateOf<EbookNarrationSync.PlayerJumpTarget?>(null)
+
+    fun resolve() {
+        if (isBusy) return
+        isBusy = true
+        scope.launch {
+            EbookNarrationSync.playerReadingTarget()
+                .onSuccess { pendingTarget = it }
+                .onFailure { notice = it.message }
+            isBusy = false
+        }
+    }
+}
+
+@Composable
+private fun rememberEbookPositionJump(): EbookPositionJumpState {
+    val scope = rememberCoroutineScope()
+    return remember(scope) { EbookPositionJumpState(scope) }
+}
+
+/**
+ * iOS: `EbookPositionPanelButton` — spielt ab der Stelle, an der man im eBook zuletzt gelesen hat; vorher
+ * Rückfrage mit Kapitel und Zielzeit (der Sprung ersetzt die aktuelle Hörposition).
+ */
+@Composable
+private fun EbookPositionPanelButton(state: EbookPositionJumpState) {
+    if (state.isBusy) {
+        Box(Modifier.size(MiniPlayerMetrics.panelControlButtonSize), contentAlignment = Alignment.Center) {
+            AbstandInlineSpinner(color = Theme.palette.textPrimary)
+        }
+    } else {
+        FullPlayerPanelButton(SF.book, false, "Jump to ebook position") { state.resolve() }
+    }
+    state.pendingTarget?.let { target ->
+        val time = formatPlaybackTime(target.position)
+        val place = target.chapterTitle?.let { "$it · $time" } ?: time
+        AbstandConfirmDialog(
+            title = "Jump to ebook position?",
+            confirmLabel = "Jump",
+            onConfirm = { EbookNarrationSync.jumpPlayer(target) },
+            onDismiss = { state.pendingTarget = null },
+            message = "Playback continues at $place, where you're reading in the ebook. Your current listening position will be replaced.",
+            destructive = false,
+        )
+    }
+    state.notice?.let { text ->
+        AbstandAlert("Can't jump to the ebook position", onDismiss = { state.notice = null }, message = text)
     }
 }

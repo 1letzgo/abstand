@@ -7,7 +7,7 @@ import java.nio.ByteOrder
 // „welches eBook-Wort wird wann gesprochen".
 //
 // Je Track wird das Transkript (Erkennung, mit Zeiten) global-monoton gegen das eBook ausgerichtet:
-// eindeutige Trigramme als Fixpunkte (längste aufsteigende Teilfolge), Lücken rekursiv über eindeutige
+// eindeutige Trigramme und seltene lange Wörter als Fixpunkte (längste aufsteigende Teilfolge), Lücken rekursiv über eindeutige
 // Wörter und zuletzt per LCS. Ergebnis wird je Track als `a<track>-<locale>.bin` gespeichert —
 // Byte-Format identisch zu iOS (Little Endian wie `withUnsafeBytes` auf arm64).
 
@@ -50,6 +50,40 @@ class EbookTrackAlignment(
         return words[i]
     }
 
+    /**
+     * iOS: `lastEbookWord(atOrBeforeLocalTime:)` — zuletzt gesprochenes eBook-Wort bis zur Track-Zeit,
+     * auch über lange Pausen hinweg. `null` vor dem ersten ausgerichteten Wort.
+     */
+    fun lastEbookWord(atOrBeforeLocalTime: Double): Int? {
+        if (words.isEmpty()) return null
+        var low = 0
+        var high = words.size
+        while (low < high) {
+            val mid = (low + high) / 2
+            if (starts[mid].toDouble() <= atOrBeforeLocalTime) low = mid + 1 else high = mid
+        }
+        return if (low > 0) words[low - 1] else null
+    }
+
+    /** iOS: `ebookWordRange` — erstes und letztes ausgerichtetes eBook-Wort. */
+    val ebookWordRange: IntRange? get() = if (words.isEmpty()) null else words.first()..words.last()
+
+    /**
+     * iOS: `localTime(forEbookWord:)` — Track-Zeit, ab der das eBook-Wort gesprochen wird; ein nicht
+     * ausgerichtetes Wort nimmt das nächste ausgerichtete danach. `null` außerhalb von [ebookWordRange].
+     */
+    fun localTime(forEbookWord: Int): Double? {
+        val range = ebookWordRange ?: return null
+        if (forEbookWord !in range) return null
+        var low = 0
+        var high = words.size
+        while (low < high) {
+            val mid = (low + high) / 2
+            if (words[mid] < forEbookWord) low = mid + 1 else high = mid
+        }
+        return starts.getOrNull(low)?.toDouble()
+    }
+
     /** iOS: `encoded()` — Magic, Version, Zähler, `spokenEnd`, dann die vier Arrays (Little Endian). */
     fun encoded(): ByteArray {
         val n = words.size
@@ -89,8 +123,11 @@ class EbookTrackAlignment(
     }
 
     companion object {
-        /** 2: Tokenzeiten nach Zeichenzahl, Lückenfüllung mit Pausen (alte Dateien werden neu berechnet). */
-        const val FORMAT_VERSION: Int = 2
+        /**
+         * 2: Tokenzeiten nach Zeichenzahl, Lückenfüllung mit Pausen (alte Dateien werden neu berechnet).
+         * 3: seltene Wörter als zusätzliche Fixpunkte.
+         */
+        const val FORMAT_VERSION: Int = 3
         /** `0x4142_4C31` („ABL1"). */
         const val MAGIC: Int = 0x41424C31
 
@@ -140,6 +177,8 @@ object EbookAlignmentBuilder {
     private const val REFERENCE_WORD_WEIGHT = 7.0
     /** Kürzere Reste gelten nicht als Pause (Rundung), die Wörter füllen die Lücke dann ganz. */
     private const val MINIMUM_FILLED_PAUSE_SECONDS = 0.05
+    /** Seltene Wörter als Fixpunkt erst ab dieser Länge — kurze Wörter sind zu oft Erkennungs-Zufall. */
+    private const val RARE_WORD_MINIMUM_LENGTH = 7
 
     /**
      * iOS: `pauseSlot(afterWord:gap:index:)` — Index des ersten Lückenworts nach der Pause (`gap` =
@@ -155,7 +194,7 @@ object EbookAlignmentBuilder {
         return gap
     }
 
-    private data class Anchor(val e: Int, val s: Int)
+    private data class Anchor(val e: Int, val s: Int, val length: Int)
 
     fun build(input: List<AlignmentInputWord>, index: EbookReadAlongIndex): EbookTrackAlignment {
         val spokenEnd = input.lastOrNull()?.end ?: 0.0
@@ -197,7 +236,7 @@ object EbookAlignmentBuilder {
             keys[i] = key
             firstPosition[key] = if (firstPosition[key] == null) i else -1
         }
-        val anchors = ArrayList<Anchor>()
+        var anchors = ArrayList<Anchor>()
         for (i in 0 until n - 2) {
             val key = keys[i]!!
             if (firstPosition[key] != i) continue
@@ -206,8 +245,24 @@ object EbookAlignmentBuilder {
             val e = positions[0]
             if (!(e + 2 < index.ids.size)) continue
             if (!(sIds[i] >= 0 && sIds[i] == index.ids[e] && sIds[i + 1] == index.ids[e + 1] && sIds[i + 2] == index.ids[e + 2])) continue
-            anchors.add(Anchor(e, i))
+            anchors.add(Anchor(e, i, 3))
         }
+
+        // 1b. Seltene lange Wörter, die im eBook und im Transkript genau einmal vorkommen. Ein einzelner
+        // Erkennungsfehler zerstört drei Trigramme, ein seltenes Wort („Thornfield") bleibt oft erhalten.
+        val spokenCount = HashMap<Int, Int>()
+        for (id in sIds) if (id >= 0) spokenCount[id] = (spokenCount[id] ?: 0) + 1
+        val trigramStarts = anchors.mapTo(HashSet()) { it.s }
+        val rare = ArrayList<Anchor>()
+        for (s in 0 until n) {
+            val id = sIds[s]
+            if (id < 0 || FoundationText.characterCount(sNorm[s]) < RARE_WORD_MINIMUM_LENGTH || spokenCount[id] != 1) continue
+            val e = index.uniquePosition(id) ?: continue
+            // Schon von einem Trigramm-Fixpunkt abgedeckt?
+            if (s in trigramStarts || (s - 1) in trigramStarts || (s - 2) in trigramStarts) continue
+            rare.add(Anchor(e, s, 1))
+        }
+        if (rare.isNotEmpty()) anchors = ArrayList((anchors + rare).sortedBy { it.s })
         if (anchors.isEmpty()) return empty
 
         // 2. Globale Ordnung: längste aufsteigende Teilfolge — Zufallstreffer fallen heraus.
@@ -235,7 +290,7 @@ object EbookAlignmentBuilder {
         val aligner = GapAligner(index, sIds, sNorm)
         aligner.fill(maxOf(0, first.e - (first.s * 2 + 12)), first.e, 0, first.s, 0)
         for ((i, anchor) in kept.withIndex()) {
-            for (k in 0 until 3) aligner.add(anchor.e + k, anchor.s + k)
+            for (k in 0 until anchor.length) aligner.add(anchor.e + k, anchor.s + k)
             if (aligner.matchE.isEmpty()) continue
             val lastE = aligner.matchE.last()
             val lastS = aligner.matchS.last()

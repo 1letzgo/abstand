@@ -2,7 +2,7 @@
   "description" : "A refrain repeats three times verbatim, so its trigrams are not unique anchors; the gaps must be resolved by the surrounding unique text and LCS.",
   "expected" : {
     "alignment" : {
-      "binBase64" : "MUxCQQIAAABFAAAARQAAADMzMzMzU0JARQAAAAAAAAABAAAAAgAAAAMAAAAEAAAABQAAAAYAAAAHAAAACAAAAAkAAAAKAAAACwAAAAwAAAANAAAADgAAAA8AAAAQAAAAEQAAABIAAAATAAAAFAAAABUAAAAWAAAAFwAAABgAAAAZAAAAGgAAABsAAAAcAAAAHQAAAB4AAAAfAAAAIAAAACEAAAAiAAAAIwAAACQAAAAlAAAAJgAAACcAAAAoAAAAKQAAACoAAAArAAAALAAAAC0AAAAuAAAALwAAADAAAAAxAAAAMgAAADMAAAA0AAAANQAAADYAAAA3AAAAOAAAADkAAAA6AAAAOwAAADwAAAA9AAAAPgAAAD8AAABAAAAAQQAAAEIAAABDAAAARAAAAAAAAACuR+E+H4VrPzMzsz+4HuU\/UrgOQBSuJ0ApXE9AH4VrQGZmhkDhepRAuB6lQDMzs0Bcj8JAhevRQI\/C5UBxPfJAKVwLQT0KE0F7FBpBj8IhQc3MKEHhejBBH4U3QdejQEEUrkdBFK5TQc3MXEE9CmNBKVx7QTMzgUEpXIVBSOGIQVK4jEFcj5BBH4WVQdejmEHD9aBBheulQY\/CqUGama1B9iiyQexRtkFI4bpBZma+QcP1wkF7FMZB16PKQfYozkHsUdJBCtfVQRSu2UEfhd1B4XriQZqZ5UEfhe9BKVzzQUjh9kE9CvtB9igAQoXrAUIUrgNC9igGQlK4B0KuRwlCPQoLQs3MDEIzMw5CCtcQQuxRuD49Clc\/w\/WoP0jh2j+amQlAXI8iQHE9SkBmZmZACteDQIXrkUBcj6JA16OwQAAAwEApXM9AMzPjQBSu70CPwv1Aj8IRQc3MGEHheiBBH4UnQTMzL0FxPTZBKVw\/QWZmRkFmZlJBH4VbQY\/CYUEUrmtBXI+AQVK4hEFxPYhBexSMQYXrj0FI4ZRBAACYQR+Fm0GuR6VBuB6pQcP1rEEfhbFBFK61QXE9ukGPwr1B7FHCQaRwxUEAAMpBH4XNQRSu0UEzM9VBPQrZQUjh3EEK1+FBw\/XkQeF66EFSuPJBcT32QWZm+kEUrv9BmpkBQilcA0IK1wVCZmYHQsP1CEJSuApC4XoMQkjhDUIfhRBCmpkSQgEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==",
+      "binBase64" : "MUxCQQMAAABFAAAARQAAADMzMzMzU0JARQAAAAAAAAABAAAAAgAAAAMAAAAEAAAABQAAAAYAAAAHAAAACAAAAAkAAAAKAAAACwAAAAwAAAANAAAADgAAAA8AAAAQAAAAEQAAABIAAAATAAAAFAAAABUAAAAWAAAAFwAAABgAAAAZAAAAGgAAABsAAAAcAAAAHQAAAB4AAAAfAAAAIAAAACEAAAAiAAAAIwAAACQAAAAlAAAAJgAAACcAAAAoAAAAKQAAACoAAAArAAAALAAAAC0AAAAuAAAALwAAADAAAAAxAAAAMgAAADMAAAA0AAAANQAAADYAAAA3AAAAOAAAADkAAAA6AAAAOwAAADwAAAA9AAAAPgAAAD8AAABAAAAAQQAAAEIAAABDAAAARAAAAAAAAACuR+E+H4VrPzMzsz+4HuU\/UrgOQBSuJ0ApXE9AH4VrQGZmhkDhepRAuB6lQDMzs0Bcj8JAhevRQI\/C5UBxPfJAKVwLQT0KE0F7FBpBj8IhQc3MKEHhejBBH4U3QdejQEEUrkdBFK5TQc3MXEE9CmNBKVx7QTMzgUEpXIVBSOGIQVK4jEFcj5BBH4WVQdejmEHD9aBBheulQY\/CqUGama1B9iiyQexRtkFI4bpBZma+QcP1wkF7FMZB16PKQfYozkHsUdJBCtfVQRSu2UEfhd1B4XriQZqZ5UEfhe9BKVzzQUjh9kE9CvtB9igAQoXrAUIUrgNC9igGQlK4B0KuRwlCPQoLQs3MDEIzMw5CCtcQQuxRuD49Clc\/w\/WoP0jh2j+amQlAXI8iQHE9SkBmZmZACteDQIXrkUBcj6JA16OwQAAAwEApXM9AMzPjQBSu70CPwv1Aj8IRQc3MGEHheiBBH4UnQTMzL0FxPTZBKVw\/QWZmRkFmZlJBH4VbQY\/CYUEUrmtBXI+AQVK4hEFxPYhBexSMQYXrj0FI4ZRBAACYQR+Fm0GuR6VBuB6pQcP1rEEfhbFBFK61QXE9ukGPwr1B7FHCQaRwxUEAAMpBH4XNQRSu0UEzM9VBPQrZQUjh3EEK1+FBw\/XkQeF66EFSuPJBcT32QWZm+kEUrv9BmpkBQilcA0IK1wVCZmYHQsP1CEJSuApC4XoMQkjhDUIfhRBCmpkSQgEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==",
       "ebookWordCount" : 69,
       "ends" : [
         0.36000001430511475,
@@ -1201,341 +1201,496 @@
     ],
     "queries" : [
       {
+        "last" : 0,
         "t" : 0,
         "word" : 0
       },
       {
+        "last" : 1,
         "t" : 0.5,
         "word" : 1
       },
       {
+        "last" : 2,
         "t" : 1,
         "word" : 2
       },
       {
+        "last" : 3,
         "t" : 1.5,
         "word" : 3
       },
       {
+        "last" : 4,
         "t" : 2,
         "word" : 4
       },
       {
+        "last" : 5,
         "t" : 2.5,
         "word" : 5
       },
       {
+        "last" : 6,
         "t" : 3,
         "word" : 6
       },
       {
+        "last" : 7,
         "t" : 3.5,
         "word" : 7
       },
       {
+        "last" : 8,
         "t" : 4,
         "word" : 8
       },
       {
+        "last" : 9,
         "t" : 4.5,
         "word" : 9
       },
       {
+        "last" : 10,
         "t" : 5,
         "word" : 10
       },
       {
+        "last" : 11,
         "t" : 5.5,
         "word" : 11
       },
       {
+        "last" : 12,
         "t" : 6,
         "word" : 12
       },
       {
+        "last" : 13,
         "t" : 6.5,
         "word" : 13
       },
       {
+        "last" : 14,
         "t" : 7,
         "word" : 14
       },
       {
+        "last" : 15,
         "t" : 7.5,
         "word" : 15
       },
       {
+        "last" : 16,
         "t" : 8,
         "word" : 16
       },
       {
+        "last" : 16,
         "t" : 8.5,
         "word" : 16
       },
       {
+        "last" : 17,
         "t" : 9,
         "word" : 17
       },
       {
+        "last" : 18,
         "t" : 9.5,
         "word" : 18
       },
       {
+        "last" : 19,
         "t" : 10,
         "word" : 19
       },
       {
+        "last" : 20,
         "t" : 10.5,
         "word" : 20
       },
       {
+        "last" : 21,
         "t" : 11,
         "word" : 21
       },
       {
+        "last" : 23,
         "t" : 11.5,
         "word" : 23
       },
       {
+        "last" : 23,
         "t" : 12,
         "word" : 23
       },
       {
+        "last" : 25,
         "t" : 12.5,
         "word" : 25
       },
       {
+        "last" : 25,
         "t" : 13,
         "word" : 25
       },
       {
+        "last" : 26,
         "t" : 13.5,
         "word" : 26
       },
       {
+        "last" : 27,
         "t" : 14,
         "word" : 27
       },
       {
+        "last" : 28,
         "t" : 14.5,
         "word" : 28
       },
       {
+        "last" : 28,
         "t" : 15,
         "word" : 28
       },
       {
+        "last" : 28,
         "t" : 15.5,
         "word" : 28
       },
       {
+        "last" : 29,
         "t" : 16,
         "word" : 29
       },
       {
+        "last" : 30,
         "t" : 16.5,
         "word" : 30
       },
       {
+        "last" : 31,
         "t" : 17,
         "word" : 31
       },
       {
+        "last" : 32,
         "t" : 17.5,
         "word" : 32
       },
       {
+        "last" : 33,
         "t" : 18,
         "word" : 33
       },
       {
+        "last" : 34,
         "t" : 18.5,
         "word" : 34
       },
       {
+        "last" : 35,
         "t" : 19,
         "word" : 35
       },
       {
+        "last" : 36,
         "t" : 19.5,
         "word" : 36
       },
       {
+        "last" : 36,
         "t" : 20,
         "word" : 36
       },
       {
+        "last" : 37,
         "t" : 20.5,
         "word" : 37
       },
       {
+        "last" : 38,
         "t" : 21,
         "word" : 38
       },
       {
+        "last" : 39,
         "t" : 21.5,
         "word" : 39
       },
       {
+        "last" : 40,
         "t" : 22,
         "word" : 40
       },
       {
+        "last" : 41,
         "t" : 22.5,
         "word" : 41
       },
       {
+        "last" : 42,
         "t" : 23,
         "word" : 42
       },
       {
+        "last" : 43,
         "t" : 23.5,
         "word" : 43
       },
       {
+        "last" : 44,
         "t" : 24,
         "word" : 44
       },
       {
+        "last" : 45,
         "t" : 24.5,
         "word" : 45
       },
       {
+        "last" : 46,
         "t" : 25,
         "word" : 46
       },
       {
+        "last" : 47,
         "t" : 25.5,
         "word" : 47
       },
       {
+        "last" : 48,
         "t" : 26,
         "word" : 48
       },
       {
+        "last" : 49,
         "t" : 26.5,
         "word" : 49
       },
       {
+        "last" : 50,
         "t" : 27,
         "word" : 50
       },
       {
+        "last" : 51,
         "t" : 27.5,
         "word" : 51
       },
       {
+        "last" : 52,
         "t" : 28,
         "word" : 52
       },
       {
+        "last" : 53,
         "t" : 28.5,
         "word" : 53
       },
       {
+        "last" : 54,
         "t" : 29,
         "word" : 54
       },
       {
+        "last" : 54,
         "t" : 29.5,
         "word" : 54
       },
       {
+        "last" : 55,
         "t" : 30,
         "word" : 55
       },
       {
+        "last" : 56,
         "t" : 30.5,
         "word" : 56
       },
       {
+        "last" : 57,
         "t" : 31,
         "word" : 57
       },
       {
+        "last" : 58,
         "t" : 31.5,
         "word" : 58
       },
       {
+        "last" : 58,
         "t" : 32,
         "word" : 58
       },
       {
+        "last" : 60,
         "t" : 32.5,
         "word" : 60
       },
       {
+        "last" : 61,
         "t" : 33,
         "word" : 61
       },
       {
+        "last" : 61,
         "t" : 33.5,
         "word" : 61
       },
       {
+        "last" : 63,
         "t" : 34,
         "word" : 63
       },
       {
+        "last" : 64,
         "t" : 34.5,
         "word" : 64
       },
       {
+        "last" : 65,
         "t" : 35,
         "word" : 65
       },
       {
+        "last" : 66,
         "t" : 35.5,
         "word" : 66
       },
       {
+        "last" : 67,
         "t" : 36,
         "word" : 67
       },
       {
+        "last" : 68,
         "t" : 36.5,
         "word" : 68
       },
       {
+        "last" : 68,
         "t" : 37,
         "word" : 68
       },
       {
+        "last" : 68,
         "t" : 37.5,
         "word" : 68
       },
       {
+        "last" : 68,
         "t" : 38,
         "word" : 68
       },
       {
+        "last" : 68,
         "t" : 38.5,
         "word" : 68
       },
       {
+        "last" : 68,
         "t" : 39,
         "word" : 68
       },
       {
+        "last" : 68,
         "t" : 39.5,
         "word" : 68
       },
       {
+        "last" : 68,
         "t" : 40,
         "word" : null
       },
       {
+        "last" : 68,
         "t" : 40.5,
         "word" : null
       },
       {
+        "last" : 68,
         "t" : 41,
         "word" : null
       },
       {
+        "last" : 68,
         "t" : 41.5,
         "word" : null
       }
+    ],
+    "wordTimes" : [
+      0,
+      0.43999999761581421,
+      0.92000001668930054,
+      1.3999999761581421,
+      1.7899999618530273,
+      2.2300000190734863,
+      2.619999885559082,
+      3.2400000095367432,
+      3.6800000667572021,
+      4.1999998092651367,
+      4.6399998664855957,
+      5.1599998474121094,
+      5.5999999046325684,
+      6.0799999237060547,
+      6.559999942779541,
+      7.179999828338623,
+      7.570000171661377,
+      8.7100000381469727,
+      9.1899995803833008,
+      9.630000114440918,
+      10.109999656677246,
+      10.550000190734863,
+      11.029999732971191,
+      11.470000267028809,
+      12.039999961853027,
+      12.479999542236328,
+      13.229999542236328,
+      13.800000190734863,
+      14.189999580383301,
+      15.710000038146973,
+      16.149999618530273,
+      16.670000076293945,
+      17.110000610351562,
+      17.590000152587891,
+      18.069999694824219,
+      18.690000534057617,
+      19.079999923706055,
+      20.120000839233398,
+      20.739999771118164,
+      21.219999313354492,
+      21.700000762939453,
+      22.270000457763672,
+      22.790000915527344,
+      23.360000610351562,
+      23.799999237060547,
+      24.370000839233398,
+      24.760000228881836,
+      25.329999923706055,
+      25.770000457763672,
+      26.290000915527344,
+      26.729999542236328,
+      27.209999084472656,
+      27.690000534057617,
+      28.309999465942383,
+      28.700000762939453,
+      29.940000534057617,
+      30.420000076293945,
+      30.860000610351562,
+      31.379999160766602,
+      32.040000915527344,
+      32.479999542236328,
+      32.919998168945312,
+      33.540000915527344,
+      33.930000305175781,
+      34.319999694824219,
+      34.759998321533203,
+      35.200000762939453,
+      35.549999237060547,
+      36.209999084472656
     ]
   },
   "generatedBy" : "Swift (abstand iOS EbookAudioAlignment.swift \/ ReadAlongText, unchanged) via android\/..\/shared fixture generator",

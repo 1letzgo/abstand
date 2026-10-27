@@ -1,0 +1,22 @@
+{
+ "name": "rare_word_anchors",
+ "description": "Heavy recogniser noise: every three-word window holds an error, so no trigram survives; long words that occur once in book and transcript (Wilhelmina, lighthouse, cartographer, ...) are the only fixpoints.",
+ "segments": [
+  [
+   "Wilhelmina climbed toward the lighthouse while the cartographer waited below with a lantern.",
+   "The archipelago glittered beneath a crimson evening, and the telescope trembled in her hands."
+  ],
+  [
+   "Somewhere beyond Thornfield harbour a steamship sounded its melancholy horn.",
+   "She recorded everything inside a battered notebook before descending again, whispering quietly."
+  ]
+ ],
+ "spoken": "wilhelmina climb towards da lighthouse wile da cartographer weighted bello wit uh lanterns da archipelago glitter beneat uh krimson evenin |0.5| an da telescope tremble inn hair hans somewhere be_yond thornfield harbor uh steamship sounding it's melancholy horns shi record everything in_side uh batter note_book bee_four descent agen whisper quiet",
+ "startTime": 0.3,
+ "globalOffset": 120.0,
+ "jumpTimes": [
+  3.0,
+  12.0,
+  25.0
+ ]
+}

@@ -19,7 +19,14 @@ struct EbookReadAlongIndex {
   let trigrams: [Int: [Int]]
   let ids: [Int32]
   let vocabulary: [String: Int32]
+  let uniquePositions: [Int32]
   var isEmpty: Bool { words.isEmpty }
+
+  func uniquePosition(ofWordId id: Int32) -> Int? {
+    guard uniquePositions.indices.contains(Int(id)) else { return nil }
+    let position = uniquePositions[Int(id)]
+    return position >= 0 ? Int(position) : nil
+  }
 
   func wordRange(ofSentence sentence: Int) -> Range<Int> {
     func firstWord(ofSentence target: Int) -> Int {
@@ -73,14 +80,21 @@ struct EbookReadAlongIndex {
     }
     var vocabulary: [String: Int32] = [:]
     var ids: [Int32] = []
-    for word in words {
-      if let id = vocabulary[word.normalized] { ids.append(id) } else {
+    var uniquePositions: [Int32] = []
+    for (position, word) in words.enumerated() {
+      if let id = vocabulary[word.normalized] {
+        ids.append(id)
+        uniquePositions[Int(id)] = -1
+      } else {
         let id = Int32(vocabulary.count)
         vocabulary[word.normalized] = id
         ids.append(id)
+        uniquePositions.append(Int32(position))
       }
     }
-    return EbookReadAlongIndex(sentences: sentences, words: words, trigrams: trigrams, ids: ids, vocabulary: vocabulary)
+    return EbookReadAlongIndex(
+      sentences: sentences, words: words, trigrams: trigrams, ids: ids, vocabulary: vocabulary,
+      uniquePositions: uniquePositions)
   }
 }
 
@@ -172,9 +186,14 @@ for file in files {
   var queries: [[String: Any]] = []
   var q = 0.0
   while q <= (inputWords.last?.end ?? 0) + 5 {
-    queries.append(["t": q, "word": alignment.ebookWord(atLocalTime: q).map { $0 as Any } ?? NSNull()])
+    queries.append([
+      "t": q, "word": alignment.ebookWord(atLocalTime: q).map { $0 as Any } ?? NSNull(),
+      "last": alignment.lastEbookWord(atOrBeforeLocalTime: q).map { $0 as Any } ?? NSNull(),
+    ])
     q += 0.5
   }
+  // Rückrichtung: Startzeit je eBook-Wort (nil außerhalb des ausgerichteten Bereichs).
+  let wordTimes: [Any] = index.words.indices.map { alignment.localTime(forEbookWord: $0).map { $0 as Any } ?? NSNull() }
   let globalOffset = input["globalOffset"] as? Double ?? 0
   let display = alignment.displayWords(index: index, globalOffset: globalOffset)
 
@@ -211,6 +230,7 @@ for file in files {
         "binBase64": encoded.base64EncodedString(),
       ],
       "queries": queries,
+      "wordTimes": wordTimes,
       "displayWords": display.words.map { ["id": $0.id, "text": $0.text, "start": $0.globalStart, "end": $0.globalEnd] },
       "displaySpans": display.spans.map { [$0.start, $0.end] },
       "narrationJumps": jumps,

@@ -21,7 +21,7 @@ import java.util.Base64
  * Zeit-Abfragen, Teleprompter-Anzeigewörter und Sprung-Markierungen.
  */
 class EbookAlignmentGoldenTest {
-    private val cases = listOf("clean_chapter", "ocr_noise", "repeated_refrain", "missing_passage", "too_few_matches", "german_unicode")
+    private val cases = listOf("clean_chapter", "ocr_noise", "repeated_refrain", "missing_passage", "too_few_matches", "german_unicode", "rare_word_anchors")
 
     private fun fixture(name: String): JsonObject =
         Json.parseToJsonElement(javaClass.classLoader!!.getResource("alignment/$name.json")!!.readText()).jsonObject
@@ -104,6 +104,13 @@ class EbookAlignmentGoldenTest {
                 val o = q.jsonObject
                 val t = o["t"]!!.jsonPrimitive.double
                 assertEquals("$name t=$t", str(o["word"])?.toInt(), alignment.ebookWord(t))
+                assertEquals("$name last t=$t", str(o["last"])?.toInt(), alignment.lastEbookWord(t))
+            }
+            // Rückrichtung Wort → Zeit (Player-Button „Jump to ebook position").
+            val wordTimes = expected["wordTimes"]!!.jsonArray
+            assertEquals(name, c.index.words.size, wordTimes.size)
+            for ((w, time) in wordTimes.withIndex()) {
+                assertEquals("$name word $w", str(time)?.toDouble()?.toFloat(), alignment.localTime(w)?.toFloat())
             }
             val display = alignment.displayWords(c.index, c.globalOffset)
             val words = expected["displayWords"]!!.jsonArray
@@ -149,6 +156,27 @@ class EbookAlignmentGoldenTest {
         assertTrue(a.words.size < missing.index.words.size)
         assertTrue(a.flags.any { it.toInt() == 1 })
         assertNull(EbookTrackAlignment.decode(ByteArray(8)))
+        // Kein Trigramm übersteht das Rauschen — nur seltene lange Wörter tragen den Abgleich.
+        val rare = load("rare_word_anchors")
+        assertTrue(EbookAlignmentBuilder.build(rare.words, rare.index).words.size == rare.index.words.size)
+    }
+
+    @Test
+    fun readingPositionMapsToWordAndBackToTime() {
+        val c = load("rare_word_anchors")
+        val index = c.index
+        // Kapitel = Sätze des zweiten Segments; Text des ersten sichtbaren Elements trifft „Somewhere …".
+        val chapter = index.sentences.indices.filter { index.sentences[it].segment == 1 }.let { it.first()..it.last() }
+        val somewhere = index.words.indexOfFirst { it.normalized == "somewhere" }
+        assertEquals(somewhere, index.wordPosition(chapter, "Somewhere beyond Thornfield harbour a steamship", 0.9, null))
+        // Ohne passenden Text: anteilig im Kapitel; ohne Kapitel: anteilig im Buch.
+        val chapterWords = index.wordRange(chapter.first).first until index.wordRange(chapter.last).last + 1
+        assertEquals(chapterWords.first, index.wordPosition(chapter, "nothing like this", 0.0, null))
+        assertEquals(index.words.size / 2, index.wordPosition(null, null, null, 0.5))
+        // Wort → Zeit → Wort: der Sprung landet wieder am selben Wort.
+        val alignment = EbookAlignmentBuilder.build(c.words, index)
+        val t = alignment.localTime(somewhere)!!
+        assertEquals(somewhere, alignment.lastEbookWord(t))
     }
 
     @Test

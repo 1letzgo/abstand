@@ -6,8 +6,23 @@ import UIKit
 private enum ReaderChromeMetrics {
   /// Höhe des dünnen passiven Lesefortschrittsbalkens.
   static let passiveProgressBarHeight: CGFloat = 3
-  /// Max. Breite des Hinweis-Overlays für die Reading-Controls.
-  static let chromeHintMaxWidth: CGFloat = 320
+  /// So weit (Anteil im Kapitel) muss der Nutzer blättern, damit das Server-Angebot als abgelehnt gilt.
+  static let serverOfferDeclineProgression = 0.002
+}
+
+/// Paper-Look im Reader: Hell = Papier mit Tinte, Dunkel = Tinte mit Papier-Schrift (dieselben festen
+/// Paletten wie die App), Sepia bleibt Readiums Sepia mit Tinten-Schrift. Seite und Leisten teilen die Farben.
+extension EpubReaderTheme {
+  var palette: AppColorPalette {
+    AppColorPalette.derived(from: .clear, isDarkLike: self == .dark)
+  }
+
+  var pageBackground: SwiftUI.Color {
+    self == .sepia ? SwiftUI.Color(uiColor: Theme.sepia.backgroundColor.uiColor) : palette.background
+  }
+
+  var pageBackgroundUIColor: UIColor { UIColor(pageBackground) }
+  var pageTextUIColor: UIColor { UIColor(palette.textPrimary) }
 }
 
 struct EbookReaderPresentation: Identifiable {
@@ -49,6 +64,7 @@ struct ReadiumReaderView: View {
   @State private var confirmMarkAsFinished = false
   @State private var isScrubbingProgress = false
   @State private var scrubProgress: Double = 0
+  /// Beim ersten Öffnen stehen die Leisten offen, mit einer Zeile, wie man sie aus- und einblendet.
   @AppStorage("abstand_ebook_reader_chrome_hint_seen") private var didShowReaderChromeHint = false
   @State private var showsReaderChromeHint = false
   /// Verhindert Sync mit Anfangs-Locator, bevor Server-Resume oder gespeicherte Position gilt.
@@ -56,7 +72,8 @@ struct ReadiumReaderView: View {
   /// Sprung zur Hörposition (nur EPUB, nur wenn dieses Hörbuch im Player geladen ist).
   @State private var narrationJump: EbookNarrationJumpController?
   /// Server steht deutlich weiter als der lokale Locator (z. B. auf einem anderen Gerät gelesen):
-  /// Angebot statt stillem Überschreiben. Solange es offen ist, geht kein Fortschritt zum Server.
+  /// Button in der unteren Leiste statt stillem Überschreiben. Solange das Angebot offen ist, geht kein
+  /// Fortschritt zum Server; es endet mit dem Sprung oder sobald der Nutzer hier weiterblättert.
   @State private var serverPositionOffer: ServerPositionOffer?
 
   /// So viel weiter (Anteil am Buch) muss der Server sein, damit das Angebot erscheint.
@@ -66,21 +83,11 @@ struct ReadiumReaderView: View {
     readerTheme == .dark ? .dark : .light
   }
 
-  private var readerBackground: SwiftUI.Color {
-    switch readerTheme {
-    case .dark: AppTheme.background
-    case .light: .white
-    case .sepia: Color(red: 250 / 255, green: 244 / 255, blue: 232 / 255)
-    }
-  }
+  private var readerBackground: SwiftUI.Color { readerTheme.pageBackground }
 
-  private var readerChromeForeground: SwiftUI.Color {
-    readerTheme == .dark ? .white : .primary
-  }
+  private var readerChromeForeground: SwiftUI.Color { readerTheme.palette.textPrimary }
 
-  private var readerChromeSecondary: SwiftUI.Color {
-    readerTheme == .dark ? .white.opacity(0.72) : .secondary
-  }
+  private var readerChromeSecondary: SwiftUI.Color { readerTheme.palette.textSecondary }
 
   var body: some View {
     ZStack {
@@ -99,26 +106,9 @@ struct ReadiumReaderView: View {
 
       if !isLoading, loadError == nil, navigatorController != nil {
         readerChromeOverlay
-          .allowsHitTesting(showReaderChrome)
+          .allowsHitTesting(showReaderChrome || narrationJump != nil)
       }
 
-      if showsReaderChromeHint, serverPositionOffer == nil {
-        readerChromeHint
-      }
-
-      if let offer = serverPositionOffer, !showReaderChrome {
-        EbookServerPositionBanner(
-          offer: offer,
-          foreground: readerChromeForeground,
-          secondary: readerChromeSecondary,
-          onStay: { withAnimation(.snappy(duration: 0.25)) { serverPositionOffer = nil } },
-          onContinue: {
-            withAnimation(.snappy(duration: 0.25)) { serverPositionOffer = nil }
-            Task { await seekToProgression(offer.serverFraction) }
-          }
-        )
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
     }
     .background(readerBackground)
     .preferredColorScheme(chromeColorScheme)
@@ -128,6 +118,10 @@ struct ReadiumReaderView: View {
       withAnimation(.easeInOut(duration: 0.2)) {
         showReaderChrome.toggle()
       }
+      if showsReaderChromeHint {
+        didShowReaderChromeHint = true
+        showsReaderChromeHint = false
+      }
     }
     .onReceive(NotificationCenter.default.publisher(for: .readiumReaderProgressDidChange)) { note in
       guard !isScrubbingProgress, !isInitialReaderLoad else { return }
@@ -135,8 +129,15 @@ struct ReadiumReaderView: View {
       let pages = note.userInfo?[ReadiumReaderProgressInfo.bookPageProgressKey] as? BookPageProgress
       applyProgress(from: locator, bookPages: pages)
       narrationJump?.readerLocationDidChange()
-      // Offenes Server-Angebot: der (ältere) lokale Stand darf den Server nicht überschreiben.
-      guard serverPositionOffer == nil else { return }
+      if format == .epub, let epubNavigator {
+        Task { await EbookReadingAnchorStore.capture(from: epubNavigator, locator: locator, libraryItemId: libraryItemId) }
+      }
+      // Offenes Server-Angebot: der (ältere) lokale Stand darf den Server nicht überschreiben — erst
+      // wenn der Nutzer hier selbst weiterblättert, gilt das Angebot als abgelehnt.
+      if let offer = serverPositionOffer {
+        guard offer.isLeft(by: locator) else { return }
+        withAnimation(.snappy(duration: 0.25)) { serverPositionOffer = nil }
+      }
       model.scheduleEbookProgressSync(
         libraryItemId: libraryItemId,
         fraction: ReadiumReaderProgressInfo.fraction(from: locator)
@@ -196,6 +197,14 @@ struct ReadiumReaderView: View {
         readerBottomChrome
           .transition(.move(edge: .bottom).combined(with: .opacity))
       } else {
+        // Sprung zur Hörposition bleibt auch bei ausgeblendeten Leisten erreichbar.
+        if let narrationJump {
+          EbookNarrationJumpButton(controller: narrationJump, palette: readerTheme.palette, compact: true)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.horizontal, AppTheme.Layout.screenPadding)
+            .padding(.bottom, AppTheme.Layout.inlineSpacing)
+            .transition(.opacity)
+        }
         readerPassiveProgressIndicator
       }
     }
@@ -208,16 +217,19 @@ struct ReadiumReaderView: View {
       Button {
         dismiss()
       } label: {
-        Image(systemName: "xmark.circle.fill")
-          .font(.title2)
-          .symbolRenderingMode(.hierarchical)
-          .foregroundStyle(readerChromeForeground)
+        Image(systemName: "xmark")
+          .font(.body.weight(.semibold))
+          .frame(width: AppTheme.Layout.iconButtonSize, height: AppTheme.Layout.iconButtonSize)
+          .contentShape(Rectangle())
       }
+      .buttonStyle(.plain)
+      .foregroundStyle(readerChromeForeground)
       .accessibilityLabel("Close")
 
       VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
         Text(title)
-          .font(.subheadline.weight(.semibold))
+          .font(.headline)
+          .fontDesign(AppTheme.Typography.titleDesign)
           .lineLimit(1)
           .foregroundStyle(readerChromeForeground)
 
@@ -229,16 +241,59 @@ struct ReadiumReaderView: View {
 
       Spacer(minLength: 0)
     }
-    .padding(.horizontal, AppTheme.Layout.screenPadding)
-    .padding(.vertical, AppTheme.Layout.withinSectionSpacing)
+    .padding(.leading, AppTheme.Layout.inlineSpacing)
+    .padding(.trailing, AppTheme.Layout.screenPadding)
+    .padding(.vertical, AppTheme.Layout.tightSpacing)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(.ultraThinMaterial)
-    .safeAreaPadding(.top, 4)
+    .background(alignment: .bottom) { readerChromeRule }
+    .background(readerBackground.ignoresSafeArea(edges: .top))
+  }
+
+  /// Haarlinie zwischen Leiste und Seite (Paper-Look: Linie statt Material/Schatten).
+  private var readerChromeRule: some View {
+    Rectangle()
+      .fill(readerTheme.palette.rule)
+      .frame(height: AppTheme.Layout.hairlineWidth)
+  }
+
+  /// Sprünge nur auf Knopfdruck: zur Hörposition (Hörbuch im Player) und zur synchronisierten Position.
+  @ViewBuilder
+  private var readerJumpRow: some View {
+    let showsNarration = narrationJump != nil
+    if showsNarration || serverPositionOffer != nil {
+      HStack(spacing: AppTheme.Layout.inlineSpacing) {
+        if let narrationJump {
+          EbookNarrationJumpButton(controller: narrationJump, palette: readerTheme.palette)
+        }
+        if let offer = serverPositionOffer {
+          Button {
+            withAnimation(.snappy(duration: 0.25)) { serverPositionOffer = nil }
+            Task { await seekToProgression(offer.serverFraction) }
+          } label: {
+            Label("Synced · \(offer.serverPercent)", systemImage: "arrow.triangle.2.circlepath")
+              .font(.subheadline.weight(.semibold))
+              .lineLimit(1)
+          }
+          .buttonStyle(AbstandProminentButtonStyle(palette: readerTheme.palette))
+          .accessibilityLabel("Go to synced position, \(offer.serverPercent)")
+          .accessibilityHint("You've read further on another device. This device is at \(offer.localPercent).")
+        }
+        Spacer(minLength: 0)
+      }
+    }
   }
 
   /// Primäre Lesesteuerung bewusst am unteren Bildschirmrand für einhändige Bedienung.
   private var readerBottomChrome: some View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      if showsReaderChromeHint {
+        Text("Tap the middle of the page to hide or show these controls.")
+          .font(.footnote)
+          .foregroundStyle(readerChromeSecondary)
+      }
+
+      readerJumpRow
+
       readerProgressScrubber
 
       HStack(spacing: AppTheme.Layout.rowSpacing) {
@@ -269,10 +324,6 @@ struct ReadiumReaderView: View {
         }
 
         Spacer(minLength: 0)
-
-        if let narrationJump {
-          EbookNarrationJumpButton(controller: narrationJump)
-        }
 
         Button {
           continuousScroll.toggle()
@@ -332,20 +383,22 @@ struct ReadiumReaderView: View {
           }
           .disabled(readerActionInProgress)
         } label: {
-          Image(systemName: "ellipsis.circle")
-            .font(.title3)
+          Image(systemName: "ellipsis")
+            .font(.body)
             .frame(width: AppTheme.Layout.iconButtonSize, height: AppTheme.Layout.iconButtonSize)
         }
         .accessibilityLabel("Reader options")
       }
+      .buttonStyle(.plain)
       .foregroundStyle(readerChromeForeground)
       .tint(readerChromeForeground)
     }
     .padding(.horizontal, AppTheme.Layout.screenPadding)
-    .padding(.vertical, AppTheme.Layout.withinSectionSpacing)
+    .padding(.top, AppTheme.Layout.rowSpacing)
+    .padding(.bottom, AppTheme.Layout.tightSpacing)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(.ultraThinMaterial)
-    .safeAreaPadding(.bottom, 4)
+    .background(alignment: .top) { readerChromeRule }
+    .background(readerBackground.ignoresSafeArea(edges: .bottom))
   }
 
   /// Dezente Orientierung auch bei ausgeblendeter Steuerung, ohne den Lesefluss zu stören.
@@ -359,38 +412,6 @@ struct ReadiumReaderView: View {
     .frame(height: ReaderChromeMetrics.passiveProgressBarHeight)
     .allowsHitTesting(false)
     .accessibilityHidden(true)
-  }
-
-  private var readerChromeHint: some View {
-    VStack {
-      Spacer()
-      VStack(spacing: AppTheme.Layout.withinSectionSpacing) {
-        Image(systemName: "hand.tap")
-          .font(.title2)
-          .foregroundStyle(themeAccent)
-        Text("Reading controls")
-          .font(.headline)
-        Text("Tap the middle of the page to show reading controls and progress.")
-          .font(.subheadline)
-          .foregroundStyle(readerChromeSecondary)
-          .multilineTextAlignment(.center)
-        Button("Got it") {
-          didShowReaderChromeHint = true
-          withAnimation(.easeOut(duration: 0.2)) {
-            showsReaderChromeHint = false
-          }
-        }
-        .buttonStyle(AbstandProminentButtonStyle())
-      }
-      .padding(AppTheme.Layout.overlayPadding)
-      .frame(maxWidth: ReaderChromeMetrics.chromeHintMaxWidth)
-      .background(
-        .regularMaterial,
-        in: RoundedRectangle(cornerRadius: AppTheme.Layout.readerChromeCornerRadius, style: .continuous)
-      )
-      .padding(.bottom, AppTheme.Layout.minTapTarget)
-    }
-    .padding(.horizontal, AppTheme.Layout.blockSpacing)
   }
 
   private var readerProgressScrubber: some View {
@@ -577,13 +598,16 @@ struct ReadiumReaderView: View {
       {
         let local = ReadiumReaderProgressInfo.fraction(from: saved)
         if server - local >= Self.serverPositionOfferThreshold {
-          serverPositionOffer = ServerPositionOffer(serverFraction: server, localFraction: local)
+          serverPositionOffer = ServerPositionOffer(serverFraction: server, localFraction: local, origin: saved)
         }
       }
-      isLoading = false
-      if !didShowReaderChromeHint {
-        showsReaderChromeHint = true
+      if let epub = epubNavigator, let current = epub.currentLocation {
+        await EbookReadingAnchorStore.capture(from: epub, locator: current, libraryItemId: libraryItemId)
       }
+      isLoading = false
+      // Erstes Öffnen oder offenes Server-Angebot: Leisten zeigen statt eines Popups.
+      if !didShowReaderChromeHint { showsReaderChromeHint = true }
+      if showsReaderChromeHint || serverPositionOffer != nil { showReaderChrome = true }
     } catch {
       loadError = error.localizedDescription
       isLoading = false
@@ -641,6 +665,9 @@ extension Notification.Name {
 /// Hörbuch im Player geladen ist.
 private struct EbookNarrationJumpButton: View {
   @ObservedObject var controller: EbookNarrationJumpController
+  let palette: AppColorPalette
+  /// Nur das Symbol als runde Kapsel — schwebend über der Seite, wenn die Leisten ausgeblendet sind.
+  var compact = false
   // Blendet den Button mit dem Player-Zustand ein und aus.
   @EnvironmentObject private var player: PlaybackController
 
@@ -649,15 +676,21 @@ private struct EbookNarrationJumpButton: View {
       Button {
         controller.jumpToNarration()
       } label: {
-        Group {
+        HStack(spacing: AppTheme.Layout.compactSpacing) {
           if controller.isBusy {
-            ProgressView().controlSize(.small)
+            ProgressView().controlSize(.small).tint(palette.background)
           } else {
-            Image(systemName: "headphones").font(.body)
+            Image(systemName: "headphones")
           }
+          if !compact { Text("Audiobook position") }
         }
-        .frame(width: AppTheme.Layout.iconButtonSize, height: AppTheme.Layout.iconButtonSize)
+        .font(.subheadline.weight(.semibold))
+        .lineLimit(1)
+        .frame(
+          width: compact ? AppTheme.Layout.compactIconButtonSize : nil,
+          height: compact ? AppTheme.Layout.compactIconButtonSize : nil)
       }
+      .buttonStyle(AbstandProminentButtonStyle(capsule: compact, palette: palette))
       .disabled(controller.isBusy)
       .accessibilityLabel("Go to audiobook position")
       .alert(
@@ -676,64 +709,22 @@ private struct EbookNarrationJumpButton: View {
 
 // MARK: - Server-Position
 
+/// Server steht weiter als dieses Gerät. Der Server kennt nur einen Prozentwert — der Sprung ist
+/// deshalb ungefähr, nicht seitengenau.
 struct ServerPositionOffer: Equatable {
   let serverFraction: Double
   let localFraction: Double
-}
+  /// Locator beim Öffnen — blättert der Nutzer davon weg, bleibt er bewusst hier.
+  let origin: Locator
 
-/// Unten im Reader: „Auf einem anderen Gerät weitergelesen" — zur Serverposition springen oder hier
-/// bleiben. Der Server kennt nur einen Prozentwert, der Sprung ist deshalb ungefähr, nicht seitengenau.
-/// Farben kommen vom Reader-Theme (wie beim Catch-up-Banner).
-private struct EbookServerPositionBanner: View {
-  @EnvironmentObject private var model: AppModel
-  let offer: ServerPositionOffer
-  let foreground: SwiftUI.Color
-  let secondary: SwiftUI.Color
-  let onStay: () -> Void
-  let onContinue: () -> Void
+  var serverPercent: String { Self.percent(serverFraction) }
+  var localPercent: String { Self.percent(localFraction) }
 
-  private func percent(_ fraction: Double) -> String { "\(Int((fraction * 100).rounded())) %" }
-
-  var body: some View {
-    VStack {
-      Spacer()
-      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-        HStack(alignment: .top, spacing: AppTheme.Layout.rowSpacing) {
-          Image(systemName: "arrow.triangle.2.circlepath")
-            .font(.subheadline)
-            .foregroundStyle(model.appearanceAccentColor)
-            .padding(.top, AppTheme.Layout.hairlineSpacing)
-          VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
-            Text("You've read further elsewhere")
-              .font(.subheadline.weight(.semibold))
-              .foregroundStyle(foreground)
-            Text("Your synced position is at \(percent(offer.serverFraction)), this device is at \(percent(offer.localFraction)).")
-              .font(.caption)
-              .foregroundStyle(secondary)
-          }
-          Spacer(minLength: 0)
-        }
-        HStack(spacing: AppTheme.Layout.rowSpacing) {
-          Button(action: onStay) {
-            Text("Stay here")
-              .font(.subheadline.weight(.semibold))
-              .foregroundStyle(foreground)
-              .frame(minHeight: AppTheme.Layout.minTapTarget)
-              .contentShape(Rectangle())
-          }
-          .buttonStyle(.plain)
-          Spacer(minLength: 0)
-          Button("Go to \(percent(offer.serverFraction))", action: onContinue)
-            .buttonStyle(AbstandProminentButtonStyle())
-        }
-      }
-      .padding(AppTheme.Layout.cardPadding)
-      .background(
-        .regularMaterial,
-        in: RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous)
-      )
-      .padding(.horizontal, AppTheme.Layout.screenPadding)
-      .padding(.bottom, AppTheme.Layout.blockSpacing)
-    }
+  func isLeft(by locator: Locator) -> Bool {
+    guard locator.href.string == origin.href.string else { return true }
+    let delta = abs((locator.locations.progression ?? 0) - (origin.locations.progression ?? 0))
+    return delta > ReaderChromeMetrics.serverOfferDeclineProgression
   }
+
+  private static func percent(_ fraction: Double) -> String { "\(Int((fraction * 100).rounded())) %" }
 }

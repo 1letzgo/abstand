@@ -203,6 +203,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `reader/EbookProgressSync.kt` | eBook progress part of `AppModel` (`scheduleEbookProgressSync`, `flushEbookProgressSync`, `serverEbookFractionForReader`, `markEbookAsFinished`, `resetEbookReadingProgress`) |
 | `reader/EbookReaderLauncher.kt` (`EbookReaderLauncher.open(itemId)`, `EbookReaderSession`) | `AppModel.openAttachedEbook`, `ebookReaderSession` / `EbookReaderPresentation` |
 | `reader/EbookNarrationJumpController.kt` | `EbookNarrationJumpController` (EbookReadAlong.swift) |
+| `reader/EbookNarrationSync.kt` (`EbookNarrationSync`, `EbookReadingAnchorStore`) | `EbookNarrationSync`, `EbookReadingAnchorStore` (EbookReadAlong.swift) — Hörposition ↔ eBook-Wort in beide Richtungen, Player-Button „Jump to ebook position" |
 | `ui/reader/ReaderScreen.kt` (`EbookReaderOverlay`, `ReaderScreen`, `EbookServerPositionBanner`) | `ReadiumReaderView.swift`, `fullScreenCover` in `MainRootView` |
 | `ui/reader/ReaderNavigatorHost.kt` (`ReaderFragments`, `EpubNavigatorHost`) | `ReadiumNavigatorHost` / `ReaderNavigatorContainerViewController` |
 | `ui/reader/PdfPageReader.kt` (`PdfDocumentSource`, `PdfPageReader`) | Readium `PDFNavigatorViewController` (Android: platform `PdfRenderer`, Readium has no PDF engine on Maven Central) |

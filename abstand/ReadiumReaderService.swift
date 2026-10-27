@@ -101,20 +101,25 @@ final class ReadiumReaderService {
     }
   }
 
+  /// Seitenfarben im Paper-Look (Papier/Tinte wie die App, Sepia unverändert) statt Readiums Weiß/Schwarz.
   private func makeEPUBPreferences() -> EPUBPreferences {
-    EPUBPreferences(
+    let theme = EpubReaderSettings.loadTheme()
+    return EPUBPreferences(
+      backgroundColor: ReadiumNavigator.Color(uiColor: theme.pageBackgroundUIColor),
       fontSize: EpubReaderSettings.loadFontSize(),
       publisherStyles: false,
       scroll: EpubReaderSettings.loadContinuousScroll(),
-      theme: readiumTheme(from: EpubReaderSettings.loadTheme())
+      textColor: ReadiumNavigator.Color(uiColor: theme.pageTextUIColor),
+      theme: readiumTheme(from: theme)
     )
   }
 
   private func makePDFPreferences() -> PDFPreferences {
-    let theme = readiumTheme(from: EpubReaderSettings.loadTheme())
+    let theme = EpubReaderSettings.loadTheme()
     let continuous = EpubReaderSettings.loadContinuousScroll()
     return PDFPreferences(
-      backgroundColor: theme.backgroundColor,
+      backgroundColor: ReadiumNavigator.Color(uiColor: theme.pageBackgroundUIColor)
+        ?? readiumTheme(from: theme).backgroundColor,
       scroll: continuous,
       scrollAxis: continuous ? .vertical : nil
     )

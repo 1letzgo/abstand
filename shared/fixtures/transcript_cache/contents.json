@@ -6,7 +6,7 @@
     "transcriptFile": "t3-en-US.json",
     "alignment": {
         "magic": "0x41424C31",
-        "formatVersion": 2,
+        "formatVersion": 3,
         "byteOrder": "little-endian",
         "layout": "u32 magic, u32 version, i32 ebookWordCount, i32 spokenWordCount, f64 spokenEnd, i32 count, i32[count] words, f32[count] starts, f32[count] ends, u8[count] flags",
         "ebookWordCount": 1234,

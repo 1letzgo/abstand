@@ -1087,16 +1087,19 @@ struct AbstandProminentButtonStyle: ButtonStyle {
 
   /// Transport-Play u.ä.: Kapsel; Label liefert die Größe (kein Extra-Padding).
   var capsule = false
+  /// Eigene Palette statt der App-Appearance — z. B. im eBook-Reader mit eigenem Theme.
+  var palette: AppColorPalette? = nil
 
   func makeBody(configuration: Configuration) -> some View {
-    let fill = model.appearancePalette.textPrimary.opacity(
+    let palette = palette ?? model.appearancePalette
+    let fill = palette.textPrimary.opacity(
       AbstandPrimaryButtonStyle.fillOpacity(isPressed: configuration.isPressed, isEnabled: isEnabled)
     )
     configuration.label
       .font(.body.weight(.semibold))
       .padding(.horizontal, capsule ? 0 : 16)
       .padding(.vertical, capsule ? 0 : 8)
-      .foregroundStyle(model.appearancePalette.background)
+      .foregroundStyle(palette.background)
       .background(Capsule(style: .continuous).fill(fill))
       .scaleEffect(configuration.isPressed && isEnabled ? 0.98 : 1)
       .animation(.easeOut(duration: 0.12), value: configuration.isPressed)

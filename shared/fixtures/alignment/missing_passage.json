@@ -2,7 +2,7 @@
   "description" : "Audio-only intro (publisher announcement) before the text, and an ebook paragraph that the narrator skipped entirely.",
   "expected" : {
     "alignment" : {
-      "binBase64" : "MUxCQQIAAABwAAAARAAAAMP1KFyPgkRANgAAAAAAAAABAAAAAgAAAAMAAAAEAAAABQAAAAYAAAAHAAAACAAAAAkAAAAKAAAACwAAAAwAAAANAAAADgAAAA8AAAAQAAAAEQAAABIAAAATAAAAFAAAABUAAAAWAAAAFwAAABgAAAAZAAAAGgAAABsAAAAcAAAAVwAAAFgAAABZAAAAWgAAAFsAAABcAAAAXQAAAF4AAABfAAAAYAAAAGEAAABiAAAAYwAAAGQAAABlAAAAZgAAAGcAAABoAAAAaQAAAGoAAABrAAAAbAAAAG0AAABuAAAAbwAAAIXrGUEK1yNBFK43Qc3MQEE9CkdBexROQQAAWEEAAGRBFK5rQVK4ckGuR31BzcyCQcP1ikF7FI5B16OSQYXrl0GkcJtBZmagQR+Fo0E9CqdB16OqQQAArEEK169BZma0QYXrt0F7FLxBmpm\/QZqZxUFSuMhBZmboQR+F60EpXO9B4XryQQAA9kEK1\/1BFK4AQpqZAkL2KARChesFQgAACEKPwglCFK4LQqRwDUIfhQ9CrkcRQj0KE0K4HhVCj8IXQh+FGUKuRxtCPQodQs3MHkIpXCBCuB4iQlyPIkGamSlBH4U\/QY\/CRUHNzExBUrhWQVK4YkFmZmpBpHBxQQAAfEH2KIJBuB6HQaRwjUEAAJJBrkeXQc3MmkGPwp9BSOGiQWZmpkHXo6pBKVyrQTMzr0GPwrNBrke3QaRwu0HD9b5Bw\/XEQXsUyEGamctBSOHqQVK47kEK1\/FBKVz1QTMz+UEpXABCrkcCQgrXA0KamQVCFK4HQqRwCUIpXAtCuB4NQjMzD0LD9RBCUrgSQs3MFEKkcBdCMzMZQsP1GkJSuBxC4XoeQj0KIELNzCFCexQkQgEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==",
+      "binBase64" : "MUxCQQMAAABwAAAARAAAAMP1KFyPgkRANgAAAAAAAAABAAAAAgAAAAMAAAAEAAAABQAAAAYAAAAHAAAACAAAAAkAAAAKAAAACwAAAAwAAAANAAAADgAAAA8AAAAQAAAAEQAAABIAAAATAAAAFAAAABUAAAAWAAAAFwAAABgAAAAZAAAAGgAAABsAAAAcAAAAVwAAAFgAAABZAAAAWgAAAFsAAABcAAAAXQAAAF4AAABfAAAAYAAAAGEAAABiAAAAYwAAAGQAAABlAAAAZgAAAGcAAABoAAAAaQAAAGoAAABrAAAAbAAAAG0AAABuAAAAbwAAAIXrGUEK1yNBFK43Qc3MQEE9CkdBexROQQAAWEEAAGRBFK5rQVK4ckGuR31BzcyCQcP1ikF7FI5B16OSQYXrl0GkcJtBZmagQR+Fo0E9CqdB16OqQQAArEEK169BZma0QYXrt0F7FLxBmpm\/QZqZxUFSuMhBZmboQR+F60EpXO9B4XryQQAA9kEK1\/1BFK4AQpqZAkL2KARChesFQgAACEKPwglCFK4LQqRwDUIfhQ9CrkcRQj0KE0K4HhVCj8IXQh+FGUKuRxtCPQodQs3MHkIpXCBCuB4iQlyPIkGamSlBH4U\/QY\/CRUHNzExBUrhWQVK4YkFmZmpBpHBxQQAAfEH2KIJBuB6HQaRwjUEAAJJBrkeXQc3MmkGPwp9BSOGiQWZmpkHXo6pBKVyrQTMzr0GPwrNBrke3QaRwu0HD9b5Bw\/XEQXsUyEGamctBSOHqQVK47kEK1\/FBKVz1QTMz+UEpXABCrkcCQgrXA0KamQVCFK4HQqRwCUIpXAtCuB4NQjMzD0LD9RBCUrgSQs3MFEKkcBdCMzMZQsP1GkJSuBxC4XoeQj0KIELNzCFCexQkQgEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==",
       "ebookWordCount" : 112,
       "ends" : [
         10.159999847412109,
@@ -1268,377 +1268,584 @@
     ],
     "queries" : [
       {
+        "last" : null,
         "t" : 0,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 0.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 1,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 1.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 2,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 2.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 3,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 3.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 4,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 4.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 5.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 6,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 6.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 7,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 7.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 8,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 8.5,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 9,
         "word" : null
       },
       {
+        "last" : null,
         "t" : 9.5,
         "word" : null
       },
       {
+        "last" : 0,
         "t" : 10,
         "word" : 0
       },
       {
+        "last" : 1,
         "t" : 10.5,
         "word" : 1
       },
       {
+        "last" : 1,
         "t" : 11,
         "word" : 1
       },
       {
+        "last" : 2,
         "t" : 11.5,
         "word" : 2
       },
       {
+        "last" : 2,
         "t" : 12,
         "word" : 2
       },
       {
+        "last" : 4,
         "t" : 12.5,
         "word" : 4
       },
       {
+        "last" : 5,
         "t" : 13,
         "word" : 5
       },
       {
+        "last" : 6,
         "t" : 13.5,
         "word" : 6
       },
       {
+        "last" : 6,
         "t" : 14,
         "word" : 6
       },
       {
+        "last" : 7,
         "t" : 14.5,
         "word" : 7
       },
       {
+        "last" : 8,
         "t" : 15,
         "word" : 8
       },
       {
+        "last" : 9,
         "t" : 15.5,
         "word" : 9
       },
       {
+        "last" : 10,
         "t" : 16,
         "word" : 10
       },
       {
+        "last" : 11,
         "t" : 16.5,
         "word" : 11
       },
       {
+        "last" : 11,
         "t" : 17,
         "word" : 11
       },
       {
+        "last" : 12,
         "t" : 17.5,
         "word" : 12
       },
       {
+        "last" : 13,
         "t" : 18,
         "word" : 13
       },
       {
+        "last" : 14,
         "t" : 18.5,
         "word" : 14
       },
       {
+        "last" : 15,
         "t" : 19,
         "word" : 15
       },
       {
+        "last" : 16,
         "t" : 19.5,
         "word" : 16
       },
       {
+        "last" : 16,
         "t" : 20,
         "word" : 16
       },
       {
+        "last" : 18,
         "t" : 20.5,
         "word" : 18
       },
       {
+        "last" : 19,
         "t" : 21,
         "word" : 19
       },
       {
+        "last" : 21,
         "t" : 21.5,
         "word" : 21
       },
       {
+        "last" : 22,
         "t" : 22,
         "word" : 22
       },
       {
+        "last" : 22,
         "t" : 22.5,
         "word" : 22
       },
       {
+        "last" : 24,
         "t" : 23,
         "word" : 24
       },
       {
+        "last" : 24,
         "t" : 23.5,
         "word" : 24
       },
       {
+        "last" : 26,
         "t" : 24,
         "word" : 26
       },
       {
+        "last" : 26,
         "t" : 24.5,
         "word" : 26
       },
       {
+        "last" : 27,
         "t" : 25,
         "word" : 27
       },
       {
+        "last" : 28,
         "t" : 25.5,
         "word" : 28
       },
       {
+        "last" : 28,
         "t" : 26,
         "word" : 28
       },
       {
+        "last" : 28,
         "t" : 26.5,
         "word" : 28
       },
       {
+        "last" : 28,
         "t" : 27,
         "word" : 28
       },
       {
+        "last" : 28,
         "t" : 27.5,
         "word" : 28
       },
       {
+        "last" : 28,
         "t" : 28,
         "word" : 28
       },
       {
+        "last" : 28,
         "t" : 28.5,
         "word" : null
       },
       {
+        "last" : 28,
         "t" : 29,
         "word" : null
       },
       {
+        "last" : 88,
         "t" : 29.5,
         "word" : 88
       },
       {
+        "last" : 89,
         "t" : 30,
         "word" : 89
       },
       {
+        "last" : 90,
         "t" : 30.5,
         "word" : 90
       },
       {
+        "last" : 91,
         "t" : 31,
         "word" : 91
       },
       {
+        "last" : 91,
         "t" : 31.5,
         "word" : 91
       },
       {
+        "last" : 92,
         "t" : 32,
         "word" : 92
       },
       {
+        "last" : 93,
         "t" : 32.5,
         "word" : 93
       },
       {
+        "last" : 94,
         "t" : 33,
         "word" : 94
       },
       {
+        "last" : 96,
         "t" : 33.5,
         "word" : 96
       },
       {
+        "last" : 97,
         "t" : 34,
         "word" : 97
       },
       {
+        "last" : 98,
         "t" : 34.5,
         "word" : 98
       },
       {
+        "last" : 99,
         "t" : 35,
         "word" : 99
       },
       {
+        "last" : 100,
         "t" : 35.5,
         "word" : 100
       },
       {
+        "last" : 101,
         "t" : 36,
         "word" : 101
       },
       {
+        "last" : 102,
         "t" : 36.5,
         "word" : 102
       },
       {
+        "last" : 103,
         "t" : 37,
         "word" : 103
       },
       {
+        "last" : 104,
         "t" : 37.5,
         "word" : 104
       },
       {
+        "last" : 105,
         "t" : 38,
         "word" : 105
       },
       {
+        "last" : 106,
         "t" : 38.5,
         "word" : 106
       },
       {
+        "last" : 107,
         "t" : 39,
         "word" : 107
       },
       {
+        "last" : 108,
         "t" : 39.5,
         "word" : 108
       },
       {
+        "last" : 109,
         "t" : 40,
         "word" : 109
       },
       {
+        "last" : 110,
         "t" : 40.5,
         "word" : 110
       },
       {
+        "last" : 111,
         "t" : 41,
         "word" : 111
       },
       {
+        "last" : 111,
         "t" : 41.5,
         "word" : 111
       },
       {
+        "last" : 111,
         "t" : 42,
         "word" : 111
       },
       {
+        "last" : 111,
         "t" : 42.5,
         "word" : 111
       },
       {
+        "last" : 111,
         "t" : 43,
         "word" : 111
       },
       {
+        "last" : 111,
         "t" : 43.5,
         "word" : 111
       },
       {
+        "last" : 111,
         "t" : 44,
         "word" : 111
       },
       {
+        "last" : 111,
         "t" : 44.5,
         "word" : null
       },
       {
+        "last" : 111,
         "t" : 45,
         "word" : null
       },
       {
+        "last" : 111,
         "t" : 45.5,
         "word" : null
       },
       {
+        "last" : 111,
         "t" : 46,
         "word" : null
       }
+    ],
+    "wordTimes" : [
+      9.619999885559082,
+      10.239999771118164,
+      11.479999542236328,
+      12.050000190734863,
+      12.439999580383301,
+      12.880000114440918,
+      13.5,
+      14.25,
+      14.729999542236328,
+      15.170000076293945,
+      15.829999923706055,
+      16.350000381469727,
+      17.370000839233398,
+      17.760000228881836,
+      18.329999923706055,
+      18.989999771118164,
+      19.430000305175781,
+      20.049999237060547,
+      20.440000534057617,
+      20.879999160766602,
+      21.329999923706055,
+      21.5,
+      21.979999542236328,
+      22.549999237060547,
+      22.989999771118164,
+      23.510000228881836,
+      23.950000762939453,
+      24.700000762939453,
+      25.090000152587891,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.049999237060547,
+      29.440000534057617,
+      29.920000076293945,
+      30.309999465942383,
+      30.75,
+      31.729999542236328,
+      32.169998168945312,
+      32.650001525878906,
+      33.040000915527344,
+      33.479999542236328,
+      34,
+      34.439998626708984,
+      34.919998168945312,
+      35.360000610351562,
+      35.880001068115234,
+      36.319999694824219,
+      36.759998321533203,
+      37.279998779296875,
+      37.939998626708984,
+      38.380001068115234,
+      38.819999694824219,
+      39.259998321533203,
+      39.700000762939453,
+      40.090000152587891,
+      40.529998779296875
     ]
   },
   "generatedBy" : "Swift (abstand iOS EbookAudioAlignment.swift \/ ReadAlongText, unchanged) via android\/..\/shared fixture generator",

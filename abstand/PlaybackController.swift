@@ -2230,6 +2230,11 @@ final class PlaybackController: NSObject, ObservableObject {
     updateChapterUI(global: globalPosition)
   }
 
+  /// Kapiteltitel an einer globalen Position (z. B. für die Rückfrage vor einem Sprung).
+  func chapterTitle(atGlobal global: Double) -> String? {
+    chapterIndex(for: global).map { sortedChapters[$0].title }
+  }
+
   private func chapterIndex(for global: Double) -> Int? {
     guard !sortedChapters.isEmpty else { return nil }
     var idx = 0

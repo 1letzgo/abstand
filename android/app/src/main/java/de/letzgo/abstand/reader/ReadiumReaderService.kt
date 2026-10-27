@@ -159,6 +159,30 @@ object EbookTextIndexProvider {
         /** iOS: `Sentence.locator` mit Highlight-Kontext. */
         fun locator(segment: Int, text: de.letzgo.abstand.logic.LocatorTextContext): Locator? =
             segmentLocators.getOrNull(segment)?.copy(text = Locator.Text(before = text.before, highlight = text.highlight, after = text.after))
+
+        /** iOS: `EbookReadAlongIndex.wordPosition(for:)` — erstes Wort an einer Lese-Position (Kapitel = gleiches `href`). */
+        fun wordPosition(locator: Locator): Int? {
+            val href = resourcePath(locator.href.toString())
+            var first = -1
+            var last = -1
+            for ((i, sentence) in index.sentences.withIndex()) {
+                val segmentHref = segmentLocators.getOrNull(sentence.segment)?.href?.toString() ?: continue
+                if (resourcePath(segmentHref) != href) continue
+                if (first < 0) first = i
+                last = i
+            }
+            return index.wordPosition(
+                chapterSentences = if (first >= 0) first..last else null,
+                highlight = locator.text.highlight,
+                progression = locator.locations.progression,
+                totalProgression = locator.locations.totalProgression,
+            )
+        }
+
+        private fun resourcePath(href: String): String {
+            val path = href.substringBefore('#')
+            return runCatching { java.net.URLDecoder.decode(path.replace("+", "%2B"), "UTF-8") }.getOrDefault(path)
+        }
     }
 
     private val cache = HashMap<String, CompletableDeferred<Built?>>()

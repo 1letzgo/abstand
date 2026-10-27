@@ -82,6 +82,44 @@ class EbookReadAlongIndex(
 
     val isEmpty: Boolean get() = words.isEmpty()
 
+    /** iOS: `uniquePositions` — je Wort-ID die einzige Position im eBook, -1 bei mehrfachem Vorkommen. */
+    val uniquePositions: IntArray = IntArray(vocabulary.size) { -2 }.also { out ->
+        for ((position, id) in ids.withIndex()) out[id] = if (out[id] == -2) position else -1
+    }
+
+    /** iOS: `uniquePosition(ofWordId:)` — seltene Wörter als Fixpunkte im Abgleich. */
+    fun uniquePosition(ofWordId: Int): Int? = uniquePositions.getOrNull(ofWordId)?.takeIf { it >= 0 }
+
+    /**
+     * iOS: `wordPosition(for:)` — erstes eBook-Wort an einer Lese-Position. [chapterSentences] sind die
+     * Sätze des Kapitels (gleiches `href`, `null` = unbekannt). Mit [highlight] (Text des ersten sichtbaren
+     * Elements) wird dessen Wortfolge im Kapitel gesucht, sonst anteilig über [progression] geschätzt;
+     * ohne Kapitel über [totalProgression].
+     */
+    fun wordPosition(chapterSentences: IntRange?, highlight: String?, progression: Double?, totalProgression: Double?): Int? {
+        if (words.isEmpty()) return null
+        if (chapterSentences == null || chapterSentences.isEmpty()) {
+            val fraction = totalProgression ?: 0.0
+            return (fraction * words.size).toInt().coerceIn(0, words.size - 1)
+        }
+        val first = wordRange(chapterSentences.first).first
+        val end = wordRange(chapterSentences.last).last + 1
+        if (first >= end) return null
+        if (highlight != null) wordSequence(ReadAlongText.words(highlight).map { it.word }, first, end)?.let { return it }
+        val p = (progression ?: 0.0).coerceIn(0.0, 1.0)
+        return minOf(end - 1, first + (p * (end - first)).toInt())
+    }
+
+    /** Erste Stelle, an der die ersten (bis zu acht) Wörter von [needle] lückenlos stehen. */
+    private fun wordSequence(needle: List<String>, from: Int, until: Int): Int? {
+        val probe = needle.take(8)
+        if (probe.size < 3 || until - from < probe.size) return null
+        for (start in from..(until - probe.size)) {
+            if (probe.indices.all { words[start + it].normalized == probe[it] }) return start
+        }
+        return null
+    }
+
     /** Wörter eines Satzes (nach Satz sortiert → Binärsuche); halboffen `first until last`. */
     fun wordRange(ofSentence: Int): IntRange {
         fun firstWord(target: Int): Int {
@@ -196,7 +234,7 @@ object EbookNarrationJump {
     /** Nach einem programmatischen Sprung so lange Positionsänderungen nicht als Nutzer-Blättern werten. */
     const val PROGRAMMATIC_NAVIGATION_GRACE_SECONDS = 1.5
 
-    const val NOTICE_DOWNLOAD_REQUIRED = "Download the audiobook to jump to its position in the ebook."
+    const val NOTICE_DOWNLOAD_REQUIRED = "Download the audiobook to jump between it and the ebook."
     const val NOTICE_EBOOK_UNREADABLE = "The ebook couldn't be read."
     const val NOTICE_NOT_MATCHED =
         "This part of the audiobook can't be matched to the ebook yet. If its transcript is still being prepared, try again later."
