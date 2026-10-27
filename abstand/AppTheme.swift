@@ -687,10 +687,9 @@ extension View {
     modifier(AbstandTabScreenChromeModifier())
   }
 
-  /// Tab-Root-Großtitel. Bleibt System-Schrift (Leiste ist System-Chrome); Paper-Serife nur im Inhalt.
+  /// Tab-Root-Großtitel in Paper-Serife und Tinte — gleiche Schrift wie `TabContentSectionTitle`.
   func abstandTabLargeTitle(_ title: String) -> some View {
-    navigationTitle(title)
-      .toolbarTitleDisplayMode(.inlineLarge)
+    modifier(AbstandTabLargeTitleModifier(title: title))
   }
 
   /// Home-Tab: Großtitel + sichtbare Nav-Bar (wie Library/Podcasts).
@@ -1339,4 +1338,32 @@ func formatPlaybackDurationShortHuman(_ seconds: Double) -> String {
   if h > 0 { parts.append(h == 1 ? "1 hr" : "\(h) hrs") }
   if m > 0 { parts.append(m == 1 ? "1 min" : "\(m) min") }
   return parts.joined(separator: " ")
+}
+
+/// Paper-Großtitel der Tab-Roots: iOS 26 zeichnet den `inlineLarge`-Titel selbst und ignoriert
+/// UIKit-Titelattribute. Darum System-Titel ausblenden (`navigationTitle` bleibt für Zurück-Taste
+/// und VoiceOver) und denselben Text als Leisten-Element ohne Glas-Plakette setzen — Serife und
+/// Tinte wie `TabContentSectionTitle`.
+private struct AbstandTabLargeTitleModifier: ViewModifier {
+  @EnvironmentObject private var model: AppModel
+  let title: String
+
+  func body(content: Content) -> some View {
+    content
+      .navigationTitle(title)
+      .toolbarTitleDisplayMode(.inline)
+      .toolbar(removing: .title)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Text(title)
+            .font(.largeTitle.weight(.semibold))
+            .fontDesign(AppTheme.Typography.titleDesign)
+            .foregroundStyle(model.appearancePalette.textPrimary)
+            .lineLimit(1)
+            .fixedSize()
+            .accessibilityAddTraits(.isHeader)
+        }
+        .sharedBackgroundVisibility(.hidden)
+      }
+  }
 }
