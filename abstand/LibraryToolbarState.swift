@@ -587,8 +587,7 @@ struct BooksLibraryTabShell<Catalog: View>: View {
     NavigationStack {
       catalog()
         .abstandTabScreenChrome()
-        .navigationTitle(AppModel.MainTab.library.rawValue)
-        .toolbarTitleDisplayMode(.inlineLarge)
+        .abstandTabLargeTitle(AppModel.MainTab.library.rawValue)
         .modifier(BooksLibraryToolbarModifier(toolbarState: toolbarState))
         .booksEntityDetailNavigation(for: .library)
     }
@@ -706,8 +705,7 @@ struct PodcastCatalogTabShell<Catalog: View>: View {
     return NavigationStack(path: $navigationPath) {
       catalog()
         .abstandTabScreenChrome()
-        .navigationTitle(AppModel.MainTab.podcasts.rawValue)
-        .toolbarTitleDisplayMode(.inlineLarge)
+        .abstandTabLargeTitle(AppModel.MainTab.podcasts.rawValue)
         .navigationDestination(for: PodcastCatalogNavigation.self) { destination in
           switch destination {
           case .addPodcast:

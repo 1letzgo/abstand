@@ -306,7 +306,6 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
   // (Download-Fortschritt, Ticks …) — das Tab-Zubehör baute sich laufend neu und riss die
   // Navigationsleiste (Books-Dropdowns) mit. Daten kommen nur über `snapshot` (Player-Ereignisse),
   // Farben über die Palette + Revision-Key (erlaubte Ausnahme, siehe CLAUDE.md).
-  @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -366,8 +365,9 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
       miniCover
       VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
         Text(snapshot.primaryLine)
-          .font(.footnote)
-          .fontWeight(.medium)
+          .font(.subheadline)
+          .fontWeight(.semibold)
+          .fontDesign(AppTheme.Typography.titleDesign)
           .foregroundStyle(palette.textPrimary)
           .lineLimit(1)
           .frame(maxWidth: .infinity, alignment: .leading)
@@ -387,8 +387,6 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
   private var transportControls: some View {
     let _ = themeRevision
     let busy = snapshot.canTogglePlayback && snapshot.isBuffering
-    let playWidth: CGFloat = 52
-    let playHeight: CGFloat = 36
     return HStack(spacing: AppTheme.Layout.stackSpacing) {
       Button {
         chrome.skipBackward()
@@ -410,19 +408,18 @@ private struct TabAccessoryMiniPlayer: View, Equatable {
       Button {
         chrome.togglePlayPause()
       } label: {
+        // Paper: schlichtes Tinten-Symbol wie die System-Miniplayer — kein Akzent-Fleck in der Leiste.
         ZStack {
-          Capsule(style: .continuous)
-            .fill(themeAccent)
-            .frame(width: playWidth, height: playHeight)
           if busy {
             ProgressView()
               .progressViewStyle(.circular)
-              .tint(palette.foregroundOnAccent(themeAccent))
+              .tint(palette.textPrimary)
               .scaleEffect(0.72)
           } else {
             Image(systemName: snapshot.isPlaying ? "pause.fill" : "play.fill")
-              .font(.footnote.weight(.semibold))
-              .foregroundStyle(palette.foregroundOnAccent(themeAccent))
+              .font(.title3.weight(.semibold))
+              .foregroundStyle(palette.textPrimary)
+              .contentTransition(.symbolEffect(.replace))
           }
         }
         .frame(width: Self.accessoryTransportSide, height: Self.accessoryTransportSide)

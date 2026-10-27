@@ -206,6 +206,9 @@ struct MainRootView: View {
       }
     }
     .tabBarMinimizeBehavior(.onScrollDown)
+    // Paper: Tab-Auswahl und Bedienelemente in Tinte; der Akzent (Zinnober) bleibt Fortschritt
+    // und Links vorbehalten (`themeAccent`).
+    .tint(model.appearancePalette.textPrimary)
   }
 
   /// Platzhalter bis Bibliotheken aus Bootstrap da sind — Tab-Struktur bleibt stabil.
@@ -233,8 +236,7 @@ struct MainRootView: View {
     NavigationStack {
       SettingsHubRootView()
         .abstandTabScreenChrome()
-        .navigationTitle(AppModel.MainTab.settings.rawValue)
-        .toolbarTitleDisplayMode(.inlineLarge)
+        .abstandTabLargeTitle(AppModel.MainTab.settings.rawValue)
     }
     .tint(model.appearanceAccentColor)
   }

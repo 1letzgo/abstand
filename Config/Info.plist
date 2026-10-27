@@ -21,6 +21,12 @@
 			</array>
 		</dict>
 	</dict>
+	<!-- Startbildschirm in Paper-Farbe (Papier hell / Tinte dunkel), sonst blitzt Weiß vor dem ersten Frame. -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

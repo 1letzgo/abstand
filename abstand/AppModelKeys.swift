@@ -78,6 +78,8 @@ extension AppModel {
   static let appearanceAccentRGBDark = "abstand_appearance_accent_rgb_dark"
   static let appearanceAccentRGBLight = "abstand_appearance_accent_rgb_light"
   static let appearanceMode = "abstand_appearance_mode"
+  /// Einmalig: alte Standard-Akzente (Gelb/Petrol) auf Paper-Zinnober umstellen.
+  static let appearancePaperAccentMigrated = "abstand_appearance_paper_accent_migrated"
   static let libraryBookCardStyle = "abstand_library_book_card_style"
   static let libraryPodcastCardStyle = "abstand_library_podcast_card_style"
   static let translationTargetLanguageCode = "abstand_translation_target_language"

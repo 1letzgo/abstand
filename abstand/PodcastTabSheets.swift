@@ -254,7 +254,7 @@ private struct PodcastChartsCategoryPillStrip: View {
   var body: some View {
     let colors = AppTheme.ExpandingDock.Colors(
       palette: model.appearancePalette,
-      accent: themeAccent
+      accent: model.appearancePalette.textPrimary
     )
     AbstandHorizontalBrowseStripScroll(verticalContentPadding: AppTheme.Layout.pillVerticalPadding) {
       HStack(spacing: AppTheme.ExpandingDock.itemSpacing) {
@@ -380,7 +380,7 @@ private struct PodcastDirectoryHitRow: View {
         if model.podcastSubscribeInProgressDirectoryHitId == hit.id {
           ProgressView()
             .controlSize(.small)
-            .tint(model.appearancePalette.foregroundOnAccent(model.appearanceAccentColor))
+            .tint(model.appearancePalette.background)
         } else {
           Text("Subscribe")
         }

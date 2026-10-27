@@ -1031,12 +1031,12 @@ private struct FullPlayerTransportRowChrome: View, Equatable {
           if isBusy {
             ProgressView()
               .controlSize(.large)
-              .tint(model.appearancePalette.foregroundOnAccent(themeAccent))
+              .tint(model.appearancePalette.background)
           } else {
             Image(systemName: snapshot.isPlaying ? "pause.fill" : "play.fill")
               .font(.largeTitle)
               .symbolVariant(.fill)
-              .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
+              .foregroundStyle(model.appearancePalette.background)
           }
         }
         .frame(width: MiniPlayerMetrics.playPauseButtonWidth, height: AppTheme.Layout.minTapTarget)
@@ -1706,6 +1706,12 @@ struct NowPlayingDetailView: View {
     }
   }
 
+  /// Kastenfläche in der Farbfamilie des Cover-Hintergrunds (wie die Panel-Buttons) — die warme
+  /// Paper-Karte wirkt auf kühlen Cover-Tönen schmutzig.
+  private var fullPlayerPanelSurface: Color {
+    detailSectionCardTint(forBackgroundTint: resolvedFullPlayerCoverTint)
+  }
+
   /// Quadratische Cover-Karte (1:1) — füllt die zugeteilte Fläche (mit Rand-Marge).
   /// `containerRelativeFrame` löst hier nicht zuverlässig gegen die tatsächlich verfügbare
   /// Breite auf (z. B. im Landscape-Layout nur die halbe HStack-Spalte statt ganzer Screen) —
@@ -1718,7 +1724,7 @@ struct NowPlayingDetailView: View {
     let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
     return overlay()
       .aspectRatio(1, contentMode: .fit)
-      .background(model.appearancePalette.card.opacity(cardOpacity), in: shape)
+      .background(fullPlayerPanelSurface.opacity(cardOpacity), in: shape)
       .clipShape(shape)
       .overlay {
         shape.strokeBorder(.separator.opacity(0.35), lineWidth: AppTheme.Layout.hairlineStrokeWidth)
@@ -1751,7 +1757,7 @@ struct NowPlayingDetailView: View {
     let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
     return Color.clear
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(model.appearancePalette.card.opacity(cardOpacity), in: shape)
+      .background(fullPlayerPanelSurface.opacity(cardOpacity), in: shape)
       .overlay {
         overlay()
       }
@@ -1832,10 +1838,9 @@ struct NowPlayingDetailView: View {
         VStack(spacing: FullPlayerCoverOverlayMetrics.teleprompterControlsSpacingAbove) {
           VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
             Text("Bookmarks")
-              .font(.caption.weight(.bold))
+              .font(.subheadline.weight(.semibold))
+              .fontDesign(AppTheme.Typography.titleDesign)
               .foregroundStyle(model.appearancePalette.textSecondary)
-              .textCase(.uppercase)
-              .tracking(0.6)
             ScrollView {
               AudiobookBookmarkListView(libraryItemId: audiobookId) { mark in
                 Task { await model.jumpToBookmark(mark, autoPlay: true) }
@@ -1870,10 +1875,9 @@ struct NowPlayingDetailView: View {
     let pad = PlayerTeleprompterMetrics.cardContentPadding
     return VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
       Text(title)
-        .font(.caption.weight(.bold))
+        .font(.subheadline.weight(.semibold))
+        .fontDesign(AppTheme.Typography.titleDesign)
         .foregroundStyle(model.appearancePalette.textSecondary)
-        .textCase(.uppercase)
-        .tracking(0.6)
         .padding(.horizontal, pad)
         .padding(.top, pad)
       ScrollView {
@@ -2444,7 +2448,7 @@ struct FullPlayerCoverOverlayButton: View {
     }
     return AppTheme.ExpandingDock.Colors(
       palette: palette,
-      accent: themeAccent
+      accent: palette.textPrimary
     )
   }
 

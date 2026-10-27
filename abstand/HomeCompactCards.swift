@@ -42,6 +42,7 @@ struct HomeCompactCard<Cover: View, Footer: View, Badges: View>: View {
           VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
             Text(title)
               .font(.headline.weight(.semibold))
+              .fontDesign(AppTheme.Typography.titleDesign)
               .foregroundStyle(palette.textPrimary)
               .lineLimit(1)
               .truncationMode(.tail)

@@ -23,6 +23,7 @@ struct ContinueListeningHeroMetadataBlock: View {
     VStack(alignment: .leading, spacing: AppTheme.Layout.continueHeroMetadataTitleDetailSpacing) {
       Text(title)
         .font(.headline.weight(.semibold))
+        .fontDesign(AppTheme.Typography.titleDesign)
         .foregroundStyle(titleColor)
         .lineLimit(2)
         .multilineTextAlignment(.leading)

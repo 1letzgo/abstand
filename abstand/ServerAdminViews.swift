@@ -1174,7 +1174,7 @@ struct SettingsChangePasswordView: View {
               if busy {
                 ProgressView()
                   .controlSize(.small)
-                  .tint(model.appearancePalette.foregroundOnAccent(model.appearanceAccentColor))
+                  .tint(model.appearancePalette.background)
               }
               Text("Save password")
             }

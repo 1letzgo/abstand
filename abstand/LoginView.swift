@@ -22,7 +22,8 @@ struct LoginView: View {
         VStack(alignment: .leading, spacing: AppTheme.Layout.blockSpacing) {
           VStack(alignment: .leading, spacing: AppTheme.Layout.compactSpacing) {
             Text(addAccountMode ? "Add account" : "Abstand")
-              .font(.largeTitle.bold())
+              .font(.largeTitle.weight(.semibold))
+              .fontDesign(AppTheme.Typography.titleDesign)
               .foregroundStyle(model.appearancePalette.textPrimary)
             if !addAccountMode {
               Text("Audiobookshelf")
@@ -88,7 +89,7 @@ struct LoginView: View {
             HStack(spacing: AppTheme.Layout.inlineSpacing) {
               if busy {
                 ProgressView()
-                  .tint(model.appearancePalette.foregroundOnAccent(model.appearanceAccentColor))
+                  .tint(model.appearancePalette.background)
               }
               Text(addAccountMode ? "Add account" : "Sign in")
             }

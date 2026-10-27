@@ -69,6 +69,7 @@ struct PodcastRssFeedDraftRow: View {
           VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
             Text(draft.title)
               .font(.headline.weight(.semibold))
+              .fontDesign(AppTheme.Typography.titleDesign)
               .foregroundStyle(palette.textPrimary)
               .lineLimit(1)
               .truncationMode(.tail)
@@ -213,10 +214,10 @@ struct LibraryRowCollapsedMetaLine: View {
     let resolvedValue = valueColor ?? palette.textPrimary
     let resolvedEmpty = labelColor ?? palette.textSecondary
     HStack(alignment: .firstTextBaseline, spacing: AppTheme.Layout.compactSpacing) {
+      // Paper: Label leise in Sekundärfarbe, keine Versalien.
       Text(label)
-        .font(.footnote.weight(.semibold))
+        .font(.footnote)
         .foregroundStyle(resolvedLabel)
-        .textCase(.uppercase)
       let line = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       if line.isEmpty || line == "—" {
         Text("—")
@@ -374,10 +375,11 @@ private struct ContinueHeroPlayPillButton: View {
           .lineLimit(1)
           .minimumScaleFactor(0.75)
       }
-      .foregroundStyle(palette.foregroundOnAccent(accent))
+      // Paper: Tinten-Kapsel — Zinnober bleibt Fortschritt vorbehalten.
+      .foregroundStyle(palette.background)
       .padding(.horizontal, AppTheme.Layout.rowSpacing)
       .padding(.vertical, AppTheme.Layout.stackSpacing)
-      .background(accent, in: Capsule())
+      .background(palette.textPrimary, in: Capsule())
     }
     .buttonStyle(.plain)
     .accessibilityLabel(showsPause ? "Pause" : "Play")
@@ -502,6 +504,7 @@ struct PodcastEpisodeRowCard: View {
             HStack(alignment: .firstTextBaseline, spacing: AppTheme.Layout.compactSpacing) {
               Text(episode.episodeTitle)
                 .font(.headline.weight(.semibold))
+                .fontDesign(AppTheme.Typography.titleDesign)
                 .foregroundStyle(model.appearancePalette.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -821,7 +824,6 @@ struct ContinueListeningHeroBookCard: View {
   let book: ABSBook
   var cardWidth: CGFloat = AppTheme.Layout.continueHeroCardWidth
   @State private var rowLive: LibraryBookRowLiveState
-  @State private var tint: Color = AppTheme.card
   @State private var showDetail = false
 
   init(book: ABSBook, model: AppModel, cardWidth: CGFloat = AppTheme.Layout.continueHeroCardWidth) {
@@ -830,12 +832,6 @@ struct ContinueListeningHeroBookCard: View {
     _rowLive = State(
       wrappedValue: LibraryBookRowLiveState(bookId: book.id, model: model)
     )
-    let seeded = CoverDerivedTintLoader.colorFromDiskOrCoverCache(
-      account: model.coverImageCacheAccountDirectory(),
-      itemId: book.id,
-      revision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
-    )
-    _tint = State(initialValue: seeded ?? model.appearancePalette.card)
   }
 
   private var prog: ABSUserMediaProgress? { rowLive.progress }
@@ -882,7 +878,7 @@ struct ContinueListeningHeroBookCard: View {
 
     VStack(alignment: .leading, spacing: 0) {
       ZStack(alignment: .bottom) {
-        tint
+        model.appearancePalette.card
           .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         CoverImageView(
@@ -933,7 +929,6 @@ struct ContinueListeningHeroBookCard: View {
         detailValue: continueHeroAuthorSingleLine(for: book),
         horizontalInset: coverInset,
         onTitleTap: { showDetail = true },
-        cardTint: tint
       ) {
         let isFinished = prog?.isFinished == true
         continueHeroPlayPill(
@@ -957,38 +952,17 @@ struct ContinueListeningHeroBookCard: View {
           }
         }
       }
-      .background(tint)
+      .background(model.appearancePalette.card)
     }
     // Höhe aus dem Inhalt (Cover + skalierter Textblock) — eine feste Gesamthöhe aus unskalierten
     // Konstanten ließ bei abweichender Textgröße Luft unter der Play-Pille (anders als Library-/Home-Cards).
     .frame(width: w, alignment: .top)
     .fixedSize(horizontal: false, vertical: true)
-    .background(tint)
+    .background(model.appearancePalette.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous))
     .abstandHeroCardOutline(palette: model.appearancePalette)
-    // `updatedAt` mit im Key: nach Cover-/Metadaten-Änderung die Hintergrundfarbe neu ableiten.
-    .task(id: "\(book.id)|\(book.updatedAt?.timeIntervalSince1970 ?? 0)") {
-      await refreshContinueHeroTint()
-    }
-    .onChange(of: model.appearanceThemeRevision) { _, _ in
-      Task { await refreshContinueHeroTint() }
-    }
     .navigationDestination(isPresented: $showDetail) {
       BookDetailView(bookId: book.id)
-    }
-  }
-
-  private func refreshContinueHeroTint() async {
-    let account = model.coverImageCacheAccountDirectory()
-    let revision = model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
-    if let c = await CoverDerivedTintLoader.loadColor(
-      account: account,
-      itemId: book.id,
-      revision: revision,
-      coverURL: model.coverURL(for: book.id),
-      token: model.token
-    ) {
-      tint = c
     }
   }
 }
@@ -998,7 +972,6 @@ struct ContinueListeningHeroPodcastCard: View {
   let episode: ABSPodcastEpisodeListItem
   var cardWidth: CGFloat = AppTheme.Layout.continueHeroCardWidth
   @State private var rowLive: LibraryPodcastEpisodeRowLiveState
-  @State private var tint: Color = AppTheme.card
   @State private var showDetail = false
 
   init(
@@ -1015,13 +988,6 @@ struct ContinueListeningHeroPodcastCard: View {
         model: model
       )
     )
-    let itemId = episode.libraryItemId
-    let seeded = CoverDerivedTintLoader.colorFromDiskOrCoverCache(
-      account: model.coverImageCacheAccountDirectory(),
-      itemId: itemId,
-      revision: model.coverImageCacheRevision(forBookId: itemId)
-    )
-    _tint = State(initialValue: seeded ?? model.appearancePalette.card)
   }
 
   private var prog: ABSUserMediaProgress? { rowLive.progress }
@@ -1080,7 +1046,7 @@ struct ContinueListeningHeroPodcastCard: View {
 
     VStack(alignment: .leading, spacing: 0) {
       ZStack(alignment: .bottom) {
-        tint
+        model.appearancePalette.card
           .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         CoverImageView(
@@ -1134,7 +1100,6 @@ struct ContinueListeningHeroPodcastCard: View {
         }(),
         horizontalInset: coverInset,
         onTitleTap: { showDetail = true },
-        cardTint: tint
       ) {
         let isFinished = prog?.isFinished == true
         continueHeroPlayPill(
@@ -1158,38 +1123,17 @@ struct ContinueListeningHeroPodcastCard: View {
           }
         }
       }
-      .background(tint)
+      .background(model.appearancePalette.card)
     }
     // Höhe aus dem Inhalt (Cover + skalierter Textblock) — eine feste Gesamthöhe aus unskalierten
     // Konstanten ließ bei abweichender Textgröße Luft unter der Play-Pille (anders als Library-/Home-Cards).
     .frame(width: w, alignment: .top)
     .fixedSize(horizontal: false, vertical: true)
-    .background(tint)
+    .background(model.appearancePalette.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous))
     .abstandHeroCardOutline(palette: model.appearancePalette)
-    .task(id: episode.progressLookupKey) {
-      await refreshContinueHeroTint()
-    }
-    .onChange(of: model.appearanceThemeRevision) { _, _ in
-      Task { await refreshContinueHeroTint() }
-    }
     .navigationDestination(isPresented: $showDetail) {
       PodcastEpisodeDetailView(episode: episode)
-    }
-  }
-
-  private func refreshContinueHeroTint() async {
-    let account = model.coverImageCacheAccountDirectory()
-    let itemId = episode.libraryItemId
-    let revision = model.coverImageCacheRevision(forBookId: itemId)
-    if let c = await CoverDerivedTintLoader.loadColor(
-      account: account,
-      itemId: itemId,
-      revision: revision,
-      coverURL: model.coverURL(for: itemId),
-      token: model.token
-    ) {
-      tint = c
     }
   }
 }
@@ -1427,6 +1371,7 @@ struct BrowseEntityRowCard: View {
         VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
           Text(title)
             .font(.headline.weight(.semibold))
+            .fontDesign(AppTheme.Typography.titleDesign)
             .foregroundStyle(model.appearancePalette.textPrimary)
             .lineLimit(1)
             .truncationMode(.tail)
@@ -1478,6 +1423,7 @@ struct PodcastShowRowCard: View {
           VStack(alignment: .leading, spacing: AppTheme.Layout.hairlineSpacing) {
             Text(show.displayTitle)
               .font(.headline.weight(.semibold))
+              .fontDesign(AppTheme.Typography.titleDesign)
               .foregroundStyle(palette.textPrimary)
               .lineLimit(1)
               .truncationMode(.tail)
@@ -1811,10 +1757,11 @@ private struct LibraryRowPlayPill: View {
     } label: {
       Image(systemName: showsPause ? "pause.fill" : "play.fill")
         .font(.caption.weight(.bold))
-        .foregroundStyle(model.appearancePalette.foregroundOnAccent(accent))
+        // Paper: Tinten-Kapsel wie die Continue-Karten.
+        .foregroundStyle(model.appearancePalette.background)
         .padding(.horizontal, AppTheme.Layout.cardPadding)
         .padding(.vertical, AppTheme.Layout.stackSpacing)
-        .background(accent, in: Capsule())
+        .background(model.appearancePalette.textPrimary, in: Capsule())
     }
     .buttonStyle(.plain)
     .accessibilityLabel(showsPause ? "Pause" : "Play")
@@ -2678,6 +2625,7 @@ struct BookRowCard: View {
     HStack(alignment: .firstTextBaseline, spacing: AppTheme.Layout.compactSpacing) {
       Text(book.displayTitle)
         .font(.headline.weight(.semibold))
+        .fontDesign(AppTheme.Typography.titleDesign)
         .foregroundStyle(model.appearancePalette.textPrimary)
         .lineLimit(1)
         .truncationMode(.tail)

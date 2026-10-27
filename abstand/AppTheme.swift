@@ -7,7 +7,7 @@ import UIKit
 @MainActor
 enum AppTheme {
   private(set) static var palette: AppColorPalette = AppColorPalette.derived(
-    from: defaultAccent, isDarkLike: true)
+    from: defaultLightAccent, isDarkLike: false)
 
   static var background: Color { palette.background }
   static var card: Color { palette.card }
@@ -63,11 +63,11 @@ enum AppTheme {
     }
   }
 
-  /// Dark-Mode-Akzent (Standard Gelb).
-  nonisolated static let defaultAccent = Color(red: 251 / 255, green: 192 / 255, blue: 45 / 255)
-  /// Light-Mode-Akzent (Standard #00374A).
-  nonisolated static let defaultLightAccent = Color(red: 0 / 255, green: 55 / 255, blue: 74 / 255)
-  /// Aktuelle Akzentfarbe (Standard: Gelb; überschreibbar in Einstellungen → Appearance).
+  /// Dark-Mode-Akzent (Paper: Zinnober, aufgehellt für Tinte).
+  nonisolated static let defaultAccent = Color(red: 224 / 255, green: 99 / 255, blue: 79 / 255)
+  /// Light-Mode-Akzent (Paper: Zinnober #B3261E).
+  nonisolated static let defaultLightAccent = Color(red: 179 / 255, green: 38 / 255, blue: 30 / 255)
+  /// Aktuelle Akzentfarbe (Standard: Zinnober; überschreibbar in Einstellungen → Appearance).
   /// In SwiftUI-Views bevorzugt `Color.accentColor` (folgt `.tint` am Root). `AppTheme.accent` für UIKit/Charts.
   private(set) static var accent: Color = defaultAccent
   nonisolated static let danger = Color(red: 0.92, green: 0.32, blue: 0.32)
@@ -106,6 +106,8 @@ enum AppTheme {
       let inactiveForeground: Color
       let activeShadow: Color
 
+      /// Paper: App-Leisten übergeben Tinte (`palette.textPrimary`) als `accent` — Zinnober bleibt
+      /// Fortschritt und Daten vorbehalten; der Player übergibt seine Cover-Farbfamilie.
       init(palette: AppColorPalette, accent: Color, inactiveBackground: Color? = nil) {
         activeBackground = accent
         activeForeground = palette.foregroundOnAccent(accent)
@@ -120,6 +122,8 @@ enum AppTheme {
     guard palette != newPalette else { return }
     palette = newPalette
     configureTabBarAppearance()
+    let appearance = makeTabBarAppearance()
+    refreshLiveTabBars(appearance: appearance)
   }
 
   /// Raster für Tabs, Listen und Karten (Home / Books / …).
@@ -431,8 +435,13 @@ enum AppTheme {
     applyTabBarAppearanceToUIKitProxy(appearance)
   }
 
+  /// Paper-Typografie: Serife für Inhalts-Titel (Buch, Sektion), System-Sans für Metadaten und Leisten.
+  enum Typography {
+    nonisolated static let titleDesign: Font.Design = .serif
+  }
+
   private static func makeTabBarAppearance() -> UITabBarAppearance {
-    let selectedAccent = UIColor(accent)
+    let selectedAccent = UIColor(textPrimary)
     let appearance = UITabBarAppearance()
     appearance.configureWithTransparentBackground()
     appearance.backgroundEffect = nil
@@ -452,7 +461,7 @@ enum AppTheme {
     let bar = UITabBar.appearance()
     bar.standardAppearance = appearance
     bar.scrollEdgeAppearance = appearance
-    bar.tintColor = UIColor(accent)
+    bar.tintColor = UIColor(textPrimary)
     bar.isTranslucent = true
     bar.backgroundColor = .clear
     bar.barTintColor = .clear
@@ -460,7 +469,7 @@ enum AppTheme {
 
   /// Bereits sichtbare `UITabBar`-Instanzen (SwiftUI `TabView`) sofort aktualisieren.
   private static func refreshLiveTabBars(appearance: UITabBarAppearance) {
-    let uiAccent = UIColor(accent)
+    let uiAccent = UIColor(textPrimary)
     for scene in UIApplication.shared.connectedScenes {
       guard let windowScene = scene as? UIWindowScene else { continue }
       for window in windowScene.windows {
@@ -678,10 +687,15 @@ extension View {
     modifier(AbstandTabScreenChromeModifier())
   }
 
+  /// Tab-Root-Großtitel. Bleibt System-Schrift (Leiste ist System-Chrome); Paper-Serife nur im Inhalt.
+  func abstandTabLargeTitle(_ title: String) -> some View {
+    navigationTitle(title)
+      .toolbarTitleDisplayMode(.inlineLarge)
+  }
+
   /// Home-Tab: Großtitel + sichtbare Nav-Bar (wie Library/Podcasts).
   func abstandHomeTabNavigationTitle() -> some View {
-    navigationTitle(AppModel.MainTab.start.rawValue)
-      .toolbarTitleDisplayMode(.inlineLarge)
+    abstandTabLargeTitle(AppModel.MainTab.start.rawValue)
       .toolbar(.visible, for: .navigationBar)
       .toolbarVisibility(.visible, for: .navigationBar)
       .toolbarVisibility(.visible, for: .automatic)
@@ -995,8 +1009,24 @@ extension View {
     shape: S,
     elevation: AppTheme.CardElevation = .standard
   ) -> some View {
-    background(fill)
+    modifier(AbstandCardChromeModifier(fill: fill, shape: shape, elevation: elevation))
+  }
+}
+
+/// Paper: Bogen auf Papier — Füllung, Form, Haarlinie in `palette.rule`, nur ein Hauch Schatten.
+private struct AbstandCardChromeModifier<S: Shape>: ViewModifier {
+  @EnvironmentObject private var model: AppModel
+  let fill: Color
+  let shape: S
+  let elevation: AppTheme.CardElevation
+
+  func body(content: Content) -> some View {
+    content
+      .background(fill)
       .clipShape(shape)
+      .overlay {
+        shape.stroke(model.appearancePalette.rule, lineWidth: AppTheme.Layout.hairlineWidth)
+      }
       .abstandCardElevation(elevation)
   }
 }
@@ -1024,10 +1054,9 @@ private struct AbstandCardElevationModifier: ViewModifier {
   }
 }
 
-/// Primäraktion (Login, Bestätigen) — Appearance-Akzent mit Druck-Feedback.
+/// Primäraktion (Login, Bestätigen) — Paper: Tinten-Kapsel mit Druck-Feedback.
 struct AbstandPrimaryButtonStyle: ButtonStyle {
   @EnvironmentObject private var model: AppModel
-  @Environment(\.themeAccent) private var themeAccent
   @Environment(\.isEnabled) private var isEnabled
 
   func makeBody(configuration: Configuration) -> some View {
@@ -1035,10 +1064,12 @@ struct AbstandPrimaryButtonStyle: ButtonStyle {
       .font(.body.weight(.semibold))
       .frame(maxWidth: .infinity)
       .padding(.vertical, 14)
-      .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
+      .foregroundStyle(model.appearancePalette.background)
       .background(
-        RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous)
-          .fill(themeAccent.opacity(Self.fillOpacity(isPressed: configuration.isPressed, isEnabled: isEnabled)))
+        Capsule(style: .continuous)
+          .fill(
+            model.appearancePalette.textPrimary.opacity(
+              Self.fillOpacity(isPressed: configuration.isPressed, isEnabled: isEnabled)))
       )
       .scaleEffect(configuration.isPressed && isEnabled ? 0.98 : 1)
       .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
@@ -1050,32 +1081,24 @@ struct AbstandPrimaryButtonStyle: ButtonStyle {
   }
 }
 
-/// Kompakte Primäraktion (Suche, Subscribe, Retry) — Appearance-Akzent ohne Vollbreite.
+/// Kompakte Primäraktion (Suche, Subscribe, Retry) — Paper: Tinten-Kapsel ohne Vollbreite.
 struct AbstandProminentButtonStyle: ButtonStyle {
   @EnvironmentObject private var model: AppModel
-  @Environment(\.themeAccent) private var themeAccent
   @Environment(\.isEnabled) private var isEnabled
 
   /// Transport-Play u.ä.: Kapsel; Label liefert die Größe (kein Extra-Padding).
   var capsule = false
 
   func makeBody(configuration: Configuration) -> some View {
-    let fill = themeAccent.opacity(
+    let fill = model.appearancePalette.textPrimary.opacity(
       AbstandPrimaryButtonStyle.fillOpacity(isPressed: configuration.isPressed, isEnabled: isEnabled)
     )
     configuration.label
       .font(.body.weight(.semibold))
-      .padding(.horizontal, capsule ? 0 : 14)
+      .padding(.horizontal, capsule ? 0 : 16)
       .padding(.vertical, capsule ? 0 : 8)
-      .foregroundStyle(model.appearancePalette.foregroundOnAccent(themeAccent))
-      .background {
-        if capsule {
-          Capsule(style: .continuous).fill(fill)
-        } else {
-          RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous)
-            .fill(fill)
-        }
-      }
+      .foregroundStyle(model.appearancePalette.background)
+      .background(Capsule(style: .continuous).fill(fill))
       .scaleEffect(configuration.isPressed && isEnabled ? 0.98 : 1)
       .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
   }
@@ -1207,14 +1230,14 @@ extension View {
       .background { AbstandUIScrollViewClearBackground() }
   }
 
-  /// Dezente Kante statt Schatten (Continue-Hero in horizontaler Reihe).
+  /// Paper: Haarlinie in `palette.rule` statt Schatten (Hero-/Cover-Karten).
   func abstandHeroCardOutline(palette: AppColorPalette) -> some View {
     overlay {
       RoundedRectangle(
         cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius,
         style: .continuous
       )
-      .strokeBorder(palette.textSecondary.opacity(0.22), lineWidth: 1)
+      .strokeBorder(palette.rule, lineWidth: AppTheme.Layout.hairlineWidth)
     }
   }
 }
@@ -1229,8 +1252,8 @@ struct TabContentSectionTitle: View {
 
   var body: some View {
     Text(title)
-      .font(.title3)
-      .bold()
+      .font(.title3.weight(.semibold))
+      .fontDesign(AppTheme.Typography.titleDesign)
       .foregroundStyle(model.appearancePalette.textPrimary)
       .frame(maxWidth: .infinity, alignment: .leading)
       .accessibilityAddTraits(.isHeader)

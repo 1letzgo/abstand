@@ -195,7 +195,7 @@ struct AbstandBrowseStripDropdownPill: View, Equatable {
     let _ = themeRevision
     return AppTheme.ExpandingDock.Colors(
       palette: AppTheme.palette,
-      accent: themeAccent
+      accent: AppTheme.palette.textPrimary
     )
   }
 
@@ -265,7 +265,7 @@ struct AbstandExpandingDockBinarySwitch: View {
     let _ = themeRevision
     return AppTheme.ExpandingDock.Colors(
       palette: model.appearancePalette,
-      accent: themeAccent
+      accent: model.appearancePalette.textPrimary
     )
   }
 
@@ -365,7 +365,7 @@ struct AbstandExpandingDockChip: View {
     let _ = themeRevision
     return AppTheme.ExpandingDock.Colors(
       palette: model.appearancePalette,
-      accent: themeAccent
+      accent: model.appearancePalette.textPrimary
     )
   }
 

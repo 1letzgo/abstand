@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Erscheinungsbild der App (Einstellungen → Appearance). Standard: `.dark`.
+/// Erscheinungsbild der App (Einstellungen → Appearance). Standard: `.light` (Paper).
 enum AppearanceMode: String, CaseIterable, Identifiable, Hashable {
   case dark
   case light
@@ -22,7 +22,7 @@ enum AppearanceMode: String, CaseIterable, Identifiable, Hashable {
   static func load(from defaults: UserDefaults = .standard) -> AppearanceMode {
     guard let raw = defaults.string(forKey: storageKey),
       let mode = AppearanceMode(rawValue: raw)
-    else { return .dark }
+    else { return .light }
     return mode
   }
 
@@ -183,6 +183,8 @@ struct AppColorPalette: Equatable {
   let textSecondary: Color
   /// Dezenter Fortschritts-/Track-Hintergrund auf Karten.
   let progressTrack: Color
+  /// Haarlinien (Trenner, Kartenkante) — Papier-Linie statt Schatten.
+  let rule: Color
   /// Schatten unter Hero-Karten (Continue Listening).
   let heroCardShadow: Color
   /// Schatten für Listen- und Gruppen-Karten.
@@ -204,68 +206,39 @@ struct AppColorPalette: Equatable {
     return derived(from: accent, isDarkLike: isDarkLike)
   }
 
-  /// Light: Hintergrund/Karten aus Akzentfarbe; Dark: feste Flächen (#353535 / #454545).
+  /// „Paper“ (design-demos/direction-approved.md): Light = warmes Papier mit Tinte, Dark = Tinte
+  /// mit Papier-Schrift. Feste Flächen — der Akzent färbt nur Fortschritt und Links, nie Flächen.
   static func derived(from accent: Color, isDarkLike: Bool) -> AppColorPalette {
-    if isDarkLike {
-      return fixedDarkPalette()
-    }
-
-    guard let accentRGB = Self.rgbComponents(from: accent) else {
-      return neutralLightFallback
-    }
-
-    return AppColorPalette(
-      isDarkLike: false,
-      background: Self.mix(
-        base: (252 / 255, 252 / 255, 250 / 255),
-        accent: accentRGB,
-        accentWeight: 0.1
-      ),
-      card: Self.mix(
-        base: (230 / 255, 230 / 255, 228 / 255),
-        accent: accentRGB,
-        accentWeight: 0.16
-      ),
-      textPrimary: Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255),
-      textSecondary: Color(red: 110 / 255, green: 110 / 255, blue: 115 / 255),
-      progressTrack: Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255).opacity(0.1),
-      heroCardShadow: Color.black.opacity(0.1),
-      cardShadow: Color.black.opacity(0.1),
-      coverPlayBadgeBackground: Color(white: 0.38, opacity: 0.88)
-    )
+    isDarkLike ? inkPalette : paperPalette
   }
 
-  private static func fixedDarkPalette() -> AppColorPalette {
-    AppColorPalette(
-      isDarkLike: true,
-      background: Color(red: 53 / 255, green: 53 / 255, blue: 53 / 255),
-      // Karten bleiben eine Stufe heller als der Hintergrund (gleicher Abstand wie zuvor).
-      card: Color(red: 69 / 255, green: 69 / 255, blue: 69 / 255),
-      textPrimary: .white,
-      textSecondary: Color(red: 176 / 255, green: 176 / 255, blue: 176 / 255),
-      progressTrack: Color.white.opacity(0.14),
-      heroCardShadow: Color.black.opacity(0.32),
-      cardShadow: Color.black.opacity(0.36),
-      coverPlayBadgeBackground: Color(white: 0.38, opacity: 0.88)
-    )
-  }
+  private static let paperPalette = AppColorPalette(
+    isDarkLike: false,
+    background: Color(red: 243 / 255, green: 238 / 255, blue: 227 / 255),
+    // Karten als hellerer Bogen auf dem Papier (statt Schatten).
+    card: Color(red: 250 / 255, green: 247 / 255, blue: 240 / 255),
+    textPrimary: Color(red: 31 / 255, green: 27 / 255, blue: 22 / 255),
+    textSecondary: Color(red: 124 / 255, green: 114 / 255, blue: 99 / 255),
+    progressTrack: Color(red: 220 / 255, green: 210 / 255, blue: 192 / 255),
+    rule: Color(red: 220 / 255, green: 210 / 255, blue: 192 / 255),
+    heroCardShadow: Color(red: 60 / 255, green: 40 / 255, blue: 10 / 255).opacity(0.10),
+    cardShadow: Color(red: 60 / 255, green: 40 / 255, blue: 10 / 255).opacity(0.05),
+    coverPlayBadgeBackground: Color(red: 31 / 255, green: 27 / 255, blue: 22 / 255).opacity(0.72)
+  )
 
-  private static let neutralLightFallback = derived(
-    from: AppTheme.defaultLightAccent, isDarkLike: false)
-
-  private static func mix(
-    base: (r: Double, g: Double, b: Double),
-    accent: (r: Double, g: Double, b: Double),
-    accentWeight: Double
-  ) -> Color {
-    let w = min(1, max(0, accentWeight))
-    let inv = 1 - w
-    return Color(
-      red: base.r * inv + accent.r * w,
-      green: base.g * inv + accent.g * w,
-      blue: base.b * inv + accent.b * w
-    )
-  }
+  private static let inkPalette = AppColorPalette(
+    isDarkLike: true,
+    background: Color(red: 27 / 255, green: 25 / 255, blue: 21 / 255),
+    // Karten eine Stufe heller als die Tinte.
+    card: Color(red: 39 / 255, green: 36 / 255, blue: 31 / 255),
+    textPrimary: Color(red: 239 / 255, green: 232 / 255, blue: 218 / 255),
+    textSecondary: Color(red: 163 / 255, green: 154 / 255, blue: 138 / 255),
+    progressTrack: Color(red: 239 / 255, green: 232 / 255, blue: 218 / 255).opacity(0.16),
+    rule: Color(red: 239 / 255, green: 232 / 255, blue: 218 / 255).opacity(0.14),
+    heroCardShadow: Color.black.opacity(0.32),
+    cardShadow: Color.black.opacity(0.24),
+    coverPlayBadgeBackground: Color(red: 27 / 255, green: 25 / 255, blue: 21 / 255).opacity(0.72)
+  )
 
   private static func rgbComponents(from color: Color) -> (r: Double, g: Double, b: Double)? {
     let ui = UIColor(color)
