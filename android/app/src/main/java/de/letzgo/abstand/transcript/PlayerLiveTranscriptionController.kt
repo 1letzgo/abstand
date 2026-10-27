@@ -3,10 +3,6 @@ package de.letzgo.abstand.transcript
 import android.content.Context
 import android.util.Log
 import de.letzgo.abstand.data.absLocale
-import de.letzgo.abstand.logic.AlignmentInputWord
-import de.letzgo.abstand.logic.EbookAlignmentBuilder
-import de.letzgo.abstand.logic.EbookDisplayWords
-import de.letzgo.abstand.logic.EbookReadAlongIndex
 import de.letzgo.abstand.logic.PlayerTeleprompterLayout
 import de.letzgo.abstand.logic.PlayerTeleprompterMetrics
 import de.letzgo.abstand.logic.PlayerTranscriptLibrary
@@ -28,7 +24,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -105,8 +100,6 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
     val speechModelOffer: StateFlow<SpeechModelOffer?> = _speechModelOffer.asStateFlow()
     private val _localeFallbackNotice = MutableStateFlow<String?>(null)
     val localeFallbackNotice: StateFlow<String?> = _localeFallbackNotice.asStateFlow()
-    private val _isShowingEbookText = MutableStateFlow(false)
-    val isShowingEbookText: StateFlow<Boolean> = _isShowingEbookText.asStateFlow()
     private val _wordLookupSelection = MutableStateFlow<PlayerTranscriptWordLookupSelection?>(null)
     /** Wort-Lookup-Sheet (am stabilen Player-Root präsentiert, nicht an der Teleprompter-View). */
     val wordLookupSelection: StateFlow<PlayerTranscriptWordLookupSelection?> = _wordLookupSelection.asStateFlow()
@@ -138,12 +131,8 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
 
     // MARK: - Interner Zustand
 
+    /** Erkennungswörter des aktiven Tracks — der Teleprompter zeigt immer das Transkript (iOS gleich). */
     private var finalizedWords: List<PlayerTranscriptWord> = emptyList()
-    private var ebookIndex: EbookReadAlongIndex? = null
-    private var ebookDisplay: EbookDisplayWords? = null
-    private var ebookAlignJob: Job? = null
-    private var ebookAlignEpoch = 0
-    private var ebookAlignedWordCount = -1
     private var recapBookId: String? = null
     private var recapPlaybackTime: Double? = null
     private var recapGeneration = 0
@@ -332,7 +321,6 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
         if (!sessionIsCurrent(generation)) return
         resetTranscriptContent()
         activeTranscriptionBookId = PlaybackTranscription.transcriptionStorageId(player)
-        loadEbookTextIfAvailable(generation)
         if (player.activeBook.value == null) throw SessionFailure(PlayerLiveTranscriptionError.noActivePlayback)
         val context = withContext(Dispatchers.IO) {
             // `isUsingLocalTrackFiles` liest das Manifest — nicht auf dem Main-Thread.
@@ -409,12 +397,10 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
         activeTrackKey = trackKey
         activeTrackDuration = trackDuration
         finalizedWords = emptyList()
-        invalidateEbookDisplay()
         lineAccumulator.reset()
         trackCache = loaded ?: PlayerTranscriptTrackCache(localeIdentifier = context.localeIdentifier, trackIndex = context.trackIndex)
 
         rebuildDisplayFromCache()
-        scheduleEbookAlignment()
         val playbackLocal = PlaybackTranscription.localPlaybackSeconds(player, context.trackGlobalOffset)
         startProduction(playbackLocal - PRE_ROLL_SECONDS, generation)
         syncTeleprompterToPlayback(PlaybackTranscription.livePosition(player))
@@ -430,78 +416,13 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
             return
         }
         finalizedWords = PlayerTranscriptTimeline.recognizedWords(cache, context.trackIndex, context.trackGlobalOffset)
-        lineAccumulator.rebuildLines(displayWords(), lineAccumulator.maxCharactersPerLine)
+        lineAccumulator.rebuildLines(finalizedWords, lineAccumulator.maxCharactersPerLine)
         publishWords()
-    }
-
-    // MARK: - eBook-Text
-
-    private fun loadEbookTextIfAvailable(generation: Int) {
-        ebookIndex = null
-        invalidateEbookDisplay()
-        _isShowingEbookText.value = false
-        val ep = player.activePlaybackEpisodeId.value?.trim().orEmpty()
-        val bookId = player.activeBook.value?.id
-        if (ep.isNotEmpty() || bookId == null) return
-        scope.launch {
-            val index = TeleprompterEbookTextProvider.index(bookId) ?: return@launch
-            if (!sessionIsCurrent(generation)) return@launch
-            ebookIndex = index
-            invalidateEbookDisplay()
-            scheduleEbookAlignment()
-        }
-    }
-
-    private fun displayWords(): List<PlayerTranscriptWord> {
-        val display = ebookDisplay
-        if (display == null || display.words.isEmpty() || finalizedWords.isEmpty()) {
-            if (_isShowingEbookText.value) _isShowingEbookText.value = false
-            return finalizedWords
-        }
-        if (!_isShowingEbookText.value) _isShowingEbookText.value = true
-        return PlayerTranscriptTimeline.merged(display, finalizedWords)
-    }
-
-    private fun invalidateEbookDisplay() {
-        ebookAlignEpoch += 1
-        ebookAlignJob?.cancel()
-        ebookAlignJob = null
-        ebookAlignedWordCount = -1
-        ebookDisplay = null
-    }
-
-    /** iOS: `scheduleEbookAlignment` — gebündelt im Hintergrund, Main-Thread wird nie blockiert. */
-    private fun scheduleEbookAlignment() {
-        if (ebookIndex == null || ebookAlignJob != null || finalizedWords.size == ebookAlignedWordCount) return
-        val epoch = ebookAlignEpoch
-        ebookAlignJob = scope.launch {
-            delay(EBOOK_ALIGN_COALESCE_MS)
-            val index = ebookIndex
-            val context = activeContext
-            if (epoch != ebookAlignEpoch || index == null || context == null) {
-                if (epoch == ebookAlignEpoch) ebookAlignJob = null
-                return@launch
-            }
-            val count = finalizedWords.size
-            val offset = context.trackGlobalOffset
-            val input = finalizedWords.map { AlignmentInputWord(it.text, it.globalStart - offset, it.globalEnd - offset) }
-            val alignment = withContext(Dispatchers.Default) { EbookAlignmentBuilder.build(input, index) }
-            if (epoch != ebookAlignEpoch) return@launch
-            ebookAlignJob = null
-            ebookAlignedWordCount = count
-            val previous = ebookDisplay?.words?.size ?: 0
-            ebookDisplay = if (alignment.isEmpty) null else alignment.displayWords(index, offset)
-            if (previous > 0 || ebookDisplay != null) {
-                lineAccumulator.rebuildLines(displayWords(), lineAccumulator.maxCharactersPerLine)
-                publishWords()
-            }
-            if (finalizedWords.size != count) scheduleEbookAlignment()
-        }
     }
 
     // MARK: - Produktion
 
-    /** iOS: `startProduction(fromLocalTime:generation:)` — läuft bis zum Track-Ende durch. */
+    /** iOS: `startProduction(fromLocalTime:generation:)` — Lücke für Lücke bis zum Track-Ende. */
     private fun startProduction(fromLocalTime: Double, generation: Int) {
         val context = activeContext ?: return
         val cache = trackCache ?: return
@@ -510,6 +431,8 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
             isProducingTranscript = false
             return
         }
+        // Nur bis zum nächsten transkribierten Segment, danach an der nächsten Lücke weiter (iOS gleich).
+        val end = cache.nextCoveredStart(start)
         productionJob?.cancel()
         productionRunId += 1
         val runId = productionRunId
@@ -528,7 +451,7 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
             var segmentStart = start
             var sawWords = false
             try {
-                PlayerTranscriptProducer.transcribe(appContext, context.assetFile, start, null, model).collect { batch ->
+                PlayerTranscriptProducer.transcribe(appContext, context.assetFile, start, end, model).collect { batch ->
                     if (!sessionIsCurrent(generation) || activeContext?.trackIndex != trackIndex) throw CancellationException()
                     if (batch.words.isNotEmpty()) {
                         sawWords = true
@@ -547,6 +470,9 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
                 // Lauf durch, aber kein einziges Wort — sonst bliebe die Karte dauerhaft im Ladezustand.
                 if (productionRunId == runId && !sawWords && _transcriptLines.value.isEmpty() && sessionIsCurrent(generation)) {
                     scope.launch { failTeleprompterSession(PlayerLiveTranscriptionError.transcriptionProgressStalled, generation) }
+                }
+                if (end != null && productionRunId == runId && sessionIsCurrent(generation) && activeContext?.trackIndex == trackIndex) {
+                    scope.launch { if (productionRunId == runId) startProduction(end, generation) }
                 }
             } catch (c: CancellationException) {
                 withContext(NonCancellable) {
@@ -587,17 +513,13 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
             )
         }
         val firstStart = mapped.first().globalStart
-        if (firstStart > tail && ebookDisplay == null) {
+        if (firstStart > tail) {
             finalizedWords = finalizedWords + mapped
             lineAccumulator.appendFinalizedWords(mapped)
-        } else if (firstStart > tail) {
-            finalizedWords = finalizedWords + mapped
-            lineAccumulator.rebuildLines(displayWords(), lineAccumulator.maxCharactersPerLine)
         } else {
             finalizedWords = TranscriptWordMerge.mergedByTime(finalizedWords + mapped)
-            lineAccumulator.rebuildLines(displayWords(), lineAccumulator.maxCharactersPerLine)
+            lineAccumulator.rebuildLines(finalizedWords, lineAccumulator.maxCharactersPerLine)
         }
-        scheduleEbookAlignment()
         publishWords()
     }
 
@@ -703,7 +625,6 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
 
     private fun resetTranscriptContent() {
         finalizedWords = emptyList()
-        invalidateEbookDisplay()
         lineAccumulator.reset()
         _transcriptLines.value = emptyList()
         _isTeleprompterReady.value = false
@@ -744,7 +665,7 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
             lineAccumulator.maxCharactersPerLine = limit
             return
         }
-        lineAccumulator.rebuildLines(displayWords(), limit)
+        lineAccumulator.rebuildLines(finalizedWords, limit)
         publishWords()
     }
 
@@ -866,7 +787,6 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
         const val RECAP_CACHE_PLAYBACK_SECONDS = 60.0
         const val RECAP_GENERATION_TIMEOUT_SECONDS = 90.0
         const val RECAP_WINDOW_SECONDS = 300.0
-        private const val EBOOK_ALIGN_COALESCE_MS = 1_500L
 
         @Volatile private var instance: PlayerLiveTranscriptionController? = null
 

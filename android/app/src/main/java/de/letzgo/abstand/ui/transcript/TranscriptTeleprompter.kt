@@ -62,7 +62,6 @@ import de.letzgo.abstand.ui.components.AbstandProminentButton
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import de.letzgo.abstand.ui.components.AbstandProgressBar
-import de.letzgo.abstand.ui.components.AbstandBadge
 
 /**
  * iOS: Schriftgröße des Teleprompters (`PlayerTeleprompterMetrics.savedFontSize`/`persistFontSize`,
@@ -113,7 +112,6 @@ fun TranscriptTeleprompter(
     val downloadProgress by controller.modelDownloadProgress.collectAsState()
     val offer by controller.speechModelOffer.collectAsState()
     val fallbackNotice by controller.localeFallbackNotice.collectAsState()
-    val showingEbook by controller.isShowingEbookText.collectAsState()
     val selection by controller.wordLookupSelection.collectAsState()
     val activeBook by player.activeBook.collectAsState()
 
@@ -138,7 +136,6 @@ fun TranscriptTeleprompter(
         val showsContent = lines.isNotEmpty()
         if (showsContent) {
             TeleprompterLines(controller, player, lines, selection?.word?.id)
-            SourceBadge(showingEbook, Modifier.align(Alignment.TopEnd).padding(AppTheme.Layout.stackSpacing))
         }
         when {
             offer != null -> SpeechModelOfferCard(offer!!, onDownload = { controller.approveSpeechModelDownload() })
@@ -293,17 +290,6 @@ private fun LineText(
             )
         }
     }
-}
-
-/** Quelle des angezeigten Texts — eBook (korrekte Schreibweise) oder Spracherkennung. */
-@Composable
-private fun SourceBadge(showingEbook: Boolean, modifier: Modifier) {
-    AbstandBadge(
-        if (showingEbook) "Text from eBook" else "Text from transcript",
-        modifier,
-        icon = if (showingEbook) SF.bookClosed else Icons.Outlined.GraphicEq,
-        containerColor = Theme.palette.card.copy(alpha = 0.85f),
-    )
 }
 
 /** Android: Sprachmodell fehlt — Download nur nach ausdrücklichem Tap (wie stashy/iOS-Sprachpakete). */

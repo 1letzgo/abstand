@@ -219,8 +219,14 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
           (startGlobal != nil && source.trackIndex == sources[currentIndex].trackIndex)
           ? max(0, (startGlobal ?? 0) - source.globalOffset)
           : 0
-        let completed = await prepare(
+        var completed = await prepare(
           bookId: job.storageId, source: source, locale: locale, from: from, generation: generation)
+        // Beim laufenden Track danach auch den Anfang vor der Hörposition — sonst fehlt er bei
+        // Ein-Datei-Hörbüchern dauerhaft (Sprung zurück ins eBook, Recap).
+        if completed, from > 0, !Task.isCancelled {
+          completed = await prepare(
+            bookId: job.storageId, source: source, locale: locale, from: 0, generation: generation)
+        }
         if Task.isCancelled { return }
         // Nur zählen, was wirklich durchgelaufen ist — sonst meldet die Einstellung Fortschritt,
         // den es nicht gibt (abgebrochene oder fehlgeschlagene Tracks).
@@ -275,12 +281,16 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
       pausedReason = nil
 
       do {
+        // Nur die Lücke — am nächsten vorhandenen Segment aufhören, die Schleife sucht dann die nächste.
+        let gapEnd = await PlayerTranscriptLibrary.nextCoveredStart(
+          bookId: bookId, source: source, locale: locale, after: gapStart)
         let produced = try await PlayerTranscriptLibrary.produceAndPersist(
           bookId: bookId,
           source: source,
           locale: locale,
           fromLocalTime: gapStart,
-          toLocalTime: nil,
+          toLocalTime: gapEnd,
+          priority: .utility,
           onBatch: { [weak self] _ in
             // Ein Track läuft minutenlang. Ohne diese Prüfung zwischendrin liefe die
             // Vorproduktion weiter, während der Teleprompter startet oder das Gerät heiß wird —

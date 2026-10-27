@@ -83,7 +83,12 @@ object PlayerTranscriptProduction {
                 val gapStart = PlayerTranscriptLibrary.firstUncoveredTime(bookId, source, localeIdentifier, cursor) ?: break
                 if (gapStart >= window.endInclusive) break
                 coroutineContext.ensureActive()
-                val produced = produceAndPersist(context, bookId, source, model, localeIdentifier, gapStart, window.endInclusive)
+                // Nur die Lücke selbst — am nächsten vorhandenen Segment aufhören (iOS gleich).
+                val gapEnd = PlayerTranscriptLibrary.nextCoveredStart(bookId, source, localeIdentifier, gapStart)
+                val produced = produceAndPersist(
+                    context, bookId, source, model, localeIdentifier, gapStart,
+                    minOf(window.endInclusive, gapEnd ?: window.endInclusive),
+                )
                 // Kein Fortschritt (z. B. Stille bis zum Ende) → Endlosschleife vermeiden.
                 if (!(produced > gapStart + 0.5)) break
                 cursor = produced

@@ -1,10 +1,9 @@
 import Foundation
 import ReadiumShared
 
-/// Liefert den eBook-Index für Teleprompter, Read Along und „Go to ebook position": Ist dem Hörbuch ein
-/// (bereits geladenes) EPUB angehängt, zeigt der Teleprompter dessen Sätze — korrekte Schreibweise,
-/// Satzzeichen — statt des Erkennungstexts. Die Spracherkennung bleibt nur Zeitgeber; der Abgleich
-/// liegt in `EbookAudioAlignment.swift`.
+/// Liefert den eBook-Index eines angehängten (bereits geladenen) EPUBs für die Sprung-Buttons
+/// zwischen eBook und Hörbuch (`EbookReadAlong`). Der Teleprompter zeigt bewusst immer das
+/// Transkript; der Abgleich liegt in `EbookAudioAlignment.swift`.
 @MainActor
 final class TeleprompterEbookTextProvider {
   static let shared = TeleprompterEbookTextProvider()

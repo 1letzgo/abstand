@@ -6,10 +6,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import de.letzgo.abstand.model.AdminStore
 import de.letzgo.abstand.reader.EbookReaderLauncher
-import de.letzgo.abstand.reader.EbookTextIndexProvider
-import de.letzgo.abstand.transcript.TeleprompterEbookTextProvider
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.ui.detail.BookDetailDestination
 import de.letzgo.abstand.ui.metadata.ChaptersEditorSheet
@@ -43,11 +39,8 @@ object AppIntegration {
         BookDetailDestination.defaultEditMetadata = { sheet = MetadataSheet.Edit to it.id }
         BookDetailDestination.defaultMatchMetadata = { sheet = MetadataSheet.Match to it.id }
         BookDetailDestination.defaultEditChapters = { sheet = MetadataSheet.Chapters to it.id }
-        // eBook-Reader (Detailseite, Now Playing) und eBook-Text im Teleprompter.
+        // eBook-Reader (Detailseite, Now Playing).
         BookDetailDestination.defaultOpenEbook = { EbookReaderLauncher.open(it) }
-        TeleprompterEbookTextProvider.indexLoader = { id ->
-            withContext(Dispatchers.Main) { EbookTextIndexProvider.index(id)?.index }
-        }
         StatsNavigation.bookDetail = { id -> BookDetailDestination(id) }
         StatsNavigation.episodeDetail = { ep -> PodcastEpisodeDetailDestination(ep) }
         // iOS: `applyUpdatedBookToLoadedLists` — frischer Stand nach Metadaten-/Kapitel-Änderung.

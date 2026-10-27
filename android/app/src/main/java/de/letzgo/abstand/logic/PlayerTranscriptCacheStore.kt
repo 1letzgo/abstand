@@ -57,6 +57,10 @@ data class PlayerTranscriptTrackCache(
         return cursor
     }
 
+    /** iOS: `nextCoveredStart(after:)` — Beginn des nächsten transkribierten Segments (Ende einer Lücke). */
+    fun nextCoveredStart(after: Double): Double? =
+        segments.map { it.start }.filter { it > after + 0.5 }.minOrNull()
+
     /** Segment einfügen und mit überlappenden/angrenzenden Segmenten verschmelzen. */
     fun insert(segment: Segment) {
         if (segment.words.isEmpty() && segment.end <= segment.start) return

@@ -143,38 +143,6 @@ object PlayerTranscriptTimeline {
     }
 
     /**
-     * Anzeige-Wörter: eBook-Text, wo der Abgleich greift — sonst der Erkennungstext. `isShowingEbookText`
-     * entspricht `display != null && display.words.isNotEmpty() && recognized.isNotEmpty()`.
-     */
-    fun displayWords(display: EbookDisplayWords?, recognized: List<PlayerTranscriptWord>): List<PlayerTranscriptWord> {
-        if (display == null || display.words.isEmpty() || recognized.isEmpty()) return recognized
-        return merged(display, recognized)
-    }
-
-    /** eBook-Wörter plus die Erkennungswörter außerhalb der lückenlosen eBook-Läufe, nach Zeit gemischt. */
-    fun merged(display: EbookDisplayWords, recognized: List<PlayerTranscriptWord>): List<PlayerTranscriptWord> {
-        val kept = ArrayList<PlayerTranscriptWord>()
-        var span = 0
-        for (word in recognized) {
-            val middle = (word.globalStart + word.globalEnd) / 2
-            while (span < display.spans.size && display.spans[span].end <= middle) span += 1
-            if (span < display.spans.size && display.spans[span].start <= middle) continue
-            kept.add(word)
-        }
-        val out = ArrayList<PlayerTranscriptWord>(display.words.size + kept.size)
-        var i = 0
-        var j = 0
-        while (i < display.words.size || j < kept.size) {
-            if (j >= kept.size || (i < display.words.size && display.words[i].globalStart <= kept[j].globalStart)) {
-                out.add(display.words[i]); i += 1
-            } else {
-                out.add(kept[j]); j += 1
-            }
-        }
-        return out
-    }
-
-    /**
      * iOS: `rebuildDisplayFromCache` — Cache-Wörter eines Tracks als Teleprompter-Wörter
      * (`c-<track>-<n>`, Text mit angehängtem Leerzeichen, globale Zeit).
      */

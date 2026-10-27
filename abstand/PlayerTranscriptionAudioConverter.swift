@@ -1,6 +1,7 @@
 import AVFoundation
 
-/// PCM-Konvertierung für `SpeechAnalyzer` (Zielformat vom Framework).
+/// PCM-Konvertierung für `SpeechAnalyzer` — nur Rückfall, wenn der Reader das Zielformat nicht
+/// exakt liefert; im Normalfall dekodiert `AVAssetReader` schon ins Analyzer-Format.
 final class PlayerTranscriptionAudioConverter {
   private let converter: AVAudioConverter
 

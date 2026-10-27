@@ -42,14 +42,16 @@ enum PlayerTranscriptProducer {
 
   /// Transkribiert `[startSeconds, endSeconds)` der Datei und liefert Wort-Batches.
   /// Der Stream endet, wenn der Bereich fertig ist oder der Aufrufer ihn abbricht.
+  /// `priority`: Live/Recap `.userInitiated`, Vorproduktion im Hintergrund `.utility`.
   static func transcribe(
     assetURL: URL,
     startSeconds: Double,
     endSeconds: Double?,
-    locale: Locale
+    locale: Locale,
+    priority: TaskPriority = .userInitiated
   ) -> AsyncThrowingStream<PlayerTranscriptProductionBatch, Error> {
     AsyncThrowingStream { continuation in
-      let work = Task {
+      let work = Task(priority: priority) {
         do {
           try await Self.run(
             assetURL: assetURL,
@@ -83,6 +85,8 @@ enum PlayerTranscriptProducer {
     let analyzer = SpeechAnalyzer(modules: [transcriber])
     guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
     else { throw PlayerTranscriptProducerError.conversionFailed }
+    // Modell schon laden, während der Reader die Datei öffnet — sonst zahlt der erste Buffer die Ladezeit.
+    try await analyzer.prepareToAnalyze(in: format)
 
     let (stream, input) = AsyncStream<AnalyzerInput>.makeStream()
     try await analyzer.start(inputSequence: stream)
@@ -90,19 +94,25 @@ enum PlayerTranscriptProducer {
 
     // Ergebnisse einsammeln, während parallel gefüttert wird.
     let resultsTask = Task {
-      for try await result in transcriber.results where result.isFinal {
-        if Task.isCancelled { return }
-        // Ergebnisse kommen erst nach dem ersten gefütterten Buffer — der Ursprung steht dann fest.
-        let words = Self.words(from: result.text, offset: gate.timelineOrigin ?? startSeconds)
-        if let end = words.last?.end { gate.advance(to: end) }
-        guard !words.isEmpty else { continue }
-        continuation.yield(
-          PlayerTranscriptProductionBatch(
-            words: words,
-            processedThrough: words.last?.end ?? (gate.timelineOrigin ?? startSeconds),
-            isFinalBatch: false
+      do {
+        for try await result in transcriber.results where result.isFinal {
+          if Task.isCancelled { return }
+          // Ergebnisse kommen erst nach dem ersten gefütterten Buffer — der Ursprung steht dann fest.
+          let words = Self.words(from: result.text, offset: gate.timelineOrigin ?? startSeconds)
+          if let end = words.last?.end { gate.advance(to: end) }
+          guard !words.isEmpty else { continue }
+          continuation.yield(
+            PlayerTranscriptProductionBatch(
+              words: words,
+              processedThrough: words.last?.end ?? (gate.timelineOrigin ?? startSeconds),
+              isFinalBatch: false
+            )
           )
-        )
+        }
+      } catch {
+        // Fütter-Schleife sofort stoppen statt die restliche Datei ins Leere zu schieben.
+        gate.fail(error)
+        throw error
       }
     }
 
@@ -153,12 +163,17 @@ enum PlayerTranscriptProducer {
     }
 
     let reader = try AVAssetReader(asset: asset)
+    // Der Reader dekodiert direkt ins Analyzer-Format (Rate, Kanäle, Sampletyp) — keine
+    // Zwischenstufe in Quellrate plus zweite Kopie durch einen Resampler.
+    let isFloat = targetFormat.commonFormat == .pcmFormatFloat32
     let outputSettings: [String: Any] = [
       AVFormatIDKey: kAudioFormatLinearPCM,
-      AVLinearPCMBitDepthKey: 16,
-      AVLinearPCMIsFloatKey: false,
+      AVSampleRateKey: targetFormat.sampleRate,
+      AVNumberOfChannelsKey: targetFormat.channelCount,
+      AVLinearPCMBitDepthKey: isFloat ? 32 : 16,
+      AVLinearPCMIsFloatKey: isFloat,
       AVLinearPCMIsBigEndianKey: false,
-      AVLinearPCMIsNonInterleaved: false,
+      AVLinearPCMIsNonInterleaved: !targetFormat.isInterleaved,
     ]
     let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
     output.alwaysCopiesSampleData = false
@@ -178,6 +193,7 @@ enum PlayerTranscriptProducer {
     }
     defer { if reader.status == .reading { reader.cancelReading() } }
 
+    // Nur nötig, falls der Reader das Zielformat doch nicht exakt liefert (z. B. exotische Layouts).
     var converter: PlayerTranscriptionAudioConverter?
     var fedSeconds: Double = 0
     var sinceYield = 0
@@ -186,26 +202,40 @@ enum PlayerTranscriptProducer {
     var origin = startSeconds
 
     while reader.status == .reading, !Task.isCancelled {
+      if let failure = gate.failure { throw failure }
       guard let sample = output.copyNextSampleBuffer() else { break }
       guard let buffer = PlayerTranscriptProducer.pcmBuffer(from: sample) else { continue }
+      // Ausgabe-PTS berücksichtigt `TrimDurationAtStart` (Encoder-Delay/Priming).
+      let pts = CMSampleBufferGetOutputPresentationTimeStamp(sample)
+      let ptsSeconds: Double? = (pts.isValid && pts.isNumeric) ? max(0, pts.seconds) : nil
       if gate.timelineOrigin == nil {
-        // Ausgabe-PTS berücksichtigt `TrimDurationAtStart` (Encoder-Delay/Priming).
-        let pts = CMSampleBufferGetOutputPresentationTimeStamp(sample)
-        if pts.isValid, pts.isNumeric { origin = max(0, pts.seconds) }
+        if let ptsSeconds { origin = ptsSeconds }
         gate.setTimelineOrigin(origin)
         let message = String(
           format: "transcript producer: start=%.3f firstPTS=%.3f delta=%+.3f",
           startSeconds, origin, origin - startSeconds)
         Task { @MainActor in DebugLogCollector.shared.log(message) }
       }
-      if converter == nil {
-        converter = PlayerTranscriptionAudioConverter(
-          sourceFormat: buffer.format, targetFormat: targetFormat)
+      let analyzerBuffer: AVAudioPCMBuffer
+      if Self.matches(buffer.format, targetFormat) {
+        analyzerBuffer = buffer
+      } else {
+        if converter == nil {
+          converter = PlayerTranscriptionAudioConverter(
+            sourceFormat: buffer.format, targetFormat: targetFormat)
+        }
+        guard let converter else { throw PlayerTranscriptProducerError.conversionFailed }
+        analyzerBuffer = try converter.convert(buffer, to: targetFormat)
       }
-      guard let converter else { throw PlayerTranscriptProducerError.conversionFailed }
-      let converted = try converter.convert(buffer, to: targetFormat)
-      input.yield(AnalyzerInput(buffer: converted))
-      fedSeconds += Double(converted.frameLength) / targetFormat.sampleRate
+      // Startzeit je Buffer mitgeben (relativ zum Ursprung): verworfene oder kürzere Buffer
+      // verschieben so nicht mehr alle späteren Wortzeiten.
+      let relativeStart = max(0, (ptsSeconds ?? (origin + fedSeconds)) - origin)
+      input.yield(
+        AnalyzerInput(
+          buffer: analyzerBuffer,
+          bufferStartTime: CMTime(seconds: relativeStart, preferredTimescale: 48_000)))
+      fedSeconds = max(
+        fedSeconds, relativeStart + Double(analyzerBuffer.frameLength) / targetFormat.sampleRate)
 
       sinceYield += 1
       if sinceYield >= Self.buffersPerYield {
@@ -228,7 +258,18 @@ enum PlayerTranscriptProducer {
     }
 
     if Task.isCancelled { throw CancellationError() }
+    if let failure = gate.failure { throw failure }
+    // Lesefehler (beschädigte Datei, entzogene Datei) nicht als „Track fertig" melden.
+    if reader.status == .failed {
+      throw reader.error ?? PlayerTranscriptProducerError.audioUnavailable
+    }
     return fedSeconds
+  }
+
+  /// Reader-Ausgabe passt direkt zum Analyzer (Rate, Kanäle, Sampletyp, Anordnung).
+  private nonisolated static func matches(_ a: AVAudioFormat, _ b: AVAudioFormat) -> Bool {
+    a.sampleRate == b.sampleRate && a.channelCount == b.channelCount
+      && a.commonFormat == b.commonFormat && a.isInterleaved == b.isInterleaved
   }
 
   private static func words(
@@ -298,6 +339,7 @@ private final class FeedGate: @unchecked Sendable {
   private let lock = NSLock()
   private var value: Double
   private var origin: Double?
+  private var error: Error?
 
   init(analyzedThrough: Double) { value = analyzedThrough }
 
@@ -321,6 +363,18 @@ private final class FeedGate: @unchecked Sendable {
   func advance(to time: Double) {
     lock.lock()
     if time > value { value = time }
+    lock.unlock()
+  }
+
+  /// Fehler der Ergebnis-Seite — die Fütter-Schleife bricht daran ab.
+  var failure: Error? {
+    lock.lock(); defer { lock.unlock() }
+    return error
+  }
+
+  func fail(_ failure: Error) {
+    lock.lock()
+    if error == nil { error = failure }
     lock.unlock()
   }
 }

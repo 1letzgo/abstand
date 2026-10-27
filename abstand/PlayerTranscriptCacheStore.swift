@@ -56,6 +56,12 @@ struct PlayerTranscriptTrackCache: Codable {
     return cursor
   }
 
+  /// Beginn des nächsten schon transkribierten Segments nach `time` — Endpunkt für den
+  /// Producer, damit er nicht über bereits Vorhandenes hinweg erneut transkribiert.
+  func nextCoveredStart(after time: Double) -> Double? {
+    segments.map(\.start).filter { $0 > time + 0.5 }.min()
+  }
+
   /// Segment einfügen und mit überlappenden/angrenzenden Segmenten verschmelzen.
   mutating func insert(segment: Segment) {
     guard !segment.words.isEmpty || segment.end > segment.start else { return }

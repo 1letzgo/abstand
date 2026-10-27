@@ -252,7 +252,11 @@ object PlayerTranscriptPrefetcher {
             _currentJobTitle.value = planned.job.title.ifEmpty { null }
             for (step in PrefetchPlanner.trackOrder(planned)) {
                 if (!coroutineContext.isActive) return leftWork
-                val completed = prepare(planned.job.storageId, step.source, selection, step.from, generation)
+                var completed = prepare(planned.job.storageId, step.source, selection, step.from, generation)
+                // Laufender Track: danach auch den Anfang vor der Hörposition (iOS gleich).
+                if (completed && step.from > 0 && coroutineContext.isActive) {
+                    completed = prepare(planned.job.storageId, step.source, selection, 0.0, generation)
+                }
                 if (!coroutineContext.isActive) return leftWork
                 if (completed) _preparedTracks.value += 1 else leftWork = true
             }
@@ -285,8 +289,10 @@ object PlayerTranscriptPrefetcher {
             }
             _pausedReason.value = null
             try {
+                // Nur die Lücke — am nächsten vorhandenen Segment aufhören (iOS gleich).
+                val gapEnd = PlayerTranscriptLibrary.nextCoveredStart(bookId, source, selection.localeIdentifier, gapStart)
                 val produced = PlayerTranscriptProduction.produceAndPersist(
-                    appContext, bookId, source, selection.entry, selection.localeIdentifier, gapStart, null,
+                    appContext, bookId, source, selection.entry, selection.localeIdentifier, gapStart, gapEnd,
                 ) {
                     // Ein Track läuft minutenlang — Pause greift sofort, nicht erst beim nächsten Track.
                     if (runGeneration != generation || blockingReason() != null) throw PauseSignal()

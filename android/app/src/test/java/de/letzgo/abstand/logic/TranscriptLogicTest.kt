@@ -72,18 +72,6 @@ class TranscriptLogicTest {
     }
 
     @Test
-    fun mergedKeepsRecognisedWordsOutsideEbookSpans() {
-        val display = EbookDisplayWords(
-            listOf(w("One ", 1.0, 1.5, "e-0"), w("two. ", 1.5, 2.0, "e-1")),
-            listOf(EbookDisplayWords.Span(1.0, 2.0)),
-        )
-        val recognized = listOf(w("intro ", 0.0, 0.8, "c-0"), w("one ", 1.0, 1.5, "c-1"), w("two ", 1.5, 2.0, "c-2"), w("outro ", 2.5, 3.0, "c-3"))
-        val merged = PlayerTranscriptTimeline.displayWords(display, recognized)
-        assertEquals(listOf("c-0", "e-0", "e-1", "c-3"), merged.map { it.id })
-        assertEquals(recognized, PlayerTranscriptTimeline.displayWords(null, recognized))
-    }
-
-    @Test
     fun recognizedWordsFromCache() {
         val cache = PlayerTranscriptTrackCache(
             localeIdentifier = "en-US", trackIndex = 2,

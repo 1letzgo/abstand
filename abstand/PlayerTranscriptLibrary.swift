@@ -129,6 +129,17 @@ enum PlayerTranscriptLibrary {
     return existing.firstUncoveredTime(from: from, duration: source.duration)
   }
 
+  /// Beginn des nächsten schon transkribierten Segments nach `after` (Endpunkt einer Lücke).
+  static func nextCoveredStart(
+    bookId: String,
+    source: PlayerTranscriptTrackSource,
+    locale: Locale,
+    after: Double
+  ) async -> Double? {
+    await cache(bookId: bookId, trackIndex: source.trackIndex, locale: locale)?
+      .nextCoveredStart(after: after)
+  }
+
   /// Einen Track-Bereich produzieren und persistieren. Läuft ungedrosselt; der Aufrufer
   /// entscheidet über Priorität und Abbruch.
   @discardableResult
@@ -138,6 +149,7 @@ enum PlayerTranscriptLibrary {
     locale: Locale,
     fromLocalTime start: Double,
     toLocalTime end: Double?,
+    priority: TaskPriority = .userInitiated,
     onBatch: ((PlayerTranscriptProductionBatch) throws -> Void)? = nil
   ) async throws -> Double {
     var pending: [PlayerTranscriptTrackCache.Word] = []
@@ -162,7 +174,8 @@ enum PlayerTranscriptLibrary {
 
     do {
       for try await batch in PlayerTranscriptProducer.transcribe(
-        assetURL: source.assetURL, startSeconds: start, endSeconds: end, locale: locale)
+        assetURL: source.assetURL, startSeconds: start, endSeconds: end, locale: locale,
+        priority: priority)
       {
         try Task.checkCancellation()
         pending.append(
@@ -211,12 +224,15 @@ enum PlayerTranscriptLibrary {
         gapStart < localEnd
       {
         try Task.checkCancellation()
+        // Nur die Lücke selbst — am nächsten vorhandenen Segment aufhören.
+        let nextCovered = await nextCoveredStart(
+          bookId: bookId, source: source, locale: locale, after: gapStart)
         let produced = try await produceAndPersist(
           bookId: bookId,
           source: source,
           locale: locale,
           fromLocalTime: gapStart,
-          toLocalTime: localEnd
+          toLocalTime: min(localEnd, nextCovered ?? localEnd)
         )
         // Kein Fortschritt (z. B. Stille bis zum Ende) → Endlosschleife vermeiden.
         guard produced > gapStart + 0.5 else { break }

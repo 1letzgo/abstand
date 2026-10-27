@@ -87,6 +87,15 @@ object PlayerTranscriptLibrary {
         return existing.firstUncoveredTime(from, source.duration)
     }
 
+    /** iOS: `nextCoveredStart(bookId:source:locale:after:)` — Endpunkt einer Lücke. */
+    suspend fun nextCoveredStart(
+        bookId: String,
+        source: PlayerTranscriptTrackSource,
+        localeIdentifier: String,
+        after: Double,
+        account: File? = activeAccount,
+    ): Double? = cache(bookId, source.trackIndex, localeIdentifier, account)?.nextCoveredStart(after)
+
     /** Lokales Fenster eines Tracks für einen globalen Bereich (iOS `transcriptText`, `nil` = leer). */
     fun localWindow(source: PlayerTranscriptTrackSource, globalRange: ClosedFloatingPointRange<Double>): ClosedFloatingPointRange<Double>? {
         val localStart = maxOf(0.0, globalRange.start - source.globalOffset)

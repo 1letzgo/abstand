@@ -201,22 +201,6 @@ struct PlayerLiveTranscriptPanelView: View {
         teleprompterErrorOverlay(message: error)
       }
 
-      // Quelle des angezeigten Texts — eBook (korrekte Schreibweise) oder Spracherkennung.
-      if showsTeleprompterContent {
-        Label(
-          transcription.isShowingEbookText ? "Text from eBook" : "Text from transcript",
-          systemImage: transcription.isShowingEbookText ? "book.closed" : "waveform"
-        )
-        .font(.caption2.weight(.medium))
-        .foregroundStyle(model.appearancePalette.textSecondary)
-        .padding(.horizontal, AppTheme.Layout.compactSpacing)
-        .padding(.vertical, AppTheme.Layout.tightSpacing)
-        .background(.ultraThinMaterial, in: Capsule())
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .padding(AppTheme.Layout.stackSpacing)
-        .allowsHitTesting(false)
-      }
-
       if let notice = transcription.localeFallbackNotice {
         Text(notice)
           .font(.caption)
