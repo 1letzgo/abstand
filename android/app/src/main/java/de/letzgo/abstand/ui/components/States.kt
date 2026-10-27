@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.semibold
 
 /**
  * iOS: `TabContentSectionTitle` — **die** Sektionsüberschrift für Tabs, Settings und Details
@@ -36,7 +37,7 @@ fun TabContentSectionTitle(title: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * Die eine Abschnittsüberschrift der App (M3-Listen-Subheader: `titleSmall` in Akzentfarbe, bündig
+ * Die eine Abschnittsüberschrift der App (Paper: `titleMedium` in Serife und Tinte, bündig
  * mit der Kartenkante). Genutzt von [TabContentSectionTitle] (Home-Regale, Stats, Bereiche)
  * und `ServerAdminSection` (Settings) — alle Ansichten haben so dieselben Überschriften.
  */
@@ -44,8 +45,9 @@ fun TabContentSectionTitle(title: String, modifier: Modifier = Modifier) {
 fun AbstandSectionHeader(title: String, modifier: Modifier = Modifier) {
     Text(
         title,
-        style = AppType.titleSmall,
-        color = Theme.accent,
+        // Paper: Serifen-Titel (M3 titleMedium) in Tinte statt Akzent-Subheader.
+        style = AppType.titleMedium.semibold,
+        color = Theme.palette.textPrimary,
         modifier = modifier
             .fillMaxWidth()
             // Bündig mit der Kartenkante (nicht mehr auf die Karteninnenkante eingerückt).

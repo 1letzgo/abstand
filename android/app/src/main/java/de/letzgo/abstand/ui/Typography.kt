@@ -2,10 +2,11 @@ package de.letzgo.abstand.ui
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 
 /**
- * Typografie der App = **Material-3-Typeskala** (Roboto/Systemschrift, Größen und Zeilenhöhen
+ * Typografie der App = **Material-3-Typeskala** (Größen und Zeilenhöhen; Titel-Rollen in Serife, Rest Systemschrift,
  * aus `Typography()`), dieselben Stile wie `MaterialTheme.typography`. Views lesen nur von hier
  * (statisch, auch außerhalb von Composables nutzbar) — keine `fontSize = …`-Literale
  * (`UiTemplateLintTest`).
@@ -31,8 +32,24 @@ import androidx.compose.ui.text.font.FontWeight
  * Systemskalierung läuft über sp.
  */
 object AppType {
-    /** `MaterialTheme.typography` (M3-Standard, unverändert). */
-    val material: Typography = Typography()
+    /**
+     * `MaterialTheme.typography` — M3-Größen unverändert; Paper setzt Titel-Rollen (Display,
+     * Headline, Title Large/Medium) in die System-Serife, Body/Label bleiben Sans
+     * (iOS: `AppTheme.Typography.titleDesign`).
+     */
+    val material: Typography = Typography().let { t ->
+        fun TextStyle.serif() = copy(fontFamily = FontFamily.Serif)
+        t.copy(
+            displayLarge = t.displayLarge.serif(),
+            displayMedium = t.displayMedium.serif(),
+            displaySmall = t.displaySmall.serif(),
+            headlineLarge = t.headlineLarge.serif(),
+            headlineMedium = t.headlineMedium.serif(),
+            headlineSmall = t.headlineSmall.serif(),
+            titleLarge = t.titleLarge.serif(),
+            titleMedium = t.titleMedium.serif(),
+        )
+    }
 
     val displayLarge: TextStyle get() = material.displayLarge
     val displayMedium: TextStyle get() = material.displayMedium

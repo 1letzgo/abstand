@@ -36,10 +36,13 @@ import kotlin.math.ceil
  * (die statischen iOS-Felder `AppTheme.card/textPrimary/…` haben hier kein Gegenstück).
  */
 object AppTheme {
-    /** Dark-Mode-Akzent (Standard Gelb 251,192,45). */
-    val defaultAccent = Color(251 / 255f, 192 / 255f, 45 / 255f)
-    /** Light-Mode-Akzent (Standard #00374A). */
-    val defaultLightAccent = Color(0 / 255f, 55 / 255f, 74 / 255f)
+    /** Dark-Mode-Akzent (Paper: Zinnober, aufgehellt für Tinte 224,99,79). */
+    val defaultAccent = Color(224 / 255f, 99 / 255f, 79 / 255f)
+    /** Light-Mode-Akzent (Paper: Zinnober #B3261E). */
+    val defaultLightAccent = Color(179 / 255f, 38 / 255f, 30 / 255f)
+    /** Standard-Akzente vor Paper (Gelb / Petrol) — nur für die einmalige Migration. */
+    internal val legacyDefaultAccent = Color(251 / 255f, 192 / 255f, 45 / 255f)
+    internal val legacyDefaultLightAccent = Color(0 / 255f, 55 / 255f, 74 / 255f)
     /**
      * iOS: `AppTheme.danger`. Android: **einzige** Quelle für destruktiv/Fehler = M3-Rolle
      * `colorScheme.error` (Text darauf: [onDanger]); passt sich Hell/Dunkel und Dynamic Color an.
@@ -485,6 +488,24 @@ object Appearance {
         if (Prefs.string(Keys.appearanceAccentRGBLight) == null) {
             Prefs.setString(Keys.appearanceAccentRGBLight, AccentRgbCodec.format(AppTheme.defaultLightAccent))
         }
+        migrateLegacyDefaultAccentsToPaperIfNeeded()
+    }
+
+    /**
+     * iOS: `migrateLegacyDefaultAccentsToPaperIfNeeded` — Gelb/Petrol lagen als Standard fest
+     * gespeichert und würden Zinnober sonst überdecken; selbst gewählte Farben bleiben.
+     */
+    private fun migrateLegacyDefaultAccentsToPaperIfNeeded() {
+        if (Prefs.bool(Keys.appearancePaperAccentMigrated)) return
+        val legacy = listOf(
+            AppearanceAccentSlot.Dark to AppTheme.legacyDefaultAccent,
+            AppearanceAccentSlot.Light to AppTheme.legacyDefaultLightAccent,
+        )
+        for ((slot, old) in legacy) {
+            val stored = Prefs.string(slot.prefsKey)?.let(AccentRgbCodec::parse) ?: continue
+            if (AccentRgbCodec.equal(stored, old)) Prefs.setString(slot.prefsKey, AccentRgbCodec.format(slot.defaultAccent))
+        }
+        Prefs.setBool(Keys.appearancePaperAccentMigrated, true)
     }
 
     /** iOS: `AppearanceStore.loadAccentColor(slot:)`. */
@@ -493,10 +514,16 @@ object Appearance {
 }
 
 /** Aufgelöste Appearance für den aktuellen Kompositions-Teilbaum (von [AbstandTheme] gesetzt). */
-private data class ResolvedAppearance(val palette: AppColorPalette, val accent: Color, val systemDark: Boolean)
+private data class ResolvedAppearance(
+    val palette: AppColorPalette,
+    val accent: Color,
+    val onAccent: Color,
+    val systemDark: Boolean,
+)
 
 private val LocalResolvedAppearance = staticCompositionLocalOf {
-    ResolvedAppearance(AppColorPalette.derived(AppTheme.defaultAccent, true), AppTheme.defaultAccent, true)
+    val palette = AppColorPalette.derived(AppTheme.defaultLightAccent, false)
+    ResolvedAppearance(palette, palette.scheme.tertiary, palette.scheme.onTertiary, false)
 }
 
 /**
@@ -518,8 +545,19 @@ object Theme {
     val accent: Color
         @Composable get() = LocalResolvedAppearance.current.accent
 
-    /** iOS: `palette.foregroundOnAccent(themeAccent)` — Android: `colorScheme.onPrimary` (gleiche Regel, auch bei Dynamic Color korrekt). */
+    /** iOS: `palette.foregroundOnAccent(themeAccent)` — Inhalt auf voller Akzentfläche. */
     val onAccent: Color
+        @Composable get() = LocalResolvedAppearance.current.onAccent
+
+    /**
+     * Paper: Tinte für Bedienflächen (Filled Buttons, Play, aktive Pillen) — M3 `primary`.
+     * Der Akzent bleibt Fortschritt, Links und Daten vorbehalten.
+     */
+    val ink: Color
+        @Composable get() = LocalResolvedAppearance.current.palette.scheme.primary
+
+    /** Inhalt auf [ink]-Flächen (M3 `onPrimary`). */
+    val onInk: Color
         @Composable get() = LocalResolvedAppearance.current.palette.scheme.onPrimary
 
     /** System-Hell/Dunkel (für [Appearance.updateAccent] im System-Modus). */
@@ -545,7 +583,9 @@ fun AbstandTheme(content: @Composable () -> Unit) {
     val palette = dynamicScheme?.let { AppColorPalette.fromScheme(it, isDark) }
         ?: AppColorPalette.derived(Appearance.accent(systemDark), isDark)
     val scheme = palette.scheme
-    val accent = scheme.primary
+    // Paper: Akzent = `tertiary` (Zinnober); Dynamic Color hat kein Paper-Schema → `primary`.
+    val accent = if (dynamicScheme != null) scheme.primary else scheme.tertiary
+    val onAccent = if (dynamicScheme != null) scheme.onPrimary else scheme.onTertiary
 
     // Statusleisten-/Navigationsleisten-Icons folgen dem App-Modus, nicht nur dem System.
     val view = LocalView.current
@@ -559,7 +599,7 @@ fun AbstandTheme(content: @Composable () -> Unit) {
         }
     }
 
-    CompositionLocalProvider(LocalResolvedAppearance provides ResolvedAppearance(palette, accent, systemDark)) {
+    CompositionLocalProvider(LocalResolvedAppearance provides ResolvedAppearance(palette, accent, onAccent, systemDark)) {
         MaterialTheme(colorScheme = scheme, typography = AppType.material, content = content)
     }
 }

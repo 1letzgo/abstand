@@ -33,10 +33,12 @@ class MaterialSchemeTest {
         assertEquals(Color.White, palette.tone(100))
     }
 
-    @Test fun accentStaysPrimary() {
-        assertEquals(AppTheme.defaultAccent, darkScheme.primary)
-        assertEquals(AppTheme.defaultLightAccent, lightScheme.primary)
-        assertEquals(AppTheme.defaultAccent, darkScheme.surfaceTint)
+    /** Paper: Akzent wird `tertiary`, `primary` ist Tinte (dunkel auf Papier, hell auf Tinte). */
+    @Test fun accentIsTertiaryAndInkIsPrimary() {
+        assertEquals(AppTheme.defaultAccent, darkScheme.tertiary)
+        assertEquals(AppTheme.defaultLightAccent, lightScheme.tertiary)
+        assertEquals(lightScheme.onSurface, lightScheme.primary)
+        assertEquals(darkScheme.onSurface, darkScheme.primary)
     }
 
     @Test fun surfaceContainerLadder() {

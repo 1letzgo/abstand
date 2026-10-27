@@ -22,8 +22,8 @@ class AppearanceColorTest {
     }
 
     @Test fun accentFormatMatchesSwiftFormat() {
-        assertEquals("0.9843,0.7529,0.1765", AccentRgbCodec.format(AppTheme.defaultAccent))
-        assertEquals("0.0000,0.2157,0.2902", AccentRgbCodec.format(AppTheme.defaultLightAccent))
+        assertEquals("0.8784,0.3882,0.3098", AccentRgbCodec.format(AppTheme.defaultAccent))
+        assertEquals("0.7020,0.1490,0.1176", AccentRgbCodec.format(AppTheme.defaultLightAccent))
     }
 
     @Test fun accentRoundTrip() {
@@ -52,8 +52,9 @@ class AppearanceColorTest {
     }
 
     @Test fun modeRawValues() {
-        assertEquals(AppearanceMode.Dark, AppearanceMode.fromRaw(null))
-        assertEquals(AppearanceMode.Dark, AppearanceMode.fromRaw("sepia"))
+        // Paper: Standard hell.
+        assertEquals(AppearanceMode.Light, AppearanceMode.fromRaw(null))
+        assertEquals(AppearanceMode.Light, AppearanceMode.fromRaw("sepia"))
         assertEquals(AppearanceMode.Light, AppearanceMode.fromRaw("light"))
         assertEquals(AppearanceMode.System, AppearanceMode.fromRaw("system"))
         assertEquals(AppearanceAccentSlot.Dark, AppearanceAccentSlot.slotFor(AppearanceMode.System, systemDark = true))
@@ -63,39 +64,38 @@ class AppearanceColorTest {
         assertEquals("abstand_appearance_accent_rgb_light", AppearanceAccentSlot.Light.prefsKey)
     }
 
-    /** Android: Palette = M3-Rollen aus dem Akzent-Seed (Dark: getönte Flächen statt #353535/#454545). */
-    @Test fun darkPaletteUsesMaterialSurfaces() {
+    /** Paper: feste Tinte-Flächen als M3-Rollen (Dark). */
+    @Test fun darkPaletteUsesInkSurfaces() {
         val p = AppColorPalette.derived(AppTheme.defaultAccent, isDarkLike = true)
         assertTrue(p.isDarkLike)
-        assertEquals(6.0, TonalColor.tone(p.background), 1.0)
-        assertEquals(17.0, TonalColor.tone(p.card), 1.0)
-        assertEquals(90.0, TonalColor.tone(p.textPrimary), 1.0)
-        assertEquals(80.0, TonalColor.tone(p.textSecondary), 1.0)
+        assertRgb(Rgb(27 / 255.0, 25 / 255.0, 21 / 255.0), p.background)
+        assertRgb(Rgb(239 / 255.0, 232 / 255.0, 218 / 255.0), p.textPrimary)
         assertEquals(p.scheme.surface, p.background)
         assertEquals(p.scheme.surfaceContainerHigh, p.card)
         assertEquals(p.scheme.secondaryContainer, p.progressTrack)
+        assertEquals(p.scheme.outlineVariant, p.rule)
         assertEquals(0.36f, p.cardShadow.alpha, 0.005f)
         assertEquals(0.32f, p.heroCardShadow.alpha, 0.005f)
     }
 
-    @Test fun lightPaletteUsesMaterialSurfaces() {
+    /** Paper: warmes Papier mit Tinte (Light). */
+    @Test fun lightPaletteUsesPaperSurfaces() {
         val p = AppColorPalette.derived(AppTheme.defaultLightAccent, isDarkLike = false)
         assertFalse(p.isDarkLike)
-        assertEquals(98.0, TonalColor.tone(p.background), 1.0)
-        assertEquals(92.0, TonalColor.tone(p.card), 1.0)
-        assertEquals(10.0, TonalColor.tone(p.textPrimary), 1.0)
-        assertEquals(30.0, TonalColor.tone(p.textSecondary), 1.0)
+        assertRgb(Rgb(243 / 255.0, 238 / 255.0, 227 / 255.0), p.background)
+        assertRgb(Rgb(31 / 255.0, 27 / 255.0, 22 / 255.0), p.textPrimary)
         assertEquals(0.1f, p.cardShadow.alpha, 0.005f)
     }
 
     @Test fun foregroundOnAccent() {
         val dark = AppColorPalette.derived(AppTheme.defaultAccent, true)
         val light = AppColorPalette.derived(AppTheme.defaultLightAccent, false)
-        // Gelber Standard-Akzent ist hell (Luminanz ≈ 0,58 > 0,55) → dunkle Schrift.
-        assertRgb(Rgb(42 / 255.0, 32 / 255.0, 24 / 255.0), dark.foregroundOnAccent(AppTheme.defaultAccent))
-        assertEquals(light.textPrimary, light.foregroundOnAccent(AppTheme.defaultAccent))
+        // Helle Akzente (Luminanz > 0,55) → dunkle Schrift; Zinnober ist dunkel genug → Weiß.
+        val yellow = Color(251 / 255f, 192 / 255f, 45 / 255f)
+        assertRgb(Rgb(42 / 255.0, 32 / 255.0, 24 / 255.0), dark.foregroundOnAccent(yellow))
+        assertEquals(light.textPrimary, light.foregroundOnAccent(yellow))
         assertEquals(Color.White, light.foregroundOnAccent(AppTheme.defaultLightAccent))
-        assertEquals(Color.White, dark.foregroundOnAccent(AppTheme.defaultLightAccent))
+        assertEquals(Color.White, dark.foregroundOnAccent(AppTheme.defaultAccent))
     }
 
     @Test fun relativeLuminance() {

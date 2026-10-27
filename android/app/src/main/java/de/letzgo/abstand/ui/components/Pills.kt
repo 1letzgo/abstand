@@ -314,9 +314,9 @@ fun AbstandDropdownPill(
         Surface(
             onClick = { expanded = true },
             shape = AbstandChipShape,
-            // Dropdown-Pills in der Appearance-Akzentfarbe (nicht tonal).
-            color = Theme.accent,
-            contentColor = Theme.onAccent,
+            // Paper: Dropdown-Pills in Tinte (nicht tonal), Akzent bleibt Fortschritt vorbehalten.
+            color = Theme.ink,
+            contentColor = Theme.onInk,
             // 48-dp-Trefferfläche (M3), sichtbare Pill bleibt 32 dp.
             modifier = (if (iconOnly) Modifier else Modifier.fillMaxWidth()).minimumInteractiveComponentSize().height(dock.activeHeight).semantics {
                 contentDescription = "$accessibilityLabel: ${current?.label.orEmpty()}"
@@ -364,12 +364,12 @@ fun AbstandPillIconButton(
     val scheme = Theme.palette.scheme
     val container = when {
         !enabled -> scheme.onSurface.copy(alpha = AppTheme.disabledContainerAlpha)
-        active -> Theme.accent
+        active -> Theme.ink
         else -> scheme.secondaryContainer
     }
     val content = when {
         !enabled -> scheme.onSurface.copy(alpha = AppTheme.disabledContentAlpha)
-        active -> Theme.onAccent
+        active -> Theme.onInk
         else -> scheme.onSecondaryContainer
     }
     Surface(

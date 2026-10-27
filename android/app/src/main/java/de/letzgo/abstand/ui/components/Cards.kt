@@ -1,6 +1,7 @@
 package de.letzgo.abstand.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -12,7 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -60,11 +61,16 @@ fun Modifier.abstandCardChrome(
     shape: Shape = AbstandCardShape,
     elevation: CardElevation = CardElevation.Standard,
     onClick: (() -> Unit)? = null,
-): Modifier = this
-    .abstandCardElevation(shape, elevation)
-    .clip(shape)
-    .background(fill)
-    .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+): Modifier = composed {
+    // Paper: Bogen mit Haarlinie (`palette.rule`) — wie die iOS-Karten.
+    val rule = Theme.palette.rule
+    this
+        .abstandCardElevation(shape, elevation)
+        .clip(shape)
+        .background(fill)
+        .border(AppTheme.Layout.hairlineWidth, rule, shape)
+        .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+}
 
 /** iOS: `abstandCardListRowFrame(alignment:)` — volle Breite, Mindesthöhe `listRowMinHeight`. */
 fun Modifier.abstandCardListRowFrame(): Modifier =
@@ -78,7 +84,7 @@ fun Modifier.abstandHeroCardOutline(palette: AppColorPalette): Modifier = border
 )
 
 /**
- * Material-`ElevatedCard` in abstand-Optik — Container für alle Karten mit Inhalt
+ * Material-`OutlinedCard` in abstand-Optik (Paper) — Container für alle Karten mit Inhalt
  * ([AbstandGroupedCard], Detail-Sektionen, Library-Zeilen). Füllung [fill] (Standard
  * `palette.card`), Form [shape], Schatten-Stufe [elevation]; in horizontalen Reihen
  * ([LocalAbstandCardShadowEnabled] = false) ohne Schatten. [onClick] = Material-Ripple.
@@ -93,15 +99,17 @@ fun AbstandCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val colors = CardDefaults.elevatedCardColors(containerColor = fill, contentColor = Theme.palette.textPrimary)
+    // Paper: M3 Outlined Card — Papierbogen mit Haarlinie (`palette.rule`) statt Schatten-Karte.
+    val colors = CardDefaults.outlinedCardColors(containerColor = fill, contentColor = Theme.palette.textPrimary)
+    val border = BorderStroke(AppTheme.Layout.hairlineWidth, Theme.palette.rule)
     val dp = if (LocalAbstandCardShadowEnabled.current) elevation.shadowElevation else 0.dp
-    val el = CardDefaults.elevatedCardElevation(
+    val el = CardDefaults.outlinedCardElevation(
         defaultElevation = dp, pressedElevation = dp, focusedElevation = dp, hoveredElevation = dp, draggedElevation = dp,
     )
     if (onClick != null) {
-        ElevatedCard(onClick = onClick, modifier = modifier, shape = shape, colors = colors, elevation = el, content = content)
+        OutlinedCard(onClick = onClick, modifier = modifier, shape = shape, colors = colors, elevation = el, border = border, content = content)
     } else {
-        ElevatedCard(modifier = modifier, shape = shape, colors = colors, elevation = el, content = content)
+        OutlinedCard(modifier = modifier, shape = shape, colors = colors, elevation = el, border = border, content = content)
     }
 }
 

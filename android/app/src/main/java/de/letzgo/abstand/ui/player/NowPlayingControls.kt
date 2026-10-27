@@ -319,15 +319,15 @@ fun FullPlayerTransportRow(wiring: PlayerWiring, modifier: Modifier = Modifier) 
                 Modifier
                     .size(MiniPlayerMetrics.playPauseButtonWidth, MiniPlayerMetrics.playPauseButtonHeight)
                     .clip(CircleShape)
-                    .background(Theme.accent)
+                    .background(Theme.ink)
                     .clickable(enabled = hasBook) { player.togglePlayPause() }
                     .semantics { contentDescription = if (busy) "Loading" else if (isPlaying) "Pause" else "Play" },
                 contentAlignment = Alignment.Center,
             ) {
                 if (busy) {
-                    AbstandInlineSpinner(color = Theme.onAccent, size = AppTheme.Layout.compactIconColumnWidth, strokeWidth = AppTheme.Layout.boldStrokeWidth)
+                    AbstandInlineSpinner(color = Theme.onInk, size = AppTheme.Layout.compactIconColumnWidth, strokeWidth = AppTheme.Layout.boldStrokeWidth)
                 } else {
-                    Icon(if (isPlaying) SF.pauseFill else SF.playFill, contentDescription = null, tint = Theme.onAccent, modifier = Modifier.size(MiniPlayerMetrics.playSymbolSize))
+                    Icon(if (isPlaying) SF.pauseFill else SF.playFill, contentDescription = null, tint = Theme.onInk, modifier = Modifier.size(MiniPlayerMetrics.playSymbolSize))
                 }
             }
         }

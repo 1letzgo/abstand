@@ -99,6 +99,8 @@ object Keys {
     const val appearanceAccentRGBDark = "abstand_appearance_accent_rgb_dark"
     const val appearanceAccentRGBLight = "abstand_appearance_accent_rgb_light"
     const val appearanceMode = "abstand_appearance_mode"
+    /** iOS: `appearancePaperAccentMigrated` — einmalig alte Standard-Akzente auf Paper-Zinnober. */
+    const val appearancePaperAccentMigrated = "abstand_appearance_paper_accent_migrated"
     /** Android-only (kein iOS-Gegenstück): Dynamic Color an/aus. */
     const val appearanceDynamicColor = "abstand_appearance_dynamic_color"
     const val libraryBookCardStyle = "abstand_library_book_card_style"

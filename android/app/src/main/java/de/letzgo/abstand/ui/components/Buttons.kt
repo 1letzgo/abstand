@@ -51,11 +51,11 @@ private val ButtonIconSize = AppTheme.Layout.smallIconSize
 /** M3 Filled Button: 24 dp seitlich, Höhe [AppTheme.Layout.buttonHeight] (40 dp). */
 private val ButtonContentPadding = PaddingValues(horizontal = AppTheme.Layout.buttonHorizontalPadding)
 
-/** Akzent- bzw. bei [destructive] Error-Fläche (M3 `error`/`onError`; iOS: `AppTheme.danger`). */
+/** Paper: Tinten- bzw. bei [destructive] Error-Fläche (M3 `primary` / `error`; iOS: `AppTheme.danger`). */
 @Composable
 private fun accentButtonColors(destructive: Boolean = false): androidx.compose.material3.ButtonColors {
-    val fill = if (destructive) AppTheme.danger else Theme.accent
-    val content = if (destructive) AppTheme.onDanger else Theme.onAccent
+    val fill = if (destructive) AppTheme.danger else Theme.ink
+    val content = if (destructive) AppTheme.onDanger else Theme.onInk
     // M3: deaktiviert = onSurface 12 % Fläche / 38 % Inhalt.
     val onSurface = Theme.palette.scheme.onSurface
     return ButtonDefaults.buttonColors(
@@ -150,7 +150,7 @@ fun AbstandProminentButton(
 @Composable
 private fun RowScope.ButtonLabel(text: String, icon: ImageVector?, isBusy: Boolean) {
     if (isBusy) {
-        AbstandInlineSpinner(color = Theme.onAccent)
+        AbstandInlineSpinner(color = Theme.onInk)
         Spacer(Modifier.size(AppTheme.Layout.inlineSpacing))
     } else if (icon != null) {
         Icon(icon, contentDescription = null, modifier = Modifier.size(ButtonIconSize))
@@ -221,7 +221,7 @@ fun AbstandIconButton(
     val foreground = when {
         tint != Color.Unspecified -> tint
         style == AbstandIconButtonStyle.Tonal -> palette.scheme.onSecondaryContainer
-        style == AbstandIconButtonStyle.Filled -> Theme.onAccent
+        style == AbstandIconButtonStyle.Filled -> Theme.onInk
         else -> LocalContentColor.current
     }
     val container = when {
@@ -229,7 +229,7 @@ fun AbstandIconButton(
         !enabled -> palette.scheme.onSurface.copy(alpha = AppTheme.disabledContainerAlpha)
         containerColor != Color.Unspecified -> containerColor
         style == AbstandIconButtonStyle.Tonal -> palette.scheme.secondaryContainer
-        else -> Theme.accent
+        else -> Theme.ink
     }
     // Deaktivierte Tonal/Filled-Knöpfe: Symbol in onSurface (auf der 12-%-Fläche), sonst Vordergrund.
     val disabledForeground = if (style == AbstandIconButtonStyle.Plain) foreground else palette.scheme.onSurface
@@ -289,8 +289,8 @@ fun AbstandPlayPill(
     val showsPause = optimistic ?: isPlaying
     // M3: mit Restzeit = Filled Button (primary), nur Symbol = Filled-Tonal-Icon-Button (secondaryContainer).
     val scheme = Theme.palette.scheme
-    val container = if (caption != null) Theme.accent else scheme.secondaryContainer
-    val onAccent = if (caption != null) Theme.onAccent else scheme.onSecondaryContainer
+    val container = if (caption != null) Theme.ink else scheme.secondaryContainer
+    val onAccent = if (caption != null) Theme.onInk else scheme.onSecondaryContainer
     Row(
         modifier
             // Kompakte Pille (32 dp): Trefferfläche auf 48 dp erweitern, Optik bleibt.

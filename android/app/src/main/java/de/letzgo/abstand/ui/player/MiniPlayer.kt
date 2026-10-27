@@ -320,12 +320,12 @@ private fun MiniTransport(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring) {
             Box(
                 Modifier
                     .size(MiniPlayerMetrics.accessoryPlayWidth, MiniPlayerMetrics.accessoryPlayHeight)
-                    .background(Theme.accent, CircleShape),
+                    .background(Theme.ink, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 if (busy) {
                     AbstandInlineSpinner(
-                        color = Theme.onAccent,
+                        color = Theme.onInk,
                         size = AppTheme.Layout.iconSize,
                         strokeWidth = AppTheme.Layout.boldStrokeWidth,
                     )
@@ -333,7 +333,7 @@ private fun MiniTransport(snapshot: MiniPlayerSnapshot, wiring: PlayerWiring) {
                     Icon(
                         if (snapshot.isPlaying) SF.pauseFill else SF.playFill,
                         contentDescription = null,
-                        tint = Theme.onAccent,
+                        tint = Theme.onInk,
                     )
                 }
             }
