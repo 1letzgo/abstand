@@ -205,11 +205,10 @@ enum PlayerTranscriptProducer {
       if let failure = gate.failure { throw failure }
       guard let sample = output.copyNextSampleBuffer() else { break }
       guard let buffer = PlayerTranscriptProducer.pcmBuffer(from: sample) else { continue }
-      // Ausgabe-PTS berücksichtigt `TrimDurationAtStart` (Encoder-Delay/Priming).
-      let pts = CMSampleBufferGetOutputPresentationTimeStamp(sample)
-      let ptsSeconds: Double? = (pts.isValid && pts.isNumeric) ? max(0, pts.seconds) : nil
       if gate.timelineOrigin == nil {
-        if let ptsSeconds { origin = ptsSeconds }
+        // Ausgabe-PTS berücksichtigt `TrimDurationAtStart` (Encoder-Delay/Priming).
+        let pts = CMSampleBufferGetOutputPresentationTimeStamp(sample)
+        if pts.isValid, pts.isNumeric { origin = max(0, pts.seconds) }
         gate.setTimelineOrigin(origin)
         let message = String(
           format: "transcript producer: start=%.3f firstPTS=%.3f delta=%+.3f",
@@ -227,15 +226,11 @@ enum PlayerTranscriptProducer {
         guard let converter else { throw PlayerTranscriptProducerError.conversionFailed }
         analyzerBuffer = try converter.convert(buffer, to: targetFormat)
       }
-      // Startzeit je Buffer mitgeben (relativ zum Ursprung): verworfene oder kürzere Buffer
-      // verschieben so nicht mehr alle späteren Wortzeiten.
-      let relativeStart = max(0, (ptsSeconds ?? (origin + fedSeconds)) - origin)
-      input.yield(
-        AnalyzerInput(
-          buffer: analyzerBuffer,
-          bufferStartTime: CMTime(seconds: relativeStart, preferredTimescale: 48_000)))
-      fedSeconds = max(
-        fedSeconds, relativeStart + Double(analyzerBuffer.frameLength) / targetFormat.sampleRate)
+      // Lückenlos füttern, ohne `bufferStartTime`: aus den Ausgabe-PTS abgeleitete Startzeiten
+      // überlappen nach Resampling/Trimming um Bruchteile von Samples — der Analyzer bricht dann
+      // mit „Audio input timestamp overlaps or precedes prior audio input" ab (am Mac nachgemessen).
+      input.yield(AnalyzerInput(buffer: analyzerBuffer))
+      fedSeconds += Double(analyzerBuffer.frameLength) / targetFormat.sampleRate
 
       sinceYield += 1
       if sinceYield >= Self.buffersPerYield {
