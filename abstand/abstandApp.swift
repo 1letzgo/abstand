@@ -15,6 +15,7 @@ struct abstandApp: App {
     PlayerTranscriptPrefetcher.registerBackgroundTask()
     // Zwischendateien abgebrochener Downloads (CFNetworkDownload_*.tmp) wegräumen.
     Task.detached(priority: .background) { LocalStoreMaintenance.removeStaleDownloadTempFiles() }
+    TipStore.shared.startTransactionListener()
   }
 
   var body: some Scene {
@@ -70,6 +71,7 @@ private struct AppRootContainer: View {
           model.player.setNowPlayingUIVisible(presented)
           model.isNowPlayingOverlayVisible = presented
         }
+        .modifier(TipOfferLaunchModifier())
       } else {
         LoginView()
       }

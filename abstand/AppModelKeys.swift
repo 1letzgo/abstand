@@ -83,5 +83,7 @@ extension AppModel {
   static let libraryBookCardStyle = "abstand_library_book_card_style"
   static let libraryPodcastCardStyle = "abstand_library_podcast_card_style"
   static let translationTargetLanguageCode = "abstand_translation_target_language"
+  /// Trinkgeld-Angebot wurde beim Start einmal gezeigt.
+  static let tipOfferShown = "abstand_tip_offer_shown"
 }
 }

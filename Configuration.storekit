@@ -1,0 +1,123 @@
+{
+  "identifier": "FC394B12",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "2.99",
+      "familyShareable": false,
+      "internalID": "6BBE82CD",
+      "localizations": [
+        {
+          "description": "A small tip to support abstand.",
+          "displayName": "Small Tip",
+          "locale": "en_US"
+        },
+        {
+          "description": "Ein kleines Trinkgeld für abstand.",
+          "displayName": "Kleines Trinkgeld",
+          "locale": "de"
+        }
+      ],
+      "productID": "de.abstand.tip1",
+      "referenceName": "Tip - Small",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "4.99",
+      "familyShareable": false,
+      "internalID": "888BC52D",
+      "localizations": [
+        {
+          "description": "A medium tip to support abstand.",
+          "displayName": "Medium Tip",
+          "locale": "en_US"
+        },
+        {
+          "description": "Ein mittleres Trinkgeld für abstand.",
+          "displayName": "Mittleres Trinkgeld",
+          "locale": "de"
+        }
+      ],
+      "productID": "de.abstand.tip2",
+      "referenceName": "Tip - Medium",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "9.99",
+      "familyShareable": false,
+      "internalID": "35C15325",
+      "localizations": [
+        {
+          "description": "A large tip to support abstand.",
+          "displayName": "Large Tip",
+          "locale": "en_US"
+        },
+        {
+          "description": "Ein großes Trinkgeld für abstand.",
+          "displayName": "Großes Trinkgeld",
+          "locale": "de"
+        }
+      ],
+      "productID": "de.abstand.tip3",
+      "referenceName": "Tip - Large",
+      "type": "Consumable"
+    }
+  ],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storeKitErrors": [
+      {
+        "current": null,
+        "enabled": false,
+        "name": "Load Products"
+      },
+      {
+        "current": null,
+        "enabled": false,
+        "name": "Purchase"
+      },
+      {
+        "current": null,
+        "enabled": false,
+        "name": "Verification"
+      },
+      {
+        "current": null,
+        "enabled": false,
+        "name": "App Store Sync"
+      },
+      {
+        "current": null,
+        "enabled": false,
+        "name": "Subscription Status"
+      },
+      {
+        "current": null,
+        "enabled": false,
+        "name": "App Transaction"
+      },
+      {
+        "current": null,
+        "enabled": false,
+        "name": "Manage Subscriptions Sheet"
+      },
+      {
+        "current": null,
+        "enabled": false,
+        "name": "Refund Request Sheet"
+      },
+      {
+        "current": null,
+        "enabled": false,
+        "name": "Offer Code Redeem Sheet"
+      }
+    ],
+    "_storefront": "USA"
+  },
+  "subscriptionGroups": [],
+  "version": {
+    "major": 3,
+    "minor": 0
+  }
+}

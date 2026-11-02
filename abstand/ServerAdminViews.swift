@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -473,6 +474,7 @@ private struct SettingsCardActionRow: View {
   let title: String
   var subtitle: String? = nil
   var trailingIcon: String? = nil
+  var trailingText: String? = nil
   var tint: Color? = nil
   var isEnabled: Bool = true
   var isBusy: Bool = false
@@ -497,6 +499,10 @@ private struct SettingsCardActionRow: View {
         ProgressView()
           .controlSize(.small)
           .tint(model.appearanceAccentColor)
+      } else if let trailingText {
+        Text(trailingText)
+          .font(.body)
+          .foregroundStyle(palette.textSecondary)
       } else if let trailingIcon {
         Image(systemName: trailingIcon)
           .foregroundStyle(palette.textSecondary)
@@ -1101,6 +1107,17 @@ struct SettingsAccountView: View {
         }
       }
     }
+
+    ServerAdminSection(title: "Support") {
+      NavigationLink {
+        SettingsTipView()
+      } label: {
+        AbstandGroupedCard {
+          ServerAdminNavRow(icon: "heart", title: "Tip", subtitle: nil)
+        }
+      }
+      .buttonStyle(.plain)
+    }
     .alert("Log out?", isPresented: Binding(
       get: { accountPendingLogout != nil },
       set: { if !$0 { accountPendingLogout = nil } }
@@ -1119,6 +1136,109 @@ struct SettingsAccountView: View {
         Text("Remove \(account.displayUsername) from @\(account.displayServerHost)?")
       }
     }
+  }
+}
+
+// MARK: - Settings tip
+
+/// Trinkgeld-Stufen als Karte — gemeinsam für die Settings-Seite und das Angebot beim Start.
+struct TipOptionsCard: View {
+  @EnvironmentObject private var model: AppModel
+  @ObservedObject private var store = TipStore.shared
+  @Environment(\.purchase) private var purchase
+  @State private var purchasingTier: TipTier?
+  @State private var showsThanks = false
+  @State private var pendingMessage: String?
+  var onThanked: () -> Void = {}
+
+  var body: some View {
+    AbstandGroupedCard {
+      if !store.offers.isEmpty {
+        ForEach(Array(store.offers.enumerated()), id: \.element.id) { index, offer in
+          if index > 0 { SettingsCardDivider() }
+          Button {
+            Task { await buy(offer) }
+          } label: {
+            SettingsCardActionRow(
+              icon: offer.tier.icon,
+              title: offer.tier.title,
+              trailingText: offer.product.displayPrice,
+              isEnabled: purchasingTier == nil || purchasingTier == offer.tier,
+              isBusy: purchasingTier == offer.tier
+            )
+            .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .disabled(purchasingTier != nil)
+        }
+      } else if store.isLoading {
+        AbstandLoadingSpinner(controlSize: .regular, verticalPadding: AppTheme.Layout.rowVerticalPadding)
+      } else {
+        AbstandCardEmptyState(
+          title: "Tips are unavailable right now.",
+          message: "Check your connection and try again."
+        )
+        Button("Retry") {
+          Task { await store.loadOffersIfNeeded() }
+        }
+        .buttonStyle(AbstandProminentButtonStyle())
+        .padding(.bottom, AppTheme.Layout.rowVerticalPadding)
+      }
+    }
+    .task { await store.loadOffersIfNeeded() }
+    .alert("Thank you!", isPresented: $showsThanks) {
+      Button("OK") { onThanked() }
+    } message: {
+      Text("Your tip keeps abstand going.")
+    }
+    .alert("Tip", isPresented: Binding(
+      get: { pendingMessage != nil },
+      set: { if !$0 { pendingMessage = nil } }
+    )) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(pendingMessage ?? "")
+    }
+  }
+
+  private func buy(_ offer: TipOffer) async {
+    purchasingTier = offer.tier
+    defer { purchasingTier = nil }
+    do {
+      switch try await store.complete(try await purchase(offer.product)) {
+      case .completed:
+        showsThanks = true
+      case .pending:
+        pendingMessage = "Your tip is waiting for approval."
+      case .cancelled:
+        break
+      }
+    } catch {
+      pendingMessage = "The purchase could not be completed. \(error.localizedDescription)"
+    }
+  }
+}
+
+struct SettingsTipView: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    ServerAdminScrollScreen {
+      LazyVStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
+        ServerAdminSection(title: "Leave a tip") {
+          TipOptionsCard()
+          Text("abstand is a hobby project. Tips are voluntary and don't unlock anything.")
+            .font(.caption)
+            .foregroundStyle(model.appearancePalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+    }
+    .themeAccentFromAppModel(model)
+    .abstandThemeRefresh()
+    .navigationTitle("Tip")
+    .toolbarTitleDisplayMode(.inline)
+    .tint(model.appearanceAccentColor)
   }
 }
 
