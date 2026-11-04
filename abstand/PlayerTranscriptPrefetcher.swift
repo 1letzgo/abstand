@@ -62,6 +62,11 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
     self.jobsProvider = jobs
   }
 
+  /// Buchsprache eines Downloads aus Detail-Cache und lokalem Katalog.
+  func languageTag(forStorageId storageId: String) -> String? {
+    jobsProvider?().first { $0.storageId == storageId }?.languageTag
+  }
+
   /// Einstellung geändert, Buch gewechselt, App in den Vordergrund: Lauf neu bewerten.
   func setEnabled(_ enabled: Bool) {
     isEnabled = enabled
@@ -248,8 +253,7 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
       !resolution.usedFallback
     else { return nil }
     let locale = resolution.locale
-    guard installed.contains(where: { SpeechTranscriptionLocaleResolver.matchLocale(locale, in: [$0]) != nil })
-    else { return nil }
+    guard SpeechTranscriptionLocaleResolver.isInstalled(locale, in: installed) else { return nil }
     return locale
   }
 

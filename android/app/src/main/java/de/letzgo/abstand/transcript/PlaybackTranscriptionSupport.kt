@@ -3,6 +3,7 @@ package de.letzgo.abstand.transcript
 import de.letzgo.abstand.data.AbsDownloadManifest
 import de.letzgo.abstand.data.swiftTrim
 import de.letzgo.abstand.logic.PlayerTranscriptTrackSource
+import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.player.PlaybackController
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -76,6 +77,20 @@ object PlaybackTranscription {
     fun preferredTranscriptionLanguageTag(player: PlaybackController): String? {
         val book = player.activeBook.value ?: return null
         return languageOverrides[book.id] ?: book.media.metadata.language
+    }
+
+    /**
+     * iOS: Rückfall in `preferredTranscriptionLanguageTag` — aus `download.json` gebaute Bücher kennen
+     * ihre Sprache nicht, sie steht aber im lokalen Katalog. Ohne Nachschlagen liefe ein deutsches
+     * Buch mit dem Modell der Gerätesprache.
+     */
+    suspend fun resolvedTranscriptionLanguageTag(player: PlaybackController): String? {
+        preferredTranscriptionLanguageTag(player)?.swiftTrim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        val id = player.activeBook.value?.id ?: return null
+        val store = runCatching { AppModel.shared.session.currentLocalLibraryStore() }.getOrNull() ?: return null
+        return runCatching {
+            store.fetchBookDetail(id)?.media?.metadata?.language ?: store.fetchBook(id)?.media?.metadata?.language
+        }.getOrNull()
     }
 
     /** iOS: `isReadAlongDownloadReady` — nur bei vollständig heruntergeladenem Titel. */

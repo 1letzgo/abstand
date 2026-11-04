@@ -1078,9 +1078,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       throw PlayerLiveTranscriptionError.localeNotSupported
     }
     let installed = await SpeechTranscriber.installedLocales
-    if installed.contains(where: {
-      SpeechTranscriptionLocaleResolver.matchLocale(installLocale, in: [$0]) != nil
-    }) {
+    if SpeechTranscriptionLocaleResolver.isInstalled(installLocale, in: installed) {
       return
     }
 

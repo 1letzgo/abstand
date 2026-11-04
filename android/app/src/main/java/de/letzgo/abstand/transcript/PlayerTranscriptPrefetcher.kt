@@ -233,7 +233,7 @@ object PlayerTranscriptPrefetcher {
             if (sources.isEmpty()) return@run null
             PlayerTranscriptJob(
                 activeId, player.activeBook.value?.displayTitle ?: "",
-                PlaybackTranscription.preferredTranscriptionLanguageTag(player), sources,
+                PlaybackTranscription.resolvedTranscriptionLanguageTag(player), sources,
             ) to PlaybackTranscription.livePosition(player)
         }
         val others = withContext(Dispatchers.IO) { jobsProvider(appContext) }

@@ -2608,7 +2608,13 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   var preferredTranscriptionLanguageTag: String? {
-    transcriptionLanguageOverride ?? activeBook?.media.metadata.language
+    if let transcriptionLanguageOverride { return transcriptionLanguageOverride }
+    let own = activeBook?.media.metadata.language?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !own.isEmpty { return own }
+    // Aus `download.json` gebaute Bücher kennen ihre Sprache nicht — ohne Nachschlagen liefe ein
+    // deutsches Buch mit der englischen Erkennung, sobald das Gerät auf Englisch steht.
+    guard let storageId = transcriptionStorageId else { return nil }
+    return PlayerTranscriptPrefetcher.current?.languageTag(forStorageId: storageId)
   }
 
   func setTranscriptionLanguageOverride(_ languageTag: String?) {

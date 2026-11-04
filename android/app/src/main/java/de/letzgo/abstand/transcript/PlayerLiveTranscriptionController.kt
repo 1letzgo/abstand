@@ -332,7 +332,7 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
         }
         if (!sessionIsCurrent(generation)) return
 
-        val languageTag = PlaybackTranscription.preferredTranscriptionLanguageTag(player)
+        val languageTag = PlaybackTranscription.resolvedTranscriptionLanguageTag(player)
         val selection = TranscriptionModelSelection.select(languageTag)
         _localeFallbackNotice.value = if (selection.usedFallback) {
             "Using ${languageName(selection.locale)} speech recognition (book language not installed)."
@@ -752,7 +752,7 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
             it.globalRange.endInclusive >= range.start && it.globalRange.start <= range.endInclusive
         }
         if (sources.isEmpty()) return RecapOutcome(error = "The last five minutes of audio are unavailable for transcription.")
-        val languageTag = PlaybackTranscription.preferredTranscriptionLanguageTag(player)
+        val languageTag = PlaybackTranscription.resolvedTranscriptionLanguageTag(player)
         val selection = try {
             TranscriptionModelSelection.select(languageTag)
         } catch (e: SpeechTranscriptionLocaleResolver.LocaleNotSupportedException) {

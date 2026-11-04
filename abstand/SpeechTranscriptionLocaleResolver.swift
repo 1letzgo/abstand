@@ -43,7 +43,7 @@ enum SpeechTranscriptionLocaleResolver {
       }
     }
 
-    if let first = supported.first {
+    if let first = stableVariant(of: supported) {
       return Resolution(locale: first, usedFallback: true)
     }
     throw PlayerLiveTranscriptionError.localeNotSupported
@@ -68,7 +68,37 @@ enum SpeechTranscriptionLocaleResolver {
       return languageCode(from: locale) == reqLang
     }
 
-    return langMatches.first { $0.identifier(.bcp47).contains("-") } ?? langMatches.first
+    return stableVariant(of: langMatches)
+  }
+
+  /// Immer dieselbe Variante einer Sprache: `supportedLocales` wechselt die Reihenfolge bei jedem
+  /// App-Start, und die Variante steckt im Namen der Transkriptdatei. `first` lieferte deshalb mal
+  /// `de-CH`, mal `de-AT` — vorhandene Transkripte wurden nicht gefunden und neu erzeugt.
+  /// Reihenfolge: Region des Geräts, Standardvariante der Sprache, dann alphabetisch.
+  private static func stableVariant(of locales: [Locale]) -> Locale? {
+    let sorted = locales.sorted { $0.identifier(.bcp47).lowercased() < $1.identifier(.bcp47).lowercased() }
+    let regional = sorted.filter { $0.identifier(.bcp47).contains("-") }
+    guard let language = regional.first.flatMap(languageCode(from:)) else { return sorted.first }
+    let sameLanguage = regional.filter { languageCode(from: $0) == language }
+    var preferred: [String] = []
+    if let region = Locale.current.region?.identifier.lowercased() {
+      preferred.append("\(language)-\(region)")
+    }
+    preferred.append(defaultVariants[language] ?? "\(language)-\(language)")
+    for id in preferred {
+      if let match = sameLanguage.first(where: { $0.identifier(.bcp47).lowercased() == id }) { return match }
+    }
+    return regional.first
+  }
+
+  /// Standardvarianten, die nicht dem Muster `de-de` folgen.
+  private static let defaultVariants = ["en": "en-us", "zh": "zh-cn", "pt": "pt-br", "ja": "ja-jp", "ko": "ko-kr"]
+
+  /// Genau diese Variante ist installiert — `matchLocale` würde auch eine andere Region akzeptieren
+  /// und den Download der tatsächlich gewählten Variante überspringen.
+  static func isInstalled(_ locale: Locale, in installed: [Locale]) -> Bool {
+    let id = locale.identifier(.bcp47).lowercased()
+    return installed.contains { $0.identifier(.bcp47).lowercased() == id }
   }
 
   private static func languageCode(from locale: Locale) -> String? {
