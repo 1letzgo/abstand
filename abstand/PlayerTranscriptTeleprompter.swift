@@ -51,10 +51,8 @@ enum PlayerTeleprompterMetrics {
   static let maxFontSize: CGFloat = 34
   static let fontSizeStep: CGFloat = 2
   static let fontSizeStorageKey = "abstand_teleprompter_font_size"
-  /// Zeilen ober/unterhalb der aktiven Zeile (symmetrisch ausgeblendet).
+  /// Zeilen außerhalb des aktiven Absatzes (symmetrisch ausgeblendet).
   static let inactiveLineTextOpacity: CGFloat = 0.32
-  /// Wörter in der aktiven Zeile (ohne Hervorhebung).
-  static let activeLineTextOpacity: CGFloat = 0.65
 
   static func clampFontSize(_ size: CGFloat) -> CGFloat {
     min(maxFontSize, max(minFontSize, size))
@@ -327,9 +325,11 @@ struct PlayerLiveTranscriptPanelView: View {
     let progress = fractionalLine - floor(fractionalLine)
     let layout = teleprompterLayout
     let intraLineOffset = -CGFloat(progress) * layout.rowStride
-    let activeHit = transcription.activeWordHit(at: time)
-    let activeWord = activeHit?.word
-    let activeLineIndex = activeHit?.lineIndex ?? centerIdx
+    let paragraphs = transcription.transcriptParagraphIndices
+    // Über die Zeile, nicht das Wort: in Pausen zwischen Wörtern gibt es keinen Treffer,
+    // die Markierung darf dort nicht springen.
+    let activeLineIndex = lines.isEmpty ? centerIdx : transcription.activeLineIndex(at: time)
+    let activeParagraph = paragraphs.indices.contains(activeLineIndex) ? paragraphs[activeLineIndex] : nil
 
     return VStack(alignment: .leading, spacing: layout.lineSpacing) {
       ForEach(-layout.linesBeforeCenter...layout.linesBeforeCenter, id: \.self) { delta in
@@ -339,9 +339,8 @@ struct PlayerLiveTranscriptPanelView: View {
           if lineIndex >= 0, lineIndex < lines.count {
             lineText(
               lines[lineIndex],
-              lineIndex: lineIndex,
-              activeLineIndex: activeLineIndex,
-              activeWord: activeWord,
+              isInActiveParagraph: paragraphs.indices.contains(lineIndex)
+                && paragraphs[lineIndex] == activeParagraph,
               layout: layout,
               lookupSelection: transcription.wordLookupSelection,
               onWordTap: selectWordForLookup
@@ -374,17 +373,13 @@ struct PlayerLiveTranscriptPanelView: View {
   @ViewBuilder
   private func lineText(
     _ line: PlayerTranscriptLine,
-    lineIndex: Int,
-    activeLineIndex: Int,
-    activeWord: PlayerTranscriptWord?,
+    isInActiveParagraph: Bool,
     layout: PlayerTeleprompterLayout,
     lookupSelection: PlayerTranscriptWordLookupSelection?,
     onWordTap: @escaping (PlayerTranscriptWord) -> Void
   ) -> some View {
-    let isOnActiveLine = lineIndex == activeLineIndex
     HStack(spacing: 0) {
       ForEach(line.words) { word in
-        let isActive = activeWord?.id == word.id
         let isSelected = lookupSelection?.word.id == word.id
         if word.isWhitespaceOnly {
           Text(word.text)
@@ -397,11 +392,7 @@ struct PlayerLiveTranscriptPanelView: View {
             Text(word.text)
               .font(layout.transcriptFont)
               .foregroundStyle(
-                wordColor(
-                  isOnActiveLine: isOnActiveLine,
-                  isActive: isActive,
-                  isSelected: isSelected
-                )
+                wordColor(isInActiveParagraph: isInActiveParagraph, isSelected: isSelected)
               )
               .underline(isSelected, color: AppTheme.accent)
           }
@@ -417,17 +408,11 @@ struct PlayerLiveTranscriptPanelView: View {
     .lineLimit(1)
   }
 
-  private func wordColor(
-    isOnActiveLine: Bool,
-    isActive: Bool,
-    isSelected: Bool
-  ) -> Color {
+  private func wordColor(isInActiveParagraph: Bool, isSelected: Bool) -> Color {
     if isSelected { return AppTheme.accent }
-    if isActive { return AppTheme.accent }
-    let opacity = isOnActiveLine
-      ? PlayerTeleprompterMetrics.activeLineTextOpacity
-      : PlayerTeleprompterMetrics.inactiveLineTextOpacity
-    return model.appearancePalette.textPrimary.opacity(opacity)
+    return model.appearancePalette.textPrimary.opacity(
+      isInActiveParagraph ? 1 : PlayerTeleprompterMetrics.inactiveLineTextOpacity
+    )
   }
 }
 

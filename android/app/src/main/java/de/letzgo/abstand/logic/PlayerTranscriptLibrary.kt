@@ -22,7 +22,7 @@ data class PlayerTranscriptTrackSource(
 
 /**
  * iOS: `PlayerTranscriptLibrary` — gemeinsamer Zugriff auf persistierte Transkripte (ohne die
- * Produktion selbst: die Spracherkennung kommt später über den Producer). Teleprompter, Recap und
+ * Produktion selbst: die Spracherkennung kommt später über den Producer). Teleprompter und
  * Vorproduktion teilen dieselben Dateien; Schreibvorgänge je Datei sind serialisiert.
  */
 object PlayerTranscriptLibrary {
@@ -96,35 +96,6 @@ object PlayerTranscriptLibrary {
         account: File? = activeAccount,
     ): Double? = cache(bookId, source.trackIndex, localeIdentifier, account)?.nextCoveredStart(after)
 
-    /** Lokales Fenster eines Tracks für einen globalen Bereich (iOS `transcriptText`, `nil` = leer). */
-    fun localWindow(source: PlayerTranscriptTrackSource, globalRange: ClosedFloatingPointRange<Double>): ClosedFloatingPointRange<Double>? {
-        val localStart = maxOf(0.0, globalRange.start - source.globalOffset)
-        val localEnd = minOf(
-            if (source.duration > 0) source.duration else globalRange.endInclusive - source.globalOffset,
-            globalRange.endInclusive - source.globalOffset,
-        )
-        if (!(localEnd > localStart)) return null
-        return localStart..localEnd
-    }
-
-    /**
-     * Recap-Text aus vorliegenden Cache-Wörtern (ohne Nachproduktion der Lücken): je Track die Wörter,
-     * die das lokale Fenster berühren, mit Leerzeichen verbunden.
-     */
-    fun transcriptText(
-        sources: List<PlayerTranscriptTrackSource>,
-        globalRange: ClosedFloatingPointRange<Double>,
-        wordsForTrack: (Int) -> List<PlayerTranscriptTrackCache.Word>,
-    ): String {
-        val parts = ArrayList<String>()
-        for (source in PlayerTranscriptTrackCache.swiftSorted(sources) { a, b -> a.globalOffset < b.globalOffset }) {
-            val window = localWindow(source, globalRange) ?: continue
-            val words = wordsForTrack(source.trackIndex).filter { it.e >= window.start && it.s <= window.endInclusive }
-            if (words.isEmpty()) continue
-            parts.add(words.joinToString(" ") { it.t })
-        }
-        return FoundationText.trimmingWhitespacesAndNewlines(parts.joinToString(" "))
-    }
 }
 
 /**

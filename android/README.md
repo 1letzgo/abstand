@@ -112,7 +112,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `logic/EbookReadAlong.kt` (`ReadAlongText`, `EbookReadAlongIndex`, `EbookNarrationJump`) | `EbookReadAlong.swift` (index + narration-jump logic of `EbookNarrationJumpController`), `TeleprompterEbookText.swift` (index input) |
 | `logic/EbookAudioAlignment.kt` | `EbookAudioAlignment.swift` (builder, gap aligner, `a<track>-<locale>.bin`) |
 | `logic/PlayerTranscriptCacheStore.kt` | `PlayerTranscriptCacheStore.swift`, `PlayerTranscriptWord`/`PlayerTranscriptLine` |
-| `logic/PlayerTranscriptLibrary.kt` | `PlayerTranscriptLibrary.swift` (cache access, merge chain, recap text), `EbookAlignmentStore.loadOrBuild` |
+| `logic/PlayerTranscriptLibrary.kt` | `PlayerTranscriptLibrary.swift` (cache access, merge chain), `EbookAlignmentStore.loadOrBuild` |
 | `logic/PlayerTranscriptLineAccumulator.kt` | `PlayerTranscriptLineAccumulator.swift` |
 | `logic/PlayerTranscriptTeleprompter.kt` | `PlayerTranscriptTeleprompter.swift` metrics, timeline/merge parts of `PlayerLiveTranscriptionController`, `PlayerTranscriptWordLookup.swift` (pure parts) |
 | `logic/speech/SpeechTranscriptionLocaleResolver.kt` | `SpeechTranscriptionLocaleResolver.swift`, `SpeechTranscriberAvailability.swift` (Vosk catalog instead of `SpeechTranscriber`) |
@@ -188,12 +188,11 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `transcript/TranscriptSettings.kt` (`TranscriptSettings`, `TranslationTargetLanguage`), `transcript/TranscriptAccount.kt`, `transcript/WordLookupLinks.kt` | Teleprompter section of `ServerAdminViews.swift`, `TranslationTargetLanguage` (AppAppearance.swift), `PlayerTranscriptCacheStore.activeAccount` |
 | `ui/transcript/TranscriptTeleprompter.kt` (`TranscriptTeleprompter`, `TeleprompterFontSize`) | `PlayerTranscriptTeleprompter.swift` (`PlayerLiveTranscriptPanelView`) |
 | `ui/transcript/TranscriptWordLookupSheet.kt` | `PlayerTranscriptWordLookup.swift` (sheet; Translate/Search the web instead of system dictionary/Translation) |
-| `ui/transcript/TranscriptRecapSheet.kt` (`TranscriptRecapSheet`, `TranscriptRecapContent`) | `PlayerTranscriptRecapSheet.swift` (`PlayerTranscriptRecapCard`) |
 | `model/PlayerWiring.kt` | player parts of `AppModel` (`playPodcastEpisode`, `restoreLastPlayedOnLaunch`, `markFinished` from playback, `dismissPlayer`, bookmark create/delete, `requestPresentNowPlayingSheet`, `syncOfflineProgressToServer` subset); implements `PlaybackHost`, `BrowseSource`, `PlaybackLauncher`, `PodcastActions` |
 | `model/DownloadWiring.kt` | download parts of `AppModel` (`downloadedItemIds` per account, `persistDownloads`, `removeLocalDownload`, `downloadManifestBelongsToActiveAccount`); implements `DownloadHost`, `DownloadStatusSource` |
 | `ui/player/MiniPlayer.kt`, `ui/player/PlayerChrome.kt` | `FloatingPlayerChrome.swift` (`TabAccessoryMiniPlayer`, `FloatingAccessoryGate`, snapshot), `MiniPlayerMetrics` |
 | `ui/player/NowPlayingScreen.kt`, `ui/player/NowPlayingControls.kt`, `ui/player/NowPlayingPanels.kt` | `NowPlayingDetailView` in `MiniPlayerView.swift` (cover/panels, scrubbers, transport, utility bar, sleep/speed/EQ menus, chapters/bookmarks/description panels) |
-| `ui/player/NowPlayingReadAlong.kt` | `ReadAlongPanelButton`, recap button, teleprompter ± (`MiniPlayerView.swift`) |
+| `ui/player/NowPlayingReadAlong.kt` | `ReadAlongPanelButton`, teleprompter ± (`MiniPlayerView.swift`) |
 | `ui/player/NowPlayingPresenter.kt` | `NowPlayingZoomPresenter.swift` + `FullScreenOverlayPresenter` (zoom from the mini player, drag-to-dismiss) |
 | `ui/player/AudioOutputSwitcher.kt` | `FullPlayerAirPlayButton` (`AVRoutePickerView` → system output switcher) |
 | `ui/AppIntegration.kt` | cross-feature wiring (detail admin sheets, Stats navigation, `bookUpdated`, Settings hooks, transcript prefetch) |

@@ -63,7 +63,7 @@ data class PlayerTranscriptJob(
  * Vordergrund (App sichtbar) und per WorkManager (iOS `BGProcessingTask`) als Unique Work
  * [BACKGROUND_WORK_NAME] nur am Strom und bei nicht niedrigem Akku.
  *
- * Grenzen wie iOS: Pause im Energiesparmodus, bei Überhitzung und solange Teleprompter/Recap
+ * Grenzen wie iOS: Pause im Energiesparmodus, bei Überhitzung und solange der Teleprompter
  * produzieren ([PlayerTranscriptLibrary.isPriorityWorkActive]); nur Buchsprache, nur installierte
  * Modelle (kein Download im Hintergrund).
  */

@@ -450,9 +450,11 @@ private struct FullPlayerAirPlayButtonRepresentable: UIViewRepresentable {
   }
 }
 
-/// Sleep-Menü-Label: bei Pause eingefrorener Countdown, sonst `TimelineView` (kein Menu-Flackern).
-private struct SleepTimerUtilityMenuLabel: View {
+/// Sleep-Beschriftung: bei Pause eingefrorener Countdown, sonst `TimelineView`.
+private struct SleepTimerUtilityLabel: View {
   @ObservedObject var player: PlaybackController
+  /// Panel offen: Tinte-Fläche wie die aktiven Panel-Knöpfe (`FullPlayerCoverOverlayButton`).
+  let isActive: Bool
   @EnvironmentObject private var model: AppModel
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
@@ -462,7 +464,7 @@ private struct SleepTimerUtilityMenuLabel: View {
     VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
       Group {
         if let seconds = player.sleepTimerDisplaySeconds, seconds > 0 {
-          if player.sleepEndDate != nil {
+          if player.sleepEndDate != nil || player.isPlaying {
             TimelineView(.periodic(from: .now, by: 1)) { _ in
               sleepCountdownText(player.sleepTimerDisplaySeconds ?? seconds)
             }
@@ -475,11 +477,13 @@ private struct SleepTimerUtilityMenuLabel: View {
             comment: "Sleep timer chapter countdown label"
           ))
           .font(.subheadline.weight(.medium))
-          .foregroundStyle(themeAccent)
+          .foregroundStyle(isActive ? model.appearancePalette.background : themeAccent)
         } else {
           Text("Off")
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(model.appearancePalette.textSecondary)
+            .foregroundStyle(
+              isActive ? model.appearancePalette.background : model.appearancePalette.textSecondary
+            )
         }
       }
       .frame(
@@ -488,6 +492,13 @@ private struct SleepTimerUtilityMenuLabel: View {
         maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
         alignment: .center
       )
+      .background {
+        if isActive {
+          Capsule(style: .continuous)
+            .fill(model.appearancePalette.textPrimary)
+            .padding(.horizontal, AppTheme.Layout.compactSpacing)
+        }
+      }
       Text("Sleep", comment: "Player control label")
         .font(.caption2)
         .foregroundStyle(model.appearancePalette.textSecondary)
@@ -518,140 +529,21 @@ private struct SleepTimerUtilityMenuLabel: View {
     Text(formatPlaybackTime(max(0, seconds)))
       .font(.subheadline.weight(.medium))
       .monospacedDigit()
-      .foregroundStyle(themeAccent)
+      .foregroundStyle(isActive ? model.appearancePalette.background : themeAccent)
   }
 }
 
-private enum SleepTimerMetrics {
-  /// Feste Auswahl wie in Apple Podcasts/Books — ein Tipp statt Stepper-Klicks.
-  static let minutePresets = [5, 10, 15, 30, 45, 60, 90, 120]
-  /// „Ende von n Kapiteln“: Auswahl bis maximal so viele Kapitel (begrenzt auf die verbleibenden).
-  static let maxChapterOption = 5
-}
-
-private func sleepTimerOffLabel() -> String {
-  String(localized: "Off", comment: "Sleep timer: disabled")
-}
-
-private func sleepTimerMinutesLabel(_ minutes: Int) -> String {
-  if minutes <= 0 { return sleepTimerOffLabel() }
-  return String(format: String(localized: "%lld min", comment: "Sleep timer: minutes"), minutes)
-}
-
-private func sleepTimerChaptersMenuLabel(_ count: Int) -> String {
-  if count <= 1 {
-    return String(localized: "End of Chapter", comment: "Sleep timer: stop at end of current chapter")
-  }
-  return String(
-    format: String(localized: "End of %lld Chapters", comment: "Sleep timer: stop after n chapters"),
-    count
-  )
-}
-
-/// Sleep-Timer-Knopf: natives `Menu` plus darübergelegter Countdown.
-/// Der Countdown tickt jede Sekunde und `PlaybackController` meldet laufend Änderungen — läge beides
-/// im `Menu`, würde das geöffnete Menü bei jedem Update neu aufgebaut und flackern (vgl. CLAUDE.md,
-/// `BooksCatalogFilterToolbarMenu`). Darum: `Menu` als `Equatable` ohne Beobachtung, Countdown als
-/// nicht antippbares Overlay.
+/// Sleep-Timer-Knopf der Steuerzeile, klappt `SleepTimerPanel` im Cover-Kasten auf und zu.
 private struct SleepTimerControl: View {
   @ObservedObject var player: PlaybackController
-  let model: AppModel
-
-  private var chapterOptions: [Int] {
-    guard player.chapterCount > 0 else { return [] }
-    let available = min(SleepTimerMetrics.maxChapterOption, player.maxSleepChapterCount())
-    return available >= 1 ? Array(1...available) : []
-  }
+  let isActive: Bool
+  let onOpen: () -> Void
 
   var body: some View {
-    SleepTimerMenu(mode: player.sleepTimerMode, chapterOptions: chapterOptions, model: model)
-      .equatable()
-      .overlay {
-        SleepTimerUtilityMenuLabel(player: player)
-          .allowsHitTesting(false)
-          .accessibilityHidden(true)
-      }
-  }
-}
-
-/// Aus · Minuten-Vorgaben · Kapitelende. Erneutes Wählen derselben Dauer startet den Countdown neu.
-private struct SleepTimerMenu: View, Equatable {
-  let mode: SleepTimerMode
-  let chapterOptions: [Int]
-  /// Nur für die Aktionen — bewusst nicht beobachtet.
-  let model: AppModel
-  @Environment(\.themeAccent) private var themeAccent
-
-  nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.mode == rhs.mode && lhs.chapterOptions == rhs.chapterOptions
-  }
-
-  var body: some View {
-    Menu {
-      Button {
-        model.applySleepTimer(minutes: 0)
-      } label: {
-        row(sleepTimerOffLabel(), selected: mode == .off)
-      }
-      Section {
-        ForEach(SleepTimerMetrics.minutePresets, id: \.self) { minutes in
-          Button {
-            model.applySleepTimer(minutes: minutes)
-          } label: {
-            row(sleepTimerMinutesLabel(minutes), selected: mode == .minutes(minutes))
-          }
-        }
-      }
-      if !chapterOptions.isEmpty {
-        Section {
-          ForEach(chapterOptions, id: \.self) { count in
-            Button {
-              model.applySleepTimer(chapters: count)
-            } label: {
-              row(sleepTimerChaptersMenuLabel(count), selected: mode == .chapters(count))
-            }
-          }
-        }
-      }
-    } label: {
-      // Platzhalter in Größe der sichtbaren Beschriftung (die liegt als Overlay darüber).
-      VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
-        Text(verbatim: "00:00")
-          .font(.subheadline.weight(.medium))
-          .frame(
-            maxWidth: .infinity,
-            minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
-            maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight
-          )
-        Text("Sleep", comment: "Player control label")
-          .font(.caption2)
-      }
-      .hidden()
-      .frame(maxWidth: .infinity)
-      .contentShape(Rectangle())
+    Button(action: onOpen) {
+      SleepTimerUtilityLabel(player: player, isActive: isActive)
     }
-    .menuOrder(.fixed)
-    .accessibilityLabel(String(localized: "Sleep timer", comment: "Accessibility"))
-    .accessibilityValue(accessibilityValue)
-  }
-
-  private var accessibilityValue: String {
-    switch mode {
-    case .off: return sleepTimerOffLabel()
-    case .minutes(let m): return sleepTimerMinutesLabel(m)
-    case .chapters(let n): return sleepTimerChaptersMenuLabel(n)
-    }
-  }
-
-  private func row(_ title: String, selected: Bool) -> some View {
-    HStack {
-      Text(title)
-      Spacer(minLength: AppTheme.Layout.stackSpacing)
-      if selected {
-        Image(systemName: "checkmark")
-          .foregroundStyle(themeAccent)
-      }
-    }
+    .accessibilityAddTraits(isActive ? .isSelected : [])
   }
 }
 
@@ -669,6 +561,13 @@ private struct FullPlayerUtilityBar: View, Equatable {
   let isQueued: Bool
   let downloadProgressBucket: Int
   let isLoggedIn: Bool
+  let isSleepTimerPanelActive: Bool
+  let isPlaybackRatePanelActive: Bool
+  let isEqualizerPanelActive: Bool
+  /// Nicht im `==`: schalten nur das Panel der Player-View um.
+  let onOpenSleepTimer: () -> Void
+  let onOpenPlaybackRate: () -> Void
+  let onOpenEqualizer: () -> Void
 
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.playbackRate == rhs.playbackRate
@@ -679,6 +578,9 @@ private struct FullPlayerUtilityBar: View, Equatable {
       && lhs.isQueued == rhs.isQueued
       && lhs.downloadProgressBucket == rhs.downloadProgressBucket
       && lhs.isLoggedIn == rhs.isLoggedIn
+      && lhs.isSleepTimerPanelActive == rhs.isSleepTimerPanelActive
+      && lhs.isPlaybackRatePanelActive == rhs.isPlaybackRatePanelActive
+      && lhs.isEqualizerPanelActive == rhs.isEqualizerPanelActive
       && lhs.themeRevision == rhs.themeRevision
   }
 
@@ -686,32 +588,28 @@ private struct FullPlayerUtilityBar: View, Equatable {
     let _ = themeRevision
     return HStack(spacing: 0) {
       // EQ-Preset (Voice Focus etc.) — vor dem Tempo, logische Audio-Shaping-Gruppierung.
-      Menu {
-        ForEach(AudioEQPreset.allCases) { preset in
-          Button {
-            model.applyEQPreset(preset)
-          } label: {
-            HStack {
-              Text(preset.label)
-              Spacer(minLength: AppTheme.Layout.stackSpacing)
-              if eqPreset == preset {
-                Image(systemName: "checkmark")
-                  .foregroundStyle(themeAccent)
-              }
-            }
-          }
-        }
-      } label: {
+      Button(action: onOpenEqualizer) {
         VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
           Image(systemName: eqPreset.systemImage)
             .font(.title3)
-            .foregroundStyle(eqPreset == .flat ? model.appearancePalette.textPrimary : themeAccent)
+            .foregroundStyle(
+              isEqualizerPanelActive
+                ? model.appearancePalette.background
+                : (eqPreset == .flat ? model.appearancePalette.textPrimary : themeAccent)
+            )
             .frame(
               maxWidth: .infinity,
               minHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
               maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
               alignment: .center
             )
+            .background {
+              if isEqualizerPanelActive {
+                Capsule(style: .continuous)
+                  .fill(model.appearancePalette.textPrimary)
+                  .padding(.horizontal, AppTheme.Layout.compactSpacing)
+              }
+            }
           Text("EQ", comment: "Player control label")
             .font(.caption2)
             .foregroundStyle(model.appearancePalette.textSecondary)
@@ -719,30 +617,20 @@ private struct FullPlayerUtilityBar: View, Equatable {
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
       }
+      .accessibilityAddTraits(isEqualizerPanelActive ? .isSelected : [])
       .accessibilityLabel(
         String(localized: "Equalizer, \(eqPreset.label)", comment: "Accessibility")
       )
 
-      Menu {
-        ForEach(PlaybackController.playbackRatePresets, id: \.self) { r in
-          Button {
-            model.applyPlaybackSpeed(r)
-          } label: {
-            HStack {
-              Text(miniPlayerFormatPlaybackRate(r))
-              Spacer(minLength: AppTheme.Layout.stackSpacing)
-              if playbackRate == r {
-                Image(systemName: "checkmark")
-                  .foregroundStyle(themeAccent)
-              }
-            }
-          }
-        }
-      } label: {
+      Button(action: onOpenPlaybackRate) {
         VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
           Text(miniPlayerFormatPlaybackRate(playbackRate))
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(model.appearancePalette.textPrimary)
+            .foregroundStyle(
+              isPlaybackRatePanelActive
+                ? model.appearancePalette.background
+                : model.appearancePalette.textPrimary
+            )
             .lineLimit(1)
             .minimumScaleFactor(0.75)
             .frame(
@@ -751,6 +639,13 @@ private struct FullPlayerUtilityBar: View, Equatable {
               maxHeight: FullPlayerUtilityBarLayout.primaryRowHeight,
               alignment: .center
             )
+            .background {
+              if isPlaybackRatePanelActive {
+                Capsule(style: .continuous)
+                  .fill(model.appearancePalette.textPrimary)
+                  .padding(.horizontal, AppTheme.Layout.compactSpacing)
+              }
+            }
           Text("Tempo", comment: "Player control label")
             .font(.caption2)
             .foregroundStyle(model.appearancePalette.textSecondary)
@@ -758,6 +653,7 @@ private struct FullPlayerUtilityBar: View, Equatable {
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
       }
+      .accessibilityAddTraits(isPlaybackRatePanelActive ? .isSelected : [])
       .accessibilityLabel(
         String(
           localized: "Playback speed, \(miniPlayerFormatPlaybackRate(playbackRate))",
@@ -765,7 +661,11 @@ private struct FullPlayerUtilityBar: View, Equatable {
         )
       )
 
-      SleepTimerControl(player: model.player, model: model)
+      SleepTimerControl(
+        player: model.player,
+        isActive: isSleepTimerPanelActive,
+        onOpen: onOpenSleepTimer
+      )
 
       VStack(spacing: FullPlayerUtilityBarLayout.rowSpacing) {
         FullPlayerAirPlayButton()
@@ -1138,7 +1038,6 @@ struct NowPlayingDetailView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   @State private var readAlongDownloadWarningPresented = false
-  @State private var isRecapActive = false
   @State private var chromeSnapshot = FullPlayerChromeSnapshot.empty
   @State private var activeBook: ABSBook?
   @State private var isTeleprompterActive = false
@@ -1163,9 +1062,9 @@ struct NowPlayingDetailView: View {
     _isTeleprompterActive = State(initialValue: player?.liveTranscription.isTeleprompterModeActive ?? false)
   }
 
-  /// Cover durch Teleprompter, Recap oder Kapitel-/Sessions-/Bookmarks-Panel ersetzt.
+  /// Cover durch Teleprompter oder Kapitel-/Sessions-/Bookmarks-Panel ersetzt.
   private var isCoverPanelExpanded: Bool {
-    isTeleprompterActive || isRecapActive || coverPanel != .artwork || showsReadAlongErrorCard
+    isTeleprompterActive || coverPanel != .artwork || showsReadAlongErrorCard
   }
 
   /// Nach fehlgeschlagenem Start: Karte mit „Try again“ statt sofort zum Cover zurückspringen.
@@ -1234,12 +1133,10 @@ struct NowPlayingDetailView: View {
         } else if player.liveTranscription.errorMessage != nil {
           player.liveTranscription.dismissError()
         }
-        isRecapActive = false
         coverPanel = .artwork
       }
       .onChange(of: isTeleprompterActive) { _, active in
         if active {
-          isRecapActive = false
           coverPanel = .artwork
         }
       }
@@ -1249,7 +1146,6 @@ struct NowPlayingDetailView: View {
         }
       }
       .onChange(of: player.activeBook?.id) { _, _ in
-        isRecapActive = false
         coverPanel = .artwork
         panelBookDetail = nil
         panelListeningSessions = []
@@ -1289,7 +1185,7 @@ struct NowPlayingDetailView: View {
       } message: {
         Text(
           String(
-            localized: "Read along and recap only work when the audiobook or podcast is fully downloaded.",
+            localized: "Read along only works when the audiobook or podcast is fully downloaded.",
             comment: "Read along download required alert")
         )
       }
@@ -1697,8 +1593,6 @@ struct NowPlayingDetailView: View {
       Group {
         if isTeleprompterActive || showsReadAlongErrorCard {
           readAlongKaraokeCard()
-        } else if isRecapActive {
-          recapKaraokeCard()
         } else if coverPanel == .bookmarks, let audiobookId = activeAudiobookBookmarkId {
           bookmarksCoverCard(audiobookId: audiobookId)
         } else if coverPanel != .artwork {
@@ -1790,7 +1684,10 @@ struct NowPlayingDetailView: View {
       }
     case .chapters:
       if let chapterBook = panelChapterBook {
-        fullPlayerCoverPanelContent(title: "Chapters") {
+        fullPlayerCoverPanelContent(
+          title: "Chapters",
+          scrollTarget: currentChapterScrollTarget(in: chapterBook)
+        ) {
           BookChapterListView(
             book: chapterBook,
             progress: model.progressByItemId[chapterBook.id]
@@ -1800,6 +1697,18 @@ struct NowPlayingDetailView: View {
             }
           }
         }
+      }
+    case .sleepTimer:
+      fullPlayerControlCoverPanelContent(title: "Sleep Timer") {
+        SleepTimerPanel(player: player)
+      }
+    case .playbackRate:
+      fullPlayerControlCoverPanelContent(title: "Tempo") {
+        PlaybackRatePanel(player: player)
+      }
+    case .equalizer:
+      fullPlayerControlCoverPanelContent(title: "Equalizer") {
+        EqualizerPanel(player: player)
       }
     case .sessions:
       fullPlayerCoverPanelContent(title: "Listening history") {
@@ -1872,11 +1781,23 @@ struct NowPlayingDetailView: View {
     .accessibilityLabel(String(localized: "Bookmarks", comment: "Accessibility"))
   }
 
+  /// Kapitel an der Hörposition. Die Kapitel kommen oft erst mit `panelBookDetail`; dann ändert sich
+  /// das Ziel von `nil` auf das Kapitel und der Sprung läuft nach.
+  private func currentChapterScrollTarget(in book: ABSBook) -> Int? {
+    let position = player.playbackGlobalPosition()
+    return (book.media.chapters ?? [])
+      .filter { $0.start <= position }
+      .max { $0.start < $1.start }?
+      .id
+  }
+
   private func fullPlayerCoverPanelContent<Content: View>(
     title: String,
+    scrollTarget: Int? = nil,
     @ViewBuilder content: () -> Content
   ) -> some View {
     let pad = PlayerTeleprompterMetrics.cardContentPadding
+    let panelContent = content()
     return VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
       Text(title)
         .font(.subheadline.weight(.semibold))
@@ -1884,20 +1805,45 @@ struct NowPlayingDetailView: View {
         .foregroundStyle(model.appearancePalette.textSecondary)
         .padding(.horizontal, pad)
         .padding(.top, pad)
-      ScrollView {
-        content()
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, pad)
-          .padding(.bottom, pad)
+      ScrollViewReader { reader in
+        ScrollView {
+          panelContent
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, pad)
+            .padding(.bottom, pad)
+        }
+        .task(id: scrollTarget) {
+          guard let scrollTarget else { return }
+          // Erst nach dem Layout der Liste, sonst läuft der Sprung ins Leere.
+          await Task.yield()
+          reader.scrollTo(scrollTarget, anchor: .center)
+        }
       }
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+  }
+
+  /// Bedien-Panels (EQ, Tempo, Sleep): füllen den Kasten ohne `ScrollView`, Vorgaben stehen unten.
+  /// Die Griffe und Skalen werden gezogen, ein umgebendes Scrollen stünde dem nur im Weg.
+  private func fullPlayerControlCoverPanelContent<Content: View>(
+    title: String,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.stackSpacing) {
+      Text(title)
+        .font(.subheadline.weight(.semibold))
+        .fontDesign(AppTheme.Typography.titleDesign)
+        .foregroundStyle(model.appearancePalette.textSecondary)
+      content()
+    }
+    .padding(PlayerTeleprompterMetrics.cardContentPadding)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
   }
 
   private func loadCoverPanelDataIfNeeded() async {
     guard let activeBook = player.activeBook else { return }
     switch coverPanel {
-    case .artwork, .bookmarks:
+    case .artwork, .bookmarks, .sleepTimer, .playbackRate, .equalizer:
       break
     case .description, .chapters:
       if panelBookDetail?.id != activeBook.id {
@@ -1941,7 +1887,6 @@ struct NowPlayingDetailView: View {
     } else if player.liveTranscription.errorMessage != nil {
       player.liveTranscription.dismissError()
     }
-    isRecapActive = false
     coverPanel = panel
   }
 
@@ -1980,10 +1925,8 @@ struct NowPlayingDetailView: View {
     case chapters
     case sessions
     /// Lokale Zusammenfassung eines eigenständig transkribierten Fünf-Minuten-Fensters.
-    case recap
     case readAlong
     /// Spielt ab der Stelle, an der man im eBook gerade liest.
-    case ebookPosition
 
     var id: String {
       switch self {
@@ -1991,28 +1934,22 @@ struct NowPlayingDetailView: View {
       case .bookmarkList: "bookmarkList"
       case .chapters: "chapters"
       case .sessions: "sessions"
-      case .recap: "recap"
       case .readAlong: "readAlong"
-      case .ebookPosition: "ebookPosition"
       }
     }
   }
 
   private func fullPlayerPanelControlKinds(showsReadAlong: Bool) -> [FullPlayerPanelControlKind] {
     var items: [FullPlayerPanelControlKind] = []
-    if showsDescriptionButton { items.append(.description) }
+    if showsChaptersButton { items.append(.chapters) }
     if activeAudiobookBookmarkId != nil {
       items.append(.bookmarkList)
     }
-    if showsChaptersButton { items.append(.chapters) }
     if showsSessionsButton { items.append(.sessions) }
+    if showsDescriptionButton { items.append(.description) }
     if showsReadAlong {
-      // Auch Podcasts haben keine Kapitel-/Bookmark-Buttons und würden den Recap
-      // sonst nie erhalten.
-      items.append(.recap)
       items.append(.readAlong)
     }
-    if hasCachedEbook, activeAudiobookBookmarkId != nil { items.append(.ebookPosition) }
     return items
   }
 
@@ -2051,59 +1988,10 @@ struct NowPlayingDetailView: View {
       ) {
         toggleCoverPanel(.sessions)
       }
-    case .recap:
-      let transcription = player.liveTranscription
-      let isDownloadReady = player.isReadAlongDownloadReady
-      let isRecapCapable = transcription.canGenerateRecap && isDownloadReady
-      FullPlayerCoverOverlayButton(
-        systemName: "sparkles",
-        isActive: isRecapActive,
-        isEnabled: transcription.canGenerateRecap,
-        accessibilityLabel: isRecapActive
-          ? String(localized: "Hide recap", comment: "Accessibility")
-          : String(localized: "Recap of the last 5 minutes", comment: "Accessibility")
-      ) {
-        guard isDownloadReady else {
-          readAlongDownloadWarningPresented = true
-          return
-        }
-        // Sofort umschalten wie Chapters/Teleprompter — Fortschritt nur in der Karte.
-        if isRecapActive {
-          isRecapActive = false
-          return
-        }
-        isRecapActive = true
-        coverPanel = .artwork
-        Task { @MainActor in
-          // Die Teleprompter-Card hat im Header Vorrang. Zuerst ihre Session beenden,
-          // sonst bleibt sie trotz aktivem Recap-Flag sichtbar.
-          if transcription.isTeleprompterModeActive {
-            await transcription.disable()
-          }
-          await transcription.generateRecap(player: player)
-        }
-      }
-      // Gleicher nicht-verfügbar-Zustand wie der Teleprompter: der Button bleibt
-      // antippbar für den Hinweis, wird aber optisch gedimmt.
-      .opacity(isRecapCapable ? 1 : 0.45)
-      .accessibilityHint(
-        isRecapCapable
-          ? ""
-          : isDownloadReady
-            ? String(
-              localized: "Requires Apple Intelligence, which is not available on this device.",
-              comment: "Recap accessibility hint")
-            : String(
-              localized: "Requires a full download of this audiobook or podcast.",
-              comment: "Recap accessibility hint")
-      )
     case .readAlong:
       ReadAlongPanelButton(readAlongDownloadWarningPresented: $readAlongDownloadWarningPresented) {
-        isRecapActive = false
         coverPanel = .artwork
       }
-    case .ebookPosition:
-      EbookPositionPanelButton()
     }
   }
 
@@ -2196,6 +2084,9 @@ struct NowPlayingDetailView: View {
           .frame(maxWidth: .infinity, maxHeight: .infinity)
 
           HStack {
+            if hasCachedEbook, activeAudiobookBookmarkId != nil {
+              EbookPositionPanelButton()
+            }
             Spacer(minLength: 0)
             teleprompterFontSizeControls
           }
@@ -2206,15 +2097,6 @@ struct NowPlayingDetailView: View {
       }
     }
     .accessibilityLabel(String(localized: "Read along transcript", comment: "Accessibility"))
-  }
-
-  /// Recap nutzt dieselbe Cover-Karte wie der Teleprompter statt eines separaten Sheets.
-  private func recapKaraokeCard() -> some View {
-    fullPlayerExpandedCoverCard {
-      PlayerTranscriptRecapCard(transcription: player.liveTranscription)
-        .padding(PlayerTeleprompterMetrics.cardContentPadding)
-    }
-    .accessibilityLabel(String(localized: "Recap of the last 5 minutes", comment: "Accessibility"))
   }
 
   private func scrubberSection(book: ABSBook) -> some View {
@@ -2242,7 +2124,13 @@ struct NowPlayingDetailView: View {
       isDownloading: chromeSnapshot.isDownloading,
       isQueued: chromeSnapshot.isQueued,
       downloadProgressBucket: chromeSnapshot.downloadProgressBucket,
-      isLoggedIn: chromeSnapshot.isLoggedIn
+      isLoggedIn: chromeSnapshot.isLoggedIn,
+      isSleepTimerPanelActive: coverPanel == .sleepTimer,
+      isPlaybackRatePanelActive: coverPanel == .playbackRate,
+      isEqualizerPanelActive: coverPanel == .equalizer,
+      onOpenSleepTimer: { toggleCoverPanel(.sleepTimer) },
+      onOpenPlaybackRate: { toggleCoverPanel(.playbackRate) },
+      onOpenEqualizer: { toggleCoverPanel(.equalizer) }
     )
   }
 
@@ -2287,6 +2175,8 @@ private struct EbookPositionPanelButton: View {
       systemName: "book",
       isActive: false,
       isBusy: isBusy,
+      // Gleiche Größe wie ± in derselben Zeile der Read-Along-Karte.
+      compact: true,
       accessibilityLabel: String(localized: "Jump to ebook position", comment: "Accessibility")
     ) {
       guard !isBusy else { return }
@@ -2453,6 +2343,9 @@ private enum FullPlayerCoverPanel: Equatable {
   case bookmarks
   case chapters
   case sessions
+  case sleepTimer
+  case playbackRate
+  case equalizer
 }
 
 enum FullPlayerCoverOverlayMetrics {

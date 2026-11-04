@@ -1,7 +1,6 @@
 import AVFoundation
 import Combine
 import Foundation
-import FoundationModels
 import Speech
 import SwiftUI
 import UIKit
@@ -76,10 +75,6 @@ struct PlayerTranscriptionAudioContext: Equatable {
 @MainActor
 final class PlayerLiveTranscriptionController: ObservableObject {
   static let preRollSeconds: Double = 4
-  /// Ein Recap bleibt für mindestens eine weitere Hörminute gültig.
-  static let recapCachePlaybackSeconds: Double = 60
-  /// On-device Recap hart abbrechen nach dieser Dauer (gegen endlosen Spinner).
-  static let recapGenerationTimeoutSeconds: Double = 90
 
   /// Nutzer hat Read-Along/Teleprompter eingeschaltet — steuert UI und Lebenszyklus.
   @Published private(set) var isTeleprompterModeActive = false
@@ -90,7 +85,11 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   /// Erst true, wenn genug finalisierter Text vorgepuffert ist — bis dahin Spinner in der Karte.
   @Published private(set) var isTeleprompterReady = false
   @Published private(set) var errorMessage: String?
-  @Published private(set) var transcriptLines: [PlayerTranscriptLine] = []
+  @Published private(set) var transcriptLines: [PlayerTranscriptLine] = [] {
+    didSet { transcriptParagraphIndices = PlayerTranscriptParagraphs.paragraphIndices(for: transcriptLines) }
+  }
+  /// Je Zeile ihr Absatz (`PlayerTranscriptParagraphs`) — der Teleprompter markiert ganze Absätze.
+  private(set) var transcriptParagraphIndices: [Int] = []
   @Published private(set) var modelDownloadProgress: Double?
   /// Hinweis, wenn eine andere Sprache als in den Buch-Metadaten genutzt wird.
   @Published private(set) var localeFallbackNotice: String?
@@ -103,27 +102,13 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   @Published private(set) var teleprompterSyncGeneration: UInt = 0
   /// Zielzeit für Teleprompter-Highlight nach Start-Sync (= Wiedergabe).
   @Published private(set) var teleprompterSyncedPlaybackTime: Double = 0
-  /// Ergebnis der lokalen Zusammenfassung des letzten Transkriptfensters.
-  @Published private(set) var recapText: String?
-  @Published private(set) var recapErrorMessage: String?
-  @Published private(set) var isGeneratingRecap = false
-  /// Hinweis, wenn der Recap mit einer anderen Sprache als dem Buch erzeugt wurde.
-  @Published private(set) var recapFallbackNotice: String?
-  /// True, wenn statt einer Zusammenfassung das rohe Transkript gezeigt wird (Filter-/LLM-Fehler).
-  @Published private(set) var recapShowsTranscript = false
 
   /// Sprache der laufenden Transkription (für Wort-Übersetzung).
   var transcriptionLocale: Locale? { activeContext?.locale }
-  /// Nur aktivierbar, wenn Apple Intelligence verfügbar ist.
-  var canGenerateRecap: Bool { SystemLanguageModel.default.availability == .available }
 
   /// Erkennungswörter des aktiven Tracks — der Teleprompter zeigt immer das Transkript,
   /// nie eBook-Text (eBook-Abgleich nur noch für die Sprung-Buttons, siehe `EbookReadAlong`).
   private var finalizedWords: [PlayerTranscriptWord] = []
-  private var recapBookId: String?
-  private var recapPlaybackTime: Double?
-  /// Inkrementelle ID pro Recap-Versuch — erlaubt Timeout-Erkennung bei mehreren Aufrufen.
-  private var currentRecapGeneration = UUID()
   private let lineAccumulator = PlayerTranscriptLineAccumulator()
   /// Letztes Teleprompter-Layout für Reflow bei Schriftgrößenwechsel.
   private var teleprompterReflowFontSize: CGFloat = 0
@@ -344,213 +329,6 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   func dismissError() {
     errorMessage = nil
   }
-
-  /// Transkribiert die letzten fünf Minuten separat aus den lokalen Audiodateien und fasst
-  /// anschließend nur dieses Ergebnis mit dem Systemmodell auf dem Gerät zusammen.
-  func generateRecap(player: PlaybackController) async {
-    guard !isGeneratingRecap else { return }
-
-    player.syncGlobalPositionFromPlayer()
-    let end = player.liveGlobalPlaybackPosition
-    // Transkript-Schlüssel (bei Podcasts je Folge), nicht die Show-ID.
-    let bookId = player.transcriptionStorageId
-    if
-      let recapText,
-      recapBookId == bookId,
-      let recapPlaybackTime,
-      end >= recapPlaybackTime,
-      end - recapPlaybackTime < Self.recapCachePlaybackSeconds
-    {
-      self.recapText = recapText
-      recapErrorMessage = nil
-      return
-    }
-
-    guard player.isReadAlongDownloadReady else {
-      recapText = nil
-      recapErrorMessage = String(
-        localized: "Download the audiobook to create an on-device recap.",
-        comment: "Read along recap error"
-      )
-      return
-    }
-
-    let model = SystemLanguageModel.default
-    guard case .available = model.availability else {
-      recapText = nil
-      recapErrorMessage = String(
-        localized: "On-device recap is unavailable. Enable Apple Intelligence and try again.",
-        comment: "Read along recap error"
-      )
-      return
-    }
-
-    let recapRange = max(0, end - 300)...end
-    let sources = player.localTranscriptionTrackSources().filter {
-      $0.globalRange.upperBound >= recapRange.lowerBound
-        && $0.globalRange.lowerBound <= recapRange.upperBound
-    }
-    guard !sources.isEmpty else {
-      recapText = nil
-      recapErrorMessage = String(
-        localized: "The last five minutes of audio are unavailable for transcription.",
-        comment: "Read along recap error"
-      )
-      return
-    }
-
-    isGeneratingRecap = true
-    PlayerTranscriptLibrary.beginPriorityWork()
-    recapText = nil
-    recapErrorMessage = nil
-    recapFallbackNotice = nil
-    recapShowsTranscript = false
-    let generation = UUID()
-    currentRecapGeneration = generation
-    defer {
-      // Nur den eigenen Lauf beenden — nach einem Timeout kann schon ein neuer Recap laufen,
-      // dessen Spinner/Guards sonst vom auslaufenden alten Lauf zurückgesetzt würden.
-      if currentRecapGeneration == generation { isGeneratingRecap = false }
-      PlayerTranscriptLibrary.endPriorityWork()
-    }
-
-    let timeoutTask = Task { @MainActor [weak self] in
-      try? await Task.sleep(nanoseconds: UInt64(Self.recapGenerationTimeoutSeconds * 1_000_000_000))
-      guard !Task.isCancelled, let self else { return }
-      // Nur abbrechen, wenn noch dieselbe Generation läuft.
-      guard self.currentRecapGeneration == generation, self.isGeneratingRecap else { return }
-      self.recapErrorMessage = String(
-        localized: "Recap took too long. Please try again later.",
-        comment: "Read along recap error"
-      )
-      self.isGeneratingRecap = false
-    }
-
-    do {
-      try await ensureSpeechRecognitionAuthorized()
-      let languageTag = player.preferredTranscriptionLanguageTag
-      let resolution = try await SpeechTranscriptionLocaleResolver.resolve(
-        preferredLanguageTag: languageTag
-      )
-      let locale = resolution.locale
-      // Fallback-Hinweis wie beim Teleprompter: Buchsprache nicht installiert.
-      if resolution.usedFallback, ABSBook.locale(fromABSMetadataLanguage: languageTag) != nil {
-        let code = locale.language.languageCode?.identifier ?? locale.identifier(.bcp47)
-        let name = Locale.current.localizedString(forLanguageCode: code) ?? code
-        recapFallbackNotice = String(
-          format: String(
-            localized: "Recap transcribed in %@ (book language not installed).",
-            comment: "Read along recap locale fallback"),
-          name
-        )
-      }
-      try await ensureSpeechModel(locale: locale)
-      guard currentRecapGeneration == generation, isGeneratingRecap else { return }
-
-      // Read-Along-Cache mitbenutzen: Was der Teleprompter (oder die Vorproduktion) schon
-      // transkribiert hat, wird gelesen statt erneut durch die Spracherkennung geschickt.
-      let transcript = try await PlayerTranscriptLibrary.transcriptText(
-        bookId: bookId ?? "",
-        sources: sources,
-        globalRange: recapRange,
-        locale: locale
-      )
-      guard currentRecapGeneration == generation, isGeneratingRecap else { return }
-      guard !transcript.isEmpty else {
-        recapErrorMessage = String(
-          localized: "No speech was recognized in the last five minutes. Try again later.",
-          comment: "Read along recap error"
-        )
-        return
-      }
-
-      // Ausgabesprache = Buchsprache (nicht die für die Transkription aufgelöste Locale).
-      // Nur falls keine Buchsprache vorliegt, fällt die Ausgabe auf die Transkriptions-Locale.
-      let outputLocale = ABSBook.locale(fromABSMetadataLanguage: languageTag) ?? locale
-      let recapLanguage = outputLocale.identifier(.bcp47)
-      // LLM-Zusammenfassung versuchen — schlägt sie fehl (leer, Filter-Blockade),
-      // Fallback aufs rohe Transkript, damit der Nutzer nie mit nichts dasteht.
-      // Ein Abbruch (Timeout / neuer Versuch) ist dagegen KEIN Inhaltsproblem und darf
-      // nicht als „Summary unavailable" mit Roh-Transkript enden — er wirft weiter.
-      let summary: String?
-      do {
-        summary = try await generateRecapSummary(
-          model: model,
-          transcript: transcript,
-          recapLanguage: recapLanguage
-        )
-      } catch is CancellationError {
-        throw CancellationError()
-      } catch {
-        summary = nil
-      }
-      guard currentRecapGeneration == generation, isGeneratingRecap else { return }
-
-      let trimmed = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
-      if let trimmed, !trimmed.isEmpty {
-        recapText = trimmed
-        recapShowsTranscript = false
-      } else {
-        // Keine Zusammenfassung möglich (Filter-Blockade / leere Antwort) → Transkript zeigen.
-        recapText = transcript
-        recapShowsTranscript = true
-        recapFallbackNotice = String(
-          localized: "Summary unavailable for this content — showing the transcript instead.",
-          comment: "Read along recap transcript fallback"
-        )
-      }
-      recapBookId = bookId
-      recapPlaybackTime = end
-    } catch is CancellationError {
-      // Timeout oder neuer Recap-Versuch. Der Timeout-Task setzt die Meldung nur bei
-      // passender Generation — jeder andere Abbruch bekäme sonst ein leeres Sheet.
-      if currentRecapGeneration == generation,
-        recapText == nil, recapErrorMessage == nil, !recapShowsTranscript
-      {
-        recapErrorMessage = String(
-          localized: "Recap was interrupted. Please try again.",
-          comment: "Read along recap error"
-        )
-      }
-    } catch {
-      // Ein abgelöster (z. B. per Timeout aufgegebener) Lauf überschreibt den neuen nicht.
-      if currentRecapGeneration == generation {
-        recapText = nil
-        recapErrorMessage = (error as? LocalizedError)?.errorDescription
-          ?? String(
-            localized: "The on-device recap could not be created. Please try again.",
-            comment: "Read along recap error"
-          )
-      }
-    }
-    timeoutTask.cancel()
-  }
-
-  /// LLM-Zusammenfassung aus einem Transkript. Wirft bei beliebigem Fehler (Filter-Blockade,
-  /// Timeout, leere Antwort) — Aufrufer fällt dann aufs rohe Transkript zurück.
-  private func generateRecapSummary(
-    model: SystemLanguageModel,
-    transcript: String,
-    recapLanguage: String
-  ) async throws -> String {
-    let session = LanguageModelSession(model: model)
-    let response = try await session.respond(
-      to: """
-      Summarize the following audiobook transcript from the last five minutes.
-      Output language: \(recapLanguage).
-      Write the recap exclusively in that language. Do not translate it to English unless the
-      output language is English. Be concise, factual, and use 3–5 bullet points.
-      Do not invent details or mention that this is a transcript.
-
-      Transcript:
-      \(transcript)
-      """
-    )
-    return response.content
-  }
-
-
-
 
   /// Modus beenden und Session vollständig stoppen (idempotent).
   func disable(resetError: Bool = true) async {
@@ -972,7 +750,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     locale: Locale
   ) async {
     guard end > start, !bookId.isEmpty else { return }
-    // Serialisiert über `mergeAndSave`: Recap und Hintergrund-Vorproduktion schreiben in
+    // Serialisiert über `mergeAndSave`: Hintergrund-Vorproduktion schreiben in
     // dieselbe Datei — konkurrierende load→insert→save-Zyklen würden sich sonst überschreiben.
     let merged = await PlayerTranscriptLibrary.mergeAndSave(
       segment: PlayerTranscriptTrackCache.Segment(start: start, end: end, words: words),

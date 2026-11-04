@@ -1,7 +1,6 @@
 package de.letzgo.abstand.transcript
 
 import android.content.Context
-import de.letzgo.abstand.logic.FoundationText
 import de.letzgo.abstand.logic.PlayerTranscriptLibrary
 import de.letzgo.abstand.logic.PlayerTranscriptTrackCache
 import de.letzgo.abstand.logic.PlayerTranscriptTrackSource
@@ -61,43 +60,5 @@ object PlayerTranscriptProduction {
             withContext(NonCancellable) { persist() }
             throw t
         }
-    }
-
-    /**
-     * iOS: `PlayerTranscriptLibrary.transcriptText` — zusammenhängender Text für einen globalen
-     * Zeitbereich (Recap). Was im Cache liegt, wird gelesen; nur echte Lücken werden nachproduziert.
-     */
-    suspend fun transcriptText(
-        context: Context,
-        bookId: String,
-        sources: List<PlayerTranscriptTrackSource>,
-        globalRange: ClosedFloatingPointRange<Double>,
-        model: SpeechModelCatalog.Entry,
-        localeIdentifier: String,
-    ): String {
-        val parts = ArrayList<String>()
-        for (source in sources.sortedBy { it.globalOffset }) {
-            val window = PlayerTranscriptLibrary.localWindow(source, globalRange) ?: continue
-            var cursor = window.start
-            while (true) {
-                val gapStart = PlayerTranscriptLibrary.firstUncoveredTime(bookId, source, localeIdentifier, cursor) ?: break
-                if (gapStart >= window.endInclusive) break
-                coroutineContext.ensureActive()
-                // Nur die Lücke selbst — am nächsten vorhandenen Segment aufhören (iOS gleich).
-                val gapEnd = PlayerTranscriptLibrary.nextCoveredStart(bookId, source, localeIdentifier, gapStart)
-                val produced = produceAndPersist(
-                    context, bookId, source, model, localeIdentifier, gapStart,
-                    minOf(window.endInclusive, gapEnd ?: window.endInclusive),
-                )
-                // Kein Fortschritt (z. B. Stille bis zum Ende) → Endlosschleife vermeiden.
-                if (!(produced > gapStart + 0.5)) break
-                cursor = produced
-            }
-            val words = PlayerTranscriptLibrary.cachedWords(bookId, source.trackIndex, localeIdentifier)
-                .filter { it.e >= window.start && it.s <= window.endInclusive }
-            if (words.isEmpty()) continue
-            parts.add(words.joinToString(" ") { it.t })
-        }
-        return FoundationText.trimmingWhitespacesAndNewlines(parts.joinToString(" "))
     }
 }

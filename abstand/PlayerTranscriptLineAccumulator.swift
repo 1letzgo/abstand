@@ -45,7 +45,7 @@ final class PlayerTranscriptLineAccumulator {
       }
       openWords.append(word)
       openCharCount += add
-      if endsSentence(in: word.text) {
+      if Self.endsSentence(in: word.text) {
         closeOpenLine()
       }
     }
@@ -94,12 +94,48 @@ final class PlayerTranscriptLineAccumulator {
   }
 
   /// Satzende: Zeile nach `.` `!` `?` `…` schließen (Anführungszeichen am Ende ignorieren).
-  private func endsSentence(in text: String) -> Bool {
+  static func endsSentence(in text: String) -> Bool {
     var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
     while let last = t.last, "'\"»」)]}".contains(last) {
       t.removeLast()
     }
     guard let last = t.last else { return false }
     return ".!?…".contains(last)
+  }
+}
+
+/// Absätze für die Read-Along-Markierung. Das Transkript kennt selbst keine Absätze, daher
+/// abgeleitet: ein Absatz endet an einem Satzende mit Sprechpause oder nach einigen Sätzen,
+/// spätestens nach einer festen Zeilenzahl (Text ganz ohne Satzzeichen).
+@MainActor
+enum PlayerTranscriptParagraphs {
+  static let minPauseSeconds: Double = 0.7
+  static let maxSentences = 3
+  static let maxLines = 6
+
+  /// Je Zeile die laufende Nummer ihres Absatzes.
+  static func paragraphIndices(for lines: [PlayerTranscriptLine]) -> [Int] {
+    var result: [Int] = []
+    result.reserveCapacity(lines.count)
+    var paragraph = 0
+    var sentences = 0
+    var linesInParagraph = 0
+    for (index, line) in lines.enumerated() {
+      result.append(paragraph)
+      linesInParagraph += 1
+      let endsSentence = line.spokenWords.last.map {
+        PlayerTranscriptLineAccumulator.endsSentence(in: $0.text)
+      } ?? false
+      if endsSentence { sentences += 1 }
+      let pause = index + 1 < lines.count ? lines[index + 1].globalStart - line.globalEnd : 0
+      if (endsSentence && (pause >= minPauseSeconds || sentences >= maxSentences))
+        || linesInParagraph >= maxLines
+      {
+        paragraph += 1
+        sentences = 0
+        linesInParagraph = 0
+      }
+    }
+    return result
   }
 }

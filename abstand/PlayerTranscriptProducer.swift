@@ -42,7 +42,7 @@ enum PlayerTranscriptProducer {
 
   /// Transkribiert `[startSeconds, endSeconds)` der Datei und liefert Wort-Batches.
   /// Der Stream endet, wenn der Bereich fertig ist oder der Aufrufer ihn abbricht.
-  /// `priority`: Live/Recap `.userInitiated`, Vorproduktion im Hintergrund `.utility`.
+  /// `priority`: Live `.userInitiated`, Vorproduktion im Hintergrund `.utility`.
   static func transcribe(
     assetURL: URL,
     startSeconds: Double,

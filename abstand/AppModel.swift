@@ -150,7 +150,7 @@ final class AppModel: ObservableObject {
   @Published private(set) var podcastAutoDownloadSettingsLoading = false
   @Published private(set) var podcastAutoDownloadSettingsSaving = false
   @Published private(set) var podcastAutoDownloadSettingsShowId: String?
-  /// Server-Metadaten der Podcast-Show für Teleprompter und Recap.
+  /// Server-Metadaten der Podcast-Show für den Teleprompter.
   @Published var podcastShowTranscriptionLanguage = ""
   @Published private(set) var podcastShowTranscriptionLanguageShowId: String?
   @Published private(set) var podcastShowTranscriptionLanguageSaving = false
@@ -554,7 +554,7 @@ final class AppModel: ObservableObject {
     didSet { UserDefaults.standard.set(smartDownloadOnWiFi, forKey: Keys.smartDlAutoWifi) }
   }
   /// Read-Along-Transkripte für heruntergeladene Bücher im Vordergrund vorproduzieren.
-  /// Standard an: ohne Vorproduktion finden Read Along, Teleprompter und Recap meist kein Transkript.
+  /// Standard an: ohne Vorproduktion finden Read Along und Teleprompter meist kein Transkript.
   @Published var readAlongPrefetchEnabled: Bool =
     UserDefaults.standard.object(forKey: Keys.readAlongPrefetch) as? Bool ?? true
   {
@@ -10370,6 +10370,10 @@ final class AppModel: ObservableObject {
   /// EQ-Preset für die laufende Wiedergabe setzen (Voice Focus etc.).
   func applyEQPreset(_ preset: AudioEQPreset) {
     player.setEQPreset(preset)
+  }
+
+  func applyEQCustomGains(_ gains: [Double], persist: Bool) {
+    player.setEQCustomGains(gains, persist: persist)
   }
 
   /// Schreibt die aktuelle Player-Position in `progressByItemId` und in LocalStore (vor Server-PATCH).

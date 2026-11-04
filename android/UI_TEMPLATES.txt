@@ -60,11 +60,10 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
      Bestätigung unten rechts „Cancel“-Text-Button + Filled-Button, destructive = error; ohne
      Bestätigung keine Buttons, Schließen per Wischen/Scrim) · MetadataSheetScaffold (Vollbild-Dialog
      für Formulare: ✕ links, Titel, „Save“-Text-Aktion rechts)
-   Fundstellen vorher: 5
+   Fundstellen vorher: 4
    - ui/components/Scaffolds.kt:336  fun AbstandSheetScaffold(
    - ui/components/Scaffolds.kt:347  ModalBottomSheet(
    - ui/metadata/MatchMetadataSheet.kt:160  AbstandSheetScaffold(
-   - ui/transcript/TranscriptRecapSheet.kt:45  AbstandSheetScaffold(title = "Recap", onDismiss = onDismiss, onConfirm = onDismiss, confir
    - ui/transcript/TranscriptWordLookupSheet.kt:62  AbstandSheetScaffold(title = "Look up & translate", onDismiss = onDismiss, onConfirm = onD
 
 ## Icon-Buttons (IconButton, FilledTonalIconButton, runde Kreis-Knöpfe)

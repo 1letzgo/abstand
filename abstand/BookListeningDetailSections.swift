@@ -211,6 +211,8 @@ struct BookChapterListView: View {
             ) {
               onPlayChapter(chapter)
             }
+            // Sprungziel für den Player (`currentChapterScrollTarget`).
+            .id(chapter.id)
             if idx < chapters.count - 1 {
               Divider().background(AppTheme.textSecondary.opacity(0.15))
             }

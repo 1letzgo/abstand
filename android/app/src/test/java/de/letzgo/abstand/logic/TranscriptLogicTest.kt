@@ -112,21 +112,6 @@ class TranscriptLogicTest {
     }
 
     @Test
-    fun recapTextJoinsWordsInWindow() {
-        val sources = listOf(
-            PlayerTranscriptTrackSource(1, "/b.mp3", 100.0, 100.0),
-            PlayerTranscriptTrackSource(0, "/a.mp3", 0.0, 100.0),
-        )
-        val words = mapOf(
-            0 to listOf(PlayerTranscriptTrackCache.Word("early", 10.0, 11.0), PlayerTranscriptTrackCache.Word("late", 95.0, 96.0)),
-            1 to listOf(PlayerTranscriptTrackCache.Word("next", 1.0, 2.0), PlayerTranscriptTrackCache.Word("far", 50.0, 51.0)),
-        )
-        val text = PlayerTranscriptLibrary.transcriptText(sources, 90.0..105.0) { words[it].orEmpty() }
-        assertEquals("late next", text)
-        assertNull(PlayerTranscriptLibrary.localWindow(sources[0], 0.0..50.0))
-    }
-
-    @Test
     fun wordLookupTerm() {
         assertEquals("Hello", PlayerTranscriptWordLookup.normalizedTerm("  «Hello!» "))
         assertEquals("don't", PlayerTranscriptWordLookup.normalizedTerm("\"don't,\""))

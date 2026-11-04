@@ -2,7 +2,6 @@ package de.letzgo.abstand.transcript
 
 import android.content.Context
 import android.util.Log
-import de.letzgo.abstand.data.absLocale
 import de.letzgo.abstand.logic.PlayerTeleprompterLayout
 import de.letzgo.abstand.logic.PlayerTeleprompterMetrics
 import de.letzgo.abstand.logic.PlayerTranscriptLibrary
@@ -31,7 +30,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
@@ -108,23 +106,8 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
     private val _teleprompterSyncedPlaybackTime = MutableStateFlow(0.0)
     val teleprompterSyncedPlaybackTime: StateFlow<Double> = _teleprompterSyncedPlaybackTime.asStateFlow()
 
-    private val _recapText = MutableStateFlow<String?>(null)
-    val recapText: StateFlow<String?> = _recapText.asStateFlow()
-    private val _recapErrorMessage = MutableStateFlow<String?>(null)
-    val recapErrorMessage: StateFlow<String?> = _recapErrorMessage.asStateFlow()
-    private val _isGeneratingRecap = MutableStateFlow(false)
-    val isGeneratingRecap: StateFlow<Boolean> = _isGeneratingRecap.asStateFlow()
-    private val _recapFallbackNotice = MutableStateFlow<String?>(null)
-    val recapFallbackNotice: StateFlow<String?> = _recapFallbackNotice.asStateFlow()
-    private val _recapShowsTranscript = MutableStateFlow(false)
-    /** Android immer `true`: es gibt kein On-Device-Sprachmodell für die Zusammenfassung. */
-    val recapShowsTranscript: StateFlow<Boolean> = _recapShowsTranscript.asStateFlow()
-
     /** iOS: `isReadAlongAvailable` — Vosk läuft auf jedem Gerät. */
     val isReadAlongAvailable: Boolean get() = SpeechTranscriberAvailability.isSupported()
-
-    /** iOS: `canGenerateRecap` (Apple Intelligence). Android: Recap = Transkript der letzten 5 Minuten. */
-    val canGenerateRecap: Boolean get() = true
 
     /** Sprache der laufenden Transkription (Wort-Übersetzung). */
     val transcriptionLocale: Locale? get() = activeContext?.localeIdentifier?.let(Locale::forLanguageTag)
@@ -133,9 +116,6 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
 
     /** Erkennungswörter des aktiven Tracks — der Teleprompter zeigt immer das Transkript (iOS gleich). */
     private var finalizedWords: List<PlayerTranscriptWord> = emptyList()
-    private var recapBookId: String? = null
-    private var recapPlaybackTime: Double? = null
-    private var recapGeneration = 0
     private val lineAccumulator = PlayerTranscriptLineAccumulator()
     private var reflowFontSize = 0.0
     private var reflowWidth = 0.0
@@ -682,100 +662,6 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
     fun fractionalActiveLinePosition(globalTime: Double): Double =
         PlayerTranscriptTimeline.fractionalActiveLinePosition(_transcriptLines.value, globalTime)
 
-    // MARK: - Recap
-
-    /**
-     * iOS: `generateRecap(player:)` — die letzten fünf Minuten aus den lokalen Dateien (Cache zuerst,
-     * Lücken werden nachproduziert). Android hat kein On-Device-Sprachmodell für Zusammenfassungen
-     * (iOS: Apple Intelligence) — angezeigt wird deshalb immer das Transkript (iOS-Fallbackpfad).
-     */
-    fun generateRecap() {
-        if (_isGeneratingRecap.value) return
-        val end = PlaybackTranscription.livePosition(player)
-        val bookId = PlaybackTranscription.transcriptionStorageId(player)
-        val cachedText = _recapText.value
-        val cachedTime = recapPlaybackTime
-        if (cachedText != null && recapBookId == bookId && cachedTime != null &&
-            end >= cachedTime && end - cachedTime < RECAP_CACHE_PLAYBACK_SECONDS
-        ) {
-            _recapErrorMessage.value = null
-            return
-        }
-        recapGeneration += 1
-        val generation = recapGeneration
-        _isGeneratingRecap.value = true
-        _recapText.value = null
-        _recapErrorMessage.value = null
-        _recapFallbackNotice.value = null
-        _recapShowsTranscript.value = false
-        scope.launch {
-            PlayerTranscriptLibrary.beginPriorityWork()
-            try {
-                val outcome = withTimeoutOrNull((RECAP_GENERATION_TIMEOUT_SECONDS * 1000).toLong()) { buildRecap(end, bookId) }
-                if (generation != recapGeneration) return@launch
-                when {
-                    outcome == null -> _recapErrorMessage.value = "Recap took too long. Please try again later."
-                    outcome.error != null -> {
-                        _recapText.value = null
-                        _recapErrorMessage.value = outcome.error
-                    }
-                    else -> {
-                        _recapText.value = outcome.text
-                        _recapShowsTranscript.value = true
-                        _recapFallbackNotice.value = outcome.notice
-                        recapBookId = bookId
-                        recapPlaybackTime = end
-                    }
-                }
-            } catch (c: CancellationException) {
-                throw c
-            } catch (t: Throwable) {
-                Log.w(TAG, "recap failed", t)
-                if (generation == recapGeneration) {
-                    _recapText.value = null
-                    _recapErrorMessage.value = "The on-device recap could not be created. Please try again."
-                }
-            } finally {
-                PlayerTranscriptLibrary.endPriorityWork()
-                if (generation == recapGeneration) _isGeneratingRecap.value = false
-            }
-        }
-    }
-
-    private class RecapOutcome(val text: String? = null, val notice: String? = null, val error: String? = null)
-
-    private suspend fun buildRecap(end: Double, bookId: String?): RecapOutcome {
-        val ready = withContext(Dispatchers.IO) { PlaybackTranscription.isReadAlongDownloadReady(player) }
-        if (!ready) return RecapOutcome(error = "Download the audiobook to create an on-device recap.")
-        val range = max(0.0, end - RECAP_WINDOW_SECONDS)..end
-        val sources = PlaybackTranscription.localTranscriptionTrackSources(player).filter {
-            it.globalRange.endInclusive >= range.start && it.globalRange.start <= range.endInclusive
-        }
-        if (sources.isEmpty()) return RecapOutcome(error = "The last five minutes of audio are unavailable for transcription.")
-        val languageTag = PlaybackTranscription.resolvedTranscriptionLanguageTag(player)
-        val selection = try {
-            TranscriptionModelSelection.select(languageTag)
-        } catch (e: SpeechTranscriptionLocaleResolver.LocaleNotSupportedException) {
-            return RecapOutcome(error = PlayerLiveTranscriptionError.localeNotSupported)
-        }
-        if (!SpeechModelStore.isInstalled(appContext, selection.entry)) {
-            return RecapOutcome(
-                error = "Download the ${selection.entry.displayName} speech model (${selection.entry.sizeText}) in read along first.",
-            )
-        }
-        val notices = ArrayList<String>()
-        if (selection.usedFallback && absLocale(fromABSMetadataLanguage = languageTag) != null) {
-            notices.add("Recap transcribed in ${languageName(selection.locale)} (book language not installed).")
-        }
-        PlayerTranscriptLibrary.activeAccount = TranscriptAccount.current()
-        val transcript = PlayerTranscriptProduction.transcriptText(
-            appContext, bookId ?: "", sources, range, selection.entry, selection.localeIdentifier,
-        )
-        if (transcript.isEmpty()) return RecapOutcome(error = "No speech was recognized in the last five minutes. Try again later.")
-        notices.add("On-device summaries aren't available on Android — showing the transcript instead.")
-        return RecapOutcome(text = transcript, notice = notices.joinToString("\n"))
-    }
-
     private fun languageName(locale: Locale): String =
         locale.getDisplayLanguage(Locale.getDefault()).takeIf { it.isNotEmpty() }
             ?.replaceFirstChar { it.titlecase(Locale.getDefault()) } ?: locale.toLanguageTag()
@@ -783,10 +669,6 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
     companion object {
         private const val TAG = "ReadAlong"
         const val PRE_ROLL_SECONDS = 4.0
-        /** Ein Recap bleibt für mindestens eine weitere Hörminute gültig. */
-        const val RECAP_CACHE_PLAYBACK_SECONDS = 60.0
-        const val RECAP_GENERATION_TIMEOUT_SECONDS = 90.0
-        const val RECAP_WINDOW_SECONDS = 300.0
 
         @Volatile private var instance: PlayerLiveTranscriptionController? = null
 

@@ -294,6 +294,39 @@ private func playbackActivePublisher(
     .eraseToAnyPublisher()
 }
 
+/// Woher eine Continue-Karte ihre Cover-Farbe holt.
+private struct ContinueHeroCardTintSource {
+  let itemId: String
+  let revision: Int
+  let coverURL: URL?
+
+  @MainActor
+  func seed(model: AppModel) -> Color? {
+    // Kleine Tint-JSON, kein Bild-I/O: die Karte erscheint gleich in der richtigen Farbe.
+    CoverDerivedTintLoader.colorFromDiskOrCoverCache(
+      account: model.coverImageCacheAccountDirectory(),
+      itemId: itemId,
+      revision: revision
+    )
+  }
+
+  @MainActor
+  func load(model: AppModel) async -> Color? {
+    await CoverDerivedTintLoader.loadColor(
+      account: model.coverImageCacheAccountDirectory(),
+      itemId: itemId,
+      revision: revision,
+      coverURL: coverURL,
+      token: model.token
+    )
+  }
+
+  /// Die Tönung hängt vom Hell/Dunkel-Modus ab, daher auch dabei neu laden.
+  func taskId(palette: AppColorPalette) -> String {
+    "\(itemId)|\(revision)|\(palette.isDarkLike)"
+  }
+}
+
 private func continueHeroPlayPill(
   model: AppModel,
   libraryItemId: String,
@@ -301,6 +334,7 @@ private func continueHeroPlayPill(
   accent: Color,
   palette: AppColorPalette,
   caption: String,
+  cardTint: Color? = nil,
   action: @escaping () -> Void
 ) -> some View {
   HStack {
@@ -311,6 +345,7 @@ private func continueHeroPlayPill(
       accent: accent,
       palette: palette,
       caption: caption,
+      cardTint: cardTint,
       action: action
     )
     Spacer(minLength: 0)
@@ -325,6 +360,8 @@ private struct ContinueHeroPlayPillButton: View {
   let accent: Color
   let palette: AppColorPalette
   let caption: String
+  /// Getönte Karte: Kapsel in deren lesbarer Schriftfarbe, damit sie sich immer abhebt.
+  let cardTint: Color?
   let action: () -> Void
 
   @State private var showsPause = false
@@ -338,6 +375,7 @@ private struct ContinueHeroPlayPillButton: View {
     accent: Color,
     palette: AppColorPalette,
     caption: String,
+    cardTint: Color? = nil,
     action: @escaping () -> Void
   ) {
     self.model = model
@@ -346,6 +384,7 @@ private struct ContinueHeroPlayPillButton: View {
     self.accent = accent
     self.palette = palette
     self.caption = caption
+    self.cardTint = cardTint
     self.action = action
     playerState = playbackActivePublisher(model: model, libraryItemId: libraryItemId, episodeId: episodeId)
   }
@@ -376,10 +415,13 @@ private struct ContinueHeroPlayPillButton: View {
           .minimumScaleFactor(0.75)
       }
       // Paper: Tinten-Kapsel — Zinnober bleibt Fortschritt vorbehalten.
-      .foregroundStyle(palette.background)
+      .foregroundStyle(cardTint ?? palette.background)
       .padding(.horizontal, AppTheme.Layout.rowSpacing)
       .padding(.vertical, AppTheme.Layout.stackSpacing)
-      .background(palette.textPrimary, in: Capsule())
+      .background(
+        cardTint.map { palette.readableTextOnTintedCard($0).primary } ?? palette.textPrimary,
+        in: Capsule()
+      )
     }
     .buttonStyle(.plain)
     .accessibilityLabel(showsPause ? "Pause" : "Play")
@@ -825,12 +867,22 @@ struct ContinueListeningHeroBookCard: View {
   var cardWidth: CGFloat = AppTheme.Layout.continueHeroCardWidth
   @State private var rowLive: LibraryBookRowLiveState
   @State private var showDetail = false
+  /// Kartenfläche in Cover-Farbe wie im Player; `nil` = neutrale Palette, bis sie geladen ist.
+  @State private var coverTint: Color?
 
   init(book: ABSBook, model: AppModel, cardWidth: CGFloat = AppTheme.Layout.continueHeroCardWidth) {
     self.book = book
     self.cardWidth = cardWidth
     _rowLive = State(
       wrappedValue: LibraryBookRowLiveState(bookId: book.id, model: model)
+    )
+  }
+
+  private var tintSource: ContinueHeroCardTintSource {
+    ContinueHeroCardTintSource(
+      itemId: book.id,
+      revision: model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt),
+      coverURL: model.coverURL(for: book.id)
     )
   }
 
@@ -878,7 +930,7 @@ struct ContinueListeningHeroBookCard: View {
 
     VStack(alignment: .leading, spacing: 0) {
       ZStack(alignment: .bottom) {
-        model.appearancePalette.card
+        (coverTint ?? model.appearancePalette.card)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         CoverImageView(
@@ -929,6 +981,7 @@ struct ContinueListeningHeroBookCard: View {
         detailValue: continueHeroAuthorSingleLine(for: book),
         horizontalInset: coverInset,
         onTitleTap: { showDetail = true },
+        cardTint: coverTint
       ) {
         let isFinished = prog?.isFinished == true
         continueHeroPlayPill(
@@ -937,7 +990,8 @@ struct ContinueListeningHeroBookCard: View {
           episodeId: nil,
           accent: model.appearanceAccentColor,
           palette: model.appearancePalette,
-          caption: playPillRemainingCaption
+          caption: playPillRemainingCaption,
+          cardTint: coverTint
         ) {
           continueHeroPlayPillToggle(
             model: model,
@@ -952,15 +1006,19 @@ struct ContinueListeningHeroBookCard: View {
           }
         }
       }
-      .background(model.appearancePalette.card)
+      .background(coverTint ?? model.appearancePalette.card)
     }
     // Höhe aus dem Inhalt (Cover + skalierter Textblock) — eine feste Gesamthöhe aus unskalierten
     // Konstanten ließ bei abweichender Textgröße Luft unter der Play-Pille (anders als Library-/Home-Cards).
     .frame(width: w, alignment: .top)
     .fixedSize(horizontal: false, vertical: true)
-    .background(model.appearancePalette.card)
+    .background(coverTint ?? model.appearancePalette.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous))
     .abstandHeroCardOutline(palette: model.appearancePalette)
+    .task(id: tintSource.taskId(palette: model.appearancePalette)) {
+      coverTint = tintSource.seed(model: model) ?? coverTint
+      if let loaded = await tintSource.load(model: model) { coverTint = loaded }
+    }
     .navigationDestination(isPresented: $showDetail) {
       BookDetailView(bookId: book.id)
     }
@@ -973,6 +1031,8 @@ struct ContinueListeningHeroPodcastCard: View {
   var cardWidth: CGFloat = AppTheme.Layout.continueHeroCardWidth
   @State private var rowLive: LibraryPodcastEpisodeRowLiveState
   @State private var showDetail = false
+  /// Kartenfläche in Cover-Farbe wie im Player; `nil` = neutrale Palette, bis sie geladen ist.
+  @State private var coverTint: Color?
 
   init(
     episode: ABSPodcastEpisodeListItem,
@@ -987,6 +1047,14 @@ struct ContinueListeningHeroPodcastCard: View {
         offlineStorageId: model.podcastEpisodeOfflineStorageId(episode),
         model: model
       )
+    )
+  }
+
+  private var tintSource: ContinueHeroCardTintSource {
+    ContinueHeroCardTintSource(
+      itemId: episode.libraryItemId,
+      revision: model.coverImageCacheRevision(forBookId: episode.libraryItemId),
+      coverURL: model.coverURL(for: episode.libraryItemId)
     )
   }
 
@@ -1046,7 +1114,7 @@ struct ContinueListeningHeroPodcastCard: View {
 
     VStack(alignment: .leading, spacing: 0) {
       ZStack(alignment: .bottom) {
-        model.appearancePalette.card
+        (coverTint ?? model.appearancePalette.card)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         CoverImageView(
@@ -1100,6 +1168,7 @@ struct ContinueListeningHeroPodcastCard: View {
         }(),
         horizontalInset: coverInset,
         onTitleTap: { showDetail = true },
+        cardTint: coverTint
       ) {
         let isFinished = prog?.isFinished == true
         continueHeroPlayPill(
@@ -1108,7 +1177,8 @@ struct ContinueListeningHeroPodcastCard: View {
           episodeId: episode.episodeId,
           accent: model.appearanceAccentColor,
           palette: model.appearancePalette,
-          caption: playPillRemainingCaption
+          caption: playPillRemainingCaption,
+          cardTint: coverTint
         ) {
           continueHeroPlayPillToggle(
             model: model,
@@ -1123,15 +1193,19 @@ struct ContinueListeningHeroPodcastCard: View {
           }
         }
       }
-      .background(model.appearancePalette.card)
+      .background(coverTint ?? model.appearancePalette.card)
     }
     // Höhe aus dem Inhalt (Cover + skalierter Textblock) — eine feste Gesamthöhe aus unskalierten
     // Konstanten ließ bei abweichender Textgröße Luft unter der Play-Pille (anders als Library-/Home-Cards).
     .frame(width: w, alignment: .top)
     .fixedSize(horizontal: false, vertical: true)
-    .background(model.appearancePalette.card)
+    .background(coverTint ?? model.appearancePalette.card)
     .clipShape(RoundedRectangle(cornerRadius: AppTheme.Layout.continueHeroCardCornerRadius, style: .continuous))
     .abstandHeroCardOutline(palette: model.appearancePalette)
+    .task(id: tintSource.taskId(palette: model.appearancePalette)) {
+      coverTint = tintSource.seed(model: model) ?? coverTint
+      if let loaded = await tintSource.load(model: model) { coverTint = loaded }
+    }
     .navigationDestination(isPresented: $showDetail) {
       PodcastEpisodeDetailView(episode: episode)
     }

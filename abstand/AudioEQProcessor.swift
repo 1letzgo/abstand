@@ -18,6 +18,8 @@ enum AudioEQPreset: String, CaseIterable, Identifiable {
   case bassBoost
   /// Mehr Luft/Klarheit: Höhen-Shelf.
   case trebleBoost
+  /// Frei eingestellte Bänder aus dem EQ-Panel (`AudioEQBands`).
+  case custom
 
   var id: String { rawValue }
 
@@ -27,6 +29,7 @@ enum AudioEQPreset: String, CaseIterable, Identifiable {
     case .voiceFocus: return "Voice Focus"
     case .bassBoost: return "Bass Boost"
     case .trebleBoost: return "Treble Boost"
+    case .custom: return "Custom"
     }
   }
 
@@ -36,13 +39,15 @@ enum AudioEQPreset: String, CaseIterable, Identifiable {
     case .voiceFocus: return "person.wave.2"
     case .bassBoost: return "speaker.wave.1"
     case .trebleBoost: return "speaker.wave.3"
+    case .custom: return "slider.vertical.3"
     }
   }
 
   /// Biquad-Kette für diese Preset. Reihenfolge = kaskadierungs-Reihenfolge.
+  /// `.custom` hat keine feste Kette, die liefert `AudioEQBands.filters(gains:)`.
   var filters: [AudioEQBiquadFilter] {
     switch self {
-    case .flat:
+    case .flat, .custom:
       return []
     case .voiceFocus:
       return [
@@ -69,11 +74,75 @@ enum AudioEQPreset: String, CaseIterable, Identifiable {
   }
 }
 
+// MARK: - Frei einstellbare Bänder
+
+/// Sechs Peak-Bänder des EQ-Panels. Auch außen keine Shelves: die erreichen an ihrer Eckfrequenz
+/// nur die halbe Verstärkung, die Kurve läge dort weit neben dem Griff.
+enum AudioEQBands {
+  static let frequencies: [Double] = [80, 200, 500, 1500, 4000, 8000]
+  /// Dezent genug für Sprache; der Processor begrenzt hart bei 0 dBFS und hat keinen Vorverstärker.
+  static let maxGain: Double = 10
+  static let gainStep: Double = 0.5
+  private static let peakQ: Double = 1.0
+  private static let defaultsKey = "abstand_eq_custom_gains"
+
+  static var flatGains: [Double] { Array(repeating: 0, count: frequencies.count) }
+
+  static func filters(gains: [Double]) -> [AudioEQBiquadFilter] {
+    guard gains.count == frequencies.count else { return [] }
+    return frequencies.indices.compactMap { index in
+      guard gains[index] != 0 else { return nil }
+      return AudioEQBiquadFilter(
+        type: .peaking,
+        frequency: frequencies[index],
+        gain: gains[index],
+        q: peakQ
+      )
+    }
+  }
+
+  static func loadSaved() -> [Double] {
+    guard let saved = UserDefaults.standard.array(forKey: defaultsKey) as? [Double],
+      saved.count == frequencies.count
+    else { return flatGains }
+    return saved.map { min(max($0, -maxGain), maxGain) }
+  }
+
+  static func save(_ gains: [Double]) {
+    UserDefaults.standard.set(gains, forKey: defaultsKey)
+  }
+
+  /// Betragsgang der Kette in dB, für die Kurve im Panel. Bei `gain` 0 fällt ein Band aus der Kette.
+  static func responseDB(
+    filters: [AudioEQBiquadFilter],
+    frequency: Double,
+    sampleRate: Double = 44100
+  ) -> Double {
+    let w = 2.0 * .pi * frequency / sampleRate
+    let cos1 = cos(w)
+    let sin1 = sin(w)
+    let cos2 = cos(2 * w)
+    let sin2 = sin(2 * w)
+    var db = 0.0
+    for filter in filters {
+      let c = AudioEQBiquadCoefficients.compute(filter: filter, sampleRate: sampleRate)
+      let numRe = c.b0 + c.b1 * cos1 + c.b2 * cos2
+      let numIm = -(c.b1 * sin1 + c.b2 * sin2)
+      let denRe = 1 + c.a1 * cos1 + c.a2 * cos2
+      let denIm = -(c.a1 * sin1 + c.a2 * sin2)
+      let numerator = numRe * numRe + numIm * numIm
+      let denominator = max(denRe * denRe + denIm * denIm, .leastNonzeroMagnitude)
+      db += 10 * log10(max(numerator / denominator, 1e-12))
+    }
+    return db
+  }
+}
+
 // MARK: - Biquad-Beschreibung
 
 /// Ein Biquad-Filterabschnitt (Second-Order-Section) nach RBJ-Cookbook.
-struct AudioEQBiquadFilter {
-  enum Kind {
+struct AudioEQBiquadFilter: Sendable {
+  enum Kind: Sendable {
     case lowPass
     case highPass
     case peaking
@@ -261,21 +330,22 @@ final class AudioEQProcessor {
 
 // MARK: - MTAudioProcessingTap Factory
 
-/// Hält Processor + Preset zusammen, damit die C-Callbacks keinen Swift-Kontext capturen müssen.
+/// Hält Processor + Filterkette zusammen, damit die C-Callbacks keinen Swift-Kontext capturen müssen.
 /// Preset-Wechsel sind live (ohne Tap-Rebuild) möglich — `reconfigure` tauscht nur die Filter,
 /// der Tap und sein Audio-Render-Pfad bleiben unangetastet (verhindert Race/Crash beim Swappen
 /// des `audioMix` während der Audio-Realtime-Thread läuft).
 final class AudioEQTapContext {
   let processor: AudioEQProcessor
-  private(set) var preset: AudioEQPreset
+  /// Audio-Thread (`prepare`) und Main (`reconfigure`) greifen zu, daher das Lock.
+  private let filters: OSAllocatedUnfairLock<[AudioEQBiquadFilter]>
   /// Letzte bekannte Sample-Rate aus `prepare`-Callback. Für Live-Reconfigure gebraucht.
   private var lastSampleRate: Double = 44100
   /// Letzte bekannte Kanalzahl aus `prepare`/`process`. Für Live-Reconfigure gebraucht.
   private var lastChannelCount: Int = 2
 
-  init(processor: AudioEQProcessor, preset: AudioEQPreset) {
+  init(processor: AudioEQProcessor, filters: [AudioEQBiquadFilter]) {
     self.processor = processor
-    self.preset = preset
+    self.filters = OSAllocatedUnfairLock(initialState: filters)
   }
 
   /// Wird aus `prepare`-Callback aufgerufen — initialisiert Processor mit Sample-Rate + Kanälen.
@@ -283,14 +353,14 @@ final class AudioEQTapContext {
     lastSampleRate = processingFormat.pointee.mSampleRate
     lastChannelCount = Int(processingFormat.pointee.mChannelsPerFrame)
     processor.configure(
-      filters: preset.filters, sampleRate: lastSampleRate, channelCount: lastChannelCount)
+      filters: filters.withLock { $0 }, sampleRate: lastSampleRate, channelCount: lastChannelCount)
   }
 
-  /// Live-Preset-Wechsel — nur Filterkoeffizienten tauschen (thread-sicher im Processor).
-  func reconfigure(preset: AudioEQPreset) {
-    self.preset = preset
+  /// Live-Wechsel — nur Filterkoeffizienten tauschen (thread-sicher im Processor).
+  func reconfigure(filters newFilters: [AudioEQBiquadFilter]) {
+    filters.withLock { $0 = newFilters }
     processor.configure(
-      filters: preset.filters, sampleRate: lastSampleRate, channelCount: lastChannelCount)
+      filters: newFilters, sampleRate: lastSampleRate, channelCount: lastChannelCount)
   }
 }
 

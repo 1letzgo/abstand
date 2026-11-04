@@ -84,8 +84,8 @@ private val AbsBook.hasEbook: Boolean
  * Buch- und Kapitel-Scrubber, Panel-Knöpfe (Beschreibung, Bookmarks, Kapitel, Hörverlauf, Read along), Transport,
  * Utility-Leiste (EQ, Tempo, Sleep, Ausgabe, Download).
  *
- * @param readAlong Teleprompter + Recap (iOS: `ReadAlongPanelButton`, `readAlongKaraokeCard`);
- *   `null` blendet Read along und Recap aus.
+ * @param readAlong Teleprompter (iOS: `ReadAlongPanelButton`, `readAlongKaraokeCard`);
+ *   `null` blendet Read along aus.
  * @param onOpenEbook „Open ebook“ für Bücher mit eBook; `null` blendet den Knopf aus.
  */
 @Composable
@@ -107,7 +107,6 @@ fun NowPlayingScreen(
         mutableStateOf(if (readAlong?.isModeActive?.value == true) FullPlayerCoverPanel.readAlong else FullPlayerCoverPanel.artwork)
     }
     var downloadWarning by remember { mutableStateOf(false) }
-    var recapOpen by remember { mutableStateOf(false) }
     // Titelwechsel: zurück zum Cover (Panels gehören zum vorherigen Titel).
     LaunchedEffect(book?.id, episodeId) { if (panel != FullPlayerCoverPanel.readAlong) panel = FullPlayerCoverPanel.artwork }
     if (readAlong == null && panel == FullPlayerCoverPanel.readAlong) panel = FullPlayerCoverPanel.artwork
@@ -153,7 +152,7 @@ fun NowPlayingScreen(
                 add(FullPlayerCoverPanel.sessions)
                 if (readAlong != null) add(FullPlayerCoverPanel.readAlong)
             }
-            // iOS: Read along/Recap nur mit vollständigem Download — sonst Hinweis statt Panel.
+            // iOS: Read along nur mit vollständigem Download — sonst Hinweis statt Panel.
             val onPanelButton: (FullPlayerCoverPanel) -> Unit = { k ->
                 if (k == FullPlayerCoverPanel.readAlong && readAlong != null) {
                     if (!readAlong.isDownloadReady()) {
@@ -166,17 +165,6 @@ fun NowPlayingScreen(
                     panel = if (panel == k) FullPlayerCoverPanel.artwork else k
                 }
             }
-            val onRecap: (() -> Unit)? = readAlong?.recapSheet?.let {
-                {
-                    if (!readAlong.isDownloadReady()) {
-                        downloadWarning = true
-                    } else {
-                        // Teleprompter-Karte hat Vorrang — erst schließen (beendet die Session).
-                        if (panel == FullPlayerCoverPanel.readAlong) panel = FullPlayerCoverPanel.artwork
-                        recapOpen = true
-                    }
-                }
-            }
             val ebookAction = onOpenEbook?.takeIf { isAudiobook && b.hasEbook }
             // iOS: `EbookPositionPanelButton` — nur mit EPUB auf dem Gerät.
             val hasCachedEpub = remember(b.id) {
@@ -187,7 +175,7 @@ fun NowPlayingScreen(
             val header: @Composable (Modifier) -> Unit = { m -> PlayerHeaderArea(wiring, b, panel, readAlong, m) }
             val controls: @Composable ColumnScope.() -> Unit = {
                 PanelControlRow(
-                    panelKinds, panel, onToggle = onPanelButton, onRecap = onRecap,
+                    panelKinds, panel, onToggle = onPanelButton,
                     readAlongDimmed = readAlong != null && !readAlong.isDownloadReady(),
                     onOpenEbook = ebookAction?.let { { it(b) } },
                     ebookJump = ebookJump,
@@ -222,13 +210,12 @@ fun NowPlayingScreen(
       }
     }
     if (downloadWarning) ReadAlongDownloadWarning { downloadWarning = false }
-    if (recapOpen) readAlong?.recapSheet?.invoke { recapOpen = false }
 }
 
-/** iOS: Alert „Download required“ (Read along / Recap ohne vollständigen Download). */
+/** iOS: Alert „Download required“ (Read along ohne vollständigen Download). */
 @Composable
 private fun ReadAlongDownloadWarning(onDismiss: () -> Unit) {
-    AbstandAlert("Download required", onDismiss = onDismiss, message = "Read along and recap only work when the audiobook or podcast is fully downloaded.")
+    AbstandAlert("Download required", onDismiss = onDismiss, message = "Read along only works when the audiobook or podcast is fully downloaded.")
 }
 
 /** Drag-Griff (M3 32 × 4 in 48-dp-Zeile; iOS 36 × 5) — Tippen schließt. */
@@ -335,7 +322,6 @@ private fun PanelControlRow(
     kinds: List<FullPlayerCoverPanel>,
     active: FullPlayerCoverPanel,
     onToggle: (FullPlayerCoverPanel) -> Unit,
-    onRecap: (() -> Unit)?,
     readAlongDimmed: Boolean,
     onOpenEbook: (() -> Unit)?,
     ebookJump: EbookPositionJumpState? = null,
@@ -356,8 +342,6 @@ private fun PanelControlRow(
                 FullPlayerCoverPanel.chapters -> FullPlayerPanelButton(SF.listBullet, on, if (on) "Hide chapters" else "Show chapters") { onToggle(k) }
                 FullPlayerCoverPanel.sessions -> FullPlayerPanelButton(SF.clockArrowCirclepath, on, if (on) "Hide listening history" else "Show listening history") { onToggle(k) }
                 FullPlayerCoverPanel.readAlong -> {
-                    // iOS: Recap steht vor Read along (beide brauchen den Download, gedimmt ohne).
-                    onRecap?.let { recap -> FullPlayerPanelButton(SF.sparkles, false, "Recap of the last 5 minutes", dimmed = readAlongDimmed, onClick = recap) }
                     FullPlayerPanelButton(SF.textWordSpacing, on, if (on) "Stop read-along transcript" else "Start read-along transcript", dimmed = readAlongDimmed) { onToggle(k) }
                 }
                 FullPlayerCoverPanel.artwork -> Unit

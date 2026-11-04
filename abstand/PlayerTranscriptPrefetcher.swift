@@ -17,9 +17,9 @@ struct PlayerTranscriptJob {
 /// Produziert Read-Along-Transkripte für heruntergeladene Titel im Voraus — der laufende Titel
 /// zuerst (ab Abspielposition), dann alle anderen Downloads. Läuft im Vordergrund und per
 /// iOS-Hintergrundverarbeitung (`BGProcessingTask`, nur am Strom — typischerweise nachts).
-/// Damit sind Read Along, Teleprompter und Recap meist sofort bereit.
+/// Damit sind Read Along und Teleprompter meist sofort bereit.
 ///
-/// Grenzen: Pause bei Stromsparmodus und thermischer Drosselung, Vorrang für Teleprompter/Recap
+/// Grenzen: Pause bei Stromsparmodus und thermischer Drosselung, Vorrang für den Teleprompter
 /// (`PlayerTranscriptLibrary.isPriorityWorkActive`), nur bereits installierte Sprachmodelle.
 @MainActor
 final class PlayerTranscriptPrefetcher: ObservableObject {
@@ -227,7 +227,7 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
         var completed = await prepare(
           bookId: job.storageId, source: source, locale: locale, from: from, generation: generation)
         // Beim laufenden Track danach auch den Anfang vor der Hörposition — sonst fehlt er bei
-        // Ein-Datei-Hörbüchern dauerhaft (Sprung zurück ins eBook, Recap).
+        // Ein-Datei-Hörbüchern dauerhaft (Sprung zurück ins eBook).
         if completed, from > 0, !Task.isCancelled {
           completed = await prepare(
             bookId: job.storageId, source: source, locale: locale, from: 0, generation: generation)
@@ -308,7 +308,7 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
         cursor = produced
       } catch {
         if AbstandErrorFilter.isBenignCancellation(error) {
-          // Pause (Teleprompter/Recap, Gerät warm) bricht nur den Abschnitt ab — Track nicht
+          // Pause (Teleprompter, Gerät warm) bricht nur den Abschnitt ab — Track nicht
           // aufgeben, sondern oben warten und an der Lücke weitermachen. Echter Abbruch: raus.
           if !Task.isCancelled, runGeneration == generation {
             // Ohne Blockade-Grund (anderer Abbruch) nicht in eine enge Schleife laufen.

@@ -118,15 +118,30 @@ final class PlaybackController: NSObject, ObservableObject {
   @Published private(set) var currentChapterOrdinal: Int = 0
   @Published private(set) var currentChapterTitle: String = ""
 
-  /// Gespeicherte Abspielgeschwindigkeit (Menü: `playbackRatePresets`); wiederhergestellt bei App-Start.
+  /// Gespeicherte Abspielgeschwindigkeit (Tempo-Panel im Player); wiederhergestellt bei App-Start.
   @Published private(set) var playbackRate: Float = 1.0
 
+  /// Feste Stufen für CarPlay (zyklisches Durchschalten).
   static let playbackRatePresets: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+  /// Frei wählbar über die Tempo-Skala im Player.
+  nonisolated static let playbackRateRange: ClosedRange<Float> = 0.5...3.0
+  nonisolated static let playbackRateStep: Float = 0.05
+  private static func snappedPlaybackRate(_ rate: Float) -> Float {
+    // Über ganze Schritte gerechnet, damit 1,5 exakt 1,5 bleibt und nicht 1,5000001 wird.
+    let stepsPerUnit = (1 / playbackRateStep).rounded()
+    let snapped = (rate * stepsPerUnit).rounded() / stepsPerUnit
+    return min(max(snapped, playbackRateRange.lowerBound), playbackRateRange.upperBound)
+  }
   private static let playbackRateDefaultsKey = "abstand_playback_rate"
 
   /// EQ-Preset für die Wiedergabe (Voice Focus etc.) — über `MTAudioProcessingTap` auf `AVPlayerItem`.
   @Published private(set) var eqPreset: AudioEQPreset = AudioEQPreset.loadSaved()
   private static let eqPresetDefaultsKey = "abstand_eq_preset"
+  /// Bänder von `.custom`; bleiben beim Wechsel auf eine Vorlage erhalten.
+  @Published private(set) var eqCustomGains: [Double] = AudioEQBands.loadSaved()
+  private var activeEQFilters: [AudioEQBiquadFilter] {
+    eqPreset == .custom ? AudioEQBands.filters(gains: eqCustomGains) : eqPreset.filters
+  }
   /// Tap + Context müssen für die Lebensdauer des Player-Items gehalten werden.
   private var eqTap: MTAudioProcessingTap?
   private var eqTapContext: AudioEQTapContext?
@@ -402,9 +417,13 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   /// Countdown für UI — bei Pause konstant, bei Wiedergabe läuft die Uhr weiter.
-  /// Kapitel-Timer hat keine Laufzeit → `nil` (UI zeigt stattdessen den Modus-Label).
+  /// Kapitel-Timer: Echtzeit bis zum Ende des Ziel-Kapitels (Medienzeit ÷ Tempo).
   var sleepTimerDisplaySeconds: TimeInterval? {
     guard sleepTimerMode != .off else { return nil }
+    if let target = sleepTimerChapterTarget, target < sortedChapters.count {
+      let mediaRemaining = chapterEndTime(at: target) - playbackGlobalPosition()
+      return max(0, mediaRemaining / Double(max(0.1, playbackRate)))
+    }
     if sleepTimerPaused {
       return sleepTimerRemaining
     }
@@ -1768,8 +1787,7 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   func setPlaybackRate(_ rate: Float) {
-    let snapped =
-      Self.playbackRatePresets.min(by: { abs($0 - rate) < abs($1 - rate) }) ?? 1.0
+    let snapped = Self.snappedPlaybackRate(rate)
     playbackRate = snapped
     UserDefaults.standard.set(Double(snapped), forKey: Self.playbackRateDefaultsKey)
     if isPlaying {
@@ -1781,8 +1799,7 @@ final class PlaybackController: NSObject, ObservableObject {
   private static func loadSavedPlaybackRate() -> Float {
     let v = UserDefaults.standard.double(forKey: playbackRateDefaultsKey)
     guard v > 0.09 else { return 1.0 }
-    let f = Float(v)
-    return playbackRatePresets.min(by: { abs($0 - f) < abs($1 - f) }) ?? 1.0
+    return snappedPlaybackRate(Float(v))
   }
 
   // MARK: - EQ
@@ -1796,10 +1813,24 @@ final class PlaybackController: NSObject, ObservableObject {
     UserDefaults.standard.set(preset.rawValue, forKey: Self.eqPresetDefaultsKey)
     if let ctx = eqTapContext {
       // Tap existiert schon: nur Filterkoeffizienten tauschen (thread-sicher im Processor).
-      ctx.reconfigure(preset: preset)
+      ctx.reconfigure(filters: activeEQFilters)
     } else {
       // Noch kein Tap (z. B. Player noch nicht geladen) — beim nächsten Apply greift das neue Preset.
       applyEQToCurrentItem()
+    }
+  }
+
+  /// Bänder aus dem EQ-Panel, live beim Ziehen. `persist` erst am Ende der Geste.
+  func setEQCustomGains(_ gains: [Double], persist: Bool) {
+    guard gains.count == AudioEQBands.frequencies.count else { return }
+    eqCustomGains = gains
+    if persist {
+      AudioEQBands.save(gains)
+    }
+    if eqPreset != .custom {
+      setEQPreset(.custom)
+    } else if let ctx = eqTapContext {
+      ctx.reconfigure(filters: activeEQFilters)
     }
   }
 
@@ -1817,7 +1848,7 @@ final class PlaybackController: NSObject, ObservableObject {
     teardownEQTap()
 
     let processor = AudioEQProcessor()
-    let context = AudioEQTapContext(processor: processor, preset: eqPreset)
+    let context = AudioEQTapContext(processor: processor, filters: activeEQFilters)
     guard let tap = AudioEQTapFactory.makeTap(context: context) else { return }
 
     let params = AVMutableAudioMixInputParameters()
@@ -2684,9 +2715,6 @@ final class PlaybackController: NSObject, ObservableObject {
     }
   }
 
-  /// Lokale Track-Dateien, die einen globalen Zeitbereich berühren — z. B. für einen
-  /// eigenständigen On-device-Recap. Anders als der Live-Teleprompter berücksichtigt
-  /// dies auch Track-Grenzen innerhalb des angeforderten Bereichs.
   /// Alle lokalen Tracks des aktiven Downloads — Grundlage für die Hintergrund-Vorproduktion
   /// von Read-Along-Transkripten (`PlayerTranscriptPrefetcher`).
   func localTranscriptionTrackSources() -> [PlayerTranscriptTrackSource] {
