@@ -53,11 +53,7 @@ struct AudiobookBookmarkListView: View {
   var body: some View {
     Group {
       if marks.isEmpty {
-        Text(
-          model.isNetworkReachable
-            ? "No bookmarks for this audiobook yet. Set one while playing."
-            : "Bookmarks are unavailable offline."
-        )
+        Text("No bookmarks for this audiobook yet. Set one while playing.")
         .font(.body)
         .foregroundStyle(model.appearancePalette.textSecondary)
         .multilineTextAlignment(.leading)
@@ -68,7 +64,6 @@ struct AudiobookBookmarkListView: View {
           ForEach(marks) { mark in
             AudiobookBookmarkRow(
               mark: mark,
-              showsDelete: model.isNetworkReachable,
               onJump: onJump,
               onDelete: { confirmDelete = mark }
             )
@@ -104,7 +99,6 @@ struct AudiobookBookmarkListView: View {
 private struct AudiobookBookmarkRow: View {
   @EnvironmentObject private var model: AppModel
   let mark: ABSAudioBookmark
-  let showsDelete: Bool
   let onJump: (ABSAudioBookmark) -> Void
   let onDelete: () -> Void
 
@@ -126,15 +120,13 @@ private struct AudiobookBookmarkRow: View {
       }
       .buttonStyle(.plain)
 
-      if showsDelete {
-        Button(action: onDelete) {
-          Image(systemName: "trash")
-            .font(.body)
-            .foregroundStyle(AppTheme.danger)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Delete bookmark")
+      Button(action: onDelete) {
+        Image(systemName: "trash")
+          .font(.body)
+          .foregroundStyle(AppTheme.danger)
       }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Delete bookmark")
     }
     .padding(.vertical, AppTheme.Layout.rowVerticalPadding)
   }

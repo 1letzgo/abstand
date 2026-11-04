@@ -57,6 +57,7 @@ extension AppModel {
   static let discardedProgressKeys = "abstand_discarded_progress_keys"
   /// Lokale Fortschritts-Schreibungen, die noch nicht am Server sind — überlebt Neustart (je Server + Benutzer).
   static let pendingLocalProgressSyncKeys = "abstand_pending_local_progress_sync_keys"
+  static let pendingBookmarkChanges = "abstand_pending_bookmark_changes"
   static let browseAuthorsSortField = "abstand_browse_authors_sort_field"
   static let browseAuthorsSortDescending = "abstand_browse_authors_sort_desc"
   static let browseNarratorsSortField = "abstand_browse_narrators_sort_field"

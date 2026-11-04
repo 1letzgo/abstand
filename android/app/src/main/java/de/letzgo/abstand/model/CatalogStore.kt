@@ -425,6 +425,8 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
 
     /** iOS: `refreshCatalogsIfStaleOnForeground` (Bücher-Teil). */
     fun refreshCatalogIfStaleOnForeground() {
+        // Offline gesetzte Lesezeichen: Server kann ohne Netz-Wechsel wieder da sein (Server war nur aus).
+        progress.schedulePendingBookmarkFlushIfNeeded()
         if (!session.isLoggedIn.value || session.offlineHomeUIActive || session.isAppBootstrapInProgress.value) return
         if (!reachable || session.client == null || session.selectedBooksLibrary.value == null) return
         val last = lastBooksCatalogServerSyncAt
@@ -1808,39 +1810,16 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
 
     /** iOS: `createBookmark(libraryItemId:time:title:)` — leerer Titel → Position. */
     suspend fun createBookmark(libraryItemId: String, time: Int, title: String): Boolean {
-        val c = session.client
-        if (c == null || !reachable) {
-            session.setErrorMessage("Bookmarks require a server connection.")
-            return false
-        }
         val lid = libraryItemId.swiftTrim().ifEmpty { return false }
         val finalTitle = title.swiftTrim().ifEmpty { BookDetailLogic.defaultBookmarkTitle(time) }
-        return try {
-            progress.upsertBookmark(c.createBookmark(lid, time, finalTitle))
-            true
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            session.publishErrorUnlessBenignCancellation(e)
-            false
-        }
+        val rejected = progress.createBookmark(lid, time, finalTitle) ?: return true
+        session.publishErrorUnlessBenignCancellation(rejected)
+        return false
     }
 
     /** iOS: `deleteBookmark(_:)`. */
     suspend fun deleteBookmark(bookmark: AbsAudioBookmark) {
-        val c = session.client
-        if (c == null || !reachable) {
-            session.setErrorMessage("Bookmarks require a server connection.")
-            return
-        }
-        try {
-            c.deleteBookmark(bookmark.libraryItemId, bookmark.time)
-            progress.removeBookmark(bookmark)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            session.publishErrorUnlessBenignCancellation(e)
-        }
+        progress.deleteBookmark(bookmark)?.let { session.publishErrorUnlessBenignCancellation(it) }
     }
 
     // MARK: - SessionParticipant

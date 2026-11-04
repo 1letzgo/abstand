@@ -845,6 +845,7 @@ final class AppModel: ObservableObject {
       guard self.offlineModeGeneration == generation, !self.offlineHomeUIActive else { return }
       if !progressOk { self.pendingPostOfflineModeProgressSync = true }
     }
+    schedulePendingBookmarkFlushIfNeeded()
 
     let catalogOk = await reloadSettingsTab(reloadCatalogs: true)
     guard offlineModeGeneration == generation, !offlineHomeUIActive else { return }
@@ -859,6 +860,7 @@ final class AppModel: ObservableObject {
   /// Pending Offline→Online-Retries, wenn der Path-Monitor-Edge während `isLeavingOfflineMode` verpasst wurde.
   private func schedulePendingPostOfflineModeRetriesIfNeeded() {
     guard !offlineHomeUIActive, !isLeavingOfflineMode, isNetworkReachable, mayUseServerNetwork else { return }
+    schedulePendingBookmarkFlushIfNeeded()
     guard pendingPostOfflineModeProgressSync || pendingPostOfflineModeCatalogReload else { return }
     Task { @MainActor [weak self] in
       guard let self else { return }
@@ -1016,6 +1018,17 @@ final class AppModel: ObservableObject {
   }
   /// Aus beim Laden und beim Leeren des Speichers (Account-Wechsel) — die persistierten Keys bleiben dann erhalten.
   private var persistsPendingLocalProgressSyncKeys = true
+  /// Lesezeichen-Änderungen, die noch nicht am Server sind (Schlüssel: `ABSAudioBookmark.id`).
+  /// Synchron je Server + Benutzer persistiert, damit sie jeden Neustart überleben.
+  private var pendingBookmarkChanges: [String: PendingBookmarkChange] = [:] {
+    didSet {
+      guard persistsPendingBookmarkChanges, oldValue != pendingBookmarkChanges else { return }
+      persistPendingBookmarkChanges()
+    }
+  }
+  /// Aus beim Laden und beim Leeren des Speichers (Account-Wechsel) — der persistierte Stand bleibt dann erhalten.
+  private var persistsPendingBookmarkChanges = true
+  private var isFlushingPendingBookmarkChanges = false
   /// „Fertig“ lokal gesetzt — schützt vor veraltetem `mediaProgress` nach Offline-Sync.
   private var localFinishedProgressKeys: Set<String> = []
   /// Reset Progress: Keys gegen Wiedereinspeisung aus SwiftData/`authorize`, mit Zeitpunkt des Resets (ms).
@@ -1072,6 +1085,7 @@ final class AppModel: ObservableObject {
     loadLocalFinishedProgressKeys()
     loadDiscardedProgressKeys()
     loadPendingLocalProgressSyncKeys()
+    loadPendingBookmarkChanges()
     loadM4BEncodeJobs()
     reapplyAppearance(systemColorScheme: .dark)
     CarPlayCoordinator.shared.bind(appModel: self)
@@ -1177,6 +1191,7 @@ final class AppModel: ObservableObject {
           !model.isLeavingOfflineMode,
           !model.isDeferredBootstrapNetworkRefreshInProgress
         {
+          model.schedulePendingBookmarkFlushIfNeeded()
           Task {
             if model.pendingPostOfflineModeProgressSync {
               let ok = await model.syncOfflineProgressToServer()
@@ -4237,6 +4252,7 @@ final class AppModel: ObservableObject {
     // sonst gehen Reset-Schutz und lokale Finished-Markierungen des verlassenen Accounts verloren.
     localProgressLoaded = false
     bookmarks = []
+    clearPendingBookmarkChangesInMemory()
     ebookReaderSession = nil
     isPreparingEbook = false
     sessionUserId = ""
@@ -11150,7 +11166,11 @@ final class AppModel: ObservableObject {
     EbookLocalStore.updateActiveSession(account: cacheAccountURL(), userId: user.id)
     PlayerTranscriptCacheStore.updateActiveAccount(cacheAccountURL())
     applyUserProgress(user.mediaProgress, persistToDisk: persistToDisk)
+    // `sessionUserId` steht erst hier sicher fest — Ausstehendes dieses Accounts vor dem Merge laden.
+    loadPendingBookmarkChanges()
     applyUserBookmarks(user.bookmarks, persistToDisk: persistToDisk)
+    // Server hat geantwortet: guter Moment, Ausstehendes nachzuschicken.
+    schedulePendingBookmarkFlushIfNeeded()
     // Frühere fehlgeschlagene Resets: Discard-Keys die den Server-Stand lokal ausblenden reparieren.
     let progressSnapshot = user.mediaProgress
     Task { await self.repairStuckDiscardedProgressKeys(from: progressSnapshot) }
@@ -12034,42 +12054,184 @@ final class AppModel: ObservableObject {
     return formatPlaybackTime(Double(t))
   }
 
-  /// Lesezeichen anlegen (nur Hörbücher, nicht Podcast-Folgen).
+  /// Lesezeichen anlegen (nur Hörbücher, nicht Podcast-Folgen). Zuerst lokal und dauerhaft vorgemerkt, dann an den
+  /// Server geschickt; ohne Verbindung holt `flushPendingBookmarkChanges` das später nach.
+  /// - Returns: `false` nur, wenn der Server das Lesezeichen endgültig abgelehnt hat (z. B. Buch gelöscht).
   @discardableResult
   func createBookmark(libraryItemId: String, time: Int, title: String) async -> Bool {
-    guard let c = client, isNetworkReachable else {
-      errorMessage = "Bookmarks require a server connection."
-      return false
-    }
     let lid = libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !lid.isEmpty else { return false }
     let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
     let finalTitle = trimmedTitle.isEmpty ? defaultBookmarkTitle(atSeconds: time) : trimmedTitle
     errorMessage = nil
-    do {
-      let created = try await c.createBookmark(libraryItemId: lid, time: time, title: finalTitle)
-      upsertBookmark(created)
-      persistBookmarksToLocalStore()
-      return true
-    } catch {
+    let change = PendingBookmarkChange(
+      kind: .create,
+      libraryItemId: lid,
+      time: time,
+      title: finalTitle,
+      createdAt: Self.nowMs()
+    )
+    recordPendingBookmarkChange(change)
+    let rejected = await sendPendingBookmarkChanges().rejected
+    if let error = rejected[change.id] {
       publishErrorUnlessBenignCancellation(error)
       return false
     }
+    return true
   }
 
+  /// Lesezeichen löschen — wie `createBookmark` erst lokal, der Server folgt sofort oder beim nächsten Online-Gehen.
   func deleteBookmark(_ bookmark: ABSAudioBookmark) async {
-    guard let c = client, isNetworkReachable else {
-      errorMessage = "Bookmarks require a server connection."
-      return
-    }
     errorMessage = nil
-    do {
-      try await c.deleteBookmark(libraryItemId: bookmark.libraryItemId, time: bookmark.time)
-      bookmarks.removeAll { $0.libraryItemId == bookmark.libraryItemId && $0.time == bookmark.time }
-      persistBookmarksToLocalStore()
-    } catch {
+    let change = PendingBookmarkChange(
+      kind: .delete,
+      libraryItemId: bookmark.libraryItemId,
+      time: bookmark.time,
+      title: bookmark.title,
+      createdAt: bookmark.createdAt
+    )
+    recordPendingBookmarkChange(change)
+    let rejected = await sendPendingBookmarkChanges().rejected
+    if let error = rejected[change.id] {
       publishErrorUnlessBenignCancellation(error)
     }
+  }
+
+  private func recordPendingBookmarkChange(_ change: PendingBookmarkChange) {
+    ensureLocalProgressLoaded()
+    pendingBookmarkChanges[change.id] = change
+    bookmarks = PendingBookmarkChange.overlaying([change], on: bookmarks)
+    persistBookmarksToLocalStore()
+  }
+
+  /// Ausstehendes im Hintergrund nachschicken (Online-Übergänge, Vordergrund, nach `/authorize`).
+  func schedulePendingBookmarkFlushIfNeeded() {
+    guard !pendingBookmarkChanges.isEmpty, !isFlushingPendingBookmarkChanges else { return }
+    Task { @MainActor [weak self] in
+      await self?.flushPendingBookmarkChanges()
+    }
+  }
+
+  /// Schickt Ausstehendes und gleicht danach per `/authorize` ab: Ein noch laufendes älteres `/authorize` kennt die
+  /// gerade gesendeten Änderungen nicht und würde sie sonst bis zum nächsten Refresh aus der Liste werfen.
+  private func flushPendingBookmarkChanges() async {
+    guard await sendPendingBookmarkChanges().sentAny else { return }
+    await refreshProgressFromServer()
+  }
+
+  /// Arbeitet die Warteschlange ab. Einträge verschwinden erst nach Erfolg oder endgültiger Ablehnung; alles andere
+  /// (Netz, 5xx, 401) bleibt liegen und wird beim nächsten Anlass wiederholt.
+  /// - Returns: `sentAny` = mindestens eine Änderung kam an; `rejected` = endgültige Ablehnungen je `id`.
+  private func sendPendingBookmarkChanges() async -> (sentAny: Bool, rejected: [String: Error]) {
+    guard !isFlushingPendingBookmarkChanges, mayUseServerNetwork, isNetworkReachable,
+      !pendingBookmarkChanges.isEmpty,
+      ABSAPIClient.normalizeServerURL(serverURL) != nil,
+      !token.isEmpty
+    else { return (false, [:]) }
+    restoreServerClientIfNeeded()
+    guard let c = client else { return (false, [:]) }
+    isFlushingPendingBookmarkChanges = true
+    defer { isFlushingPendingBookmarkChanges = false }
+
+    var sentAny = false
+    var rejected: [String: Error] = [:]
+    // Jeder Stand einmal pro Lauf — während des Laufs neu vorgemerkte Änderungen werden mit abgearbeitet.
+    var attempted = Set<PendingBookmarkChange>()
+    while mayUseServerNetwork, client === c,
+      let change = pendingBookmarkChanges.values
+        .filter({ !attempted.contains($0) })
+        .min(by: { $0.id < $1.id })
+    {
+      attempted.insert(change)
+      do {
+        let created = try await sendPendingBookmarkChange(change, client: c)
+        sentAny = true
+        // Inzwischen überholt (neuere Änderung, Account-Wechsel): Der neuere Stand zählt.
+        guard pendingBookmarkChanges[change.id] == change else { continue }
+        pendingBookmarkChanges[change.id] = nil
+        if let created {
+          upsertBookmark(created)
+          persistBookmarksToLocalStore()
+        }
+      } catch {
+        if Self.isPermanentBookmarkRejection(error) {
+          AppLog.library.warning("Bookmark change rejected: \(error.localizedDescription, privacy: .public)")
+          rejected[change.id] = error
+          guard pendingBookmarkChanges[change.id] == change else { continue }
+          pendingBookmarkChanges[change.id] = nil
+          if change.kind == .create {
+            bookmarks.removeAll { $0.id == change.id }
+            persistBookmarksToLocalStore()
+          }
+        } else {
+          AppLog.library.info("Bookmark sync deferred: \(error.localizedDescription, privacy: .public)")
+          // Server antwortet, mag aber nur diesen Eintrag nicht — die übrigen trotzdem versuchen.
+          if case ABSAPIError.httpStatus = error { continue }
+          break
+        }
+      }
+    }
+    return (sentAny, rejected)
+  }
+
+  /// - Returns: Das Lesezeichen laut Server, sobald es angelegt ist (`nil` bei Löschen / unlesbarer Antwort).
+  private func sendPendingBookmarkChange(
+    _ change: PendingBookmarkChange,
+    client c: ABSAPIClient
+  ) async throws -> ABSAudioBookmark? {
+    switch change.kind {
+    case .create:
+      do {
+        return try await c.createBookmark(libraryItemId: change.libraryItemId, time: change.time, title: change.title)
+      } catch ABSAPIError.decoding {
+        return nil  // Server hat mit 2xx angenommen; der nächste `/authorize` liefert die Zeile.
+      } catch ABSAPIError.emptyBody {
+        return nil
+      }
+    case .delete:
+      do {
+        try await c.deleteBookmark(libraryItemId: change.libraryItemId, time: change.time)
+      } catch ABSAPIError.httpStatus(404, _) {
+        // Schon weg (oder nur lokal vorgemerkt gewesen) — Ziel erreicht.
+      }
+      return nil
+    }
+  }
+
+  /// 4xx bleibt auch beim Wiederholen 4xx (Buch gelöscht, ungültig). Auth und Rate-Limits gehen vorüber.
+  private static func isPermanentBookmarkRejection(_ error: Error) -> Bool {
+    guard case ABSAPIError.httpStatus(let code, _) = error else { return false }
+    return (400 ..< 500).contains(code) && ![401, 403, 408, 429].contains(code)
+  }
+
+  private func persistPendingBookmarkChanges() {
+    let key = progressGuardStorageKey(base: Keys.pendingBookmarkChanges)
+    if pendingBookmarkChanges.isEmpty {
+      UserDefaults.standard.removeObject(forKey: key)
+    } else if let data = try? ABSJSON.encoder().encode(Array(pendingBookmarkChanges.values)) {
+      UserDefaults.standard.set(data, forKey: key)
+    }
+  }
+
+  /// Persistierten Stand des aktiven Accounts dazuladen (Speicher gewinnt) und in die sichtbare Liste einblenden.
+  private func loadPendingBookmarkChanges() {
+    let key = progressGuardStorageKey(base: Keys.pendingBookmarkChanges)
+    guard let data = UserDefaults.standard.data(forKey: key),
+      let stored = try? ABSJSON.decoder().decode([PendingBookmarkChange].self, from: data)
+    else { return }
+    persistsPendingBookmarkChanges = false
+    for change in stored where pendingBookmarkChanges[change.id] == nil {
+      pendingBookmarkChanges[change.id] = change
+    }
+    persistsPendingBookmarkChanges = true
+    bookmarks = PendingBookmarkChange.overlaying(pendingBookmarkChanges.values, on: bookmarks)
+  }
+
+  /// Nur den Speicher leeren — der persistierte Stand bleibt für den nächsten Sync dieses Accounts erhalten.
+  private func clearPendingBookmarkChangesInMemory() {
+    persistsPendingBookmarkChanges = false
+    pendingBookmarkChanges = [:]
+    persistsPendingBookmarkChanges = true
   }
 
   /// Zur Lesezeichen-Position springen (gleiches Hörbuch: nur Seek, sonst laden und abspielen).
@@ -12124,8 +12286,9 @@ final class AppModel: ObservableObject {
     }
   }
 
+  /// Server-/Cache-Stand übernehmen; noch ausstehende lokale Änderungen bleiben darüber erhalten.
   private func applyUserBookmarks(_ list: [ABSAudioBookmark]?, persistToDisk: Bool = true) {
-    bookmarks = list ?? []
+    bookmarks = PendingBookmarkChange.overlaying(pendingBookmarkChanges.values, on: list ?? [])
     guard persistToDisk else { return }
     persistBookmarksToLocalStore()
   }
@@ -12798,6 +12961,7 @@ final class AppModel: ObservableObject {
     loadLocalFinishedProgressKeys()
     loadDiscardedProgressKeys()
     loadPendingLocalProgressSyncKeys()
+    loadPendingBookmarkChanges()
     guard let context = currentLocalLibraryMainContext() else { return }
     // Flag erst setzen, wenn der Store offen ist — sonst kein Retry nach verzögertem Store-Open.
     localProgressLoaded = true

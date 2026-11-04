@@ -104,6 +104,8 @@ private struct AppRootContainer: View {
         model.refreshCatalogsIfStaleOnForeground()
         // Transkript-Vorproduktion im Vordergrund fortsetzen.
         model.transcriptPrefetcher.scheduleIfNeeded()
+        // Offline gesetzte Lesezeichen: Server kann ohne Netz-Wechsel wieder da sein (Server war nur aus).
+        model.schedulePendingBookmarkFlushIfNeeded()
       } else if phase == .background {
         // Nur Teleprompter beenden. Die Audio-Session bleibt unangetastet — iOS hält die
         // laufende Wiedergabe über `.playback` + `audio`-Background-Mode selbst am Leben.

@@ -350,7 +350,7 @@ final class CarPlayCoordinator: NSObject {
       if ok {
         self.flashBookmarkConfirmation()
       } else {
-        self.presentCarPlayNotice(String(localized: "Bookmark not saved. A server connection is required."))
+        self.presentCarPlayNotice(String(localized: "Bookmark not saved."))
       }
     }
   }

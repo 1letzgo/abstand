@@ -472,6 +472,8 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
      * nachsenden, dann jede lokal geänderte Zeile per PATCH. Keys bleiben bei Fehlern stehen.
      */
     suspend fun syncPendingProgressToServer() {
+        // Prüft Verbindung selbst; läuft auch, wenn der Fortschritts-Sync gleich früh aussteigt.
+        progressStore.flushPendingBookmarkChanges()
         val c = session.client ?: return
         if (!canUseServer) return
         runCatching { bridge.flushPendingOfflineListeningTime() }
@@ -509,40 +511,17 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
     /** Bookmark an der aktuellen Position anlegen (`POST /api/me/item/:id/bookmark`). */
     suspend fun addBookmarkAtCurrentPosition(title: String): Boolean {
         val itemId = activeAudiobookBookmarkId ?: return false
-        val c = session.client
-        if (c == null || !canUseServer) {
-            session.setErrorMessage("No network connection.")
-            return false
-        }
         val time = player.snapshotPlaybackTimeSeconds()
         val t = title.swiftTrim().ifEmpty { "Bookmark at ${formatPlaybackTime(time.toDouble())}" }
-        return try {
-            progressStore.upsertBookmark(c.createBookmark(itemId, time, t))
-            true
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            session.publishErrorUnlessBenignCancellation(e, forceDisplay = true)
-            false
-        }
+        val rejected = progressStore.createBookmark(itemId, time, t) ?: return true
+        session.publishErrorUnlessBenignCancellation(rejected, forceDisplay = true)
+        return false
     }
 
     suspend fun deleteBookmark(bookmark: AbsAudioBookmark): Boolean {
-        val c = session.client
-        if (c == null || !canUseServer) {
-            session.setErrorMessage("No network connection.")
-            return false
-        }
-        return try {
-            c.deleteBookmark(bookmark.libraryItemId, bookmark.time)
-            progressStore.removeBookmark(bookmark)
-            true
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            session.publishErrorUnlessBenignCancellation(e, forceDisplay = true)
-            false
-        }
+        val rejected = progressStore.deleteBookmark(bookmark) ?: return true
+        session.publishErrorUnlessBenignCancellation(rejected, forceDisplay = true)
+        return false
     }
 
     // MARK: - Download-Knopf im Vollplayer (iOS: `startDownloadForActivePlayback` / `removeLocalDownloadForActivePlayback`)

@@ -80,6 +80,7 @@ object Keys {
     const val localFinishedProgressKeys = "abstand_local_finished_progress_keys"
     const val discardedProgressKeys = "abstand_discarded_progress_keys"
     const val pendingLocalProgressSyncKeys = "abstand_pending_local_progress_sync_keys"
+    const val pendingBookmarkChanges = "abstand_pending_bookmark_changes"
     const val browseAuthorsSortField = "abstand_browse_authors_sort_field"
     const val browseAuthorsSortDescending = "abstand_browse_authors_sort_desc"
     const val browseNarratorsSortField = "abstand_browse_narrators_sort_field"

@@ -104,6 +104,41 @@ data class AbsAudioBookmark(
     val id: String get() = "$libraryItemId-$time"
 }
 
+/**
+ * iOS: `PendingBookmarkChange` — lokale Lesezeichen-Änderung, die noch nicht am Server angekommen ist. Pro
+ * Lesezeichen ([id]) zählt nur die letzte Änderung; POST und DELETE sind serverseitig idempotent.
+ */
+@Serializable
+data class PendingBookmarkChange(
+    val kind: Kind,
+    val libraryItemId: String,
+    val time: Int,
+    val title: String,
+    val createdAt: Long? = null,
+) {
+    @Serializable
+    enum class Kind { create, delete }
+
+    val id: String get() = "$libraryItemId-$time"
+
+    val bookmark: AbsAudioBookmark get() = AbsAudioBookmark(libraryItemId, title, time, createdAt)
+
+    companion object {
+        /** iOS: `overlaying(_:on:)` — [list] mit den ausstehenden Änderungen darüber, ohne Duplikate, sortiert nach Item + Zeit. */
+        fun overlaying(changes: Collection<PendingBookmarkChange>, list: List<AbsAudioBookmark>): List<AbsAudioBookmark> {
+            val byId = LinkedHashMap<String, AbsAudioBookmark>()
+            list.forEach { byId[it.id] = it }
+            for (change in changes) {
+                when (change.kind) {
+                    Kind.create -> byId[change.id] = change.bookmark
+                    Kind.delete -> byId.remove(change.id)
+                }
+            }
+            return byId.values.sortedWith(compareBy<AbsAudioBookmark> { it.libraryItemId }.thenBy { it.time })
+        }
+    }
+}
+
 object AbsAudioBookmarkSerializer : SwiftObjectSerializer<AbsAudioBookmark>("ABSAudioBookmark") {
     override fun decode(c: JObj): AbsAudioBookmark {
         val time = c.tryInt("time") ?: c.tryDouble("time")?.roundedSwift()?.toInt() ?: 0

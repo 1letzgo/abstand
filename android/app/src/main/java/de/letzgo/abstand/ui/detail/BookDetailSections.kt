@@ -96,13 +96,12 @@ fun BookChapterList(book: AbsBook, progress: AbsUserMediaProgress?, onPlayChapte
 // MARK: - Lesezeichen
 
 /**
- * iOS: `AudiobookBookmarkListView` — Lesezeichen des Hörbuchs; Tippen springt, Papierkorb fragt nach
- * (nur online). Leer: Hinweis „Set one while playing" bzw. „offline nicht verfügbar".
+ * iOS: `AudiobookBookmarkListView` — Lesezeichen des Hörbuchs; Tippen springt, Papierkorb fragt nach.
+ * Leer: Hinweis „Set one while playing". Änderungen laufen auch offline (Sync beim nächsten Online-Gehen).
  */
 @Composable
 fun AudiobookBookmarkList(libraryItemId: String, onJump: (AbsAudioBookmark) -> Unit, model: AppModel = AppModel.shared) {
     val all by model.progress.bookmarks.collectAsState()
-    val reachable by model.session.isNetworkReachable.collectAsState()
     val marks = remember(all, libraryItemId) { all.filter { it.libraryItemId == libraryItemId }.sortedBy { it.time } }
     var confirmDelete by remember { mutableStateOf<AbsAudioBookmark?>(null) }
     val scope = rememberCoroutineScope()
@@ -110,7 +109,7 @@ fun AudiobookBookmarkList(libraryItemId: String, onJump: (AbsAudioBookmark) -> U
 
     if (marks.isEmpty()) {
         Text(
-            if (reachable) "No bookmarks for this audiobook yet. Set one while playing." else "Bookmarks are unavailable offline.",
+            "No bookmarks for this audiobook yet. Set one while playing.",
             style = AppType.bodyLarge, color = palette.textSecondary, modifier = Modifier.fillMaxWidth(),
         )
     } else {
@@ -123,9 +122,7 @@ fun AudiobookBookmarkList(libraryItemId: String, onJump: (AbsAudioBookmark) -> U
                     titleStyle = AppType.titleSmall,
                     verticalPadding = AppTheme.Layout.rowVerticalPadding,
                 ) {
-                    if (reachable) {
-                        AbstandIconButton(SF.trash, "Delete bookmark", onClick = { confirmDelete = mark }, tint = AppTheme.danger)
-                    }
+                    AbstandIconButton(SF.trash, "Delete bookmark", onClick = { confirmDelete = mark }, tint = AppTheme.danger)
                 }
                 if (idx < marks.lastIndex) AbstandDivider()
             }

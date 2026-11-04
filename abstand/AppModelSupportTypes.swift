@@ -11,6 +11,44 @@ struct ContinueRefreshAttemptResult {
   var attemptedNetwork = false
 }
 
+/// Lokale Lesezeichen-Änderung, die noch nicht am Server angekommen ist. Pro Lesezeichen (`id`) zählt nur die
+/// letzte Änderung; POST und DELETE sind serverseitig idempotent (Schlüssel Item + Zeit), Wiederholungen also sicher.
+struct PendingBookmarkChange: Codable, Hashable {
+  enum Kind: String, Codable {
+    case create, delete
+  }
+
+  let kind: Kind
+  let libraryItemId: String
+  let time: Int
+  let title: String
+  let createdAt: Int64?
+
+  var id: String { "\(libraryItemId)-\(time)" }
+
+  var bookmark: ABSAudioBookmark {
+    ABSAudioBookmark(libraryItemId: libraryItemId, title: title, time: time, createdAt: createdAt)
+  }
+
+  /// `list` (Server- oder Cache-Stand) mit den ausstehenden Änderungen darüber, ohne Duplikate, sortiert nach Item + Zeit.
+  static func overlaying(
+    _ changes: some Sequence<PendingBookmarkChange>,
+    on list: [ABSAudioBookmark]
+  ) -> [ABSAudioBookmark] {
+    var byId = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+    for change in changes {
+      switch change.kind {
+      case .create: byId[change.id] = change.bookmark
+      case .delete: byId[change.id] = nil
+      }
+    }
+    return byId.values.sorted { a, b in
+      if a.libraryItemId != b.libraryItemId { return a.libraryItemId < b.libraryItemId }
+      return a.time < b.time
+    }
+  }
+}
+
 /// Abgebrochene Requests/Tasks nicht als Fehlerdialog anzeigen.
 enum AbstandErrorFilter {
   static func isBenignCancellationMessage(_ message: String) -> Bool {

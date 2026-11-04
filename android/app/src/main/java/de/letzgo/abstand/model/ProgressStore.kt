@@ -2,11 +2,13 @@ package de.letzgo.abstand.model
 
 import android.util.Log
 import de.letzgo.abstand.data.AbsApiClient
+import de.letzgo.abstand.data.AbsApiError
 import de.letzgo.abstand.data.AbsAudioBookmark
 import de.letzgo.abstand.data.AbsJson
 import de.letzgo.abstand.data.AbsUser
 import de.letzgo.abstand.data.AbsUserMediaProgress
 import de.letzgo.abstand.data.Keys
+import de.letzgo.abstand.data.PendingBookmarkChange
 import de.letzgo.abstand.data.Prefs
 import de.letzgo.abstand.data.swiftTrim
 import de.letzgo.abstand.player.PlaybackController
@@ -57,6 +59,9 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
     /** iOS: `pendingLocalProgressSyncKeys` (persistiert je Server + Benutzer). */
     var pendingLocalProgressSyncKeys: Set<String> = emptySet()
         private set
+    /** iOS: `pendingBookmarkChanges` — Schlüssel `AbsAudioBookmark.id`, je Server + Benutzer persistiert. */
+    private var pendingBookmarkChanges: Map<String, PendingBookmarkChange> = emptyMap()
+    private var isFlushingPendingBookmarkChanges = false
     private var localFinishedProgressKeys: Set<String> = emptySet()
     private var discardedProgressAtMs: Map<String, Long> = emptyMap()
     /** eBook „Mark as read"/Reset: gewünschter Wert, bis der Server nachzieht. */
@@ -138,9 +143,9 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
         persistProgressToLocalStore()
     }
 
-    /** iOS: `applyUserBookmarks`. */
+    /** iOS: `applyUserBookmarks` — noch ausstehende lokale Änderungen bleiben über dem Server-/Cache-Stand erhalten. */
     fun applyUserBookmarks(list: List<AbsAudioBookmark>?, persistToDisk: Boolean = true) {
-        _bookmarks.value = sortedBookmarks(list.orEmpty())
+        _bookmarks.value = PendingBookmarkChange.overlaying(pendingBookmarkChanges.values, list.orEmpty())
         if (persistToDisk) persistBookmarksToLocalStore()
     }
 
@@ -265,16 +270,140 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
 
     // MARK: - Lesezeichen
 
-    /** iOS: `upsertBookmark` + Persist. */
-    fun upsertBookmark(bookmark: AbsAudioBookmark) {
-        val list = _bookmarks.value.filterNot { it.libraryItemId == bookmark.libraryItemId && it.time == bookmark.time } + bookmark
-        _bookmarks.value = sortedBookmarks(list)
+    /**
+     * iOS: `createBookmark` — zuerst lokal und dauerhaft vorgemerkt, dann an den Server; ohne Verbindung holt
+     * [flushPendingBookmarkChanges] das später nach.
+     * @return die Ablehnung, wenn der Server das Lesezeichen endgültig abgelehnt hat (z. B. Buch gelöscht), sonst `null`.
+     */
+    suspend fun createBookmark(libraryItemId: String, time: Int, title: String): Throwable? {
+        val change = PendingBookmarkChange(PendingBookmarkChange.Kind.create, libraryItemId, time, title, System.currentTimeMillis())
+        recordPendingBookmarkChange(change)
+        return sendPendingBookmarkChanges().rejected[change.id]
+    }
+
+    /** iOS: `deleteBookmark` — wie [createBookmark] erst lokal, der Server folgt sofort oder beim nächsten Online-Gehen. */
+    suspend fun deleteBookmark(bookmark: AbsAudioBookmark): Throwable? {
+        val change = PendingBookmarkChange(PendingBookmarkChange.Kind.delete, bookmark.libraryItemId, bookmark.time, bookmark.title, bookmark.createdAt)
+        recordPendingBookmarkChange(change)
+        return sendPendingBookmarkChanges().rejected[change.id]
+    }
+
+    private fun recordPendingBookmarkChange(change: PendingBookmarkChange) {
+        setPendingBookmarkChanges(pendingBookmarkChanges + (change.id to change))
+        _bookmarks.value = PendingBookmarkChange.overlaying(listOf(change), _bookmarks.value)
         persistBookmarksToLocalStore()
     }
 
-    fun removeBookmark(bookmark: AbsAudioBookmark) {
-        _bookmarks.value = _bookmarks.value.filterNot { it.libraryItemId == bookmark.libraryItemId && it.time == bookmark.time }
-        persistBookmarksToLocalStore()
+    /** iOS: `schedulePendingBookmarkFlushIfNeeded` — Online-Übergänge, Vordergrund, nach `/authorize`. */
+    fun schedulePendingBookmarkFlushIfNeeded() {
+        if (pendingBookmarkChanges.isEmpty() || isFlushingPendingBookmarkChanges) return
+        model.scope.launch { flushPendingBookmarkChanges() }
+    }
+
+    /**
+     * iOS: `flushPendingBookmarkChanges` — schickt Ausstehendes und gleicht danach per `/authorize` ab: Ein noch
+     * laufendes älteres `/authorize` kennt die gerade gesendeten Änderungen nicht und würde sie sonst aus der Liste werfen.
+     */
+    suspend fun flushPendingBookmarkChanges() {
+        if (sendPendingBookmarkChanges().sentAny) session.refreshProgressFromServer()
+    }
+
+    private class BookmarkSendResult(val sentAny: Boolean, val rejected: Map<String, Throwable>)
+
+    /**
+     * iOS: `sendPendingBookmarkChanges` — Einträge verschwinden erst nach Erfolg oder endgültiger Ablehnung; alles
+     * andere (Netz, 5xx, 401) bleibt liegen und wird beim nächsten Anlass wiederholt.
+     */
+    private suspend fun sendPendingBookmarkChanges(): BookmarkSendResult {
+        val c = session.client
+        if (isFlushingPendingBookmarkChanges || c == null || pendingBookmarkChanges.isEmpty() ||
+            !session.mayUseServerNetwork || !session.isNetworkReachable.value
+        ) {
+            return BookmarkSendResult(false, emptyMap())
+        }
+        isFlushingPendingBookmarkChanges = true
+        var sentAny = false
+        val rejected = HashMap<String, Throwable>()
+        // Jeder Stand einmal pro Lauf — während des Laufs neu vorgemerkte Änderungen werden mit abgearbeitet.
+        val attempted = HashSet<PendingBookmarkChange>()
+        try {
+            while (session.mayUseServerNetwork && session.client === c) {
+                val change = pendingBookmarkChanges.values.filter { it !in attempted }.minByOrNull { it.id } ?: break
+                attempted += change
+                try {
+                    val created = sendPendingBookmarkChange(change, c)
+                    sentAny = true
+                    // Inzwischen überholt (neuere Änderung, Account-Wechsel): Der neuere Stand zählt.
+                    if (pendingBookmarkChanges[change.id] != change) continue
+                    setPendingBookmarkChanges(pendingBookmarkChanges - change.id)
+                    if (created != null) {
+                        _bookmarks.value = sortedBookmarks(_bookmarks.value.filterNot { it.id == created.id } + created)
+                        persistBookmarksToLocalStore()
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (isPermanentBookmarkRejection(e)) {
+                        Log.w(TAG, "Bookmark change rejected: ${e.message}")
+                        rejected[change.id] = e
+                        if (pendingBookmarkChanges[change.id] != change) continue
+                        setPendingBookmarkChanges(pendingBookmarkChanges - change.id)
+                        if (change.kind == PendingBookmarkChange.Kind.create) {
+                            _bookmarks.value = _bookmarks.value.filterNot { it.id == change.id }
+                            persistBookmarksToLocalStore()
+                        }
+                    } else {
+                        Log.i(TAG, "Bookmark sync deferred: ${e.message}")
+                        // Server antwortet, mag aber nur diesen Eintrag nicht — die übrigen trotzdem versuchen.
+                        if (e is AbsApiError.HttpStatus) continue
+                        break
+                    }
+                }
+            }
+        } finally {
+            isFlushingPendingBookmarkChanges = false
+        }
+        return BookmarkSendResult(sentAny, rejected)
+    }
+
+    /** @return das Lesezeichen laut Server, sobald es angelegt ist (`null` bei Löschen / unlesbarer Antwort). */
+    private suspend fun sendPendingBookmarkChange(change: PendingBookmarkChange, c: AbsApiClient): AbsAudioBookmark? {
+        when (change.kind) {
+            PendingBookmarkChange.Kind.create -> return try {
+                c.createBookmark(change.libraryItemId, change.time, change.title)
+            } catch (e: AbsApiError.Decoding) {
+                null // Server hat mit 2xx angenommen; der nächste `/authorize` liefert die Zeile.
+            } catch (e: AbsApiError.EmptyBody) {
+                null
+            }
+            PendingBookmarkChange.Kind.delete -> {
+                try {
+                    c.deleteBookmark(change.libraryItemId, change.time)
+                } catch (e: AbsApiError.HttpStatus) {
+                    // 404: schon weg (oder nur lokal vorgemerkt gewesen) — Ziel erreicht.
+                    if (e.code != 404) throw e
+                }
+                return null
+            }
+        }
+    }
+
+    private fun setPendingBookmarkChanges(changes: Map<String, PendingBookmarkChange>) {
+        pendingBookmarkChanges = changes
+        val key = guardKey(Keys.pendingBookmarkChanges)
+        if (changes.isEmpty()) {
+            Prefs.remove(key)
+        } else {
+            Prefs.setString(key, AbsJson.encoder.encodeToString(ListSerializer(PendingBookmarkChange.serializer()), changes.values.toList()))
+        }
+    }
+
+    /** iOS: `loadPendingBookmarkChanges` — persistierten Stand des aktiven Accounts dazuladen (Speicher gewinnt) und einblenden. */
+    private fun loadPendingBookmarkChanges() {
+        val raw = Prefs.string(guardKey(Keys.pendingBookmarkChanges)) ?: return
+        val stored = runCatching { AbsJson.decoder.decodeFromString(ListSerializer(PendingBookmarkChange.serializer()), raw) }.getOrNull() ?: return
+        pendingBookmarkChanges = stored.associateBy { it.id } + pendingBookmarkChanges
+        _bookmarks.value = PendingBookmarkChange.overlaying(pendingBookmarkChanges.values, _bookmarks.value)
     }
 
     // MARK: - SessionParticipant
@@ -292,17 +421,24 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
         }
         localProgressLoaded = true
         if (progress.isNotEmpty()) applyUserProgress(progress, persistToDisk = false)
-        if (marks.isNotEmpty() && _bookmarks.value.isEmpty()) _bookmarks.value = sortedBookmarks(marks)
+        // Nur Ausstehendes in der Liste zählt als „noch nichts geladen“.
+        if (marks.isNotEmpty() && _bookmarks.value.all { it.id in pendingBookmarkChanges }) applyUserBookmarks(marks, persistToDisk = false)
     }
 
     override fun onAuthorizeUser(user: AbsUser, persistToDisk: Boolean) {
         user.mediaProgress?.let { applyUserProgress(it, persistToDisk) }
+        // `sessionUserId` steht erst hier sicher fest — Ausstehendes dieses Accounts vor dem Merge laden.
+        loadPendingBookmarkChanges()
         user.bookmarks?.let { applyUserBookmarks(it, persistToDisk) }
+        // Server hat geantwortet: guter Moment, Ausstehendes nachzuschicken.
+        schedulePendingBookmarkFlushIfNeeded()
     }
 
     override fun onSessionCleared(clearCredentials: Boolean) {
         _progressByItemId.value = emptyMap()
         _bookmarks.value = emptyList()
+        // Nur der Speicher — der persistierte Stand bleibt für den nächsten Sync dieses Accounts erhalten.
+        pendingBookmarkChanges = emptyMap()
         pendingLocalProgressSyncKeys = emptySet()
         localFinishedProgressKeys = emptySet()
         discardedProgressAtMs = emptyMap()
@@ -393,6 +529,7 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
     private fun loadGuardKeys() {
         localFinishedProgressKeys = loadStringSet(Keys.localFinishedProgressKeys)
         pendingLocalProgressSyncKeys = pendingLocalProgressSyncKeys + loadStringSet(Keys.pendingLocalProgressSyncKeys)
+        loadPendingBookmarkChanges()
         val now = System.currentTimeMillis()
         val raw = Prefs.string(guardKey(Keys.discardedProgressKeys))
         val loaded = raw?.let {
@@ -505,6 +642,10 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
             val ep = episodeId?.swiftTrim().orEmpty()
             return if (ep.isEmpty()) libraryItemId else "$libraryItemId-$ep"
         }
+
+        /** iOS: `isPermanentBookmarkRejection` — 4xx bleibt auch beim Wiederholen 4xx; Auth und Rate-Limits gehen vorüber. */
+        fun isPermanentBookmarkRejection(error: Throwable): Boolean =
+            error is AbsApiError.HttpStatus && error.code in 400..499 && error.code !in setOf(401, 403, 408, 429)
 
         /** iOS: Sortierung in `upsertBookmark` (Item, dann Zeit). */
         fun sortedBookmarks(list: List<AbsAudioBookmark>): List<AbsAudioBookmark> =
