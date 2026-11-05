@@ -141,7 +141,7 @@ struct SleepTimerPanel: View {
         model.applySleepTimer(minutes: 0)
       }
     }
-    .buttonStyle(PlayerPanelPillButtonStyle())
+    .buttonStyle(PlayerPanelChipButtonStyle(compact: true))
     .opacity(mode == .off ? 0 : 1)
     .disabled(mode == .off)
     .accessibilityHidden(mode == .off)
@@ -155,7 +155,7 @@ struct SleepTimerPanel: View {
         } label: {
           Text(verbatim: "\(minutes)")
         }
-        .buttonStyle(PlayerPanelPresetButtonStyle(isSelected: mode == .minutes(minutes)))
+        .buttonStyle(PlayerPanelChipButtonStyle(isSelected: mode == .minutes(minutes)))
         .accessibilityLabel(
           String(format: String(localized: "%lld min", comment: "Sleep timer: minutes"), minutes)
         )
@@ -171,27 +171,41 @@ struct SleepTimerPanel: View {
 
   private var chapterStepper: some View {
     let count = chapterCountSelection
-    return Stepper(
-        onIncrement: count < maxChapters ? { model.applySleepTimer(chapters: count + 1) } : nil,
-        onDecrement: count > 0
-          ? {
-            if count == 1 {
-              model.applySleepTimer(minutes: 0)
-            } else {
-              model.applySleepTimer(chapters: count - 1)
-            }
-          }
-          : nil
+    return HStack(spacing: AppTheme.Layout.stackSpacing) {
+      Text(
+        count > 0
+          ? sleepTimerChaptersMenuLabel(count)
+          : String(localized: "No chapter timer", comment: "Sleep timer: chapter stepper at zero")
+      )
+      .font(.subheadline)
+      .foregroundStyle(
+        count > 0 ? model.appearancePalette.textPrimary : model.appearancePalette.textSecondary
+      )
+      .lineLimit(1)
+      .minimumScaleFactor(PlayerTickRulerMetrics.readoutMinimumScale)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      FullPlayerCoverOverlayButton(
+        systemName: "minus",
+        isActive: false,
+        isEnabled: count > 0,
+        compact: true,
+        accessibilityLabel: String(localized: "One chapter less", comment: "Accessibility")
       ) {
-        Text(
-          count > 0
-            ? sleepTimerChaptersMenuLabel(count)
-            : String(localized: "No chapter timer", comment: "Sleep timer: chapter stepper at zero")
-        )
-        .font(.body)
-        .foregroundStyle(
-          count > 0 ? model.appearancePalette.textPrimary : model.appearancePalette.textSecondary
-        )
+        if count == 1 {
+          model.applySleepTimer(minutes: 0)
+        } else {
+          model.applySleepTimer(chapters: count - 1)
+        }
       }
+      FullPlayerCoverOverlayButton(
+        systemName: "plus",
+        isActive: false,
+        isEnabled: count < maxChapters,
+        compact: true,
+        accessibilityLabel: String(localized: "One chapter more", comment: "Accessibility")
+      ) {
+        model.applySleepTimer(chapters: count + 1)
+      }
+    }
   }
 }

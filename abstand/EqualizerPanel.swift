@@ -237,12 +237,11 @@ struct EqualizerPanel: View {
           model.applyEQPreset(option)
         } label: {
           Text(chipTitle(option))
-            .font(.subheadline.weight(.medium))
             .lineLimit(1)
             .minimumScaleFactor(EqualizerPanelMetrics.chipMinimumScale)
             .padding(.horizontal, AppTheme.Layout.tightSpacing)
         }
-        .buttonStyle(PlayerPanelPresetButtonStyle(isSelected: preset == option))
+        .buttonStyle(PlayerPanelChipButtonStyle(isSelected: preset == option))
         .accessibilityLabel(option.label)
         .accessibilityAddTraits(preset == option ? .isSelected : [])
       }

@@ -2381,6 +2381,21 @@ private extension View {
   }
 }
 
+/// Farben aller Knöpfe in den Player-Panels.
+/// Mit Cover-Tint: Kartenfläche wie Buch-Detail; aktiv stärker abgesetzt in derselben Familie.
+/// Ohne Tint (Fallback): bisheriges Appearance-Akzent-Verhalten.
+@MainActor
+func playerPanelControlColors(palette: AppColorPalette, coverCardBackground: Color?) -> AppTheme.ExpandingDock.Colors {
+  if let coverCardBackground {
+    return AppTheme.ExpandingDock.Colors(
+      palette: palette,
+      accent: detailSectionControlActiveTint(forCardTint: coverCardBackground),
+      inactiveBackground: coverCardBackground
+    )
+  }
+  return AppTheme.ExpandingDock.Colors(palette: palette, accent: palette.textPrimary)
+}
+
 /// Panel-Steuerbuttons — Icon-Kreis, aktiv in Cover-Tint-Familie wie Detail-Karten (ohne Text-Pill).
 struct FullPlayerCoverOverlayButton: View {
   @EnvironmentObject private var model: AppModel
@@ -2399,20 +2414,7 @@ struct FullPlayerCoverOverlayButton: View {
 
   private var dockColors: AppTheme.ExpandingDock.Colors {
     let _ = themeRevision
-    let palette = model.appearancePalette
-    // Mit Cover-Tint: Kartenfläche wie Buch-Detail; aktiv stärker abgesetzt in derselben Familie.
-    // Ohne Tint (Fallback): bisheriges Appearance-Akzent-Verhalten.
-    if let card = coverCardBackground {
-      return AppTheme.ExpandingDock.Colors(
-        palette: palette,
-        accent: detailSectionControlActiveTint(forCardTint: card),
-        inactiveBackground: card
-      )
-    }
-    return AppTheme.ExpandingDock.Colors(
-      palette: palette,
-      accent: palette.textPrimary
-    )
+    return playerPanelControlColors(palette: model.appearancePalette, coverCardBackground: coverCardBackground)
   }
 
   private var buttonSize: CGFloat {

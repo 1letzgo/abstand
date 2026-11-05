@@ -53,7 +53,7 @@ struct PlaybackRatePanel: View {
       Button(String(localized: "Reset", comment: "Playback speed: back to normal")) {
         model.applyPlaybackSpeed(1)
       }
-      .buttonStyle(PlayerPanelPillButtonStyle())
+      .buttonStyle(PlayerPanelChipButtonStyle(compact: true))
       .opacity(rate == 1 ? 0 : 1)
       .disabled(rate == 1)
       .accessibilityHidden(rate == 1)
@@ -78,7 +78,7 @@ struct PlaybackRatePanel: View {
             } label: {
               Text(verbatim: playbackRateText(preset))
             }
-            .buttonStyle(PlayerPanelPresetButtonStyle(isSelected: rate == preset))
+            .buttonStyle(PlayerPanelChipButtonStyle(isSelected: rate == preset))
             .accessibilityLabel("\(playbackRateText(preset))×")
             .accessibilityAddTraits(rate == preset ? .isSelected : [])
           }

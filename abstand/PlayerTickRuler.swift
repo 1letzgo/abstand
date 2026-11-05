@@ -8,11 +8,10 @@ enum PlayerTickRulerMetrics {
   static let rulerHeight: CGFloat = 76
   static let indicatorHeight: CGFloat = 44
   static let edgeFadeFraction: CGFloat = 0.14
-  static let pillFillOpacity: Double = 0.08
   static let readoutFontSize: CGFloat = 56
   static let readoutMinimumScale: CGFloat = 0.45
   static let readoutHeight: CGFloat = 68
-  static let actionsHeight: CGFloat = 32
+  static let actionsHeight: CGFloat = FullPlayerCoverOverlayMetrics.compactButtonSize
 }
 
 /// Gemeinsames Gerüst von Sleep-Timer und Tempo: Hero-Wert und Skala stehen in beiden Panels an
@@ -191,40 +190,34 @@ struct PlayerTickRuler: View {
   }
 }
 
-struct PlayerPanelPresetButtonStyle: ButtonStyle {
-  let isSelected: Bool
+/// Textknöpfe der Player-Panels — dieselbe Kapsel und dieselben Farben wie die Icon-Knöpfe des Players
+/// (`FullPlayerCoverOverlayButton`), aktiv in Tinte wie die Knöpfe der Leiste darunter.
+/// `compact` ist die Höhe der ±-Knöpfe und nur so breit wie der Text, sonst teilen sich die Knöpfe die Zeile.
+struct PlayerPanelChipButtonStyle: ButtonStyle {
+  var isSelected = false
+  var compact = false
+
   @EnvironmentObject private var model: AppModel
+  @Environment(\.detailSectionCardBackground) private var coverCardBackground
 
   func makeBody(configuration: Configuration) -> some View {
     let palette = model.appearancePalette
-    configuration.label
-      .font(.title3.weight(.medium))
-      .monospacedDigit()
-      .foregroundStyle(isSelected ? palette.background : palette.textPrimary)
-      .frame(maxWidth: .infinity, minHeight: AppTheme.Layout.minTapTarget)
-      .abstandCardChrome(
-        isSelected ? palette.textPrimary : palette.card,
-        shape: RoundedRectangle(cornerRadius: AppTheme.Layout.cardCornerRadius, style: .continuous)
-      )
-      .opacity(configuration.isPressed ? 0.7 : 1)
-      .contentShape(Rectangle())
-  }
-}
-
-struct PlayerPanelPillButtonStyle: ButtonStyle {
-  @EnvironmentObject private var model: AppModel
-
-  func makeBody(configuration: Configuration) -> some View {
-    let palette = model.appearancePalette
+    let colors = playerPanelControlColors(palette: palette, coverCardBackground: coverCardBackground)
     configuration.label
       .font(.subheadline.weight(.medium))
-      .foregroundStyle(palette.textPrimary)
-      .padding(.horizontal, AppTheme.Layout.cardPadding)
-      .padding(.vertical, AppTheme.Layout.compactSpacing)
-      .background(
-        Capsule(style: .continuous)
-          .fill(palette.textPrimary.opacity(PlayerTickRulerMetrics.pillFillOpacity))
+      .monospacedDigit()
+      // Schrift braucht mehr Kontrast als die Icons, deshalb nicht `inactiveForeground`.
+      .foregroundStyle(isSelected ? palette.background : palette.textPrimary)
+      .padding(.horizontal, compact ? AppTheme.Layout.cardPadding : 0)
+      .frame(
+        maxWidth: compact ? nil : .infinity,
+        minHeight: compact ? FullPlayerCoverOverlayMetrics.compactButtonSize : FullPlayerCoverOverlayMetrics.panelControlButtonSize
       )
-      .opacity(configuration.isPressed ? 0.7 : 1)
+      .background {
+        Capsule(style: .continuous)
+          .fill(isSelected ? palette.textPrimary : colors.inactiveBackground)
+      }
+      .contentShape(Capsule(style: .continuous))
+      .opacity(configuration.isPressed ? 0.9 : 1)
   }
 }
