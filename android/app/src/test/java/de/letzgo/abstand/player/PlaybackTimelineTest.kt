@@ -121,9 +121,6 @@ class PlaybackTimelineTest {
         assertNull(chapters.chapterTargetIndex(0, 700.0))
         assertEquals(3, chapters.maxSleepChapterCount(10.0))
         assertEquals(1, chapters.maxSleepChapterCount(1500.0))
-        assertEquals(listOf(1, 2, 3), SleepTimerMetrics.chapterOptions(3, 3))
-        assertEquals(listOf(1, 2, 3, 4, 5), SleepTimerMetrics.chapterOptions(12, 9))
-        assertTrue(SleepTimerMetrics.chapterOptions(0, 0).isEmpty())
     }
 
     @Test
@@ -178,9 +175,10 @@ class PlaybackTimelineTest {
 
     @Test
     fun playbackRatesSnapAndCycle() {
-        assertEquals(1.25f, PlaybackRates.snapped(1.3f))
+        assertEquals(1.3f, PlaybackRates.snapped(1.31f))
+        assertEquals(1.5f, PlaybackRates.snapped(1.5f))
         assertEquals(0.5f, PlaybackRates.snapped(0.1f))
-        assertEquals(2.0f, PlaybackRates.snapped(3.0f))
+        assertEquals(3.0f, PlaybackRates.snapped(3.5f))
         assertEquals(1.0f, PlaybackRates.fromSaved(0.0))
         assertEquals(1.5f, PlaybackRates.fromSaved(1.5))
         assertEquals(1.25f, PlaybackRates.next(1.0f))

@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.sp
 import de.letzgo.abstand.data.Prefs
 import de.letzgo.abstand.logic.PlayerTeleprompterMetrics
 import de.letzgo.abstand.logic.PlayerTranscriptLine
+import de.letzgo.abstand.logic.PlayerTranscriptParagraphs
+import de.letzgo.abstand.logic.PlayerTranscriptTimeline
 import de.letzgo.abstand.logic.PlayerTranscriptWord
 import de.letzgo.abstand.player.PlaybackController
 import de.letzgo.abstand.transcript.PlaybackTranscription
@@ -215,9 +217,12 @@ private fun TeleprompterLines(
 
         val fractional by remember(lines) { derivedStateOf { controller.fractionalActiveLinePosition(displayTime) } }
         val centerIdx by remember(lines) { derivedStateOf { floor(fractional).toInt() } }
-        val hit by remember(lines) { derivedStateOf { controller.activeWordHit(displayTime) } }
-        val activeWordId = hit?.word?.id
-        val activeLineIndex = hit?.lineIndex ?: centerIdx
+        val paragraphs = remember(lines) { PlayerTranscriptParagraphs.paragraphIndices(lines) }
+        // Über die Zeile, nicht das Wort: in Pausen zwischen Wörtern gibt es keinen Treffer,
+        // die Markierung darf dort nicht springen.
+        val activeParagraph by remember(lines, paragraphs) {
+            derivedStateOf { paragraphs.getOrNull(PlayerTranscriptTimeline.activeLineIndex(lines, displayTime)) }
+        }
         val style = remember(layout.fontSize) { TextStyle(fontSize = layout.fontSize.sp, fontWeight = FontWeight.Bold, lineHeight = layout.slotHeight.sp) }
 
         Column(
@@ -239,8 +244,7 @@ private fun TeleprompterLines(
                     if (line != null) {
                         LineText(
                             line = line,
-                            isOnActiveLine = lineIndex == activeLineIndex,
-                            activeWordId = activeWordId,
+                            isInActiveParagraph = paragraphs.getOrNull(lineIndex) == activeParagraph,
                             selectedWordId = selectedWordId,
                             style = style,
                             textColor = palette.textPrimary,
@@ -257,15 +261,14 @@ private fun TeleprompterLines(
 @Composable
 private fun LineText(
     line: PlayerTranscriptLine,
-    isOnActiveLine: Boolean,
-    activeWordId: String?,
+    isInActiveParagraph: Boolean,
     selectedWordId: String?,
     style: TextStyle,
     textColor: androidx.compose.ui.graphics.Color,
     accent: androidx.compose.ui.graphics.Color,
     onWordTap: (PlayerTranscriptWord) -> Unit,
 ) {
-    val baseOpacity = if (isOnActiveLine) PlayerTeleprompterMetrics.ACTIVE_LINE_TEXT_OPACITY else PlayerTeleprompterMetrics.INACTIVE_LINE_TEXT_OPACITY
+    val baseOpacity = if (isInActiveParagraph) 1.0 else PlayerTeleprompterMetrics.INACTIVE_LINE_TEXT_OPACITY
     Row(Modifier.fillMaxWidth()) {
         for (word in line.words) {
             if (word.isWhitespaceOnly) {
@@ -273,11 +276,10 @@ private fun LineText(
                 continue
             }
             val selected = word.id == selectedWordId
-            val active = word.id == activeWordId
             Text(
                 word.text,
                 style = style,
-                color = if (selected || active) accent else textColor.copy(alpha = baseOpacity.toFloat()),
+                color = if (selected) accent else textColor.copy(alpha = baseOpacity.toFloat()),
                 textDecoration = if (selected) TextDecoration.Underline else null,
                 maxLines = 1,
                 softWrap = false,

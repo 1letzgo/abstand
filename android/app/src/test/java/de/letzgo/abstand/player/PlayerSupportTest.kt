@@ -132,5 +132,12 @@ class PlayerSupportTest {
         assertEquals(3, AudioEQPreset.voiceFocus.filters.size)
         assertTrue(AudioEQPreset.flat.filters.isEmpty())
         assertNull(AudioEQPreset.fromRaw("loud"))
+        assertEquals(AudioEQPreset.custom, AudioEQPreset.fromRaw("custom"))
+        assertTrue(AudioEQPreset.custom.filters.isEmpty())
+        assertEquals(AudioEQBands.flatGains, AudioEQBands.parse("1,2"))
+        val gains = listOf(12.0, 0.0, -3.0, 0.0, 0.0, 4.5)
+        assertEquals(listOf(10.0, 0.0, -3.0, 0.0, 0.0, 4.5), AudioEQBands.parse(gains.joinToString(",")))
+        assertEquals(3, AudioEQBands.filters(gains).size)
+        assertEquals(6.0, AudioEQBands.responseDB(AudioEQBands.filters(listOf(0.0, 6.0, 0.0, 0.0, 0.0, 0.0)), 200.0), 0.2)
     }
 }

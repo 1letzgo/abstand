@@ -439,6 +439,7 @@ und Schriftgrößen-Literale außerhalb von Typography.kt. Maße/Typo: Abschnitt
    - DetailHeroPrimaryButton (AbstandProminentButton + Fortschritts-Überlagerung) / DetailHeroCircularButton
      (Tonal AbstandIconButton) — Einzelstück der Detail-Hero, 56 dp hoch.
    - Transport-Knöpfe im Player (TransportIcon, Play-Kapsel, MiniTransport-Play) — eigene Maße aus MiniPlayerMetrics.
+   - PlayerPanelChip (ui/player/PlayerControlPanels.kt) — Textkapsel in Cover-Farbe, aktiv in Tinte; nur in Sleep-, Tempo- und EQ-Panel.
    - Mini-Player-Hülle (Surface in MiniPlayer.kt) und Now-Playing-Overlay (eigenes Vollbild-Chrome).
    - Domänen-Karten (BookRowCard, BrowseEntityRowCard, PodcastEpisodeListRow, Hero-/Kompaktkarten) — eigene
      Layouts mit Cover-Spalte; teilen sich LibraryRowLayout, LibraryRowCollapsedMetaLine, AbstandStatusBadges, AbstandPlayPill.

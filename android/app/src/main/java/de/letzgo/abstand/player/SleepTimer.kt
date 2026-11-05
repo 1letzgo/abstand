@@ -12,25 +12,23 @@ sealed class SleepTimerMode {
     data class Chapters(val chapters: Int) : SleepTimerMode()
 }
 
-/** iOS: `SleepTimerMetrics` (MiniPlayerView.swift) + Menü-Beschriftungen. */
+/** iOS: `SleepTimerPanelMetrics` + Beschriftungen (SleepTimerPanel.swift). */
 object SleepTimerMetrics {
-    /** Feste Auswahl wie in Apple Podcasts/Books — ein Tipp statt Stepper-Klicks. */
-    val minutePresets: List<Int> = listOf(5, 10, 15, 30, 45, 60, 90, 120)
-    /** „Ende von n Kapiteln“: Auswahl bis maximal so viele Kapitel (begrenzt auf die verbleibenden). */
-    const val maxChapterOption = 5
-
-    /** iOS: `SleepTimerUtilityMenu.chapterOptions`. */
-    fun chapterOptions(chapterCount: Int, maxSleepChapterCount: Int): List<Int> {
-        if (chapterCount <= 0) return emptyList()
-        val available = minOf(maxChapterOption, maxSleepChapterCount)
-        return if (available >= 1) (1..available).toList() else emptyList()
-    }
+    /** Ein Tipp für die häufigen Dauern, alles andere über die Skala. */
+    val minutePresets: List<Int> = listOf(10, 15, 30, 45)
+    /** Ein Strich = eine Minute. */
+    const val MAX_RULER_MINUTES = 180
+    const val MAJOR_TICK_INTERVAL = 5
 
     fun offLabel(): String = "Off"
 
     fun minutesLabel(minutes: Int): String = if (minutes <= 0) offLabel() else "$minutes min"
 
-    fun chaptersMenuLabel(count: Int): String = if (count <= 1) "End of Chapter" else "End of $count Chapters"
+    fun chaptersMenuLabel(count: Int): String = when {
+        count <= 1 -> "End of this chapter"
+        count == 2 -> "After next chapter"
+        else -> "After ${count - 1} more chapters"
+    }
 }
 
 /**

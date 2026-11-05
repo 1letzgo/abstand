@@ -12,6 +12,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -27,12 +28,14 @@ enum class AudioEQPreset(val rawValue: String, val label: String) {
     flat("flat", "Flat"),
     voiceFocus("voiceFocus", "Voice Focus"),
     bassBoost("bassBoost", "Bass Boost"),
-    trebleBoost("trebleBoost", "Treble Boost");
+    trebleBoost("trebleBoost", "Treble Boost"),
+    /** Frei eingestellte Bänder aus dem EQ-Panel ([AudioEQBands]). */
+    custom("custom", "Custom");
 
-    /** Reihenfolge = Kaskadierungs-Reihenfolge. */
+    /** Reihenfolge = Kaskadierungs-Reihenfolge. [custom] hat keine feste Kette, die liefert [AudioEQBands.filters]. */
     val filters: List<AudioEQBiquadFilter>
         get() = when (this) {
-            flat -> emptyList()
+            flat, custom -> emptyList()
             voiceFocus -> listOf(
                 AudioEQBiquadFilter(AudioEQBiquadFilter.Kind.highPass, 80.0, 0.0, 0.707),
                 AudioEQBiquadFilter(AudioEQBiquadFilter.Kind.peaking, 2500.0, 4.0, 1.0),
@@ -49,6 +52,59 @@ enum class AudioEQPreset(val rawValue: String, val label: String) {
 
         /** iOS: `loadSaved(key:)` — Default `.flat`. */
         fun loadSaved(): AudioEQPreset = fromRaw(Prefs.string(DEFAULTS_KEY)) ?: flat
+    }
+}
+
+/**
+ * iOS: `AudioEQBands` — sechs Peak-Bänder des EQ-Panels. Auch außen keine Shelves: die erreichen an
+ * ihrer Eckfrequenz nur die halbe Verstärkung, die Kurve läge dort weit neben dem Griff.
+ */
+object AudioEQBands {
+    val frequencies: List<Double> = listOf(80.0, 200.0, 500.0, 1500.0, 4000.0, 8000.0)
+    /** Dezent genug für Sprache; der Prozessor begrenzt hart und hat keinen Vorverstärker. */
+    const val maxGain = 10.0
+    const val gainStep = 0.5
+    private const val PEAK_Q = 1.0
+    const val DEFAULTS_KEY = "abstand_eq_custom_gains"
+
+    val flatGains: List<Double> get() = List(frequencies.size) { 0.0 }
+
+    fun filters(gains: List<Double>): List<AudioEQBiquadFilter> {
+        if (gains.size != frequencies.size) return emptyList()
+        return frequencies.indices.mapNotNull { i ->
+            if (gains[i] == 0.0) null else AudioEQBiquadFilter(AudioEQBiquadFilter.Kind.peaking, frequencies[i], gains[i], PEAK_Q)
+        }
+    }
+
+    fun parse(raw: String?): List<Double> {
+        val saved = raw?.split(',')?.mapNotNull { it.toDoubleOrNull() }
+        if (saved == null || saved.size != frequencies.size) return flatGains
+        return saved.map { it.coerceIn(-maxGain, maxGain) }
+    }
+
+    fun loadSaved(): List<Double> = parse(Prefs.string(DEFAULTS_KEY))
+
+    fun save(gains: List<Double>) = Prefs.setString(DEFAULTS_KEY, gains.joinToString(","))
+
+    /** Betragsgang der Kette in dB, für die Kurve im Panel. */
+    fun responseDB(filters: List<AudioEQBiquadFilter>, frequency: Double, sampleRate: Double = 44100.0): Double {
+        val w = 2.0 * PI * frequency / sampleRate
+        val cos1 = cos(w)
+        val sin1 = sin(w)
+        val cos2 = cos(2 * w)
+        val sin2 = sin(2 * w)
+        var db = 0.0
+        for (filter in filters) {
+            val c = AudioEQBiquadCoefficients.compute(filter, sampleRate)
+            val numRe = c.b0 + c.b1 * cos1 + c.b2 * cos2
+            val numIm = -(c.b1 * sin1 + c.b2 * sin2)
+            val denRe = 1 + c.a1 * cos1 + c.a2 * cos2
+            val denIm = -(c.a1 * sin1 + c.a2 * sin2)
+            val numerator = numRe * numRe + numIm * numIm
+            val denominator = maxOf(denRe * denRe + denIm * denIm, Double.MIN_VALUE)
+            db += 10 * log10(maxOf(numerator / denominator, 1e-12))
+        }
+        return db
     }
 }
 
@@ -112,15 +168,15 @@ data class AudioEQBiquadCoefficients(val b0: Double, val b1: Double, val b2: Dou
  * Dieselben Filter wie iOS auf jedem Gerät (statt geräteabhängiger `audiofx.Equalizer`-Bänder).
  *
  * Arbeitet auf 16-Bit-PCM (Standard der `DefaultAudioSink`, andere Formate → inaktiv). Ein
- * Preset-Wechsel tauscht nur die Koeffizienten-Tabelle (`@Volatile`), der Prozessor bleibt aktiv —
+ * Filter-Wechsel tauscht nur die Koeffizienten-Tabelle (`@Volatile`), der Prozessor bleibt aktiv —
  * kein Rebuild der Audio-Pipeline während der Wiedergabe (bei `flat` reiner Durchlauf).
  */
-class BiquadEqAudioProcessor(initial: AudioEQPreset) : BaseAudioProcessor() {
-    @Volatile var preset: AudioEQPreset = initial
+class BiquadEqAudioProcessor(initial: List<AudioEQBiquadFilter>) : BaseAudioProcessor() {
+    @Volatile var filters: List<AudioEQBiquadFilter> = initial
 
     /** Unveränderliche Tabelle + Zustände je (Kanal, Stufe). */
-    private class Config(val preset: AudioEQPreset, val sampleRate: Int, val channels: Int) {
-        val coefficients = preset.filters.map { AudioEQBiquadCoefficients.compute(it, sampleRate.toDouble()) }
+    private class Config(val filters: List<AudioEQBiquadFilter>, val sampleRate: Int, val channels: Int) {
+        val coefficients = filters.map { AudioEQBiquadCoefficients.compute(it, sampleRate.toDouble()) }
         val stages = coefficients.size
         val z1 = DoubleArray(maxOf(1, channels * stages))
         val z2 = DoubleArray(maxOf(1, channels * stages))
@@ -149,9 +205,9 @@ class BiquadEqAudioProcessor(initial: AudioEQPreset) : BaseAudioProcessor() {
 
     private fun currentConfig(): Config {
         val format = inputAudioFormat
-        val wanted = preset
+        val wanted = filters
         val existing = config
-        if (existing != null && existing.preset == wanted && existing.sampleRate == format.sampleRate &&
+        if (existing != null && existing.filters == wanted && existing.sampleRate == format.sampleRate &&
             existing.channels == format.channelCount
         ) return existing
         val fresh = Config(wanted, format.sampleRate, format.channelCount)

@@ -188,12 +188,15 @@ fun ContinueListeningHeroMetadataBlock(
  * der Tap schaltet sofort um und fällt nach 2,5 s auf den echten Player-Zustand zurück.
  */
 @Composable
-fun ContinueHeroPlayPill(itemId: String, episodeId: String?, caption: String, isFinished: Boolean) {
+fun ContinueHeroPlayPill(itemId: String, episodeId: String?, caption: String, isFinished: Boolean, cardTint: Color? = null) {
     val nowPlaying = rememberNowPlaying()
+    val readable = cardTint?.let { Theme.palette.readableTextOnTintedCard(it).first }
     AbstandPlayPill(
         isPlaying = nowPlaying.isPlaying(itemId, episodeId),
         onClick = { continueHeroPlayPillToggle(nowPlaying, itemId, episodeId, isFinished) },
         caption = caption,
+        containerColor = readable ?: Color.Unspecified,
+        contentColor = cardTint ?: Color.Unspecified,
     )
 }
 
@@ -235,7 +238,7 @@ private fun ContinueHeroCardScaffold(
     downloadItemId: String,
     downloadEpisodeId: String?,
     onOpen: () -> Unit,
-    playPill: @Composable () -> Unit,
+    playPill: @Composable (cardTint: Color) -> Unit,
 ) {
     val palette = Theme.palette
     val tint = coverTint(coverItemId)
@@ -290,7 +293,7 @@ private fun ContinueHeroCardScaffold(
                 top = AppTheme.Layout.continueHeroMetadataPlayPillTopPadding,
                 bottom = AppTheme.Layout.continueHeroMetadataExtraBottomPadding,
             ),
-        ) { playPill() }
+        ) { playPill(tint) }
     }
 }
 
@@ -310,12 +313,13 @@ fun ContinueListeningHeroBookCard(book: AbsBook, cardWidth: Dp) {
         downloadItemId = book.id,
         downloadEpisodeId = null,
         onOpen = { navigator?.push(BookDetailDestination(book.id)) },
-    ) {
+    ) { cardTint ->
         ContinueHeroPlayPill(
             itemId = book.id,
             episodeId = null,
             caption = formatPlaybackDurationShortHuman(ContinueHeroMath.bookRemainingSeconds(book.media.duration, progress)),
             isFinished = progress?.isFinished == true,
+            cardTint = cardTint,
         )
     }
 }
@@ -336,12 +340,13 @@ fun ContinueListeningHeroPodcastCard(episode: AbsPodcastEpisodeListItem, cardWid
         downloadItemId = episode.libraryItemId,
         downloadEpisodeId = episode.episodeId,
         onOpen = { navigator?.push(EpisodeDestination(episode.libraryItemId, episode.episodeId)) },
-    ) {
+    ) { cardTint ->
         ContinueHeroPlayPill(
             itemId = episode.libraryItemId,
             episodeId = episode.episodeId,
             caption = formatPlaybackDurationShortHuman(ContinueHeroMath.episodeRemainingSeconds(episode.duration, progress)),
             isFinished = progress?.isFinished == true,
+            cardTint = cardTint,
         )
     }
 }

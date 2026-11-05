@@ -2,7 +2,6 @@ package de.letzgo.abstand.ui.player
 
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -53,6 +52,7 @@ import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
+import de.letzgo.abstand.ui.semibold
 import de.letzgo.abstand.ui.components.AbstandCardEmptyState
 import de.letzgo.abstand.ui.components.AbstandDialog
 import de.letzgo.abstand.ui.components.AbstandDivider
@@ -69,7 +69,7 @@ import de.letzgo.abstand.ui.components.AbstandListRow
 import de.letzgo.abstand.ui.components.AbstandIconButtonStyle
 
 /** iOS: `FullPlayerCoverPanel` — was den Cover-Bereich ersetzt (+ Read-along, iOS: Teleprompter-Zustand). */
-enum class FullPlayerCoverPanel { artwork, description, bookmarks, chapters, sessions, readAlong }
+enum class FullPlayerCoverPanel { artwork, description, bookmarks, chapters, sessions, sleepTimer, playbackRate, equalizer, readAlong }
 
 /**
  * iOS: `FullPlayerCoverOverlayButton` — runder Panel-Knopf. Mit Cover-Tint ([LocalDetailSectionCardBackground])
@@ -107,7 +107,7 @@ private const val DIMMED_ALPHA = 0.45f
 private const val INACTIVE_ICON_ALPHA = 0.72f
 
 /** iOS: `AppTheme.ExpandingDock.Colors` für die Panel-Knöpfe (mit/ohne Cover-Tint). */
-private data class PanelButtonColors(
+internal data class PanelButtonColors(
     val activeBackground: Color,
     val activeForeground: Color,
     val inactiveBackground: Color,
@@ -115,7 +115,7 @@ private data class PanelButtonColors(
 )
 
 @Composable
-private fun panelButtonColors(): PanelButtonColors {
+internal fun panelButtonColors(): PanelButtonColors {
     val palette = Theme.palette
     val card = LocalDetailSectionCardBackground.current
     val activeBg = if (card != null) detailSectionControlActiveTint(card, palette) else Theme.accent
@@ -129,10 +129,11 @@ private fun panelButtonColors(): PanelButtonColors {
 
 /** iOS: kompakte Kreise auf der Teleprompter-Karte (±, `FullPlayerCoverOverlayButton(compact: true)`). */
 @Composable
-fun CompactPanelButton(icon: ImageVector, accessibilityLabel: String, onClick: () -> Unit) {
+fun CompactPanelButton(icon: ImageVector, accessibilityLabel: String, enabled: Boolean = true, onClick: () -> Unit) {
     val colors = panelButtonColors()
     AbstandIconButton(
         icon, accessibilityLabel, onClick = onClick,
+        enabled = enabled,
         style = AbstandIconButtonStyle.Tonal,
         size = AppTheme.Layout.compactIconButtonSize,
         tint = colors.inactiveForeground,
@@ -157,15 +158,12 @@ fun FullPlayerPanelCard(modifier: Modifier = Modifier, content: @Composable () -
     ) { content() }
 }
 
-/**
- * iOS: `fullPlayerCoverPanelContent(title:)` — Panel-Überschrift: `caption.bold`, Großbuchstaben,
- * leicht gesperrt, `textSecondary`; Innenabstand wie der Karteninhalt.
- */
+/** iOS: `fullPlayerCoverPanelContent(title:)` — Panel-Überschrift in Paper-Serife, `textSecondary`. */
 @Composable
 private fun PlayerPanelHeader(title: String) {
     Text(
-        title.uppercase(),
-        style = AppType.labelMedium.copy(fontWeight = FontWeight.Bold),
+        title,
+        style = AppType.titleMedium.semibold,
         color = Theme.palette.textSecondary,
         maxLines = 1,
         modifier = Modifier
@@ -176,7 +174,7 @@ private fun PlayerPanelHeader(title: String) {
 
 /** Panel-Gerüst: Überschrift, darunter der Inhalt über die restliche Höhe. */
 @Composable
-private fun PlayerPanelScaffold(title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun PlayerPanelScaffold(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing)) {
         PlayerPanelHeader(title)
         content()

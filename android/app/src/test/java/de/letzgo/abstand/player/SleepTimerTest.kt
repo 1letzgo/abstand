@@ -131,11 +131,12 @@ class SleepTimerTest {
 
     @Test
     fun menuLabels() {
-        assertEquals(listOf(5, 10, 15, 30, 45, 60, 90, 120), SleepTimerMetrics.minutePresets)
+        assertEquals(listOf(10, 15, 30, 45), SleepTimerMetrics.minutePresets)
         assertEquals("Off", SleepTimerMetrics.minutesLabel(0))
         assertEquals("45 min", SleepTimerMetrics.minutesLabel(45))
-        assertEquals("End of Chapter", SleepTimerMetrics.chaptersMenuLabel(1))
-        assertEquals("End of 3 Chapters", SleepTimerMetrics.chaptersMenuLabel(3))
+        assertEquals("End of this chapter", SleepTimerMetrics.chaptersMenuLabel(1))
+        assertEquals("After next chapter", SleepTimerMetrics.chaptersMenuLabel(2))
+        assertEquals("After 2 more chapters", SleepTimerMetrics.chaptersMenuLabel(3))
     }
 
     // MARK: - Snapshot über Player-Neuaufbau (Download fertig → lokal weiter)

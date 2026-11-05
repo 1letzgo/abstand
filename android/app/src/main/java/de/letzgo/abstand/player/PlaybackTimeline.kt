@@ -1,5 +1,6 @@
 package de.letzgo.abstand.player
 
+import kotlin.math.roundToInt
 import de.letzgo.abstand.data.AbsAudioTrack
 import de.letzgo.abstand.data.AbsChapter
 import kotlin.math.floor
@@ -239,11 +240,17 @@ sealed class SyncPlan {
     }
 }
 
-/** iOS: `PlaybackController.playbackRatePresets` / `setPlaybackRate` (auf nächstes Preset einrasten). */
+/** iOS: `PlaybackController.playbackRatePresets` / `playbackRateRange` / `snappedPlaybackRate`. */
 object PlaybackRates {
+    /** Feste Stufen fürs zyklische Durchschalten (Android Auto). */
     val presets: List<Float> = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
+    /** Frei wählbar über die Tempo-Skala im Player. */
+    val range: ClosedFloatingPointRange<Float> = 0.5f..3.0f
+    const val STEPS_PER_UNIT = 20
 
-    fun snapped(rate: Float): Float = presets.minByOrNull { kotlin.math.abs(it - rate) } ?: 1.0f
+    /** Über ganze Schritte gerechnet, damit 1,5 exakt 1,5 bleibt und nicht 1,5000001 wird. */
+    fun snapped(rate: Float): Float =
+        ((rate * STEPS_PER_UNIT).roundToInt().toFloat() / STEPS_PER_UNIT).coerceIn(range.start, range.endInclusive)
 
     /** iOS: `loadSavedPlaybackRate` — `≤ 0.09` (nicht gesetzt) → 1×. */
     fun fromSaved(value: Double): Float = if (value > 0.09) snapped(value.toFloat()) else 1.0f

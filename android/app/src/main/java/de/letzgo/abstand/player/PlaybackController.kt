@@ -136,6 +136,13 @@ class PlaybackController private constructor(private val appContext: Context) {
     private val _eqPreset = MutableStateFlow(AudioEQPreset.loadSaved())
     val eqPreset: StateFlow<AudioEQPreset> = _eqPreset.asStateFlow()
 
+    /** Bänder von [AudioEQPreset.custom]; bleiben beim Wechsel auf eine Vorlage erhalten. */
+    private val _eqCustomGains = MutableStateFlow(AudioEQBands.loadSaved())
+    val eqCustomGains: StateFlow<List<Double>> = _eqCustomGains.asStateFlow()
+
+    private val activeEQFilters: List<AudioEQBiquadFilter>
+        get() = if (_eqPreset.value == AudioEQPreset.custom) AudioEQBands.filters(_eqCustomGains.value) else _eqPreset.value.filters
+
     private val _skipBackwardSeconds = MutableStateFlow(loadSkipSeconds(SKIP_BACKWARD_KEY, PlaybackSkipDefaults.backwardSeconds))
     val skipBackwardSeconds: StateFlow<Int> = _skipBackwardSeconds.asStateFlow()
 
@@ -162,7 +169,7 @@ class PlaybackController private constructor(private val appContext: Context) {
     private val detachedScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var exo: ExoPlayer? = null
-    private val eqProcessor = BiquadEqAudioProcessor(_eqPreset.value)
+    private val eqProcessor = BiquadEqAudioProcessor(activeEQFilters)
     private var sessionController: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
 
     private var playSessionId: String? = null
@@ -230,7 +237,16 @@ class PlaybackController private constructor(private val appContext: Context) {
         }
 
     /** Countdown für die UI in Sekunden — bei Pause konstant; Kapitel-Timer → `null`. */
-    fun sleepTimerDisplaySeconds(): Double? = sleepTimer.displaySeconds()
+    fun sleepTimerDisplaySeconds(): Double? {
+        if (sleepTimer.sleepTimerMode.value == SleepTimerMode.Off) return null
+        // Kapitel-Timer: Echtzeit bis zum Ende des Ziel-Kapitels (Medienzeit ÷ Tempo).
+        val target = sleepTimer.chapterTarget
+        if (target != null && target < chapters.count) {
+            val mediaRemaining = chapters.chapterEndTime(target, _totalDuration.value) - playbackGlobalPosition()
+            return maxOf(0.0, mediaRemaining / maxOf(0.1, _playbackRate.value.toDouble()))
+        }
+        return sleepTimer.displaySeconds()
+    }
 
     val isSleepTimerActive: Boolean get() = sleepTimer.isActive
 
@@ -306,9 +322,6 @@ class PlaybackController private constructor(private val appContext: Context) {
     }
 
     /** Auswahl „Ende von n Kapiteln“ fürs Sleep-Menü. */
-    fun sleepTimerChapterOptions(): List<Int> =
-        SleepTimerMetrics.chapterOptions(_chapterCount.value, maxSleepChapterCount())
-
     /** Wanduhr-basiert: funktioniert auch bei pausiertem Player. */
     private fun rescheduleSleepWake(end: Long?) {
         sleepWakeJob?.cancel()
@@ -981,7 +994,15 @@ class PlaybackController private constructor(private val appContext: Context) {
         if (preset == _eqPreset.value) return
         _eqPreset.value = preset
         Prefs.setString(AudioEQPreset.DEFAULTS_KEY, preset.rawValue)
-        eqProcessor.preset = preset
+        eqProcessor.filters = activeEQFilters
+    }
+
+    /** Bänder aus dem EQ-Panel, live beim Ziehen. [persist] erst am Ende der Geste. */
+    fun setEQCustomGains(gains: List<Double>, persist: Boolean) {
+        if (gains.size != AudioEQBands.frequencies.size) return
+        _eqCustomGains.value = gains
+        if (persist) AudioEQBands.save(gains)
+        if (_eqPreset.value != AudioEQPreset.custom) setEQPreset(AudioEQPreset.custom) else eqProcessor.filters = activeEQFilters
     }
 
     // MARK: - Kapitel

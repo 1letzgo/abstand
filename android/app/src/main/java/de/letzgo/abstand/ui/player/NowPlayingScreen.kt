@@ -81,8 +81,8 @@ private val AbsBook.hasEbook: Boolean
 
 /**
  * iOS: `NowPlayingDetailView` — Vollbild-Player: großes Cover (bzw. aufgeklapptes Panel), Titel/Autor,
- * Buch- und Kapitel-Scrubber, Panel-Knöpfe (Beschreibung, Bookmarks, Kapitel, Hörverlauf, Read along), Transport,
- * Utility-Leiste (EQ, Tempo, Sleep, Ausgabe, Download).
+ * Buch- und Kapitel-Scrubber, Panel-Knöpfe (Kapitel, Bookmarks, Hörverlauf, Beschreibung, Read along), Transport,
+ * Utility-Leiste (EQ, Tempo, Sleep als Panels im Cover-Kasten, Ausgabe, Download).
  *
  * @param readAlong Teleprompter (iOS: `ReadAlongPanelButton`, `readAlongKaraokeCard`);
  *   `null` blendet Read along aus.
@@ -146,10 +146,10 @@ fun NowPlayingScreen(
             }
             val isAudiobook = episodeId.isNullOrBlank()
             val panelKinds = buildList {
-                add(FullPlayerCoverPanel.description)
-                if (isAudiobook) add(FullPlayerCoverPanel.bookmarks)
                 if (isAudiobook) add(FullPlayerCoverPanel.chapters)
+                if (isAudiobook) add(FullPlayerCoverPanel.bookmarks)
                 add(FullPlayerCoverPanel.sessions)
+                add(FullPlayerCoverPanel.description)
                 if (readAlong != null) add(FullPlayerCoverPanel.readAlong)
             }
             // iOS: Read along nur mit vollständigem Download — sonst Hinweis statt Panel.
@@ -172,16 +172,15 @@ fun NowPlayingScreen(
             }
             val ebookJump = if (isAudiobook && hasCachedEpub) rememberEbookPositionJump() else null
             val expanded = panel != FullPlayerCoverPanel.artwork
-            val header: @Composable (Modifier) -> Unit = { m -> PlayerHeaderArea(wiring, b, panel, readAlong, m) }
+            val header: @Composable (Modifier) -> Unit = { m -> PlayerHeaderArea(wiring, b, panel, readAlong, ebookJump, m) }
             val controls: @Composable ColumnScope.() -> Unit = {
                 PanelControlRow(
                     panelKinds, panel, onToggle = onPanelButton,
                     readAlongDimmed = readAlong != null && !readAlong.isDownloadReady(),
                     onOpenEbook = ebookAction?.let { { it(b) } },
-                    ebookJump = ebookJump,
                 )
                 FullPlayerTransportRow(wiring, Modifier.padding(top = if (panelKinds.isEmpty()) MiniPlayerMetrics.spacingAbovePlayRow else AppTheme.Layout.tightSpacing))
-                FullPlayerUtilityBar(wiring)
+                FullPlayerUtilityBar(wiring, panel, onToggle = onPanelButton)
             }
             if (landscape) {
                 Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(MiniPlayerMetrics.fullPlayerCoverInset)) {
@@ -244,6 +243,7 @@ private fun PlayerHeaderArea(
     book: AbsBook,
     panel: FullPlayerCoverPanel,
     readAlong: NowPlayingReadAlong?,
+    ebookJump: EbookPositionJumpState?,
     modifier: Modifier,
 ) {
     AnimatedContent(
@@ -277,17 +277,23 @@ private fun PlayerHeaderArea(
             FullPlayerCoverPanel.chapters -> FullPlayerPanelCard { ChaptersPanel(wiring) }
             FullPlayerCoverPanel.bookmarks -> FullPlayerPanelCard { BookmarksPanel(wiring, book.id) }
             FullPlayerCoverPanel.sessions -> FullPlayerPanelCard { SessionsPanel(wiring, isEpisode = wiring.podcastEpisodeForActivePlayback() != null) }
+            FullPlayerCoverPanel.sleepTimer -> FullPlayerPanelCard { SleepTimerPanel(wiring.player) }
+            FullPlayerCoverPanel.playbackRate -> FullPlayerPanelCard { PlaybackRatePanel(wiring.player) }
+            FullPlayerCoverPanel.equalizer -> FullPlayerPanelCard { EqualizerPanel(wiring.player) }
             FullPlayerCoverPanel.readAlong -> FullPlayerPanelCard {
                 if (readAlong != null) {
                     Column(Modifier.fillMaxSize()) {
                         Box(Modifier.weight(1f).fillMaxWidth()) { readAlong.content() }
-                        // iOS: ±-Schriftgröße unten rechts auf der Teleprompter-Karte.
+                        // iOS: eBook-Sprung links, ±-Schriftgröße rechts auf der Teleprompter-Karte.
                         Row(
                             Modifier.fillMaxWidth().padding(AppTheme.Layout.stackSpacing),
-                            horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing, Alignment.End),
+                            horizontalArrangement = Arrangement.spacedBy(AppTheme.Layout.stackSpacing),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            CompactPanelButton(SF.textformatSizeSmaller, "Smaller text", readAlong.decreaseFont)
-                            CompactPanelButton(SF.textformatSizeLarger, "Larger text", readAlong.increaseFont)
+                            ebookJump?.let { EbookPositionPanelButton(it) }
+                            Spacer(Modifier.weight(1f))
+                            CompactPanelButton(SF.textformatSizeSmaller, "Smaller text", onClick = readAlong.decreaseFont)
+                            CompactPanelButton(SF.textformatSizeLarger, "Larger text", onClick = readAlong.increaseFont)
                         }
                     }
                 }
@@ -324,9 +330,8 @@ private fun PanelControlRow(
     onToggle: (FullPlayerCoverPanel) -> Unit,
     readAlongDimmed: Boolean,
     onOpenEbook: (() -> Unit)?,
-    ebookJump: EbookPositionJumpState? = null,
 ) {
-    if (kinds.isEmpty() && onOpenEbook == null && ebookJump == null) return
+    if (kinds.isEmpty() && onOpenEbook == null) return
     Row(
         Modifier
             .fillMaxWidth()
@@ -344,10 +349,9 @@ private fun PanelControlRow(
                 FullPlayerCoverPanel.readAlong -> {
                     FullPlayerPanelButton(SF.textWordSpacing, on, if (on) "Stop read-along transcript" else "Start read-along transcript", dimmed = readAlongDimmed) { onToggle(k) }
                 }
-                FullPlayerCoverPanel.artwork -> Unit
+                else -> Unit
             }
         }
-        ebookJump?.let { EbookPositionPanelButton(it) }
         onOpenEbook?.let { FullPlayerPanelButton(SF.bookClosedFill, false, "Open ebook", onClick = it) }
     }
 }
@@ -384,11 +388,12 @@ private fun rememberEbookPositionJump(): EbookPositionJumpState {
 @Composable
 private fun EbookPositionPanelButton(state: EbookPositionJumpState) {
     if (state.isBusy) {
-        Box(Modifier.size(MiniPlayerMetrics.panelControlButtonSize), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(AppTheme.Layout.compactIconButtonSize), contentAlignment = Alignment.Center) {
             AbstandInlineSpinner(color = Theme.palette.textPrimary)
         }
     } else {
-        FullPlayerPanelButton(SF.book, false, "Jump to ebook position") { state.resolve() }
+        // Gleiche Größe wie ± in derselben Zeile der Read-Along-Karte.
+        CompactPanelButton(SF.book, "Jump to ebook position") { state.resolve() }
     }
     state.pendingTarget?.let { target ->
         val time = formatPlaybackTime(target.position)

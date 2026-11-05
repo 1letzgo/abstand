@@ -9,6 +9,19 @@ import org.junit.Test
 class TranscriptLogicTest {
     private fun w(text: String, s: Double, e: Double, id: String = "x") = PlayerTranscriptWord(id, text, s, e)
 
+    private fun paragraphLine(text: String, start: Double, end: Double) =
+        PlayerTranscriptLine("$start", listOf(w(text, start, end)), start, end)
+
+    @Test
+    fun paragraphsBreakAtPausedSentenceEndAndLineLimit() {
+        val paused = listOf(paragraphLine("eins.", 0.0, 1.0), paragraphLine("zwei", 2.0, 3.0), paragraphLine("drei", 3.0, 4.0))
+        assertEquals(listOf(0, 1, 1), PlayerTranscriptParagraphs.paragraphIndices(paused))
+        val sentences = (0 until 4).map { paragraphLine("satz.", it.toDouble(), it + 1.0) }
+        assertEquals(listOf(0, 0, 0, 1), PlayerTranscriptParagraphs.paragraphIndices(sentences))
+        val unpunctuated = (0 until 7).map { paragraphLine("wort", it.toDouble(), it + 1.0) }
+        assertEquals(listOf(0, 0, 0, 0, 0, 0, 1), PlayerTranscriptParagraphs.paragraphIndices(unpunctuated))
+    }
+
     @Test
     fun lineAccumulatorBreaksOnSentenceEndAndWidth() {
         val acc = PlayerTranscriptLineAccumulator()

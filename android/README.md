@@ -98,7 +98,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `ui/login/LoginScreen.kt` | `LoginView.swift` |
 | `ui/login/ServerCustomHeadersEditor.kt` | `ServerCustomHeadersEditor.swift` |
 | `ui/settings/SettingsAccountSections.kt` | Accounts/Account sections of `ServerAdminViews.swift` |
-| `player/PlaybackController.kt`, `player/PlaybackTimeline.kt`, `player/SleepTimer.kt`, `player/LocalAwareMediaSourceFactory.kt` | `PlaybackController` (+ `localTrackAsset(url:)`, `SleepTimerMode`, `ABSPlaybackSkipDefaults`, sleep menu presets) |
+| `player/PlaybackController.kt`, `player/PlaybackTimeline.kt`, `player/SleepTimer.kt`, `player/LocalAwareMediaSourceFactory.kt` | `PlaybackController` (+ `localTrackAsset(url:)`, `SleepTimerMode`, `ABSPlaybackSkipDefaults`, sleep timer presets) |
 | `player/BookTimelinePlayer.kt`, `player/AbstandPlaybackService.kt`, `player/CoverBitmapLoader.kt` | `MPNowPlayingInfoCenter` / `MPRemoteCommandCenter`, `AudioSessionController`, `CarPlaySceneDelegate` |
 | `player/AutoBrowseTree.kt` | `CarPlayCoordinator` (Android Auto browse tree) |
 | `player/LocalDownloadSwitch.kt` | decision part of `AppModel.applyLocalPlaybackIfDownloadMatchesCurrent` (switch to local files when the streamed item's download finishes) |
@@ -191,7 +191,8 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `model/PlayerWiring.kt` | player parts of `AppModel` (`playPodcastEpisode`, `restoreLastPlayedOnLaunch`, `markFinished` from playback, `dismissPlayer`, bookmark create/delete, `requestPresentNowPlayingSheet`, `syncOfflineProgressToServer` subset); implements `PlaybackHost`, `BrowseSource`, `PlaybackLauncher`, `PodcastActions` |
 | `model/DownloadWiring.kt` | download parts of `AppModel` (`downloadedItemIds` per account, `persistDownloads`, `removeLocalDownload`, `downloadManifestBelongsToActiveAccount`); implements `DownloadHost`, `DownloadStatusSource` |
 | `ui/player/MiniPlayer.kt`, `ui/player/PlayerChrome.kt` | `FloatingPlayerChrome.swift` (`TabAccessoryMiniPlayer`, `FloatingAccessoryGate`, snapshot), `MiniPlayerMetrics` |
-| `ui/player/NowPlayingScreen.kt`, `ui/player/NowPlayingControls.kt`, `ui/player/NowPlayingPanels.kt` | `NowPlayingDetailView` in `MiniPlayerView.swift` (cover/panels, scrubbers, transport, utility bar, sleep/speed/EQ menus, chapters/bookmarks/description panels) |
+| `ui/player/NowPlayingScreen.kt`, `ui/player/NowPlayingControls.kt`, `ui/player/NowPlayingPanels.kt` | `NowPlayingDetailView` in `MiniPlayerView.swift` (cover/panels, scrubbers, transport, utility bar, chapters/bookmarks/description panels) |
+| `ui/player/PlayerControlPanels.kt` | `PlayerTickRuler.swift`, `SleepTimerPanel.swift`, `PlaybackRatePanel.swift`, `EqualizerPanel.swift` |
 | `ui/player/NowPlayingReadAlong.kt` | `ReadAlongPanelButton`, teleprompter ± (`MiniPlayerView.swift`) |
 | `ui/player/NowPlayingPresenter.kt` | `NowPlayingZoomPresenter.swift` + `FullScreenOverlayPresenter` (zoom from the mini player, drag-to-dismiss) |
 | `ui/player/AudioOutputSwitcher.kt` | `FullPlayerAirPlayButton` (`AVRoutePickerView` → system output switcher) |

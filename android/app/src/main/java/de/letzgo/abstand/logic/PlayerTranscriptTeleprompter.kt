@@ -33,8 +33,8 @@ object PlayerTeleprompterMetrics {
     const val MAX_FONT_SIZE = 34.0
     const val FONT_SIZE_STEP = 2.0
     const val FONT_SIZE_STORAGE_KEY = "abstand_teleprompter_font_size"
+    /** Zeilen außerhalb des aktiven Absatzes (symmetrisch ausgeblendet). */
     const val INACTIVE_LINE_TEXT_OPACITY = 0.32
-    const val ACTIVE_LINE_TEXT_OPACITY = 0.65
 
     fun clampFontSize(size: Double): Double = minOf(MAX_FONT_SIZE, maxOf(MIN_FONT_SIZE, size))
 

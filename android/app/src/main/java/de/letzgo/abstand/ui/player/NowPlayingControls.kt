@@ -50,6 +50,7 @@ import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
@@ -59,17 +60,13 @@ import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.model.PlayerWiring
 import de.letzgo.abstand.player.AudioEQPreset
 import de.letzgo.abstand.player.ChapterTimeline
-import de.letzgo.abstand.player.PlaybackController
 import de.letzgo.abstand.player.PlaybackSkipDefaults
-import de.letzgo.abstand.player.SleepTimerMetrics
 import de.letzgo.abstand.player.SleepTimerMode
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.AppType
 import de.letzgo.abstand.ui.SF
 import de.letzgo.abstand.ui.Theme
 import de.letzgo.abstand.ui.components.AbstandInlineSpinner
-import de.letzgo.abstand.ui.components.AbstandMenu
-import de.letzgo.abstand.ui.components.AbstandPickerMenu
 import de.letzgo.abstand.ui.components.AbstandProgressBar
 import de.letzgo.abstand.ui.formatPlaybackTime
 import kotlin.math.max
@@ -374,40 +371,60 @@ private val AudioEQPreset.icon: ImageVector
         AudioEQPreset.voiceFocus -> SF.waveform
         AudioEQPreset.bassBoost -> SF.speakerWave1
         AudioEQPreset.trebleBoost -> SF.speakerWave3
+        AudioEQPreset.custom -> SF.sliderHorizontal3
     }
 
-/** Spalte der Leiste: Primärzeile (Symbol/Text, 48 hoch) + Beschriftung (`labelSmall`). */
+/**
+ * Spalte der Leiste: Primärzeile (Symbol/Text, 48 hoch) + Beschriftung (`labelSmall`).
+ * [active]: Panel offen, Tinte-Kapsel wie die aktiven Panel-Knöpfe (Inhalt dann in `Theme.onInk`).
+ */
 @Composable
 private fun androidx.compose.foundation.layout.RowScope.UtilityColumn(
     caption: String,
     accessibilityLabel: String,
     onClick: (() -> Unit)?,
-    menu: (@Composable () -> Unit)? = null,
+    active: Boolean = false,
     primary: @Composable () -> Unit,
 ) {
     val palette = Theme.palette
-    Box(Modifier.weight(1f)) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(androidx.compose.foundation.shape.RoundedCornerShape(AppTheme.Layout.cornerMedium))
-                .clickable(enabled = onClick != null) { onClick?.invoke() }
-                .semantics { contentDescription = accessibilityLabel },
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(MiniPlayerMetrics.utilityRowSpacing),
-        ) {
-            Box(Modifier.fillMaxWidth().height(MiniPlayerMetrics.utilityPrimaryRowHeight), contentAlignment = Alignment.Center) { primary() }
-            Text(caption, style = AppType.labelSmall, color = palette.textSecondary)
+    Column(
+        Modifier
+            .weight(1f)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(AppTheme.Layout.cornerMedium))
+            .clickable(enabled = onClick != null) { onClick?.invoke() }
+            .semantics {
+                contentDescription = accessibilityLabel
+                selected = active
+            },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(MiniPlayerMetrics.utilityRowSpacing),
+    ) {
+        Box(Modifier.fillMaxWidth().height(MiniPlayerMetrics.utilityPrimaryRowHeight), contentAlignment = Alignment.Center) {
+            if (active) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .padding(horizontal = AppTheme.Layout.compactSpacing)
+                        .background(Theme.ink, CircleShape),
+                )
+            }
+            primary()
         }
-        menu?.invoke()
+        Text(caption, style = AppType.labelSmall, color = palette.textSecondary)
     }
 }
 
 /**
- * iOS: `FullPlayerUtilityBar` — EQ · Tempo · Sleep · AirPlay (Android: Ausgabe-Umschalter) · Download.
+ * iOS: `FullPlayerUtilityBar` — EQ · Tempo · Sleep (klappen ihr Panel im Cover-Kasten auf und zu) ·
+ * AirPlay (Android: Ausgabe-Umschalter) · Download.
  */
 @Composable
-fun FullPlayerUtilityBar(wiring: PlayerWiring, modifier: Modifier = Modifier) {
+fun FullPlayerUtilityBar(
+    wiring: PlayerWiring,
+    activePanel: FullPlayerCoverPanel,
+    onToggle: (FullPlayerCoverPanel) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val player = wiring.player
     val palette = Theme.palette
     val accent = Theme.accent
@@ -424,23 +441,27 @@ fun FullPlayerUtilityBar(wiring: PlayerWiring, modifier: Modifier = Modifier) {
     val downloadProgress by DownloadManager.progress.collectAsState()
     // iOS: `.disabled(!isLoggedIn)` am Download-Knopf.
     val loggedIn by wiring.loggedIn.collectAsState()
-    var eqMenu by remember { mutableStateOf(false) }
-    var rateMenu by remember { mutableStateOf(false) }
+    val eqActive = activePanel == FullPlayerCoverPanel.equalizer
+    val rateActive = activePanel == FullPlayerCoverPanel.playbackRate
 
     Row(modifier.fillMaxWidth().padding(vertical = AppTheme.Layout.stackSpacing)) {
-        UtilityColumn("EQ", "Equalizer, ${eq.label}", onClick = { eqMenu = true }, menu = {
-            AbstandPickerMenu(eqMenu, { eqMenu = false }, AudioEQPreset.entries, eq, { it.label }, { player.setEQPreset(it) }, icon = { it.icon })
-        }) {
-            Icon(eq.icon, contentDescription = null, tint = if (eq == AudioEQPreset.flat) palette.textPrimary else accent)
+        UtilityColumn("EQ", "Equalizer, ${eq.label}", onClick = { onToggle(FullPlayerCoverPanel.equalizer) }, active = eqActive) {
+            Icon(
+                eq.icon,
+                contentDescription = null,
+                tint = when {
+                    eqActive -> Theme.onInk
+                    eq == AudioEQPreset.flat -> palette.textPrimary
+                    else -> accent
+                },
+            )
         }
 
-        UtilityColumn("Tempo", "Playback speed, ${formatPlaybackRate(rate)}", onClick = { rateMenu = true }, menu = {
-            AbstandPickerMenu(rateMenu, { rateMenu = false }, PlaybackController.playbackRatePresets, rate, { formatPlaybackRate(it) }, { player.setPlaybackRate(it) })
-        }) {
-            Text(formatPlaybackRate(rate), style = AppType.titleSmall, color = palette.textPrimary, maxLines = 1)
+        UtilityColumn("Tempo", "Playback speed, ${formatPlaybackRate(rate)}", onClick = { onToggle(FullPlayerCoverPanel.playbackRate) }, active = rateActive) {
+            Text(formatPlaybackRate(rate), style = AppType.titleSmall, color = if (rateActive) Theme.onInk else palette.textPrimary, maxLines = 1)
         }
 
-        SleepTimerColumn(wiring)
+        SleepTimerColumn(wiring, activePanel == FullPlayerCoverPanel.sleepTimer) { onToggle(FullPlayerCoverPanel.sleepTimer) }
 
         UtilityColumn("Output", "Audio output", onClick = { AudioOutputSwitcher.show(context) }) {
             Icon(SF.speakerWave3, contentDescription = null, tint = palette.textPrimary)
@@ -466,20 +487,19 @@ fun FullPlayerUtilityBar(wiring: PlayerWiring, modifier: Modifier = Modifier) {
     }
 }
 
-/** iOS: `SleepTimerControl` + `SleepTimerMenu` + `SleepTimerUtilityMenuLabel` (Countdown statt Mond). */
+/** iOS: `SleepTimerControl` + `SleepTimerUtilityLabel` (Countdown statt Mond, klappt `SleepTimerPanel` auf). */
 @Composable
-private fun androidx.compose.foundation.layout.RowScope.SleepTimerColumn(wiring: PlayerWiring) {
+private fun androidx.compose.foundation.layout.RowScope.SleepTimerColumn(wiring: PlayerWiring, active: Boolean, onToggle: () -> Unit) {
     val player = wiring.player
     val palette = Theme.palette
     val accent = Theme.accent
     val mode by player.sleepTimerMode.collectAsState()
     val endDate by player.sleepEndDate.collectAsState()
-    val chapterCount by player.chapterCount.collectAsState()
-    var menu by remember { mutableStateOf(false) }
-    // Countdown: Wanduhr-Takt nur solange ein Ende gesetzt ist.
+    val isPlaying by player.isPlaying.collectAsState()
+    // Countdown: Sekundentakt, solange die Restzeit läuft (Kapitel-Timer: nur beim Abspielen).
     var tick by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(endDate, mode) {
-        while (endDate != null) {
+    LaunchedEffect(endDate, mode, isPlaying) {
+        while (endDate != null || (isPlaying && mode != SleepTimerMode.Off)) {
             tick = System.currentTimeMillis()
             delay(1_000)
         }
@@ -492,24 +512,14 @@ private fun androidx.compose.foundation.layout.RowScope.SleepTimerColumn(wiring:
         chapters > 0 -> "Sleep timer, $chapters chapter(s)"
         else -> "Sleep timer, Off"
     }
-    UtilityColumn("Sleep", a11yLabel, onClick = { menu = true }, menu = {
-        AbstandMenu(menu, { menu = false }) {
-            item(SleepTimerMetrics.offLabel(), { player.applySleepTimer(0) }, selected = mode == SleepTimerMode.Off, selectable = true)
-            divider()
-            picker(SleepTimerMetrics.minutePresets, (mode as? SleepTimerMode.Minutes)?.minutes, { SleepTimerMetrics.minutesLabel(it) }, { player.applySleepTimer(it) })
-            val options = remember(menu, chapterCount) { player.sleepTimerChapterOptions() }
-            if (options.isNotEmpty()) {
-                divider()
-                picker(options, (mode as? SleepTimerMode.Chapters)?.chapters, { SleepTimerMetrics.chaptersMenuLabel(it) }, { player.applySleepTimerChapters(it) })
-            }
-        }
-    }) {
-        // iOS: `SleepTimerUtilityMenuLabel` — Countdown, sonst „n ch/chs“ (Akzent), sonst „Off“.
+    UtilityColumn("Sleep", a11yLabel, onClick = onToggle, active = active) {
+        // iOS: `SleepTimerUtilityLabel` — Countdown, sonst „n ch/chs“ (Akzent), sonst „Off“.
+        val running = if (active) Theme.onInk else accent
         val s = seconds
         when {
-            s != null && s > 0 -> Text(formatPlaybackTime(s), style = AppType.titleSmall, color = accent, maxLines = 1)
-            chapters > 0 -> Text(if (chapters == 1) "$chapters ch" else "$chapters chs", style = AppType.titleSmall, color = accent, maxLines = 1)
-            else -> Text("Off", style = AppType.titleSmall, color = palette.textSecondary, maxLines = 1)
+            s != null && s > 0 -> Text(formatPlaybackTime(s), style = AppType.titleSmall, color = running, maxLines = 1)
+            chapters > 0 -> Text(if (chapters == 1) "$chapters ch" else "$chapters chs", style = AppType.titleSmall, color = running, maxLines = 1)
+            else -> Text("Off", style = AppType.titleSmall, color = if (active) Theme.onInk else palette.textSecondary, maxLines = 1)
         }
     }
 }

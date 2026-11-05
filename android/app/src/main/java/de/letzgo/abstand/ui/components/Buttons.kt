@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -277,6 +278,9 @@ fun AbstandPlayPill(
     height: Dp = if (caption != null) AppTheme.Layout.buttonHeight else AppTheme.Layout.compactIconButtonSize,
     captionStyle: androidx.compose.ui.text.TextStyle = AppType.labelLarge,
     horizontalPadding: Dp = if (caption != null) AppTheme.Layout.screenPadding else AppTheme.Layout.menuItemHorizontalPadding,
+    /** Getönte Karte: Kapsel in deren lesbarer Schriftfarbe, damit sie sich immer abhebt. */
+    containerColor: Color = Color.Unspecified,
+    contentColor: Color = Color.Unspecified,
 ) {
     var optimistic by remember { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(isPlaying) { optimistic = null }
@@ -289,8 +293,8 @@ fun AbstandPlayPill(
     val showsPause = optimistic ?: isPlaying
     // M3: mit Restzeit = Filled Button (primary), nur Symbol = Filled-Tonal-Icon-Button (secondaryContainer).
     val scheme = Theme.palette.scheme
-    val container = if (caption != null) Theme.ink else scheme.secondaryContainer
-    val onAccent = if (caption != null) Theme.onInk else scheme.onSecondaryContainer
+    val container = containerColor.takeOrElse { if (caption != null) Theme.ink else scheme.secondaryContainer }
+    val onAccent = contentColor.takeOrElse { if (caption != null) Theme.onInk else scheme.onSecondaryContainer }
     Row(
         modifier
             // Kompakte Pille (32 dp): Trefferfläche auf 48 dp erweitern, Optik bleibt.
