@@ -50,6 +50,8 @@ class AdminStore private constructor(private val model: AppModel) : SessionParti
     private val m4bAdminSocket = AdminSocketClient().also { socket ->
         socket.onEvent = { handleM4BSocketEvent(it) }
         socket.tokenProvider = { session.client?.currentToken().orEmpty() }
+        // iOS: `freshTokenProvider` — Auth (auch nach Reconnect/`invalid_token`) mit garantiert frischem Bearer.
+        socket.freshTokenProvider = { rejected -> session.client?.freshBearerToken(rejected) }
     }
     private var m4bEncodePollJob: Job? = null
     private var loadedJobsKey: String? = null
@@ -70,7 +72,7 @@ class AdminStore private constructor(private val model: AppModel) : SessionParti
         loadedJobsKey = null
     }
 
-    override fun onTokensRefreshed(accessToken: String, refreshToken: String) {
+    override fun onTokensRefreshed(accessToken: String, refreshToken: String, previousRefreshToken: String) {
         // Token rotiert: der Socket holt sich beim nächsten Reconnect das neue über `tokenProvider`.
     }
 
@@ -348,7 +350,8 @@ class AdminStore private constructor(private val model: AppModel) : SessionParti
                 }
                 stopM4BAdminSocketIfIdle()
             }
-            AdminSocketEvent.Connected, AdminSocketEvent.Disconnected -> Unit
+            AdminSocketEvent.Connected, AdminSocketEvent.Disconnected,
+            AdminSocketEvent.AuthAccepted, AdminSocketEvent.AuthRejected -> Unit
         }
     }
 

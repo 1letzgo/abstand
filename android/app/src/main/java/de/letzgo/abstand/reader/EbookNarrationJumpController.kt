@@ -1,17 +1,20 @@
 package de.letzgo.abstand.reader
 
 import android.os.SystemClock
+import de.letzgo.abstand.data.AbsDownloadManifest
 import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.logic.EbookNarrationJump
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.player.PlaybackController
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.readium.r2.navigator.Decoration
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.shared.publication.Locator
@@ -120,7 +123,11 @@ class EbookNarrationJumpController(
      * laufender anderer Titel wird nicht ungefragt ersetzt. `null` bei Erfolg.
      */
     private suspend fun loadAudiobookPaused(): String? {
-        if (DownloadManager.existingDownloadFolder(libraryItemId) == null) return EbookNarrationJump.NOTICE_DOWNLOAD_REQUIRED
+        // Nur ein fertiger Download (mit Manifest) zählt — ein abgebrochener Teilstand bleibt jetzt liegen.
+        val downloaded = withContext(Dispatchers.IO) {
+            DownloadManager.existingDownloadFolder(libraryItemId)?.let { AbsDownloadManifest.load(it) } != null
+        }
+        if (!downloaded) return EbookNarrationJump.NOTICE_DOWNLOAD_REQUIRED
         if (player.isPlaying.value) return NOTICE_OTHER_TITLE_PLAYING
         AppModel.shared.player.playItem(libraryItemId, null, autoPlay = false)
         val deadline = SystemClock.elapsedRealtime() + PLAYER_LOAD_TIMEOUT_MS

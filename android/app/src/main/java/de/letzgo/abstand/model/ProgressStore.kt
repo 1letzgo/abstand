@@ -64,8 +64,13 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
     private var isFlushingPendingBookmarkChanges = false
     private var localFinishedProgressKeys: Set<String> = emptySet()
     private var discardedProgressAtMs: Map<String, Long> = emptyMap()
-    /** eBook „Mark as read"/Reset: gewünschter Wert, bis der Server nachzieht. */
-    private val pendingEbookProgressOverrideByItemId = HashMap<String, Double>()
+    /**
+     * eBook „Mark as read"/Reset: gewünschter Wert, bis der Server nachzieht — einzige Override-Map,
+     * die Listen, Detail, Home und Reader ([de.letzgo.abstand.reader.EbookProgressSync]) lesen.
+     */
+    private val pendingEbookProgressOverrideByItemId = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    /** Davon noch nicht gesendet (offline/Fehler) — persistiert je Server + Benutzer, Nachsenden beim Online-Gehen. */
+    private var unsentEbookProgressOverrides: Map<String, Double> = emptyMap()
     private var localProgressLoaded = false
 
     private val persistMutex = Mutex()
@@ -93,7 +98,7 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
     fun isProgressKeyDiscarded(key: String): Boolean = key in discardedProgressAtMs
 
     /** iOS: `ebookDisplayProgressFraction(libraryItemId:)` — Override, sonst max(Server, Gerät). */
-    fun ebookDisplayProgressFraction(libraryItemId: String): Double? {
+    fun ebookDisplayProgressFraction(libraryItemId: String, allowDiskRead: Boolean = true): Double? {
         val id = libraryItemId.swiftTrim()
         pendingEbookProgressOverrideByItemId[id]?.let { pending ->
             val c = pending.coerceIn(0.0, 1.0)
@@ -101,7 +106,7 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
             return if (c > 0.005) c else null
         }
         val serverF = _progressByItemId.value[id]?.ebookProgress
-        val localF = EbookLocalStore.loadProgressFraction(id)
+        val localF = EbookLocalStore.loadProgressFraction(id, allowDiskRead)
         val f = listOfNotNull(serverF, localF).maxOrNull() ?: return null
         if (!(f > 0.005)) return null
         val c = f.coerceIn(0.0, 1.0)
@@ -116,12 +121,21 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
         loadGuardKeys()
         val store = session.currentLocalLibraryStore() ?: return
         localProgressLoaded = true
-        val list = withContext(Dispatchers.IO) { runCatching { store.fetchAllProgress() }.getOrDefault(emptyList()) }
+        val list = withContext(Dispatchers.IO) { runCatching { store.fetchAllProgress() }.getOrNull() }
+        // Lesefehler: später erneut versuchen (iOS: Flag nur nach erfolgreichem Fetch).
+        if (list == null) {
+            localProgressLoaded = false
+            return
+        }
         if (list.isNotEmpty()) applyUserProgress(list, persistToDisk = false)
     }
 
-    /** iOS: `applyUserProgress(_:persistToDisk:)`. */
-    fun applyUserProgress(list: List<AbsUserMediaProgress>?, persistToDisk: Boolean = true) {
+    /**
+     * iOS: `applyUserProgress(_:persistToDisk:isCompleteServerList:)`. [isCompleteServerList] `true` nur für die
+     * vollständige `mediaProgress`-Liste aus `/authorize` bzw. Login — dann werden Keys entfernt, die der Server
+     * nicht mehr kennt. Lokale Restores (Room, Offline) und Teil-Listen prunen nie.
+     */
+    fun applyUserProgress(list: List<AbsUserMediaProgress>?, persistToDisk: Boolean = true, isCompleteServerList: Boolean = false) {
         var strippedDiscarded = false
         val next = HashMap(_progressByItemId.value)
         for (p in list.orEmpty()) {
@@ -137,9 +151,24 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
             if (p.isFinished) clearLocallyFinishedProgressKey(key)
             next[key] = mergedUserMediaProgress(next[key], p)
         }
+        var prunedMissing = false
+        if (isCompleteServerList && list != null) {
+            // Serverseitig gelöschter Fortschritt (z. B. im Web zurückgesetzt) — sonst bleibt der Key für immer,
+            // wird per `replaceAllProgress` erneut geschrieben und taucht wieder in „Continue listening" auf.
+            // Lokal Ausstehendes und die laufende Wiedergabe bleiben.
+            val serverKeys = list.mapTo(HashSet()) { it.progressLookupKey }
+            val iter = next.entries.iterator()
+            while (iter.hasNext()) {
+                val (key, row) = iter.next()
+                if (key in serverKeys || isProgressPruneProtected(key, row)) continue
+                iter.remove()
+                prunedMissing = true
+            }
+        }
         _progressByItemId.value = next
         _changes.tryEmit("*")
-        if (!persistToDisk && !strippedDiscarded) return
+        // Geprunte Keys aus dem Persist-Snapshot halten — `replaceAllProgress` löscht dabei auch die Room-Zeilen.
+        if (!persistToDisk && !strippedDiscarded && !prunedMissing) return
         persistProgressToLocalStore()
     }
 
@@ -257,6 +286,40 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
         if (k.isEmpty() || k !in localFinishedProgressKeys) return
         localFinishedProgressKeys = localFinishedProgressKeys - k
         saveStringSet(Keys.localFinishedProgressKeys, localFinishedProgressKeys)
+    }
+
+    /** iOS: `pendingEbookProgressOverrideByItemId[id]`. */
+    fun ebookProgressOverride(libraryItemId: String): Double? = pendingEbookProgressOverrideByItemId[libraryItemId.swiftTrim()]
+
+    /** Noch nicht am Server angekommene Mark-as-read/Reset-Werte (nur Android persistiert). */
+    val unsentEbookProgressOverrideSnapshot: Map<String, Double> get() = unsentEbookProgressOverrides
+
+    fun markEbookProgressOverrideUnsent(libraryItemId: String, fraction: Double) {
+        unsentEbookProgressOverrides = unsentEbookProgressOverrides + (libraryItemId to fraction)
+        saveUnsentEbookProgressOverrides()
+    }
+
+    fun clearEbookProgressOverrideUnsent(libraryItemId: String) {
+        if (libraryItemId !in unsentEbookProgressOverrides) return
+        unsentEbookProgressOverrides = unsentEbookProgressOverrides - libraryItemId
+        saveUnsentEbookProgressOverrides()
+    }
+
+    private fun saveUnsentEbookProgressOverrides() {
+        val key = guardKey(Keys.pendingEbookProgressOverrides)
+        if (unsentEbookProgressOverrides.isEmpty()) {
+            Prefs.remove(key)
+        } else {
+            Prefs.setString(key, AbsJson.encoder.encodeToString(MapSerializer(String.serializer(), Double.serializer()), unsentEbookProgressOverrides))
+        }
+    }
+
+    private fun loadUnsentEbookProgressOverrides() {
+        val raw = Prefs.string(guardKey(Keys.pendingEbookProgressOverrides)) ?: return
+        val stored = runCatching { AbsJson.decoder.decodeFromString(MapSerializer(String.serializer(), Double.serializer()), raw) }.getOrNull() ?: return
+        // Speicher gewinnt; persistierte Werte halten Anzeige und Merge, bis sie gesendet sind.
+        unsentEbookProgressOverrides = stored + unsentEbookProgressOverrides
+        for ((id, f) in stored) pendingEbookProgressOverrideByItemId.putIfAbsent(id, f)
     }
 
     /** iOS: `pendingEbookProgressOverrideByItemId` setzen/aufheben (Mark as read / Reset). */
@@ -415,18 +478,22 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
 
     override suspend fun restoreFromLocalStore(store: LocalLibraryStore, booksLibraryId: String?) {
         loadGuardKeys()
-        val (progress, marks) = withContext(Dispatchers.IO) {
-            runCatching { store.fetchAllProgress() }.getOrDefault(emptyList()) to
+        val (loaded, marks) = withContext(Dispatchers.IO) {
+            runCatching { store.fetchAllProgress() }.getOrNull() to
                 runCatching { store.fetchAllBookmarks() }.getOrDefault(emptyList())
         }
-        localProgressLoaded = true
+        // Ganze Tabelle gelesen und noch derselbe Account-Store: als geladen markieren — sonst lädt
+        // `ensureLocalProgressLoaded()` sie später noch einmal.
+        val progress = loaded.orEmpty()
         if (progress.isNotEmpty()) applyUserProgress(progress, persistToDisk = false)
+        if (loaded != null && session.currentLocalLibraryStore() === store) localProgressLoaded = true
         // Nur Ausstehendes in der Liste zählt als „noch nichts geladen“.
         if (marks.isNotEmpty() && _bookmarks.value.all { it.id in pendingBookmarkChanges }) applyUserBookmarks(marks, persistToDisk = false)
     }
 
     override fun onAuthorizeUser(user: AbsUser, persistToDisk: Boolean) {
-        user.mediaProgress?.let { applyUserProgress(it, persistToDisk) }
+        // `/authorize`/Login liefern die vollständige Liste — serverseitig gelöschte Keys entfernen.
+        user.mediaProgress?.let { applyUserProgress(it, persistToDisk, isCompleteServerList = true) }
         // `sessionUserId` steht erst hier sicher fest — Ausstehendes dieses Accounts vor dem Merge laden.
         loadPendingBookmarkChanges()
         user.bookmarks?.let { applyUserBookmarks(it, persistToDisk) }
@@ -443,12 +510,28 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
         localFinishedProgressKeys = emptySet()
         discardedProgressAtMs = emptyMap()
         pendingEbookProgressOverrideByItemId.clear()
+        unsentEbookProgressOverrides = emptyMap()
+        de.letzgo.abstand.reader.EbookProgressSync.resetForSessionClear()
         localProgressLoaded = false
     }
 
     override suspend fun bootstrapLocalSessionOnly() = ensureLocalProgressLoaded()
 
     // MARK: - Merge (iOS `mergedUserMediaProgress`)
+
+    /** Beim Prunen nach vollständigem `/authorize` behalten: Ausstehendes, lokal Fertiges, eBook-Overrides/-Sync, laufende Wiedergabe. */
+    fun isProgressPruneProtected(key: String, row: AbsUserMediaProgress): Boolean =
+        key in pendingLocalProgressSyncKeys || key in localFinishedProgressKeys ||
+            pendingEbookProgressOverrideByItemId.containsKey(key) || key in unsentEbookProgressOverrides ||
+            de.letzgo.abstand.reader.EbookProgressSync.hasPendingSync(key) || isActiveMedia(row)
+
+    /** iOS: `isActivelyPlayingProgress` → `isActivelyPlayingMedia` — geladener Titel (spielend oder pausiert). */
+    private fun isActiveMedia(p: AbsUserMediaProgress): Boolean {
+        val player = PlaybackController.sharedOrNull() ?: return false
+        val active = player.activeBook.value ?: return false
+        if (active.id != p.libraryItemId) return false
+        return player.activePlaybackEpisodeId.value?.swiftTrim().orEmpty() == p.episodeId?.swiftTrim().orEmpty()
+    }
 
     private fun isActivelyPlaying(p: AbsUserMediaProgress): Boolean {
         val player = PlaybackController.sharedOrNull() ?: return false
@@ -504,6 +587,8 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
 
     /** iOS: `mergedApplyingServerEbookProgress` + `resolvedEbookProgressFraction`. */
     private fun mergedEbookProgress(incoming: AbsUserMediaProgress, base: AbsUserMediaProgress): AbsUserMediaProgress {
+        // Podcast-Folgen haben keinen eBook-Fortschritt — kein Datei-Read je Folgen-Zeile.
+        if (!base.episodeId?.swiftTrim().isNullOrEmpty()) return base
         val id = base.libraryItemId
         val resolved: Double? = pendingEbookProgressOverrideByItemId[id]?.let { pending ->
             val c = pending.coerceIn(0.0, 1.0)
@@ -522,14 +607,27 @@ class ProgressStore(private val model: AppModel) : SessionParticipant {
     private fun guardKey(base: String): String {
         val u = AbsApiClient.normalizeServerURL(session.serverURL.value).orEmpty()
         if (u.isEmpty()) return base
-        val uid = session.sessionUserId.swiftTrim().ifEmpty { Prefs.string(Keys.sessionUserId)?.swiftTrim().orEmpty() }
+        val uid = guardUserId()
         return if (uid.isEmpty()) "$base.$u" else "$base.$u.$uid"
     }
+
+    /** iOS: `progressGuardUserId()`. */
+    private fun guardUserId(): String =
+        session.sessionUserId.swiftTrim().ifEmpty { Prefs.string(Keys.sessionUserId)?.swiftTrim().orEmpty() }
+
+    /** iOS: `pendingOfflineListeningStorageKey()` — gleicher Scope wie die Schutz-Keys. */
+    fun pendingOfflineListeningStorageKey(): String =
+        de.letzgo.abstand.player.PendingOfflineListening.storageKey(AbsApiClient.normalizeServerURL(session.serverURL.value), guardUserId())
+
+    /** Server und User stehen fest (Bedingung der Legacy-Migration). */
+    val hasCompleteGuardScope: Boolean
+        get() = !AbsApiClient.normalizeServerURL(session.serverURL.value).isNullOrEmpty() && guardUserId().isNotEmpty()
 
     private fun loadGuardKeys() {
         localFinishedProgressKeys = loadStringSet(Keys.localFinishedProgressKeys)
         pendingLocalProgressSyncKeys = pendingLocalProgressSyncKeys + loadStringSet(Keys.pendingLocalProgressSyncKeys)
         loadPendingBookmarkChanges()
+        loadUnsentEbookProgressOverrides()
         val now = System.currentTimeMillis()
         val raw = Prefs.string(guardKey(Keys.discardedProgressKeys))
         val loaded = raw?.let {

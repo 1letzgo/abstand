@@ -178,7 +178,12 @@ data class LocalAuthorDetail(
     val authorDescription: String?,
 )
 
-/** iOS: `LocalNarrator` — Sprecher einer Browse-Liste (+ Cover-Item als Feld). */
+/**
+ * iOS: `LocalNarrator` — Sprecher einer Browse-Liste (+ Cover-Item als Feld). [id] ist der zusammengesetzte
+ * Schlüssel `"$libraryId|$narratorId"`: die Server-ID leitet sich nur aus dem Namen ab, derselbe Sprecher in zwei
+ * Bibliotheken kollidierte sonst (REPLACE verschob die Zeile). Bestehende Spalte, keine Schemaänderung; Altzeilen
+ * ohne Präfix bleiben lesbar und verschwinden beim nächsten `replaceNarrators`.
+ */
 @Entity(tableName = "LocalNarrator", indices = [Index("libraryId")])
 data class LocalNarrator(
     @PrimaryKey val id: String,
@@ -187,10 +192,16 @@ data class LocalNarrator(
     val numBooks: Int?,
     val coverItemId: String? = null,
 ) {
-    fun toItem() = AbsLibraryNarratorListItem(id = id, name = name, numBooks = numBooks)
+    /** Server-ID ohne Bibliotheks-Präfix. */
+    val narratorId: String get() = id.removePrefix("$libraryId|")
+
+    fun toItem() = AbsLibraryNarratorListItem(id = narratorId, name = name, numBooks = numBooks)
 
     companion object {
-        fun from(libraryId: String, item: AbsLibraryNarratorListItem) = LocalNarrator(item.id, libraryId, item.name, item.numBooks)
+        fun storageKey(libraryId: String, narratorId: String) = "$libraryId|$narratorId"
+
+        fun from(libraryId: String, item: AbsLibraryNarratorListItem) =
+            LocalNarrator(storageKey(libraryId, item.id), libraryId, item.name, item.numBooks)
     }
 }
 

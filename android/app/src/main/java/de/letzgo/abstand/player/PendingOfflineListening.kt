@@ -28,58 +28,109 @@ object PendingOfflineListening {
     fun decode(text: String?): Map<String, Int> =
         text?.let { runCatching { AbsJson.decoder.decodeFromString(serializer, it) }.getOrNull() }.orEmpty()
 
-    @Synchronized
-    fun load(): Map<String, Int> = decode(Prefs.string(Keys.pendingOfflineListeningSeconds))
-
-    @Synchronized
-    fun save(map: Map<String, Int>) {
-        if (map.isEmpty()) Prefs.remove(Keys.pendingOfflineListeningSeconds)
-        else Prefs.commitString(Keys.pendingOfflineListeningSeconds, encode(map))
+    /**
+     * iOS: `pendingOfflineListeningStorageKey()` = `progressGuardStorageKey(base:)` — je Server **und** Benutzer.
+     * Ein globaler Key ging beim Account-Wechsel verloren bzw. wäre mit dem Client des nächsten Accounts gesendet worden.
+     */
+    fun storageKey(normalizedServerURL: String?, userId: String?): String {
+        val base = Keys.pendingOfflineListeningSeconds
+        val u = normalizedServerURL.orEmpty()
+        if (u.isEmpty()) return base
+        val uid = userId?.trim().orEmpty()
+        return if (uid.isEmpty()) "$base.$u" else "$base.$u.$uid"
     }
-
-    @Synchronized
-    fun add(progressKey: String, seconds: Int) {
-        if (seconds <= 0) return
-        save(adding(load(), progressKey, seconds))
-    }
-
-    @Synchronized
-    fun clear() = Prefs.remove(Keys.pendingOfflineListeningSeconds)
 
     /**
-     * Sendet gespeicherte Offline-Hörsekunden per kurzer Play-Session (start → sync → close).
-     * Keys ohne bekannten Fortschritt werden verworfen; bei Netzfehlern bricht die Schleife ab und der
-     * Rest bleibt für den nächsten Versuch liegen.
+     * Map des Scopes [storageKey]. [migrateLegacy]: einmalige Migration — der frühere globale Key gehört zum damals
+     * aktiven Account; nur übernehmen, wenn der Scope vollständig (Server + User) feststeht.
      */
-    suspend fun flush(client: AbsApiClient, progress: (String) -> AbsUserMediaProgress?) {
-        val map = load().toMutableMap()
-        if (map.isEmpty()) return
-        val flushed = ArrayList<String>()
-        for ((key, seconds) in map) {
-            if (seconds <= 0) continue
-            val p = progress(key)
-            if (p == null) {
-                flushed.add(key)
-                continue
-            }
-            try {
-                val session = client.startPlaySession(p.libraryItemId, p.episodeId, PlaybackController.stableDeviceId(), PlaybackController.appVersion())
-                client.syncPlaySession(session.id, seconds, maxOf(0.0, p.currentTime))
-                runCatching { client.closePlaySession(session.id) }
-                flushed.add(key)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                if (PlaybackController.isTransientNetworkError(e)) break
-            }
+    @Synchronized
+    fun load(storageKey: String, migrateLegacy: Boolean = false): Map<String, Int> {
+        val legacy = Keys.pendingOfflineListeningSeconds
+        var map = decode(Prefs.string(storageKey))
+        if (migrateLegacy && storageKey != legacy && Prefs.string(legacy) != null) {
+            for ((k, v) in decode(Prefs.string(legacy))) map = adding(map, k, v)
+            save(map, storageKey)
+            Prefs.remove(legacy)
         }
-        // Erneut laden: während des Flushs hinzugekommene Sekunden nicht verlieren.
-        val latest = load().toMutableMap()
-        for (key in flushed) {
-            val sent = map[key] ?: 0
-            val now = latest[key] ?: continue
-            if (now <= sent) latest.remove(key) else latest[key] = now - sent
+        return map
+    }
+
+    @Synchronized
+    fun save(map: Map<String, Int>, storageKey: String) {
+        if (map.isEmpty()) Prefs.remove(storageKey)
+        else Prefs.commitString(storageKey, encode(map))
+    }
+
+    /** Mit vorab festgehaltenem Scope — Aufrufer, die zwischen Erfassen und Schreiben suspendieren. */
+    @Synchronized
+    fun add(progressKey: String, seconds: Int, storageKey: String) {
+        if (seconds <= 0) return
+        save(adding(load(storageKey), progressKey, seconds), storageKey)
+    }
+
+    /** Reset Progress: aufgelaufene Sekunden eines Keys verwerfen (iOS: `clearPendingOfflineListeningSeconds`). */
+    @Synchronized
+    fun remove(progressKey: String, storageKey: String) {
+        val map = load(storageKey)
+        if (progressKey in map) save(map - progressKey, storageKey)
+    }
+
+    /** Reine Map-Logik (Tests): nur das Gesendete abziehen — während des Flushs hinzugekommene Sekunden bleiben. */
+    fun subtractingSent(latest: Map<String, Int>, sent: Map<String, Int>): Map<String, Int> {
+        val out = latest.toMutableMap()
+        for ((key, s) in sent) {
+            val remaining = (out[key] ?: 0) - s
+            if (remaining > 0) out[key] = remaining else out.remove(key)
         }
-        save(latest)
+        return out
+    }
+
+    /** Re-Entrancy-Schutz (Netz-Callback + Offline-Sync parallel). Main-Thread. */
+    private var isFlushing = false
+
+    /**
+     * Sendet gespeicherte Offline-Hörsekunden per kurzer Play-Session (start → sync → close). Single-Flight;
+     * Scope ([storageKey]) vom Aufrufer vor dem ersten Suspend festgehalten, [isCurrent] bricht nach einem
+     * Account-/Client-Wechsel ab. Keys ohne bekannten Fortschritt werden verworfen; bei Netzfehlern bricht die
+     * Schleife ab und der Rest bleibt liegen. Zum Schluss nur das Gesendete von einer frisch geladenen Map abziehen.
+     */
+    suspend fun flush(
+        client: AbsApiClient,
+        storageKey: String,
+        migrateLegacy: Boolean,
+        isCurrent: () -> Boolean,
+        progress: (String) -> AbsUserMediaProgress?,
+    ) {
+        if (isFlushing) return
+        val snapshot = load(storageKey, migrateLegacy)
+        if (snapshot.isEmpty()) return
+        isFlushing = true
+        try {
+            val sent = HashMap<String, Int>()
+            for ((key, seconds) in snapshot) {
+                if (seconds <= 0) continue
+                if (!isCurrent()) break
+                val p = progress(key)
+                if (p == null) {
+                    sent[key] = seconds
+                    continue
+                }
+                try {
+                    val session = client.startPlaySession(p.libraryItemId, p.episodeId, PlaybackController.stableDeviceId(), PlaybackController.appVersion())
+                    client.syncPlaySession(session.id, seconds, maxOf(0.0, p.currentTime))
+                    runCatching { client.closePlaySession(session.id) }
+                    sent[key] = seconds
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (PlaybackController.isTransientNetworkError(e)) break
+                }
+            }
+            if (sent.isEmpty()) return
+            synchronized(this) { save(subtractingSent(load(storageKey), sent), storageKey) }
+        } finally {
+            isFlushing = false
+        }
     }
 }

@@ -39,6 +39,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -159,8 +160,23 @@ class PlaybackController private constructor(private val appContext: Context) {
     var onAudiobookPlaybackCompleted: (() -> Unit)? = null
     /** Letzter Track einer Podcast-Folge zu Ende. */
     var onPodcastEpisodePlaybackCompleted: (() -> Unit)? = null
-    /** Lokale Download-Wiedergabe ohne Play-Session: (timeListened, position, duration). */
-    var onLocalPlaybackWithoutSessionSync: (suspend (Int, Double, Double) -> Unit)? = null
+    /**
+     * iOS: `LocalPlaybackSyncSnapshot` — Stand eines lokalen Syncs ohne Play-Session; Titel und Werte explizit,
+     * damit der Empfänger nicht vom Player-Zustand abhängt (beim Abriss ist `activeBook` danach schon `null`).
+     */
+    data class LocalPlaybackSyncSnapshot(
+        val libraryItemId: String,
+        val episodeId: String?,
+        val timeListened: Int,
+        val position: Double,
+        val duration: Double,
+    )
+
+    /**
+     * Lokale Download-Wiedergabe ohne Play-Session: PATCH / Offline-Hörzeit. Läuft auf dem Main-Thread und beim
+     * Abriss ungedispatcht bis zum ersten echten Suspend.
+     */
+    var onLocalPlaybackWithoutSessionSync: (suspend (LocalPlaybackSyncSnapshot) -> Unit)? = null
 
     // MARK: - Interner Zustand
 
@@ -188,6 +204,13 @@ class PlaybackController private constructor(private val appContext: Context) {
     private var localRoot: File? = null
     /** Nach Laden: sofort abspielen oder nur positionieren (Launch-Restore). */
     private var shouldAutoPlayAfterLoad = true
+    /**
+     * iOS: `playIntentGeneration` — zählt `pause()` hoch; ein vor der Pause begonnenes Play (Resume, Recovery)
+     * startet die Wiedergabe danach nicht mehr (sonst überstimmt es die Pause des Nutzers bzw. des Sleep-Timers).
+     */
+    private var playIntentGeneration = 0
+    /** iOS: `sessionRecoveryTask` — Single-Flight der Session-Recovery. */
+    private var sessionRecovery: kotlinx.coroutines.Deferred<Boolean>? = null
     /** Wie Absorb `_playFromLocal`: Session starten wenn online (nicht im Offline-Home-Modus). */
     private var attemptServerPlaySessionForLocal = true
     /** Automatische Stream-Wiederherstellungen seit dem letzten `STATE_READY` (Fehlerschleifen begrenzen). */
@@ -415,8 +438,26 @@ class PlaybackController private constructor(private val appContext: Context) {
         _showMiniPlayerPlaceholder.value = false
         syncJob?.cancel(); syncJob = null
         tickJob?.cancel(); tickJob = null
+        // Eine Recovery des alten Titels läuft generation-geschützt aus; der neue Titel startet bei Bedarf eine eigene.
+        sessionRecovery = null
         val sid = playSessionId
         val client = apiClient
+        val book = _activeBook.value
+        val localCallback = onLocalPlaybackWithoutSessionSync
+        if (sid == null && localRoot != null && book != null && localCallback != null) {
+            // Lokale Wiedergabe ohne Session: Rest-Hörzeit + Position über den lokalen Pfad sichern
+            // (iOS: `flushSync(force: true)` per `Task.immediate`). Der Snapshot hält Titel und Werte fest,
+            // der Abriss unten löscht sie.
+            listenTime.accumulate(_isPlaying.value)
+            val snapshot = LocalPlaybackSyncSnapshot(
+                libraryItemId = book.id,
+                episodeId = _activePlaybackEpisodeId.value,
+                timeListened = max(0, listenTime.takeWholeSeconds()),
+                position = _globalPosition.value,
+                duration = _totalDuration.value,
+            )
+            scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { localCallback(snapshot) }
+        }
         if (sid != null && client != null) {
             // Noch nicht gesyncte Hörzeit + Position vor dem Schließen senden.
             listenTime.accumulate(_isPlaying.value)
@@ -515,11 +556,12 @@ class PlaybackController private constructor(private val appContext: Context) {
         throw CancellationException("playBook superseded")
     }
 
-    /** Rotierte Tokens auch in den Client des Players übernehmen (kann eine eigene Instanz sein). */
-    fun adoptRefreshedTokens(accessToken: String, refreshToken: String) {
-        val client = apiClient ?: return
-        client.setToken(accessToken)
-        if (refreshToken.isNotEmpty()) client.setRefreshToken(refreshToken)
+    /**
+     * Rotierte Tokens auch in den Client des Players übernehmen (kann eine eigene Instanz sein) — als
+     * Compare-and-Swap: eine verspätete Rotation darf weder einen neueren Stand noch einen anderen Account überschreiben.
+     */
+    fun adoptRefreshedTokens(accessToken: String, refreshToken: String, previousRefreshToken: String) {
+        apiClient?.adoptRotatedTokens(accessToken, refreshToken, previousRefreshToken)
     }
 
     /** Play-Session für lokale Dateien mit harter Deadline (sonst Offline-Modus mit PATCH/Flush). */
@@ -781,12 +823,15 @@ class PlaybackController private constructor(private val appContext: Context) {
         if (!isUsingLocalTrackFiles && apiClient != null && errorRecoveryAttempts < MAX_ERROR_RECOVERY_ATTEMPTS) {
             errorRecoveryAttempts += 1
             val attempt = errorRecoveryAttempts
+            // Play-Absicht jetzt festhalten — eine `pause()` während der Wiederherstellung hebt sie auf.
+            val playIntent = playIntentGeneration
             scope.launch {
                 val resumeAt = playbackGlobalPosition()
                 val ok = if (attempt == 1 && playSessionId != null) {
-                    reloadItemsAt(resumeAt, wantPlay).also { if (it && wantPlay) beginPlaybackEngine() }
+                    val play = wantPlay && playIntent == playIntentGeneration
+                    reloadItemsAt(resumeAt, play).also { if (it && play && playIntent == playIntentGeneration) beginPlaybackEngine() }
                 } else {
-                    recoverPlaySessionAfterSyncFailure(lostTimeListened = 0, forcePlay = wantPlay)
+                    recoverPlaySessionAfterSyncFailure(lostTimeListened = 0, forcePlay = wantPlay, playIntent = playIntent)
                 }
                 if (!ok) failPlayback(error)
             }
@@ -900,20 +945,29 @@ class PlaybackController private constructor(private val appContext: Context) {
         // Play-Befehl (Kopfhörer/Benachrichtigung) ohne geladenen Titel: nichts aktivieren.
         if (_activeBook.value == null || p == null || p.mediaItemCount == 0) return
         ensureSessionServiceConnected()
+        // Play-Absicht zum Start — eine `pause()` währenddessen hebt sie auf (iOS: `playIntentGeneration`).
+        val playIntent = playIntentGeneration
         scope.launch {
             if (localRoot != null && playSessionId == null && attemptServerPlaySessionForLocal) {
                 recreatePlaySessionForLocalPlaybackIfNeeded()
             }
+            if (playIntent != playIntentGeneration) return@launch
             if (!isUsingLocalTrackFiles && apiClient != null && playSessionId == null) {
-                recoverPlaySessionAfterSyncFailure(lostTimeListened = 0, forcePlay = true)
-                if (playSessionId != null) return@launch
+                recoverPlaySessionAfterSyncFailure(lostTimeListened = 0, forcePlay = true, playIntent = playIntent)
+                if (playSessionId != null || playIntent != playIntentGeneration) return@launch
             }
             if (p.playerError != null || p.playbackState == Player.STATE_IDLE) {
                 // Fehlerzustand: Stream/Datei neu binden statt stumm „spielt“ anzuzeigen.
                 if (!reloadItemsAt(playbackGlobalPosition(), play = true)) return@launch
+                // Inzwischen pausiert: `reloadItemsAt` hat `playWhenReady` gesetzt — zurücknehmen.
+                if (playIntent != playIntentGeneration) {
+                    p.playWhenReady = false
+                    return@launch
+                }
             } else if (p.playbackState == Player.STATE_ENDED) {
                 seek(global = 0.0)
             }
+            if (playIntent != playIntentGeneration) return@launch
             beginPlaybackEngine()
         }
     }
@@ -932,6 +986,9 @@ class PlaybackController private constructor(private val appContext: Context) {
     }
 
     fun pause() {
+        // Laufende Play-Absichten aufheben: Initial-Laden, Resume und Recovery starten danach nicht neu.
+        shouldAutoPlayAfterLoad = false
+        playIntentGeneration += 1
         listenTime.accumulate(_isPlaying.value)
         sleepTimer.pause()
         exo?.let { p ->
@@ -1091,14 +1148,20 @@ class PlaybackController private constructor(private val appContext: Context) {
                 } catch (e: Exception) {
                     // Inzwischen anderer Titel geladen: Zeit nicht dem neuen Titel gutschreiben.
                     if (generation != loadGeneration || playSessionId != sid) return
-                    listenTime.restore(tl)
-                    if (isTransientNetworkError(e)) return
+                    if (isTransientNetworkError(e)) {
+                        listenTime.restore(tl)
+                        return
+                    }
+                    // Die Recovery schickt `tl` an die neue Session (oder legt es bei Misserfolg zurück) — nicht
+                    // zusätzlich in den Zähler, sonst zählt der nächste Sync dieselben Sekunden ein zweites Mal.
                     recoverPlaySessionAfterSyncFailure(lostTimeListened = tl)
                 }
             }
             is SyncPlan.LocalWithoutSession -> {
+                val book = _activeBook.value ?: return
                 val tl = listenTime.takeWholeSeconds()
-                onLocalPlaybackWithoutSessionSync?.invoke(tl, _globalPosition.value, _totalDuration.value)
+                val snapshot = LocalPlaybackSyncSnapshot(book.id, _activePlaybackEpisodeId.value, max(0, tl), _globalPosition.value, _totalDuration.value)
+                onLocalPlaybackWithoutSessionSync?.invoke(snapshot)
             }
         }
     }
@@ -1108,37 +1171,83 @@ class PlaybackController private constructor(private val appContext: Context) {
         if (playSessionId != null || !attemptServerPlaySessionForLocal) return
         val client = apiClient ?: return
         val book = _activeBook.value ?: return
-        startPlaySessionWithTimeout(client, book.id, _activePlaybackEpisodeId.value)?.let { playSessionId = it.id }
+        val generation = loadGeneration
+        val session = startPlaySessionWithTimeout(client, book.id, _activePlaybackEpisodeId.value) ?: return
+        // Inzwischen anderer Titel oder schon eine Session (paralleles Resume): diese nicht verwaisen lassen.
+        if (generation != loadGeneration || playSessionId != null) {
+            detachedScope.launch { runCatching { client.closePlaySession(session.id) } }
+            return
+        }
+        playSessionId = session.id
     }
 
     /**
      * Absorb: bei ungültiger Session neue starten, verlorene Hörzeit nachsyncen und den Stream an die
      * aktuelle Position neu binden. `true`, wenn eine neue Session steht.
      */
-    private suspend fun recoverPlaySessionAfterSyncFailure(lostTimeListened: Int, forcePlay: Boolean = false): Boolean {
-        val client = apiClient ?: return false
-        val book = _activeBook.value ?: return false
-        val generation = loadGeneration
-        val resumeAt = playbackGlobalPosition()
-        val wantPlay = forcePlay || _isPlaying.value
-        val episodeId = _activePlaybackEpisodeId.value?.swiftTrim()?.ifEmpty { null }
+    /**
+     * [playIntent]: Play-Absicht des Aufrufers, synchron vor jedem Suspend/Launch erfasst — eine `pause()` danach
+     * (Sleep-Timer, Nutzer) hebt sie auf (iOS-Review R2).
+     */
+    private suspend fun recoverPlaySessionAfterSyncFailure(
+        lostTimeListened: Int,
+        forcePlay: Boolean = false,
+        playIntent: Int = playIntentGeneration,
+    ): Boolean {
+        // Single-Flight: läuft schon eine Recovery, wartet der Aufrufer auf sie — seine verlorene Hörzeit geht
+        // zurück in den Zähler und mit dem nächsten Sync an die neue Session.
+        sessionRecovery?.let { running ->
+            if (lostTimeListened > 0) listenTime.restore(lostTimeListened)
+            return running.await()
+        }
+        val job = scope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) { performPlaySessionRecovery(lostTimeListened, forcePlay, playIntent) }
+        sessionRecovery = job
         return try {
-            val session = client.startPlaySession(book.id, episodeId, stableDeviceId(), appVersion())
-            if (generation != loadGeneration) {
-                detachedScope.launch { runCatching { client.closePlaySession(session.id) } }
-                return false
+            job.await()
+        } finally {
+            // `tearDownPlayer` leert den Slot; eine danach gestartete Recovery hier nicht austragen.
+            if (sessionRecovery === job) sessionRecovery = null
+        }
+    }
+
+    private suspend fun performPlaySessionRecovery(lostTimeListened: Int, forcePlay: Boolean, playIntent: Int): Boolean {
+        val generation = loadGeneration
+        // Nicht an den Server gebrachte Hörzeit bleibt im Zähler (gleicher Titel vorausgesetzt).
+        var undelivered = lostTimeListened
+        try {
+            val client = apiClient ?: return false
+            val book = _activeBook.value ?: return false
+            val resumeAt = playbackGlobalPosition()
+            val wantPlay = forcePlay || _isPlaying.value
+            val episodeId = _activePlaybackEpisodeId.value?.swiftTrim()?.ifEmpty { null }
+            return try {
+                val session = client.startPlaySession(book.id, episodeId, stableDeviceId(), appVersion())
+                // Inzwischen anderer Titel: Session des alten Titels nicht übernehmen, sondern schließen.
+                if (generation != loadGeneration) {
+                    detachedScope.launch { runCatching { client.closePlaySession(session.id) } }
+                    return false
+                }
+                playSessionId = session.id
+                if (undelivered > 0) {
+                    client.syncPlaySession(session.id, undelivered, resumeAt)
+                    undelivered = 0
+                }
+                if (generation != loadGeneration) return false
+                if (!isUsingLocalTrackFiles && !timeline.isEmpty) {
+                    val play = wantPlay && playIntent == playIntentGeneration
+                    if (reloadItemsAt(resumeAt, play) && play && generation == loadGeneration && playIntent == playIntentGeneration) {
+                        beginPlaybackEngine()
+                    }
+                }
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (generation == loadGeneration && !isTransientNetworkError(e)) playSessionId = null
+                false
             }
-            playSessionId = session.id
-            if (lostTimeListened > 0) client.syncPlaySession(session.id, lostTimeListened, resumeAt)
-            if (!isUsingLocalTrackFiles && !timeline.isEmpty) {
-                if (reloadItemsAt(resumeAt, wantPlay) && wantPlay) beginPlaybackEngine()
-            }
-            true
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            if (!isTransientNetworkError(e)) playSessionId = null
-            false
+        } finally {
+            if (undelivered > 0 && generation == loadGeneration) listenTime.restore(undelivered)
         }
     }
 

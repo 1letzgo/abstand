@@ -174,11 +174,50 @@ class AbsApiClient(
             .build()
     }
 
+    /**
+     * iOS: `ebookDownloadURLSession` — eigener Dispatcher für eBook-/PDF-Downloads, damit
+     * [cancelInFlightDownloads] (Hörbuch-Warteschlange) ein gerade ladendes eBook nicht mitreißt.
+     */
+    private val ebookDownloadClient: OkHttpClient by lazy {
+        http.newBuilder()
+            .dispatcher(Dispatcher())
+            .readTimeout(DOWNLOAD_REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(DOWNLOAD_REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(API_RESOURCE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .build()
+    }
+
     fun setToken(newToken: String) { token = newToken }
     fun currentToken(): String = token
     fun setRefreshToken(newToken: String?) { refreshToken = newToken?.swiftTrim()?.ifEmpty { null } }
     /** Nur Android (Tests/Diagnose): aktuelles Refresh-Token. */
     fun currentRefreshToken(): String? = refreshToken
+
+    /**
+     * iOS: `adoptRotatedTokens(accessToken:refreshToken:previousRefreshToken:)` — rotierte Tokens eines
+     * anderen Clients derselben Session übernehmen, als Compare-and-Swap: nur wenn dieser Client noch das
+     * rotierte Refresh-Token hält. Sonst (schon neuer, anderer Account, verspätete Meldung) bleibt alles stehen.
+     * @return `true`, wenn übernommen wurde.
+     */
+    @Synchronized
+    fun adoptRotatedTokens(accessToken: String, refreshToken: String, previousRefreshToken: String): Boolean {
+        val access = accessToken.swiftTrim()
+        val previous = previousRefreshToken.swiftTrim()
+        if (access.isEmpty() || previous.isEmpty() || this.refreshToken != previous) return false
+        token = access
+        refreshToken.swiftTrim().takeIf { it.isNotEmpty() }?.let { this.refreshToken = it }
+        return true
+    }
+
+    /**
+     * iOS: `freshBearerToken(rejecting:)` — Bearer, der nicht kurz vor dem Ablauf steht (z. B. Socket-Auth).
+     * [rejected]: vom Server abgelehnter Bearer — ist er noch der aktuelle, wird ohne Backoff erneuert;
+     * wurde inzwischen erneuert, kommt direkt der neue zurück.
+     */
+    suspend fun freshBearerToken(rejected: String? = null): String {
+        if (!rejected.isNullOrEmpty() && rejected == token) refreshTokens() else refreshIfExpiringSoon()
+        return token
+    }
 
     // MARK: - JWT-Refresh
 
@@ -186,11 +225,15 @@ class AbsApiClient(
     private suspend fun refreshIfExpiringSoon() {
         if (refreshToken == null) return
         val exp = jwtExpiryMillis(token) ?: return
-        if (exp - clock() < ACCESS_TOKEN_REFRESH_LEEWAY_MS) refreshTokens()
+        if (exp - clock() < ACCESS_TOKEN_REFRESH_LEEWAY_MS) refreshTokens(proactive = true)
     }
 
-    /** `POST /auth/refresh` mit `x-refresh-token`. Liefert `true`, wenn ein neues Access-Token gesetzt wurde. */
-    suspend fun refreshTokens(): Boolean {
+    /**
+     * `POST /auth/refresh` mit `x-refresh-token`. Liefert `true`, wenn ein neues Access-Token gesetzt wurde.
+     * Der 60-s-Backoff nach einem Fehlschlag gilt nur für den proaktiven Refresh ([proactive]); nach einem
+     * echten 401 wird immer versucht (iOS: gleiche Regel in `ABSAPIClient.refreshTokens`).
+     */
+    suspend fun refreshTokens(proactive: Boolean = false): Boolean {
         val task: Deferred<Boolean>
         refreshLock.withLock {
             val running = refreshTask
@@ -200,7 +243,7 @@ class AbsApiClient(
             }
             val current = refreshToken ?: return false
             val failed = lastRefreshFailureAt
-            if (failed != null && clock() - failed < REFRESH_FAILURE_BACKOFF_MS) return false
+            if (proactive && failed != null && clock() - failed < REFRESH_FAILURE_BACKOFF_MS) return false
             val base = baseURL
             task = refreshScope.async { performRefresh(current, base) }
             refreshTask = task
@@ -233,7 +276,8 @@ class AbsApiClient(
         if (!res.isSuccess) {
             // 401 = Refresh-Token ungültig/abgelaufen → verwerfen, damit der nächste 401 sauber zum Re-Login führt.
             // Andere Fehler (Netz, 5xx, Rate-Limit) lassen das Token stehen.
-            if (res.code == 401) refreshToken = null
+            // Nur, wenn es noch das gesendete ist — sonst hat inzwischen ein anderer Weg (Login, Adoption) ein neues gesetzt.
+            if (res.code == 401 && refreshToken == current) refreshToken = null
             return false
         }
         val parsed = runCatching { decoder.decodeFromString(AbsLoginResponseSerializer, res.text) }.getOrNull() ?: return false
@@ -259,17 +303,28 @@ class AbsApiClient(
     private suspend fun authedData(request: Request, timeoutSeconds: Long): HttpResult {
         refreshIfExpiringSoon()
         var req = request
-        if (req.header("Authorization") != null) req = req.newBuilder().header("Authorization", "Bearer $token").build()
+        val sentBearer = token
+        if (req.header("Authorization") != null) req = req.newBuilder().header("Authorization", "Bearer $sentBearer").build()
         val res = apiClient(timeoutSeconds).awaitResult(req)
-        if (res.code != 401 || req.header("Authorization") == null || !refreshTokens()) return res
+        if (res.code != 401 || req.header("Authorization") == null || !renewBearerAfter401(sentBearer)) return res
         req = req.newBuilder().header("Authorization", "Bearer $token").build()
         return apiClient(timeoutSeconds).awaitResult(req)
     }
 
-    /** Für Download-Schleifen: `true`, wenn nach 401 erneuert wurde und der Versuch wiederholt werden soll. */
-    private suspend fun shouldRetryDownloadAfterRefresh(code: Int): Boolean = code == 401 && refreshTokens()
+    /**
+     * iOS: `renewBearerAfter401(sentBearer:)` — nach 401 `true`, wenn mit neuem Bearer wiederholt werden soll.
+     * Verspäteter 401 für ein inzwischen ersetztes Token: direkt wiederholen, kein zweiter Refresh.
+     */
+    private suspend fun renewBearerAfter401(sentBearer: String): Boolean {
+        if (token != sentBearer) return true
+        return refreshTokens()
+    }
 
-    /** Bricht laufende Downloads ab (ergänzt Coroutine-Cancel). */
+    /** Für Download-Schleifen: `true`, wenn nach 401 erneuert wurde und der Versuch wiederholt werden soll. */
+    private suspend fun shouldRetryDownloadAfterRefresh(code: Int, sentBearer: String): Boolean =
+        code == 401 && renewBearerAfter401(sentBearer)
+
+    /** Bricht laufende Hörbuch-Downloads ab (ergänzt Coroutine-Cancel); eBook-Downloads bleiben unberührt. */
     fun cancelInFlightDownloads() {
         downloadClient.dispatcher.cancelAll()
     }
@@ -293,8 +348,8 @@ class AbsApiClient(
             attempt += 1
             try {
                 refreshIfExpiringSoon()
-                val outcome = downloadOnce(streamURL, dest.parentFile ?: File("."), null, null) { code ->
-                    if (!refreshRetryUsed && shouldRetryDownloadAfterRefresh(code)) {
+                val outcome = downloadOnce(ebookDownloadClient, streamURL, dest.parentFile ?: File("."), null) { code, sentBearer ->
+                    if (!refreshRetryUsed && shouldRetryDownloadAfterRefresh(code, sentBearer)) {
                         refreshRetryUsed = true
                         attemptLimit += 1
                         true
@@ -320,22 +375,27 @@ class AbsApiClient(
      * Wirft bei HTTP-Fehlern wie iOS `cleanupAndThrowForDownloadStatus`.
      */
     private suspend fun downloadOnce(
+        client: OkHttpClient,
         url: String,
         dir: File,
         progress: ((Double) -> Unit)?,
-        knownSize: Long?,
-        retryAfter401: suspend (Int) -> Boolean,
+        retryAfter401: suspend (code: Int, sentBearer: String) -> Boolean,
     ): DownloadOutcome? {
-        val req = Request.Builder().url(url).header("Authorization", "Bearer $token").build()
-        val response = downloadClient.awaitResponse(req)
+        val sentBearer = token
+        val req = Request.Builder().url(url).header("Authorization", "Bearer $sentBearer").build()
+        val response = client.awaitResponse(req)
         response.use { r ->
-            if (retryAfter401(r.code)) return null
+            if (retryAfter401(r.code, sentBearer)) return null
             throwForDownloadStatus(r.code)
             dir.mkdirs()
             val temp = File.createTempFile("abs-dl-", ".part", dir)
             try {
                 withContext(Dispatchers.IO) {
-                    val expected = r.body.contentLength().takeIf { it > 0 } ?: knownSize
+                    val announced = r.body.contentLength().takeIf { it > 0 }
+                    // Kein HEAD vorab: die Größe kommt normalerweise mit der GET-Antwort. Nur wenn sie fehlt,
+                    // wird sie einmalig nebenläufig per HEAD nachgeholt (iOS: `FileDownloadProgressDelegate`).
+                    val lengthLookup = if (progress != null && announced == null) async { fetchExpectedContentLength(client, url) } else null
+                    var expected = announced
                     r.body.byteStream().use { input ->
                         temp.outputStream().use { out ->
                             val buf = ByteArray(64 * 1024)
@@ -346,12 +406,18 @@ class AbsApiClient(
                                 if (n < 0) break
                                 out.write(buf, 0, n)
                                 written += n
-                                if (progress != null && expected != null && expected > 0) {
-                                    progress((written.toDouble() / expected).coerceIn(0.0, 1.0))
+                                if (expected == null && lengthLookup?.isCompleted == true) {
+                                    expected = lengthLookup.await()
+                                }
+                                val total = expected
+                                if (progress != null && total != null && total > 0) {
+                                    progress((written.toDouble() / total).coerceIn(0.0, 1.0))
                                 }
                             }
                         }
                     }
+                    // Sonst wartet `withContext` auf einen noch laufenden HEAD.
+                    lengthLookup?.cancel()
                 }
             } catch (e: Throwable) {
                 temp.delete()
@@ -780,15 +846,10 @@ class AbsApiClient(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AbsApiError.HttpStatus) {
-                if (e.code == 404) {
-                    lastError = AbsApiError.HttpStatus(404, "Media progress id not found: $id")
-                    continue
-                }
-                lastError = e
-                // Nicht-404: trotzdem weitere Kandidaten versuchen; 5xx bricht ab.
-                if (e.code in 500..599) throw e
-            } catch (e: Exception) {
-                lastError = e
+                // Nur 404 heißt „falsche ID“ — 401/403, Server- und Netzfehler gelten für alle Kandidaten
+                // gleich; weitere Versuche bringen nichts (iOS: gleiche Regel).
+                if (e.code != 404) throw e
+                lastError = AbsApiError.HttpStatus(404, "Media progress id not found: $id")
             }
         }
         // Alle Deletes 404 / fehlgeschlagen — wenn GET leer ist, war der Eintrag schon weg.
@@ -829,7 +890,7 @@ class AbsApiClient(
 
     /**
      * Lädt die Datei mit Wiederholungen (jeweils neuer Request, gleiche URL). Mit [progress] wird —
-     * wie die zweite iOS-Überladung — vorab per HEAD die Größe ermittelt und Byte-Fortschritt 0…1 gemeldet.
+     * wie die zweite iOS-Überladung — Byte-Fortschritt 0…1 gemeldet; HEAD nur, wenn die GET-Antwort keine Größe nennt.
      */
     suspend fun downloadAuthenticatedFile(
         streamURL: String,
@@ -837,7 +898,6 @@ class AbsApiClient(
         maxAttempts: Int = 3,
         progress: ((Double) -> Unit)? = null,
     ): File {
-        val knownSize = if (progress != null) fetchExpectedContentLength(streamURL) else null
         var lastError: Throwable? = null
         var attemptLimit = maxAttempts
         var refreshRetryUsed = false
@@ -847,8 +907,8 @@ class AbsApiClient(
             attempt += 1
             try {
                 refreshIfExpiringSoon()
-                val outcome = downloadOnce(streamURL, dir, progress, knownSize) { code ->
-                    if (!refreshRetryUsed && shouldRetryDownloadAfterRefresh(code)) {
+                val outcome = downloadOnce(downloadClient, streamURL, dir, progress) { code, sentBearer ->
+                    if (!refreshRetryUsed && shouldRetryDownloadAfterRefresh(code, sentBearer)) {
                         refreshRetryUsed = true
                         attemptLimit += 1
                         true
@@ -877,10 +937,10 @@ class AbsApiClient(
         throw lastError ?: AbsApiError.EmptyBody()
     }
 
-    /** Content-Length via HEAD (`null` bei Fehler oder unbekannter Größe). */
-    private suspend fun fetchExpectedContentLength(url: String): Long? = try {
+    /** Content-Length via HEAD (`null` bei Fehler oder unbekannter Größe) — nur Fallback ohne GET-`Content-Length`. */
+    private suspend fun fetchExpectedContentLength(client: OkHttpClient, url: String): Long? = try {
         val req = Request.Builder().url(url).head().header("Authorization", "Bearer $token").build()
-        downloadClient.awaitResponse(req).use { r ->
+        client.awaitResponse(req).use { r ->
             if (r.code !in 200..299) null else r.header("Content-Length")?.toLongOrNull()?.takeIf { it > 0 }
         }
     } catch (e: CancellationException) {

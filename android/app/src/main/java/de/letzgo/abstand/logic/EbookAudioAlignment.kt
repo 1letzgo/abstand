@@ -65,6 +65,37 @@ class EbookTrackAlignment(
         return if (low > 0) words[low - 1] else null
     }
 
+    /**
+     * iOS: `lastAlignedIndex(atOrBeforeLocalTime:)` — Index (in [words]) des letzten ausgerichteten Worts, das bis
+     * zur Track-Zeit begonnen hat. `null` vor dem ersten. Plausibilität (Abdeckung, Abstand) prüft [EbookTrackLookup].
+     */
+    fun lastAlignedIndex(atOrBeforeLocalTime: Double): Int? {
+        if (words.isEmpty()) return null
+        var low = 0
+        var high = words.size
+        while (low < high) {
+            val mid = (low + high) / 2
+            if (starts[mid].toDouble() <= atOrBeforeLocalTime) low = mid + 1 else high = mid
+        }
+        return if (low > 0) low - 1 else null
+    }
+
+    /**
+     * iOS: `alignedIndex(forEbookWord:)` — Index (in [words]) des eBook-Worts oder — nicht ausgerichtet — des
+     * nächsten ausgerichteten danach. `null` außerhalb von [ebookWordRange].
+     */
+    fun alignedIndex(forEbookWord: Int): Int? {
+        val range = ebookWordRange ?: return null
+        if (forEbookWord !in range) return null
+        var low = 0
+        var high = words.size
+        while (low < high) {
+            val mid = (low + high) / 2
+            if (words[mid] < forEbookWord) low = mid + 1 else high = mid
+        }
+        return if (low < words.size) low else null
+    }
+
     /** iOS: `ebookWordRange` — erstes und letztes ausgerichtetes eBook-Wort. */
     val ebookWordRange: IntRange? get() = if (words.isEmpty()) null else words.first()..words.last()
 
@@ -160,6 +191,104 @@ class EbookTrackAlignment(
  * iOS: `EbookDisplayWords` — eBook-Wörter eines Tracks in globaler Zeit plus die Zeitspannen, in
  * denen der eBook-Text lückenlos steht.
  */
+/**
+ * iOS: `EbookTranscriptCoverage` — transkribierte Zeitbereiche eines Tracks (lokale Sekunden, sortiert) aus den
+ * Segmenten der Transkriptdatei, nicht aus dem `.bin`. Außerhalb davon weiß der Abgleich nichts.
+ */
+class EbookTranscriptCoverage(spans: List<Span>) {
+    data class Span(val start: Double, val end: Double)
+
+    val spans: List<Span> = spans.sortedBy { it.start }
+
+    fun span(containing: Double): Span? = spans.firstOrNull { it.start - TOLERANCE <= containing && containing < it.end }
+
+    /** Liegt `start…end` ohne Lücke in einem transkribierten Bereich? */
+    fun coversContinuously(from: Double, through: Double): Boolean {
+        val span = span(from) ?: return false
+        return through <= span.end + TOLERANCE
+    }
+
+    companion object {
+        /** Wie `PlayerTranscriptTrackCache.covers`: halbe Sekunde Toleranz am Segmentanfang. */
+        const val TOLERANCE = 0.5
+
+        fun of(cache: PlayerTranscriptTrackCache): EbookTranscriptCoverage =
+            EbookTranscriptCoverage(cache.segments.map { Span(it.start, it.end) })
+    }
+}
+
+/**
+ * iOS: `EbookTrackLookup` — Abgleich eines Tracks plus Abdeckung seines Transkripts. Abfragen liefern nur dann
+ * eine Stelle, wenn sie durch das Transkript belegt ist; sonst `null`, statt still Minuten daneben zu springen.
+ */
+class EbookTrackLookup(val alignment: EbookTrackAlignment, val coverage: EbookTranscriptCoverage) {
+    sealed class NarratedWord {
+        data class Word(val position: Int) : NarratedWord()
+        /** Transkribiert, aber vor dem ersten ausgerichteten Wort (Kapitelansage, Musik). */
+        data object BeforeFirstWord : NarratedWord()
+        data object Unavailable : NarratedWord()
+    }
+
+    /** Zuletzt gesprochenes eBook-Wort bis zur Track-Zeit („wo war ich?"). */
+    fun narratedWord(atLocalTime: Double): NarratedWord {
+        val span = coverage.span(atLocalTime) ?: return NarratedWord.Unavailable
+        val i = alignment.lastAlignedIndex(atLocalTime)
+            ?: return if (span.start <= EbookTranscriptCoverage.TOLERANCE) NarratedWord.BeforeFirstWord else NarratedWord.Unavailable
+        // Das Wort muss im selben lückenlos transkribierten Bereich liegen und nah genug sein.
+        if (alignment.starts[i].toDouble() < span.start - EbookTranscriptCoverage.TOLERANCE ||
+            atLocalTime - alignment.ends[i].toDouble() > MAX_GAP_SECONDS
+        ) {
+            return NarratedWord.Unavailable
+        }
+        return NarratedWord.Word(alignment.words[i])
+    }
+
+    /**
+     * Track-Zeit, ab der das eBook-Wort gesprochen wird. Ein nicht ausgerichtetes Wort nimmt das nächste
+     * ausgerichtete danach — nur, wenn zwischen den Nachbarn lückenlos transkribiert ist und sie höchstens
+     * [MAX_GAP_SECONDS] auseinanderliegen.
+     */
+    fun localTime(forEbookWord: Int): Double? {
+        val i = alignment.alignedIndex(forEbookWord) ?: return null
+        val start = alignment.starts[i].toDouble()
+        if (alignment.words[i] == forEbookWord) return start
+        if (i <= 0) return null
+        val previousEnd = alignment.ends[i - 1].toDouble()
+        if (start - previousEnd > MAX_GAP_SECONDS || !coverage.coversContinuously(previousEnd, start)) return null
+        return start
+    }
+
+    /** Zeit des ersten ausgerichteten Worts, wenn es nah am Trackanfang liegt und davor lückenlos transkribiert ist. */
+    val leadingWordTime: Double?
+        get() {
+            if (alignment.starts.isEmpty()) return null
+            val time = alignment.starts.first().toDouble()
+            if (time > MAX_GAP_SECONDS || !coverage.coversContinuously(0.0, time)) return null
+            return time
+        }
+
+    /** Letztes ausgerichtetes eBook-Wort, wenn es nah am Trackende liegt und dahinter lückenlos transkribiert ist. */
+    fun trailingWord(trackDuration: Double): Int? {
+        if (alignment.words.isEmpty()) return null
+        val last = alignment.words.size - 1
+        val end = alignment.ends[last].toDouble()
+        if (end < trackDuration - MAX_GAP_SECONDS ||
+            !coverage.coversContinuously(alignment.starts[last].toDouble(), maxOf(0.0, trackDuration - 1))
+        ) {
+            return null
+        }
+        return alignment.words[last]
+    }
+
+    /** Ganzer Track transkribiert (Kriterium wie `firstUncoveredTime`: bis eine Sekunde vor Ende). */
+    fun isFullyCovered(trackDuration: Double): Boolean = coverage.coversContinuously(0.0, maxOf(0.0, trackDuration - 1))
+
+    companion object {
+        /** Höchster Abstand (Sekunden) zwischen Abfragezeit und nächstem ausgerichteten Wort. */
+        const val MAX_GAP_SECONDS = 120.0
+    }
+}
+
 data class EbookDisplayWords(val words: List<PlayerTranscriptWord>, val spans: List<Span>) {
     data class Span(val start: Double, val end: Double)
 }

@@ -149,6 +149,9 @@ class SleepTimer(private val clockMillis: () -> Long = System::currentTimeMillis
         // iOS: ohne Wiedergabe pausiert lassen (nach Kopfhörer-Trennen + Rückkehr in den Vordergrund
         // ging der Timer sonst verloren).
         if (!isPlaying) return
+        // Läuft schon (nicht pausiert, Ende gesetzt): nicht neu planen — `remaining` ist dann veraltet und
+        // würde das Ende bei jedem Laden/Track-Wechsel auf „jetzt + volle Dauer" zurücksetzen (iOS-Review R1).
+        if (!isPaused && _sleepEndDate.value != null) return
         isPaused = false
         scheduleWakeIfNeeded(isPlaying)
     }

@@ -332,9 +332,11 @@ class LocalLibraryStore internal constructor(val database: LocalLibraryDatabase)
 
     /** Folgeseite: an bestehenden Reihenfolge-Index anhängen. */
     suspend fun appendCatalogPage(libraryId: String, total: Int, items: List<AbsBook>) = tx {
-        val existingCount = dao.catalogEntryCount(libraryId)
+        // Start hinter dem höchsten Rang, nicht bei `count`: `deleteBook` hinterlässt Lücken, und ein count-basierter
+        // Start würde den bestehenden Eintrag mit dem höchsten Rang (Primärschlüssel) überschreiben.
+        val startRank = dao.maxCatalogRank(libraryId)?.let { it + 1 } ?: 0
         upsertBooksInternal(items)
-        dao.insertCatalogEntries(items.mapIndexed { idx, item -> LocalCatalogEntry.of(libraryId, existingCount + idx, item.id) })
+        dao.insertCatalogEntries(items.mapIndexed { idx, item -> LocalCatalogEntry.of(libraryId, startRank + idx, item.id) })
         dao.catalogListState(libraryId)?.let { dao.upsertCatalogListState(it.copy(total = total)) }
     }
 

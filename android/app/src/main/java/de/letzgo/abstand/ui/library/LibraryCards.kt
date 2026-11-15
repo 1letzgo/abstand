@@ -58,8 +58,10 @@ import de.letzgo.abstand.ui.components.SquareCoverImage
 import de.letzgo.abstand.ui.components.abstandCardChrome
 import de.letzgo.abstand.ui.detail.BookDetailDestination
 import de.letzgo.abstand.ui.formatPlaybackTime
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import de.letzgo.abstand.ui.components.AbstandCoverCornerBadge
 import de.letzgo.abstand.ui.components.AbstandCoverPillMetrics
@@ -111,18 +113,25 @@ data class BookRowLive(
     val downloadProgress: Double,
 )
 
-/** Gezielte Beobachtung je Zeile (nicht die ganze Progress-Map) — iOS-Performance-Regel für Lazy-Listen. */
+/**
+ * Gezielte Beobachtung je Zeile (nicht die ganze Progress-Map) — iOS-Performance-Regel für Lazy-Listen.
+ * Der Download-Fortschritt fließt nur für die gerade ladende Zeile ein (`bookDownloadState` nullt ihn
+ * sonst), der eBook-Anteil kommt aus dem Speicher-Cache von [de.letzgo.abstand.store.EbookLocalStore]
+ * und wird abseits von Main ermittelt.
+ */
 @Composable
 fun rememberBookRowLive(bookId: String, model: AppModel = AppModel.shared): BookRowLive {
     val flow = remember(bookId) {
-        val progressFlow = model.progress.progressByItemId.map { it[bookId] }.distinctUntilChanged()
+        // Override (Mark as read/Reset) mitbeobachten — `setEbookProgressOverride` erneuert die Map.
+        val progressFlow = model.progress.progressByItemId
+            .map { it[bookId] to model.progress.ebookProgressOverride(bookId) }
+            .distinctUntilChanged()
         val downloadFlow = combine(
             DownloadManager.activeItemId, DownloadManager.progress, DownloadManager.queuedItemIds, model.catalog.downloadedItemIds,
         ) { active, prog, queued, downloaded ->
-            val state = LibraryRowLiveState.bookDownloadState(bookId, null, active, prog, queued)
-            Triple(state, bookId in downloaded, prog)
+            LibraryRowLiveState.bookDownloadState(bookId, null, active, prog, queued) to (bookId in downloaded)
         }.distinctUntilChanged()
-        combine(progressFlow, downloadFlow) { p, (state, downloaded, _) ->
+        combine(progressFlow, downloadFlow) { (p, _), (state, downloaded) ->
             BookRowLive(
                 progress = p,
                 ebookFraction = model.progress.ebookDisplayProgressFraction(bookId),
@@ -131,10 +140,15 @@ fun rememberBookRowLive(bookId: String, model: AppModel = AppModel.shared): Book
                 isQueued = state.isQueued,
                 downloadProgress = state.downloadProgress,
             )
-        }
+        }.distinctUntilChanged().flowOn(Dispatchers.Default)
     }
     val initial = remember(bookId) {
-        BookRowLive(model.progress.progress(bookId), model.progress.ebookDisplayProgressFraction(bookId), bookId in model.catalog.downloadedItemIds.value, false, false, 0.0)
+        // Kein Datei-Read auf Main: nur, was der Speicher-Cache schon kennt; der Flow liefert den Rest nach.
+        BookRowLive(
+            model.progress.progress(bookId),
+            model.progress.ebookDisplayProgressFraction(bookId, allowDiskRead = false),
+            bookId in model.catalog.downloadedItemIds.value, false, false, 0.0,
+        )
     }
     return flow.collectAsState(initial).value
 }

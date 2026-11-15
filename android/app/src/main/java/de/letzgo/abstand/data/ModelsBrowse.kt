@@ -318,7 +318,8 @@ data class AbsLibraryResultsPageEnvelope<T>(val results: List<T>, val total: Int
     companion object {
         fun <T> serializer(element: ElementDecoder<T>) = object : SwiftObjectSerializer<AbsLibraryResultsPageEnvelope<T>>("ABSLibraryResultsPageEnvelope") {
             override fun decode(c: JObj): AbsLibraryResultsPageEnvelope<T> {
-                val results = c.tryList("results", element) ?: emptyList()
+                // Elementweise tolerant: ein kaputter Eintrag darf nicht die ganze Seite leeren (sonst hängt das Paging).
+                val results = c.lossyList("results", element) ?: emptyList()
                 return AbsLibraryResultsPageEnvelope(results, intOrIntString(c, "total") ?: results.size)
             }
         }

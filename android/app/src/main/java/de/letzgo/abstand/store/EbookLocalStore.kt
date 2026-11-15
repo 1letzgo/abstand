@@ -111,6 +111,7 @@ object EbookLocalStore {
         val uid = userId?.swiftTrim().orEmpty()
         activeAccount = account
         activeUserId = uid.ifEmpty { null }
+        fractionDictCache.clear()
         synchronized(knownFormatsLock) {
             knownFormatsLoadedForSessionKey = null
             knownFormatsByItemId = HashMap()
@@ -301,6 +302,7 @@ object EbookLocalStore {
             "finished" to if (markFinished || (wasMarkedFinished && incoming >= 0.995)) 1.0 else 0.0,
         )
         writeAtomically(progressFractionFile(account, userId, id), AbsJson.encoder.encodeToString(doubleMapSerializer, payload).toByteArray())
+        fractionDictCache[fractionCacheKey(account, userId, id)] = payload
     }
 
     /** Alle lokal gespeicherten Lesefortschritte im offenen Bereich — für Continue-reading ohne Server-Zeile. */
@@ -317,13 +319,33 @@ object EbookLocalStore {
         }
     }
 
-    private fun loadFractionDict(libraryItemId: String): Map<String, Double>? {
+    /** Kein Datei-Stand (Speicher-Cache-Marker, damit fehlende Dateien nicht erneut gelesen werden). */
+    private val noFractionFile: Map<String, Double> = HashMap()
+
+    /**
+     * Speicher-Cache der `.ebook_fraction.json`-Dateien (Schlüssel: Account + Benutzer + Item) — Listen
+     * fragen den Anteil je Zeile ab; nur der erste Zugriff liest die Platte. [saveProgressFraction] und
+     * [clearProgressFraction] halten ihn aktuell.
+     */
+    private val fractionDictCache = java.util.concurrent.ConcurrentHashMap<String, Map<String, Double>>()
+
+    private fun fractionCacheKey(account: File, userId: String, id: String) = "${account.path}\u0000$userId\u0000$id"
+
+    private fun loadFractionDict(libraryItemId: String, allowDiskRead: Boolean = true): Map<String, Double>? {
         val (account, userId) = requireSession() ?: return null
         val id = libraryItemId.swiftTrim()
         if (id.isEmpty()) return null
-        return runCatching {
-            AbsJson.decoder.decodeFromString(doubleMapSerializer, progressFractionFile(account, userId, id).readText())
-        }.getOrNull()
+        val cacheKey = fractionCacheKey(account, userId, id)
+        fractionDictCache[cacheKey]?.let { return it.takeIf { d -> d !== noFractionFile } }
+        if (!allowDiskRead) return null
+        val file = progressFractionFile(account, userId, id)
+        val dict = if (file.exists()) {
+            runCatching { AbsJson.decoder.decodeFromString(doubleMapSerializer, file.readText()) }.getOrNull()
+        } else {
+            null
+        }
+        fractionDictCache[cacheKey] = dict ?: noFractionFile
+        return dict
     }
 
     /** Explizit „als gelesen markiert“ (nicht nur ≥ 99,5 % gelesen). */
@@ -334,8 +356,9 @@ object EbookLocalStore {
         return (dict["fraction"] ?: 0.0) >= 0.9999
     }
 
-    fun loadProgressFraction(libraryItemId: String): Double? {
-        val f = loadFractionDict(libraryItemId)?.get("fraction") ?: return null
+    /** @param allowDiskRead `false` = nur der Speicher-Cache (für Main-Thread-Startwerte in Listen). */
+    fun loadProgressFraction(libraryItemId: String, allowDiskRead: Boolean = true): Double? {
+        val f = loadFractionDict(libraryItemId, allowDiskRead)?.get("fraction") ?: return null
         if (!f.isFinite() || f <= 0.001) return null
         return f.coerceIn(0.0, 1.0)
     }
@@ -345,6 +368,7 @@ object EbookLocalStore {
         val id = libraryItemId.swiftTrim()
         if (id.isEmpty()) return
         progressFractionFile(account, userId, id).delete()
+        fractionDictCache[fractionCacheKey(account, userId, id)] = noFractionFile
     }
 
     /** iOS: `Data.write(to:options: .atomic)` — temporär schreiben, dann umbenennen. */

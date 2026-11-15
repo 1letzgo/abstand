@@ -140,4 +140,26 @@ class PlayerSupportTest {
         assertEquals(3, AudioEQBands.filters(gains).size)
         assertEquals(6.0, AudioEQBands.responseDB(AudioEQBands.filters(listOf(0.0, 6.0, 0.0, 0.0, 0.0, 0.0)), 200.0), 0.2)
     }
+
+    @Test
+    fun periodicProgressGateSkipsIdleTicksWhilePaused() {
+        val gate = PeriodicProgressGate(intervalMillis = 5_000)
+        // Spielt: alle 5 s schreiben.
+        assertTrue(gate.shouldRecord(0, isPlaying = true, key = "a", position = 10.0))
+        gate.noteRecorded("a", 10.0)
+        assertFalse(gate.shouldRecord(4_000, isPlaying = true, key = "a", position = 14.0))
+        assertTrue(gate.shouldRecord(5_000, isPlaying = true, key = "a", position = 15.0))
+        gate.noteRecorded("a", 15.0)
+        // Pause schreibt einmal (außerhalb des Gates) — danach schreiben Leerlauf-Ticks nichts mehr.
+        gate.noteRecorded("a", 15.2)
+        assertFalse(gate.shouldRecord(11_000, isPlaying = false, key = "a", position = 15.2))
+        assertFalse(gate.shouldRecord(60_000, isPlaying = false, key = "a", position = 15.2))
+        // Seek im Pausenzustand ohne eigene Sicherung: einmal nachziehen, dann wieder Ruhe.
+        assertTrue(gate.shouldRecord(61_000, isPlaying = false, key = "a", position = 120.0))
+        gate.noteRecorded("a", 120.0)
+        assertFalse(gate.shouldRecord(70_000, isPlaying = false, key = "a", position = 120.0))
+        // Titelwechsel zählt als Änderung.
+        assertTrue(gate.shouldRecord(80_000, isPlaying = false, key = "b", position = 120.0))
+    }
+
 }

@@ -8,6 +8,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import de.letzgo.abstand.data.AbsApiClient
+import de.letzgo.abstand.data.AbsApiError
 import de.letzgo.abstand.data.AbsAudioTrack
 import de.letzgo.abstand.data.AbsBook
 import de.letzgo.abstand.data.AbsChapter
@@ -382,6 +383,12 @@ object DownloadManager {
                     _activeItemId.value = null
                     _progress.value = 0.0
                 }
+                outcome == Outcome.FailedKeepPartial -> {
+                    // Vorübergehender Netzfehler: fertige Tracks + `download-wip.json` bleiben für den nächsten Versuch.
+                    _activeItemId.value = null
+                    _progress.value = 0.0
+                    notifyFinished(entry.storageItemId, false)
+                }
                 else -> {
                     deleteDownload(entry.storageItemId)
                     _activeItemId.value = null
@@ -398,7 +405,8 @@ object DownloadManager {
         _completions.tryEmit(DownloadCompletion(storageItemId, ok))
     }
 
-    private enum class Outcome { Success, Interrupted, Failed }
+    /** [FailedKeepPartial]: Fehlschlag, der Teilstand (fertige Tracks + WIP) bleibt liegen. */
+    private enum class Outcome { Success, Interrupted, Failed, FailedKeepPartial }
 
     /** Aufgelöste Tracks + Session für einen Lauf (iOS: `DownloadTrackResolution`). */
     private data class TrackResolution(
@@ -556,7 +564,11 @@ object DownloadManager {
                 chapters = chapterSource?.map { AbsDownloadManifest.Chapter.from(it) },
             )
             withContext(Dispatchers.IO) {
-                manifest.write(folder)
+                try {
+                    manifest.write(folder)
+                } catch (e: Exception) {
+                    throw DownloadManifestWriteException(e)
+                }
                 File(folder, DownloadWip.FILENAME).delete()
             }
             if (ownsPlaySession) runCatching { client.closePlaySession(streamSessionId) }
@@ -569,7 +581,7 @@ object DownloadManager {
             if (ownsPlaySession && streamSessionId.isNotEmpty()) closeQuietly(client, streamSessionId)
             // OkHttp-Abbruch (`cancelInFlightDownloads`) ≙ `URLError.cancelled` → unterbrochen, nicht fehlgeschlagen.
             if (e is java.io.IOException && e.message == "Canceled") return Outcome.Interrupted
-            return Outcome.Failed
+            return if (DownloadFailurePolicy.keepsPartialDownload(e)) Outcome.FailedKeepPartial else Outcome.Failed
         }
     }
 
@@ -610,4 +622,23 @@ object DownloadManager {
 
     private fun loadPersistedQueue(): List<QueuedDownloadRecord> =
         runCatching { AbsJson.decoder.decodeFromString(recordsSerializer, queueFile().readText()) }.getOrDefault(emptyList())
+}
+
+/** `download.json` ließ sich nicht schreiben — echter Fehler, der Teilstand wird verworfen. */
+internal class DownloadManifestWriteException(cause: Throwable) : java.io.IOException("Download manifest write failed: ${cause.message}", cause)
+
+/**
+ * Was ein fehlgeschlagener Download hinterlässt (iOS: gleiche Regel in `DownloadManager.runDownload`):
+ * vorübergehende Netz-/Serverfehler (IO, 5xx, 408, 429) behalten fertige Tracks und `download-wip.json`, echte
+ * Fehler (übrige 4xx inkl. 401, kein Track, Manifest nicht schreibbar, unlesbare Antwort) löschen alles.
+ */
+object DownloadFailurePolicy {
+    fun keepsPartialDownload(error: Throwable): Boolean = when (error) {
+        is DownloadManifestWriteException -> false
+        // Wie iOS `isResumableDownloadError`: 5xx, Timeout (408) und Rate-Limit (429) gehen vorüber.
+        is AbsApiError.HttpStatus -> error.code >= 500 || error.code == 408 || error.code == 429
+        is AbsApiError -> false
+        is java.io.IOException -> true
+        else -> false
+    }
 }

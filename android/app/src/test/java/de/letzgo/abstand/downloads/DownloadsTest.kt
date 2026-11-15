@@ -157,4 +157,20 @@ class DownloadsTest {
             root.deleteRecursively()
         }
     }
+
+    @Test
+    fun failedDownloadKeepsPartialOnlyForTransientErrors() {
+        assertTrue(DownloadFailurePolicy.keepsPartialDownload(java.net.SocketTimeoutException("timeout")))
+        assertTrue(DownloadFailurePolicy.keepsPartialDownload(java.net.UnknownHostException("abs.local")))
+        assertTrue(DownloadFailurePolicy.keepsPartialDownload(java.io.IOException("unexpected end of stream")))
+        assertTrue(DownloadFailurePolicy.keepsPartialDownload(de.letzgo.abstand.data.AbsApiError.HttpStatus(503, null)))
+        assertFalse(DownloadFailurePolicy.keepsPartialDownload(de.letzgo.abstand.data.AbsApiError.HttpStatus(404, null)))
+        assertTrue(DownloadFailurePolicy.keepsPartialDownload(de.letzgo.abstand.data.AbsApiError.HttpStatus(408, null)))
+        assertTrue(DownloadFailurePolicy.keepsPartialDownload(de.letzgo.abstand.data.AbsApiError.HttpStatus(429, null)))
+        assertFalse(DownloadFailurePolicy.keepsPartialDownload(de.letzgo.abstand.data.AbsApiError.HttpStatus(403, null)))
+        assertFalse(DownloadFailurePolicy.keepsPartialDownload(de.letzgo.abstand.data.AbsApiError.Unauthorized(null)))
+        assertFalse(DownloadFailurePolicy.keepsPartialDownload(DownloadManifestWriteException(java.io.IOException("disk full"))))
+        assertFalse(DownloadFailurePolicy.keepsPartialDownload(de.letzgo.abstand.player.PlaybackNoTracksException()))
+    }
+
 }

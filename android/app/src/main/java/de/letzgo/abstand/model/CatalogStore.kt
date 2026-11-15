@@ -37,6 +37,7 @@ import de.letzgo.abstand.logic.CatalogSortField
 import de.letzgo.abstand.logic.LibraryCatalogQuickFilter
 import de.letzgo.abstand.logic.PlayerTranscriptCacheStore
 import de.letzgo.abstand.player.PlaybackController
+import de.letzgo.abstand.reader.EbookProgressSync
 import de.letzgo.abstand.store.EbookLocalStore
 import de.letzgo.abstand.store.LocalLibraryStore
 import kotlinx.coroutines.CancellationException
@@ -282,6 +283,7 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
         val expectedSortKey = catalogSortKey
         val expectedAscending = catalogAscending
         val expectedFilter = _filter.value.activeLibraryFilter
+        val epoch = session.accountSessionEpoch.value
 
         var warmed = false
         if (reset) warmed = loadLibraryFromLocalStore(allowSupersetFallback = !reachable)
@@ -291,6 +293,8 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
             if (!reachable) refreshDownloadedItemIds()
             return
         }
+        // Store vor dem Request festhalten — nach dem Suspend kann schon der Store eines anderen Accounts aktiv sein.
+        val capturedStore = session.currentLocalLibraryStore()
         _isLoadingLibrary.value = true
         try {
             if (reset && !preserveOtherCachedPages && !warmed) {
@@ -309,12 +313,12 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
                 minified = true,
                 filter = expectedFilter,
             )
-            fun stillCurrent() = libraryReloadSerial == serial && !session.offlineHomeUIActive &&
+            fun stillCurrent() = libraryReloadSerial == serial && session.accountSessionEpoch.value == epoch && !session.offlineHomeUIActive &&
                 libraryCatalog?.id == expectedLibraryId && catalogSortKey == expectedSortKey &&
                 catalogAscending == expectedAscending && _filter.value.activeLibraryFilter == expectedFilter
             if (!stillCurrent()) return
             val pageBooks = page.results.filter { it.isUsableLibraryCatalogRow }
-            session.currentLocalLibraryStore()?.let { store ->
+            capturedStore?.let { store ->
                 runCatching {
                     withContext(Dispatchers.IO) {
                         when {
@@ -329,7 +333,7 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
                     }
                 }.onFailure { if (it is CancellationException) throw it; Log.w(TAG, "LocalStore catalog write failed: ${it.message}") }
             }
-            if (libraryReloadSerial != serial || session.offlineHomeUIActive) return
+            if (libraryReloadSerial != serial || session.accountSessionEpoch.value != epoch || session.offlineHomeUIActive) return
             when {
                 reset && preserveOtherCachedPages -> {
                     val (merged, total) = CatalogLogic.mergeFirstPagePreservingRest(_books.value, pageBooks, page.total)
@@ -351,7 +355,8 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            session.publishErrorUnlessBenignCancellation(e)
+            // Fehler eines verlassenen Accounts nicht im neuen anzeigen.
+            if (session.accountSessionEpoch.value == epoch) session.publishErrorUnlessBenignCancellation(e)
         } finally {
             if (libraryReloadSerial == serial) _isLoadingLibrary.value = false
         }
@@ -1641,10 +1646,13 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
             finishMarkFinishedLocally(bookId, wasPlaying)
             return
         }
+        val epoch = session.accountSessionEpoch.value
         try {
             if (wasPlaying) PlaybackController.sharedOrNull()?.tearDownPlayer()
             c.markFinished(bookId)
             val auth = c.authorize()
+            // Account während des Requests gewechselt: Antwort nicht in den neuen Account übernehmen.
+            if (!session.isAuthorizeResponseCurrent(auth.user, epoch, c)) return
             session.applyAuthorizeUser(auth.user)
             progress.clearLocallyFinishedProgressKey(bookId)
             progress.clearPendingLocalProgressSync(bookId)
@@ -1674,10 +1682,13 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
         progress.markPendingLocalProgressSync(bookId)
         val c = session.client
         if (!session.mayUseServerNetwork || c == null) return
+        val epoch = session.accountSessionEpoch.value
         try {
             c.patchProgress(bookId, null, AbsProgressPatch(isFinished = false))
             patchCatalogAfterProgressChange(bookId, finished = false)
             val auth = c.authorize()
+            // Account während des Requests gewechselt: Antwort nicht in den neuen Account übernehmen.
+            if (!session.isAuthorizeResponseCurrent(auth.user, epoch, c)) return
             session.applyAuthorizeSession(auth)
             progress.clearPendingLocalProgressSync(bookId)
             if (needsFullLibraryReloadAfterProgressChange(bookId, finished = false)) reloadLibrary(reset = true)
@@ -1705,7 +1716,7 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
         patchCatalogAfterProgressDiscard(bookId)
         try {
             if (playing) PlaybackController.sharedOrNull()?.tearDownPlayer()
-            de.letzgo.abstand.player.PendingOfflineListening.run { load().let { m -> if (bookId in m) save(m - bookId) } }
+            de.letzgo.abstand.player.PendingOfflineListening.remove(bookId, progress.pendingOfflineListeningStorageKey())
             val mediaId = lookupBookStub(bookId)?.mediaId
             for (s in loadBookListeningSessions(bookId, mediaId)) runCatching { c.deleteListeningSession(s.id) }
             session.currentLocalLibraryStore()?.let { s -> runCatching { withContext(Dispatchers.IO) { s.replaceListeningSessions(bookId, null, emptyList()) } } }
@@ -1754,53 +1765,13 @@ class CatalogStore(private val model: AppModel) : SessionParticipant {
 
     // MARK: - eBook-Fortschritt (Detail „Mark as read")
 
-    private fun patchPreservingAudiobookFields(libraryItemId: String, ebookProgress: Double): AbsProgressPatch {
-        val row = progress.progress(libraryItemId)
-        return AbsProgressPatch(
-            currentTime = row?.currentTime, duration = row?.duration, progress = row?.progress,
-            isFinished = row?.isFinished, ebookProgress = ebookProgress,
-        )
-    }
+    /** iOS: `markEbookAsFinished(libraryItemId:format:)` — eine Implementierung mit dem Reader ([EbookProgressSync]). */
+    suspend fun markEbookAsFinished(libraryItemId: String, format: AbsEbookFormat) =
+        EbookProgressSync.markFinished(libraryItemId, format)
 
-    /** iOS: `markEbookAsFinished(libraryItemId:format:)`. */
-    suspend fun markEbookAsFinished(libraryItemId: String, format: AbsEbookFormat) {
-        val id = libraryItemId.swiftTrim().ifEmpty { return }
-        progress.setEbookProgressOverride(id, 1.0)
-        EbookLocalStore.clearReadiumLocator(id, format)
-        EbookLocalStore.saveProgressFraction(1.0, id, markFinished = true)
-        val c = session.client
-        if (!session.mayUseServerNetwork || !reachable || c == null) return
-        try {
-            c.patchProgress(id, null, patchPreservingAudiobookFields(id, 1.0))
-            session.applyAuthorizeUser(c.authorize().user)
-            if ((progress.progress(id)?.ebookProgress ?: 0.0) >= 0.995) progress.setEbookProgressOverride(id, null)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "eBook progress sync failed: ${e.message}")
-        }
-    }
-
-    /** iOS: `resetEbookReadingProgress(libraryItemId:format:)`. */
-    suspend fun resetEbookReadingProgress(libraryItemId: String, format: AbsEbookFormat) {
-        val id = libraryItemId.swiftTrim().ifEmpty { return }
-        progress.setEbookProgressOverride(id, 0.0)
-        EbookLocalStore.clearReadiumLocator(id, format)
-        EbookLocalStore.clearProgressFraction(id)
-        val c = session.client
-        if (!session.mayUseServerNetwork || !reachable || c == null) return
-        try {
-            c.patchProgress(id, null, patchPreservingAudiobookFields(id, 0.0))
-            session.applyAuthorizeUser(c.authorize().user)
-            val f = progress.progress(id)?.ebookProgress
-            if (f == null || f <= 0.005) progress.setEbookProgressOverride(id, null)
-            EbookLocalStore.clearProgressFraction(id)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "eBook reset sync failed: ${e.message}")
-        }
-    }
+    /** iOS: `resetEbookReadingProgress(libraryItemId:format:)` — eine Implementierung mit dem Reader ([EbookProgressSync]). */
+    suspend fun resetEbookReadingProgress(libraryItemId: String, format: AbsEbookFormat) =
+        EbookProgressSync.reset(libraryItemId, format)
 
     /** iOS: `cachedEbookFormat(libraryItemId:)`. */
     fun cachedEbookFormat(libraryItemId: String): AbsEbookFormat? =

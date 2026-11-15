@@ -169,6 +169,14 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
 
     override fun clearPendingLocalProgressSync(progressKey: String) = progressStore.clearPendingLocalProgressSync(progressKey)
 
+    override val pendingOfflineListeningStorageKey: String get() = progressStore.pendingOfflineListeningStorageKey()
+
+    override val hasCompleteAccountScope: Boolean get() = progressStore.hasCompleteGuardScope
+
+    override val accountSessionEpoch: Long get() = session.accountSessionEpoch.value
+
+    override val isClearingSessionState: Boolean get() = session.isClearingSessionState
+
     override fun podcastEpisode(libraryItemId: String, episodeId: String): AbsPodcastEpisodeListItem? {
         val key = NowPlayingState.progressKeyOf(libraryItemId, episodeId)
         val p = model.podcasts
@@ -477,6 +485,8 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
         val c = session.client ?: return
         if (!canUseServer) return
         runCatching { bridge.flushPendingOfflineListeningTime() }
+        // Offline gesetztes eBook „Mark as read"/Reset (nur Android persistiert).
+        runCatching { de.letzgo.abstand.reader.EbookProgressSync.flushUnsentOverrides() }
         val activeKey = player.activeBook.value?.let { NowPlayingState.progressKeyOf(it.id, player.activePlaybackEpisodeId.value) }
         for (key in progressStore.pendingLocalProgressSyncKeys) {
             // Laufende Remote-Session synct selbst.
@@ -672,8 +682,12 @@ class PlayerWiring(private val model: AppModel) : SessionParticipant, PlaybackHo
         downloads.loadForActiveAccount()
     }
 
-    override fun onTokensRefreshed(accessToken: String, refreshToken: String) {
-        player.adoptRefreshedTokens(accessToken, refreshToken)
+    override fun onTokensRefreshed(accessToken: String, refreshToken: String, previousRefreshToken: String) {
+        player.adoptRefreshedTokens(accessToken, refreshToken, previousRefreshToken)
+    }
+
+    override fun parkBeforeSessionClear() {
+        if (::bridge.isInitialized) bridge.parkLocalPlaybackBeforeSessionClear()
     }
 
     override fun onSessionCleared(clearCredentials: Boolean) {

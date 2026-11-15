@@ -16,6 +16,7 @@ import de.letzgo.abstand.data.Keys
 import de.letzgo.abstand.data.Prefs
 import de.letzgo.abstand.data.swiftTrim
 import de.letzgo.abstand.store.ActiveLibraryIdsStore
+import de.letzgo.abstand.reader.EbookProgressRules
 import de.letzgo.abstand.store.EbookLocalStore
 import de.letzgo.abstand.store.LocalLibraryStore
 import kotlinx.coroutines.CancellationException
@@ -217,14 +218,23 @@ class HomeStore internal constructor(private val model: AppModel) : SessionParti
 
     // MARK: - Fortschritt
 
-    /** iOS: `applyUserProgress(_:persistToDisk:)` (ohne Reset-/Discard-Sonderfälle). */
-    fun applyUserProgress(list: List<AbsUserMediaProgress>?, persistToDisk: Boolean = true) {
-        if (list.isNullOrEmpty()) return
+    /**
+     * iOS: `applyUserProgress(_:persistToDisk:isCompleteServerList:)` (ohne Reset-/Discard-Sonderfälle).
+     * Mit [isCompleteServerList] (vollständiges `/authorize`) fallen Keys weg, die der Server nicht mehr kennt —
+     * gleiche Schutzregel wie im [ProgressStore].
+     */
+    fun applyUserProgress(list: List<AbsUserMediaProgress>?, persistToDisk: Boolean = true, isCompleteServerList: Boolean = false) {
+        if (list == null) return
+        if (list.isEmpty() && !isCompleteServerList) return
         val next = _progressByItemId.value.toMutableMap()
         for (p in list) {
             val key = p.progressLookupKey
             if (p.isFinished) blockedContinueKeys.remove(key)
             next[key] = HomeShelfLogic.mergedProgress(next[key], p)
+        }
+        if (isCompleteServerList) {
+            val serverKeys = list.mapTo(HashSet()) { it.progressLookupKey }
+            next.entries.removeAll { (key, row) -> key !in serverKeys && !model.progress.isProgressPruneProtected(key, row) }
         }
         _progressByItemId.value = next
         localProgressLoaded = true
@@ -638,9 +648,11 @@ class HomeStore internal constructor(private val model: AppModel) : SessionParti
     // MARK: - Continue reading (eBooks)
 
     /** iOS: `ebookDisplayProgressFraction`. */
-    fun ebookDisplayProgressFraction(libraryItemId: String): Double? {
+    fun ebookDisplayProgressFraction(libraryItemId: String, allowDiskRead: Boolean = true): Double? {
         val id = libraryItemId.swiftTrim()
-        return HomeShelfLogic.ebookDisplayFraction(_progressByItemId.value[id]?.ebookProgress, EbookLocalStore.loadProgressFraction(id))
+        // Mark-as-read/Reset-Override (eine Map im ProgressStore) gewinnt, bis der Server nachzieht.
+        model.progress.ebookProgressOverride(id)?.let { return EbookProgressRules.displayFraction(it, null, null) }
+        return HomeShelfLogic.ebookDisplayFraction(_progressByItemId.value[id]?.ebookProgress, EbookLocalStore.loadProgressFraction(id, allowDiskRead))
     }
 
     /**
@@ -780,7 +792,8 @@ class HomeStore internal constructor(private val model: AppModel) : SessionParti
             !HomeShelfLogic.continueShelfHasVisibleItems(_startShelves.value, disabled)
     }
 
-    override fun onAuthorizeUser(user: AbsUser, persistToDisk: Boolean) = applyUserProgress(user.mediaProgress, persistToDisk)
+    override fun onAuthorizeUser(user: AbsUser, persistToDisk: Boolean) =
+        applyUserProgress(user.mediaProgress, persistToDisk, isCompleteServerList = true)
 
     override fun onSessionCleared(clearCredentials: Boolean) {
         dashboardGeneration++

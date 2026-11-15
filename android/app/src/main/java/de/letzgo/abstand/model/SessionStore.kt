@@ -325,17 +325,38 @@ class SessionStore internal constructor(
     /** iOS: `restoreServerClientIfNeeded`. */
     fun restoreServerClientIfNeeded() {
         if (client != null) return
-        val url = AbsApiClient.normalizeServerURL(_serverURL.value) ?: return
-        if (token.isEmpty()) return
-        client = AbsApiClient(url, token, refreshToken.ifEmpty { null })
+        // Denselben Client wie für die Offline-Wiedergabe nehmen — zwei Clients mit demselben rotierenden
+        // Refresh-Token können sich gegenseitig ausloggen (Single-Flight/Backoff gilt je Instanz).
+        client = clientForOfflineLocalPlayback() ?: return
     }
 
-    /** iOS: `clientForOfflineLocalPlayback` — Client nur für lokale Wiedergabe (kein Authorize). */
+    /**
+     * iOS: `clientForOfflineLocalPlayback` — Client nur für lokale Wiedergabe (kein Authorize). Ein
+     * Client je Session (Server + aktuelles Token), nicht einer je Aufruf; neu erst bei anderen Zugangsdaten.
+     */
     fun clientForOfflineLocalPlayback(): AbsApiClient? {
         client?.let { return it }
         val url = AbsApiClient.normalizeServerURL(_serverURL.value) ?: return null
         if (token.isEmpty()) return null
-        return AbsApiClient(url, token, refreshToken.ifEmpty { null })
+        val key = offlineClientKey(url, token)
+        synchronized(offlineClientLock) {
+            offlineClient?.takeIf { offlineClientCacheKey == key }?.let { return it }
+            val c = AbsApiClient(url, token, refreshToken.ifEmpty { null })
+            offlineClient = c
+            offlineClientCacheKey = key
+            return c
+        }
+    }
+
+    private val offlineClientLock = Any()
+    private var offlineClient: AbsApiClient? = null
+    private var offlineClientCacheKey: String? = null
+
+    private fun offlineClientKey(url: String, token: String) = "$url\u0000$token"
+
+    private fun dropOfflineClient() = synchronized(offlineClientLock) {
+        offlineClient = null
+        offlineClientCacheKey = null
     }
 
     // MARK: - Fehler
@@ -623,6 +644,15 @@ class SessionStore internal constructor(
         participants.forEach { it.prepareForOfflineHomeMode() }
         if (!offlineHomeUIActive) return
         _isServerReachable.value = false
+        // Den bisherigen Client für die Offline-Wiedergabe weiterverwenden (kein zweiter mit demselben Refresh-Token).
+        val previous = client
+        val url = AbsApiClient.normalizeServerURL(_serverURL.value)
+        if (previous != null && url != null && token.isNotEmpty()) {
+            synchronized(offlineClientLock) {
+                offlineClient = previous
+                offlineClientCacheKey = offlineClientKey(url, token)
+            }
+        }
         client = null
     }
 
@@ -691,7 +721,9 @@ class SessionStore internal constructor(
         val generation = ++authorizeApplyGeneration
         try {
             val auth = c.authorize()
-            if (_accountSessionEpoch.value != epoch || authorizeApplyGeneration != generation || !mayUseServerNetwork) return
+            if (authorizeApplyGeneration != generation || !mayUseServerNetwork) return
+            // Account/Client während des Requests gewechselt: Antwort nicht in den neuen Account übernehmen.
+            if (!isAuthorizeResponseCurrent(auth.user, epoch, c)) return
             _isServerReachable.value = true
             applyAuthorizeSession(auth)
             adoptLegacyTokenIfNeeded(auth, c)
@@ -701,6 +733,17 @@ class SessionStore internal constructor(
             // 401/403 und abgebrochene Requests sind kein Erreichbarkeits-Signal.
             if (!SessionLogic.isAuthHTTPStatus(e) && !AbstandErrorFilter.isBenignCancellation(e)) _isServerReachable.value = false
         }
+    }
+
+    /**
+     * iOS: `isAuthorizeResponseCurrent(_:epoch:client:)` — nach `await c.authorize()` in Aktionen (Fertig markieren,
+     * Reset, eBook-Sync) nur übernehmen, wenn Account-Epoche und Client noch dieselben sind und die Antwort zum
+     * aktiven User gehört — sonst landet Fortschritt von Account A im Zustand (und Room) von Account B.
+     */
+    fun isAuthorizeResponseCurrent(user: AbsUser, epoch: Long, c: AbsApiClient): Boolean {
+        if (_accountSessionEpoch.value != epoch || client !== c) return false
+        val active = sessionUserId.swiftTrim()
+        return active.isEmpty() || active == user.id
     }
 
     /** `/api/authorize` liefert nur das Legacy-Token — bei gesetztem Refresh-Token nie damit überschreiben. */
@@ -901,6 +944,9 @@ class SessionStore internal constructor(
         val account = _storedAccounts.value.firstOrNull { it.accountKey == accountKey } ?: return
         _isSwitchingAccount.value = true
         try {
+            // Epoch sofort erhöhen: späte Antworten des alten Accounts dürfen während des Bootstraps des
+            // neuen die Epoch-Guards nicht mehr passieren. Der zweite Bump am Ende baut die Views neu auf.
+            _accountSessionEpoch.value += 1
             if (savingCurrentSession) syncStoredAccountFromSession()
             participants.forEach { it.willSwitchAccount() }
             CoverImageCache.evictMemory(appContext)
@@ -1001,10 +1047,19 @@ class SessionStore internal constructor(
 
     /**
      * Vom Client erneuerte Tokens übernehmen — nur, wenn sie zur aktiven Session gehören (nach einem
-     * Account-Wechsel kann noch ein Refresh des alten Clients eintreffen).
+     * Account-Wechsel kann noch ein Refresh des alten Clients eintreffen; der landet dann im gespeicherten
+     * Account, dem er gehört).
      */
     fun adoptRefreshedSessionTokens(serverURL: String, accessToken: String, refreshToken: String, previousRefreshToken: String) {
-        if (!SessionLogic.shouldAdoptRefreshedTokens(_serverURL.value, serverURL, this.refreshToken, previousRefreshToken, accessToken)) return
+        val previous = previousRefreshToken.swiftTrim()
+        if (accessToken.isEmpty() || previous.isEmpty()) return
+        if (!SessionLogic.shouldAdoptRefreshedTokens(_serverURL.value, serverURL, this.refreshToken, previous, accessToken)) {
+            SessionLogic.adoptRefreshedTokensForStoredAccount(_storedAccounts.value, serverURL, accessToken, refreshToken, previous)?.let {
+                _storedAccounts.value = it
+                persistStoredAccounts()
+            }
+            return
+        }
         token = accessToken
         Prefs.setString(Keys.token, accessToken)
         if (refreshToken.isNotEmpty()) {
@@ -1013,11 +1068,12 @@ class SessionStore internal constructor(
         }
         syncStoredAccountFromSession(markActive = false)
         // Alle lebenden Clients angleichen — sonst erneuert ein anderer später mit dem rotierten Token und fliegt raus.
-        client?.let { c ->
-            c.setToken(accessToken)
-            if (refreshToken.isNotEmpty()) c.setRefreshToken(refreshToken)
+        val offline = synchronized(offlineClientLock) {
+            offlineClient?.also { offlineClientCacheKey = AbsApiClient.normalizeServerURL(_serverURL.value)?.let { u -> offlineClientKey(u, accessToken) } }
         }
-        participants.forEach { it.onTokensRefreshed(accessToken, refreshToken) }
+        // Compare-and-Swap: eine verspätete Meldung darf einen neueren Stand nicht zurückrollen.
+        listOfNotNull(client, offline).distinct().forEach { c -> c.adoptRotatedTokens(accessToken, refreshToken, previous) }
+        participants.forEach { it.onTokensRefreshed(accessToken, refreshToken, previous) }
         _sessionRejected.value = false
         _tokenRevision.value += 1
     }
@@ -1080,7 +1136,23 @@ class SessionStore internal constructor(
     }
 
     /** iOS: `clearInMemorySessionState` — Session-Zustand verwerfen; [clearCredentials] = Logout. */
+    /** iOS: `isClearingSessionState` — während [clearInMemorySessionState] lokale Sync-Callbacks aus dem Player-Abriss ignorieren. */
+    var isClearingSessionState: Boolean = false
+        private set
+
     fun clearInMemorySessionState(clearCredentials: Boolean) {
+        // Position + Rest-Hörzeit einer lokalen Wiedergabe noch im Scope des alten Accounts sichern — der
+        // Player-Abriss liefe erst nach dem Leeren von Client, User-ID und Fortschritt.
+        participants.forEach { it.parkBeforeSessionClear() }
+        isClearingSessionState = true
+        try {
+            clearInMemorySessionStateBody(clearCredentials)
+        } finally {
+            isClearingSessionState = false
+        }
+    }
+
+    private fun clearInMemorySessionStateBody(clearCredentials: Boolean) {
         cancelDeferredBootstrapWork()
         _mainTab.value = MainTab.start
         if (clearCredentials) {
@@ -1093,7 +1165,7 @@ class SessionStore internal constructor(
         _isServerReachable.value = false
         _isAppBootstrapInProgress.value = false
         _sessionRejected.value = false
-        Prefs.remove(Keys.pendingOfflineListeningSeconds)
+        // Offline-Hörsekunden liegen je Account (Server + User) und bleiben für dessen nächsten Sync erhalten.
         participants.forEach { it.onSessionCleared(clearCredentials) }
         if (clearCredentials) {
             EbookLocalStore.updateActiveSession(null, null)
@@ -1108,6 +1180,7 @@ class SessionStore internal constructor(
         _isServerRoot.value = false
         _serverSettings.value = null
         client = null
+        dropOfflineClient()
         _libraries.value = emptyList()
         _selectedBooksLibrary.value = null
         _selectedPodcastLibrary.value = null

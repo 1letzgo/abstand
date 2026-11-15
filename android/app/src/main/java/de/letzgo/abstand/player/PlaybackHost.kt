@@ -52,6 +52,18 @@ interface PlaybackHost {
 
     /** Smart-Download hat für den laufenden Titel einen Download gestartet (Speicher-ID). */
     fun onSmartDownloadStarted(storageItemId: String) {}
+
+    /** iOS: `pendingOfflineListeningStorageKey()` — Offline-Hörsekunden je Server + Benutzer. */
+    val pendingOfflineListeningStorageKey: String get() = de.letzgo.abstand.data.Keys.pendingOfflineListeningSeconds
+
+    /** Server **und** User stehen fest — Bedingung für die einmalige Migration des globalen Legacy-Keys. */
+    val hasCompleteAccountScope: Boolean get() = false
+
+    /** iOS: `accountSessionEpoch`. */
+    val accountSessionEpoch: Long get() = 0
+
+    /** iOS: `isClearingSessionState` — lokale Sync-Callbacks aus dem Player-Abriss ignorieren. */
+    val isClearingSessionState: Boolean get() = false
 }
 
 /**

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -38,6 +39,8 @@ import de.letzgo.abstand.ui.components.abstandCardChrome
 import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.aspectRatio
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // Home-Regale (Android: alle, auch „Continue listening“): Kompaktkarte — Cover 1:1 links, rechts Titel
 // (eine Zeile), Metazeile, unten Laufzeit/Status und (Bücher/Folgen) die Play-Pille wie in Books,
@@ -132,7 +135,15 @@ fun HomeBookCompactCard(book: AbsBook, onOpen: () -> Unit, usesEbookProgressDisp
     val usesEbookMetrics = book.isPureEbookLibraryItem || usesEbookProgressDisplay
     val progress = rememberProgress(book.id)
     val download = rememberDownloadBadge(book.id)
-    val ebookFraction = if (usesEbookMetrics) AppModel.shared.home.ebookDisplayProgressFraction(book.id) else null
+    // eBook-Anteil: Startwert nur aus dem Speicher-Cache, Datei-Read abseits von Main (nicht je Recomposition).
+    val home = AppModel.shared.home
+    val override = if (usesEbookMetrics) AppModel.shared.progress.ebookProgressOverride(book.id) else null
+    val ebookFraction = produceState(
+        initialValue = if (usesEbookMetrics) home.ebookDisplayProgressFraction(book.id, allowDiskRead = false) else null,
+        book.id, usesEbookMetrics, progress, override,
+    ) {
+        value = if (usesEbookMetrics) withContext(Dispatchers.IO) { home.ebookDisplayProgressFraction(book.id) } else null
+    }.value
     val isFinished = if (usesEbookMetrics) (ebookFraction ?: 0.0) >= 0.995 else progress?.isFinished == true
     val showsProgressBar = if (usesEbookMetrics) {
         ebookFraction != null && ebookFraction > 0.005 && ebookFraction < 0.995

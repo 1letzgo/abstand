@@ -151,8 +151,12 @@ object LocalHosts {
         host.indexOf('%').takeIf { it >= 0 }?.let { host = host.substring(0, it) }
         if (host == "localhost" || host.endsWith(".local")) return true
         if (host.contains(":")) return isLocalIPv6(host)
-        val octets = host.split(".").mapNotNull { it.toIntOrNull() }
-        if (octets.size != 4 || octets.any { it !in 0..255 }) return false
+        // Genau vier rein numerische Labels — `10.0.0.1.example.com` oder `192.168.1.5.nip.io` sind
+        // öffentliche Namen und dürfen nicht als private IP durchgehen.
+        val labels = host.split(".")
+        if (labels.size != 4 || labels.any { l -> l.isEmpty() || l.length > 3 || l.any { it !in '0'..'9' } }) return false
+        val octets = labels.map { it.toInt() }
+        if (octets.any { it !in 0..255 }) return false
         val (a, b) = octets[0] to octets[1]
         return a == 127 || a == 10 || (a == 192 && b == 168) || (a == 172 && b in 16..31) || (a == 100 && b in 64..127)
     }
@@ -238,8 +242,10 @@ object CustomHeadersStore {
     fun save(headers: List<ServerHTTPHeader>, forServer: String): Boolean {
         val key = originKeyForServer(forServer) ?: return false
         val clean = ServerHTTPHeader.sanitized(headers)
-        cache.remove(key)
+        // Erst speichern, dann Cache setzen — würde der Cache vorher geleert, könnte ein paralleles
+        // `load` noch die alten Header lesen und wieder cachen (iOS: `AbstandCustomHeadersStore.save`).
         Secrets.set(PREFIX + key, if (clean.isEmpty()) null else AbsJson.encoder.encodeToString(serializer, clean))
+        cache[key] = clean
         return true
     }
 

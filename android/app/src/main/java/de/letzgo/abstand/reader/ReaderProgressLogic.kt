@@ -13,8 +13,26 @@ data class RenderedPageInfo(val current: Int, val total: Int)
 /** iOS: `BookPageProgress`. */
 data class BookPageProgress(val current: Int, val total: Int, val percent: Int)
 
-/** iOS: `ServerPositionOffer`. */
-data class ServerPositionOffer(val serverFraction: Double, val localFraction: Double)
+/**
+ * iOS: `ServerPositionOffer` — `origin` ist hier als `href` + `progression` des Locators beim Öffnen
+ * abgelegt (keine Readium-Typen in der reinen Logik).
+ */
+data class ServerPositionOffer(
+    val serverFraction: Double,
+    val localFraction: Double,
+    val originHref: String = "",
+    val originProgression: Double = 0.0,
+) {
+    /** iOS: `isLeft(by:)` — anderes Kapitel oder spürbar weitergeblättert: der Nutzer bleibt bewusst hier. */
+    fun isLeft(href: String, progression: Double?): Boolean {
+        if (href != originHref) return true
+        return abs((progression ?: 0.0) - originProgression) > EbookProgressRules.SERVER_OFFER_DECLINE_PROGRESSION
+    }
+
+    /** Nach reinem Neu-Umbruch (Schriftgröße, Theme, Dauerscroll) gilt die neue Stelle als Ursprung. */
+    fun rebased(href: String, progression: Double?): ServerPositionOffer =
+        copy(originHref = href, originProgression = progression ?: 0.0)
+}
 
 /** iOS: `ReadiumReaderProgressInfo` (ohne Readium-`Locator`: der Aufrufer reicht die Locations durch). */
 object ReaderProgressInfo {
@@ -100,6 +118,9 @@ object EbookProgressRules {
     /** So weit (Anteil am Buch) muss der Server vorn sein, damit das Angebot erscheint. */
     const val SERVER_POSITION_OFFER_THRESHOLD = 0.02
 
+    /** iOS: `ReaderChromeMetrics.serverOfferDeclineProgression` — Abstand zum Ursprung, ab dem das Angebot endet. */
+    const val SERVER_OFFER_DECLINE_PROGRESSION = 0.002
+
     /** Änderungen unter diesem Abstand zum zuletzt gesendeten Stand lösen keinen PATCH aus. */
     const val MIN_SYNC_DELTA = 0.003
 
@@ -110,10 +131,19 @@ object EbookProgressRules {
      * iOS: Ende von `loadNavigator` — lokaler Locator vorhanden, Server aber deutlich weiter:
      * Angebot statt stillem Öffnen der alten Seite.
      */
-    fun serverPositionOffer(localLocatorFraction: Double?, serverFraction: Double?): ServerPositionOffer? {
+    fun serverPositionOffer(
+        localLocatorFraction: Double?,
+        serverFraction: Double?,
+        originHref: String = "",
+        originProgression: Double? = null,
+    ): ServerPositionOffer? {
         val local = localLocatorFraction ?: return null
         val server = serverFraction ?: return null
-        return if (server - local >= SERVER_POSITION_OFFER_THRESHOLD) ServerPositionOffer(server, local) else null
+        return if (server - local >= SERVER_POSITION_OFFER_THRESHOLD) {
+            ServerPositionOffer(server, local, originHref, originProgression ?: 0.0)
+        } else {
+            null
+        }
     }
 
     /**

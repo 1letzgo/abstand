@@ -371,6 +371,12 @@ class PodcastStore(private val model: AppModel) : SessionParticipant {
             return
         }
         val c = session.client ?: return
+        val reloadSerial = ++podcastLibraryReloadSerial
+        val epoch = session.accountSessionEpoch.value
+        val expectedLibraryId = lib.id
+        /** Antwort gehört noch zu diesem Reload, dieser Podcast-Bibliothek und diesem Account. */
+        fun isCurrent() = podcastLibraryReloadSerial == reloadSerial && session.accountSessionEpoch.value == epoch &&
+            podcastCatalogLibrary?.id == expectedLibraryId
         _isLoadingPodcasts.value = true
         try {
             // Local-DB-First: bei Reset immer zuerst lokal anzeigen.
@@ -382,17 +388,19 @@ class PodcastStore(private val model: AppModel) : SessionParticipant {
             val pageIndex = podcastLibraryPage
             if (podcastEpisodesPagingFromRecentAPI) {
                 val (res, _) = c.recentPodcastEpisodes(lib.id, page = pageIndex, limit = PodcastLogic.recentEpisodesPageLimit)
-                if (podcastCatalogLibrary?.id != lib.id) return
+                if (!isCurrent()) return
                 val rows = res.episodes.mapNotNull { AbsPodcastEpisodeListItem.fromDTO(it, libraryId = lib.id) }
 
                 if (rows.isEmpty() && pageIndex == 0) {
                     val fallback = PodcastLogic.unplayedForNewFeed(loadPodcastEpisodesFallback(lib.id), ::isLocallyMarkedFinished)
+                    if (!isCurrent()) return
                     if (fallback.isNotEmpty()) {
                         podcastEpisodesPagingFromRecentAPI = false
                         _podcastEpisodes.value = fallback
                         podcastLibraryTotal = fallback.size
                         podcastLibraryPage = 1
-                        persistNewEpisodes(lib.id, fallback.size, pagingFromRecentAPI = false, fallback)
+                        persistNewEpisodes(store, lib.id, fallback.size, pagingFromRecentAPI = false, fallback)
+                        if (!isCurrent()) return
                         lastPodcastCatalogServerSyncAt = System.currentTimeMillis()
                         if (reset) reloadPodcastShowsCatalog()
                         return
@@ -409,7 +417,8 @@ class PodcastStore(private val model: AppModel) : SessionParticipant {
                 val count = _podcastEpisodes.value.size
                 podcastLibraryTotal = if (rows.size >= PodcastLogic.recentEpisodesPageLimit) maxOf(res.total, count + 1) else count
                 podcastLibraryPage = res.page + 1
-                persistNewEpisodes(lib.id, podcastLibraryTotal, pagingFromRecentAPI = true, _podcastEpisodes.value)
+                persistNewEpisodes(store, lib.id, podcastLibraryTotal, pagingFromRecentAPI = true, _podcastEpisodes.value)
+                if (!isCurrent()) return
                 if (reset) lastPodcastCatalogServerSyncAt = System.currentTimeMillis()
                 // Ganze Seite schon gehört → Liste leer ohne „mehr laden“-Zeile: nächste Seite direkt holen.
                 if (_podcastEpisodes.value.isEmpty() && rows.size >= PodcastLogic.recentEpisodesPageLimit && res.page < 5) {
@@ -419,15 +428,22 @@ class PodcastStore(private val model: AppModel) : SessionParticipant {
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
+            if (!isCurrent()) return
             session.publishErrorUnlessBenignCancellation(e)
         } finally {
-            _isLoadingPodcasts.value = false
+            if (podcastLibraryReloadSerial == reloadSerial) _isLoadingPodcasts.value = false
         }
+        // Die Folgeseiten-Rekursion oben erhöht den Serial — hier nur Account und Bibliothek prüfen.
+        if (session.accountSessionEpoch.value != epoch || podcastCatalogLibrary?.id != expectedLibraryId) return
         if (reset) reloadPodcastShowsCatalog()
     }
 
-    private suspend fun persistNewEpisodes(libraryId: String, total: Int, pagingFromRecentAPI: Boolean, items: List<AbsPodcastEpisodeListItem>) {
-        val store = session.currentLocalLibraryStore() ?: return
+    /** iOS: `podcastLibraryReloadSerial` — veraltete Antworten nach jedem Suspend verwerfen. */
+    private var podcastLibraryReloadSerial = 0
+
+    /** [store] vor dem Request festgehalten — nach dem Suspend kann schon der Store eines anderen Accounts aktiv sein. */
+    private suspend fun persistNewEpisodes(store: LocalLibraryStore?, libraryId: String, total: Int, pagingFromRecentAPI: Boolean, items: List<AbsPodcastEpisodeListItem>) {
+        store ?: return
         try {
             store.replacePodcastEpisodes(libraryId, total, pagingFromRecentAPI, items)
         } catch (e: Exception) {

@@ -14,6 +14,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.File
+import kotlin.io.path.createTempDirectory
 
 /**
  * `shared/fixtures/transcript_cache/`: Dateien, die der Kotlin-Writer erzeugt (Abgleich-Binärdatei und
@@ -21,6 +22,7 @@ import java.io.File
  * identisch liest. Neu schreiben: `ABSTAND_WRITE_FIXTURES=1 ./gradlew testSideloadDebugUnitTest`.
  */
 class TranscriptCacheGoldenTest {
+    private val prettyJson = Json { prettyPrint = true }
     private val bookId = "li_8f3c2a91-4d7e-4b2a-9c1f-0e5d6b7a8c90"
     private val trackIndex = 3
     private val locale = "en-US"
@@ -90,7 +92,7 @@ class TranscriptCacheGoldenTest {
             File(dir, binName).writeBytes(alignment().encoded())
             File(dir, jsonName).writeText(PlayerTranscriptCacheStore.encode(transcript()))
             File(dir, "contents.json").writeText(
-                Json { prettyPrint = true }.encodeToString(JsonObject.serializer(), contents()) + "\n",
+                prettyJson.encodeToString(JsonObject.serializer(), contents()) + "\n",
             )
         }
         assertArrayEquals(resource(binName)!!.readBytes(), alignment().encoded())
@@ -132,7 +134,7 @@ class TranscriptCacheGoldenTest {
 
     @Test
     fun storeRoundTripOnDisk() {
-        val account = createTempDir()
+        val account = createTempDirectory("transcript-cache").toFile()
         try {
             PlayerTranscriptCacheStore.save(transcript(), account, bookId)
             assertEquals(transcript(), PlayerTranscriptCacheStore.load(account, bookId, trackIndex, locale))

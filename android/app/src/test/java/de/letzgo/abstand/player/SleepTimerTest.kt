@@ -26,6 +26,21 @@ class SleepTimerTest {
         assertTrue(timer.isActive)
     }
 
+    /** iOS-Review R1: Resume nach Laden/Track-Wechsel darf einen laufenden Timer nicht neu planen. */
+    @Test
+    fun resumeDoesNotRescheduleRunningTimer() {
+        startMinutes(15, isPlaying = true)
+        val end = timer.sleepEndDate.value
+        now += 5 * 60_000
+        timer.resumeIfNeeded(isPlaying = true)
+        assertEquals(end, timer.sleepEndDate.value)
+        // Pausiert und wieder fortgesetzt: Restlaufzeit ab jetzt.
+        timer.pause()
+        now += 60_000
+        timer.resumeIfNeeded(isPlaying = true)
+        assertEquals(now + 10 * 60_000L, timer.sleepEndDate.value)
+    }
+
     @Test
     fun minutesWhilePausedWaitsForPlay() {
         startMinutes(5, isPlaying = false)

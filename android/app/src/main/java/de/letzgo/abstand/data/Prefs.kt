@@ -81,6 +81,8 @@ object Keys {
     const val discardedProgressKeys = "abstand_discarded_progress_keys"
     const val pendingLocalProgressSyncKeys = "abstand_pending_local_progress_sync_keys"
     const val pendingBookmarkChanges = "abstand_pending_bookmark_changes"
+    /** Nur Android: offline gesetztes eBook „Mark as read"/Reset, noch nicht am Server (iOS hält das nur im Speicher). */
+    const val pendingEbookProgressOverrides = "abstand_pending_ebook_progress_overrides"
     const val browseAuthorsSortField = "abstand_browse_authors_sort_field"
     const val browseAuthorsSortDescending = "abstand_browse_authors_sort_desc"
     const val browseNarratorsSortField = "abstand_browse_narrators_sort_field"

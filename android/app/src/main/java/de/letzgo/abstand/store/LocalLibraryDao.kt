@@ -79,6 +79,7 @@ interface LocalLibraryDao {
     @Query("SELECT * FROM LocalCatalogEntry WHERE bookId = :bookId") suspend fun catalogEntriesForBook(bookId: String): List<LocalCatalogEntry>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertCatalogEntries(rows: List<LocalCatalogEntry>)
     @Query("SELECT COUNT(*) FROM LocalCatalogEntry WHERE libraryId = :libraryId") suspend fun catalogEntryCount(libraryId: String): Int
+    @Query("SELECT MAX(rank) FROM LocalCatalogEntry WHERE libraryId = :libraryId") suspend fun maxCatalogRank(libraryId: String): Int?
     @Query("SELECT * FROM LocalCatalogEntry WHERE libraryId = :libraryId ORDER BY rank") suspend fun catalogEntries(libraryId: String): List<LocalCatalogEntry>
 
     // MARK: - Serien

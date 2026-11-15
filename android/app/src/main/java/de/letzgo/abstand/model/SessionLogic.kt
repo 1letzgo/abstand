@@ -97,6 +97,26 @@ object SessionLogic {
         return current.isNotEmpty() && current == previousRefreshToken
     }
 
+    /**
+     * iOS: `adoptRefreshedTokensForStoredAccount` — Rotation eines nicht (mehr) aktiven Accounts in dessen
+     * gespeicherten Eintrag schreiben (gleicher Server, Refresh-Token == [previousRefreshToken]); sonst bleibt
+     * dort das serverseitig schon invalidierte Token und der Wechsel zurück erzwingt Re-Login.
+     * `null`, wenn kein Eintrag passt.
+     */
+    fun adoptRefreshedTokensForStoredAccount(
+        accounts: List<AbsStoredAccount>, refreshedServerURL: String, accessToken: String, refreshToken: String, previousRefreshToken: String,
+    ): List<AbsStoredAccount>? {
+        val previous = previousRefreshToken.swiftTrim()
+        if (accessToken.isEmpty() || previous.isEmpty()) return null
+        val idx = accounts.indexOfFirst { a ->
+            a.refreshToken?.swiftTrim() == previous &&
+                AbsApiClient.normalizeServerURL(a.serverURL)?.equals(refreshedServerURL, ignoreCase = true) == true
+        }
+        if (idx < 0) return null
+        val updated = accounts[idx].copy(token = accessToken, refreshToken = refreshToken.ifEmpty { accounts[idx].refreshToken })
+        return accounts.toMutableList().also { it[idx] = updated }
+    }
+
     /** Momentaufnahme der Session für [syncStoredAccounts] (iOS: Felder von `AppModel`). */
     data class SessionSnapshot(
         val serverURL: String,

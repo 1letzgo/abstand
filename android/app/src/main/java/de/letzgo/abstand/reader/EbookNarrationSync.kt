@@ -9,7 +9,8 @@ import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.logic.AlignmentInputWord
 import de.letzgo.abstand.logic.EbookAlignmentStore
 import de.letzgo.abstand.logic.EbookNarrationJump
-import de.letzgo.abstand.logic.EbookTrackAlignment
+import de.letzgo.abstand.logic.EbookTrackLookup
+import de.letzgo.abstand.logic.EbookTranscriptCoverage
 import de.letzgo.abstand.logic.PlayerTranscriptLibrary
 import de.letzgo.abstand.logic.speech.SpeechTranscriptionLocaleResolver
 import de.letzgo.abstand.model.AppModel
@@ -19,6 +20,7 @@ import de.letzgo.abstand.transcript.PlayerTranscriptPrefetcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
+import org.readium.r2.shared.ExperimentalReadiumApi
 import org.readium.r2.shared.publication.Locator
 
 /**
@@ -33,7 +35,7 @@ object EbookNarrationSync {
 
     /** iOS: `alignmentMaxAge` — so lange gilt ein Abgleich im Speicher. */
     private const val ALIGNMENT_MAX_AGE_MS = 30_000L
-    private val memo = HashMap<String, Pair<EbookTrackAlignment, Long>>()
+    private val memo = HashMap<String, Pair<EbookTrackLookup, Long>>()
     private val locales = HashMap<String, String>()
 
     private val player: PlaybackController get() = PlaybackController.shared(AppModel.shared.appContext)
@@ -42,7 +44,8 @@ object EbookNarrationSync {
 
     /**
      * iOS: `narrationWord(player:index:)` — zuletzt gesprochenes eBook-Wort an der Hörposition. Steht sie vor
-     * dem ersten erkannten Wort des Tracks (Kapitelansage, Musik), gilt das letzte Wort des Vortracks.
+     * dem ersten erkannten Wort des Tracks (Kapitelansage, Musik), gilt das letzte Wort des Vortracks. `null`,
+     * wenn die Hörposition nicht im Transkript liegt oder das nächste ausgerichtete Wort zu weit weg ist.
      */
     suspend fun narrationWord(built: EbookTextIndexProvider.Built): Int? {
         val c = context() ?: return null
@@ -51,10 +54,16 @@ object EbookNarrationSync {
         val offset = c.tracks.trackStarts.getOrNull(trackIndex) ?: return null
         val duration = c.tracks.tracks[trackIndex].duration
         if (position < offset || position > offset + maxOf(0.0, duration)) return null
-        val alignment = alignment(trackIndex, c, built) ?: return null
-        alignment.lastEbookWord(position - offset)?.let { return it }
-        if (trackIndex <= 0) return null
-        return alignment(trackIndex - 1, c, built)?.ebookWordRange?.last
+        val lookup = lookup(trackIndex, c, built) ?: return null
+        val local = position - offset
+        return when (val narrated = lookup.narratedWord(local)) {
+            is EbookTrackLookup.NarratedWord.Word -> narrated.position
+            EbookTrackLookup.NarratedWord.Unavailable -> null
+            EbookTrackLookup.NarratedWord.BeforeFirstWord -> {
+                if (trackIndex <= 0 || local > EbookTrackLookup.MAX_GAP_SECONDS) return null
+                lookup(trackIndex - 1, c, built)?.trailingWord(c.tracks.tracks[trackIndex - 1].duration)
+            }
+        }
     }
 
     /**
@@ -68,22 +77,30 @@ object EbookNarrationSync {
         val total = tracks.trackStarts.last() + tracks.tracks.last().duration
         val estimate = word.toDouble() / maxOf(1, built.index.words.size).toDouble() * total
         val guess = tracks.trackIndex(estimate)
-        alignment(guess, c, built)?.localTime(word)?.let { return tracks.trackStarts[guess] + it }
+        lookup(guess, c, built)?.localTime(word)?.let { return tracks.trackStarts[guess] + it }
 
-        var missingTranscript = false
+        // Ein Track ohne (vollständiges) Transkript: dahinter ist offen, wo das Wort liegt — lieber keine
+        // Antwort als eine falsche.
+        var previousTailCovered = true
         for (i in tracks.tracks.indices) {
-            val alignment = alignment(i, c, built)
-            if (alignment == null) {
-                missingTranscript = true
+            val duration = tracks.tracks[i].duration
+            val lookup = lookup(i, c, built)
+            if (lookup == null) {
+                previousTailCovered = false
                 continue
             }
-            val range = alignment.ebookWordRange ?: continue
-            if (word < range.first) {
-                if (missingTranscript) return null
-                return alignment.localTime(range.first)?.let { tracks.trackStarts[i] + it }
+            val range = lookup.alignment.ebookWordRange
+            if (range == null) {
+                // Transkript ohne eBook-Treffer (Musik, Vorspann): durchlässig, solange es vollständig ist.
+                previousTailCovered = previousTailCovered && lookup.isFullyCovered(duration)
+                continue
             }
-            alignment.localTime(word)?.let { return tracks.trackStarts[i] + it }
-            missingTranscript = false
+            if (word < range.first) {
+                if (!previousTailCovered) return null
+                return lookup.leadingWordTime?.let { tracks.trackStarts[i] + it }
+            }
+            if (word <= range.last) return lookup.localTime(word)?.let { tracks.trackStarts[i] + it }
+            previousTailCovered = lookup.trailingWord(duration) != null
         }
         return null
     }
@@ -145,17 +162,22 @@ object EbookNarrationSync {
         TrackTimeline(fromManifest ?: fallback)
     }
 
-    /** iOS: `EbookAlignmentStore.alignment(forTrack:…, maxAge: 30)`. */
-    private suspend fun alignment(trackIndex: Int, c: Context, built: EbookTextIndexProvider.Built): EbookTrackAlignment? {
+    /**
+     * iOS: `EbookAlignmentStore.lookup(forTrack:…)` — Abgleich samt Abdeckung des Transkripts. Im Speicher
+     * 30 s gültig (iOS prüft stattdessen den Datei-Stempel des Transkripts — hier bewusst nicht portiert).
+     */
+    private suspend fun lookup(trackIndex: Int, c: Context, built: EbookTextIndexProvider.Built): EbookTrackLookup? {
         val key = EbookAlignmentStore.key(c.bookId, trackIndex, c.localeId, built.index)
-        memo[key]?.let { (alignment, at) -> if (SystemClock.elapsedRealtime() - at < ALIGNMENT_MAX_AGE_MS) return alignment }
+        memo[key]?.let { (lookup, at) -> if (SystemClock.elapsedRealtime() - at < ALIGNMENT_MAX_AGE_MS) return lookup }
         val account = AppModel.shared.session.cacheAccountDir()
-        val cached = PlayerTranscriptLibrary.cachedWords(c.bookId, trackIndex, c.localeId, account)
+        val cache = PlayerTranscriptLibrary.cache(c.bookId, trackIndex, c.localeId, account) ?: return null
+        val cached = cache.allWords
         if (cached.isEmpty()) return null
         val input = cached.map { AlignmentInputWord(it.t, it.s, it.e) }
-        val result = withContext(Dispatchers.Default) {
+        val alignment = withContext(Dispatchers.Default) {
             EbookAlignmentStore.loadOrBuild(account, c.bookId, trackIndex, c.localeId, input, built.index)
         }
+        val result = EbookTrackLookup(alignment, EbookTranscriptCoverage.of(cache))
         memo[key] = result to SystemClock.elapsedRealtime()
         return result
     }
@@ -171,6 +193,7 @@ object EbookReadingAnchorStore {
     fun anchor(libraryItemId: String): Locator? = anchors[libraryItemId]
 
     /** Aktuelle Seite samt Text ihres ersten sichtbaren Elements merken. */
+    @OptIn(ExperimentalReadiumApi::class)
     suspend fun capture(navigator: EpubNavigatorFragment, locator: Locator, libraryItemId: String) {
         val visible = runCatching { navigator.firstVisibleElementLocator() }.getOrNull()
         anchors[libraryItemId] = if (visible != null && visible.href == locator.href) locator.copy(text = visible.text) else locator

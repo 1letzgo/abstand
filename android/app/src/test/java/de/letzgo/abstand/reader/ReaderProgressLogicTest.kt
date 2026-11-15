@@ -3,7 +3,9 @@ package de.letzgo.abstand.reader
 import de.letzgo.abstand.data.AbsEbookFormat
 import de.letzgo.abstand.reader.EbookProgressRules.SyncDecision
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReaderProgressLogicTest {
@@ -100,4 +102,19 @@ class ReaderProgressLogicTest {
         assertEquals(1.0, EbookProgressRules.displayFraction(null, 0.996, null)!!, 1e-9)
         assertNull(EbookProgressRules.displayFraction(null, 0.003, null))
     }
+
+    @Test
+    fun serverOfferEndsOnlyWhenLeavingOrigin() {
+        val offer = EbookProgressRules.serverPositionOffer(0.3, 0.5, "chapter3.xhtml", 0.40)!!
+        assertFalse(offer.isLeft("chapter3.xhtml", 0.40))
+        assertFalse(offer.isLeft("chapter3.xhtml", 0.4015))
+        assertTrue(offer.isLeft("chapter3.xhtml", 0.45))
+        assertTrue(offer.isLeft("chapter4.xhtml", 0.40))
+        // Neu-Umbruch (Schriftgröße): neue Stelle wird Ursprung, Angebot bleibt.
+        val rebased = offer.rebased("chapter3.xhtml", 0.43)
+        assertEquals(0.5, rebased.serverFraction, 1e-9)
+        assertFalse(rebased.isLeft("chapter3.xhtml", 0.43))
+        assertTrue(rebased.isLeft("chapter3.xhtml", 0.40))
+    }
+
 }

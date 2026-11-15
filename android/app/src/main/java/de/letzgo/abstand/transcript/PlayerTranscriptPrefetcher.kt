@@ -21,6 +21,7 @@ import de.letzgo.abstand.data.Prefs
 import de.letzgo.abstand.data.swiftTrim
 import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.logic.PlayerTranscriptLibrary
+import de.letzgo.abstand.logic.PlayerTranscriptTrackCache
 import de.letzgo.abstand.logic.PlayerTranscriptTrackSource
 import de.letzgo.abstand.logic.speech.SpeechModelStore
 import de.letzgo.abstand.model.AppModel
@@ -179,6 +180,8 @@ object PlayerTranscriptPrefetcher {
         task = null
         _isRunning.value = false
         _pausedReason.value = null
+        // Ein überholter (Hintergrund-)Lauf räumt im `finally` nicht mehr auf — Anzeige hier zurücksetzen.
+        _currentJobTitle.value = null
     }
 
     /**
@@ -244,6 +247,9 @@ object PlayerTranscriptPrefetcher {
         val selectionByTag = HashMap<String, TranscriptionModelSelection.Selection?>()
         _isRunning.value = true
         for (planned in jobs) {
+            // Überholt (`stop()`, Buchwechsel, Vordergrund): sofort enden statt alle Tracks durchzugehen —
+            // der WorkManager-Lauf meldet „Arbeit offen" und wird später fortgesetzt (iOS: `finishBackgroundTask`).
+            if (runGeneration != generation) return true
             if (!coroutineContext.isActive) return leftWork
             val tag = planned.job.languageTag ?: ""
             val selection = selectionByTag.getOrPut(tag) {
@@ -251,6 +257,7 @@ object PlayerTranscriptPrefetcher {
             } ?: continue
             _currentJobTitle.value = planned.job.title.ifEmpty { null }
             for (step in PrefetchPlanner.trackOrder(planned)) {
+                if (runGeneration != generation) return true
                 if (!coroutineContext.isActive) return leftWork
                 var completed = prepare(planned.job.storageId, step.source, selection, step.from, generation)
                 // Laufender Track: danach auch den Anfang vor der Hörposition (iOS gleich).
@@ -297,7 +304,18 @@ object PlayerTranscriptPrefetcher {
                     // Ein Track läuft minutenlang — Pause greift sofort, nicht erst beim nächsten Track.
                     if (runGeneration != generation || blockingReason() != null) throw PauseSignal()
                 }
-                if (!(produced > gapStart + 0.5)) return true
+                if (!(produced > gapStart + 0.5)) {
+                    // Bis Dateiende nichts mehr dekodierbar, obwohl die Server-Dauer länger ist: den Rest als
+                    // abgedeckt (ohne Wörter) eintragen — sonst bleibt die Lücke offen und jeder Lauf öffnet
+                    // Datei und Sprachmodell erneut.
+                    if (gapEnd == null && source.duration > gapStart) {
+                        PlayerTranscriptLibrary.mergeAndSave(
+                            PlayerTranscriptTrackCache.Segment(gapStart, source.duration, emptyList()),
+                            bookId, source.trackIndex, selection.localeIdentifier,
+                        )
+                    }
+                    return true
+                }
                 cursor = produced
             } catch (p: PauseSignal) {
                 // Abschnitt abgebrochen (gesichert) — oben warten und an der Lücke weitermachen.

@@ -20,6 +20,9 @@ import kotlinx.coroutines.withContext
  * `pushPendingEbookProgressSyncIfSafe`, `patchPreservingAudiobookFields`, `ebookResumeProgressionForReader`,
  * `serverEbookFractionForReader`, `markEbookAsFinished`, `resetEbookReadingProgress`).
  *
+ * Einzige Implementierung von „Mark as read"/Reset (Reader und Buch-Detail); der Override
+ * (iOS `pendingEbookProgressOverrideByItemId`) liegt in [de.letzgo.abstand.model.ProgressStore].
+ *
  * Server kennt nur `ebookProgress` (Bruchteil); der seitengenaue Readium-Locator bleibt lokal
  * ([EbookLocalStore]). Main-Thread-gebunden wie der iOS-`@MainActor`.
  */
@@ -32,8 +35,6 @@ object EbookProgressSync {
 
     private var pending: Pending? = null
     private val lastSyncedFractionByItemId = HashMap<String, Double>()
-    /** Mark-as-finished / Reset, bis `/authorize` nachzieht (iOS `pendingEbookProgressOverrideByItemId`). */
-    private val pendingOverrideByItemId = HashMap<String, Double>()
     private var syncJob: Job? = null
     /** Zustand gehört zu einem Account — bei Accountwechsel verwerfen (iOS: `clearInMemorySessionState`). */
     private var epoch: Long? = null
@@ -44,10 +45,24 @@ object EbookProgressSync {
         epoch = current
         pending = null
         lastSyncedFractionByItemId.clear()
-        pendingOverrideByItemId.clear()
         syncJob?.cancel()
         syncJob = null
     }
+
+    /**
+     * iOS: Teil von `clearInMemorySessionState` — ausstehender eBook-Stand gehört zum verlassenen Account
+     * (Logout ohne Epoch-Wechsel eingeschlossen), nie mit dem Client des nächsten senden.
+     */
+    fun resetForSessionClear() {
+        pending = null
+        lastSyncedFractionByItemId.clear()
+        syncJob?.cancel()
+        syncJob = null
+        epoch = null
+    }
+
+    /** iOS: `pendingEbookProgressSync?.libraryItemId` — für das Prunen nach `/authorize`. */
+    fun hasPendingSync(libraryItemId: String): Boolean = pending?.libraryItemId == libraryItemId
 
     private val player: PlaybackController get() = PlaybackController.shared(model.appContext)
 
@@ -98,8 +113,11 @@ object EbookProgressSync {
         if (!session.mayUseServerNetwork || !session.isNetworkReachable.value) return
         val c = session.client ?: return
         val patch = patchPreservingAudiobookFields(p.libraryItemId, p.fraction) ?: return
+        val requestEpoch = session.accountSessionEpoch.value
         try {
             c.patchProgress(p.libraryItemId, patch = patch)
+            // Account während des PATCH gewechselt: Ergebnis nicht in den Zustand des neuen Accounts schreiben.
+            if (session.accountSessionEpoch.value != requestEpoch || session.client !== c) return
             lastSyncedFractionByItemId[p.libraryItemId] = p.fraction
             if (pending == p) pending = null
             mergeEbookProgressIntoRow(p.libraryItemId, p.fraction)
@@ -174,7 +192,7 @@ object EbookProgressSync {
         val id = libraryItemId.swiftTrim()
         if (id.isEmpty()) return
         if (fraction != null) EbookLocalStore.saveProgressFraction(fraction, id)
-        val existing = model.home.progressByItemId.value[id]
+        val existing = model.progress.progress(id) ?: model.home.progressByItemId.value[id]
         val next = when {
             existing != null -> existing.copy(ebookProgress = fraction ?: existing.ebookProgress)
             fraction != null -> AbsUserMediaProgress(
@@ -183,7 +201,9 @@ object EbookProgressSync {
             )
             else -> return
         }
-        model.home.applyProgressUpdate(next)
+        // Eine Quelle (ProgressStore, Room), Home-Spiegel angleichen — wie `PlayerWiring.upsertProgress`.
+        model.progress.upsertProgressLocally(next, markPendingServerSync = false)
+        model.home.applyProgressUpdate(next, persistToDisk = false)
     }
 
     // MARK: - Öffnen
@@ -193,7 +213,7 @@ object EbookProgressSync {
         ensureEpoch()
         val id = libraryItemId.swiftTrim()
         return EbookProgressRules.displayFraction(
-            pendingOverrideByItemId[id],
+            model.progress.ebookProgressOverride(id),
             model.home.progressByItemId.value[id]?.ebookProgress,
             EbookLocalStore.loadProgressFraction(id),
         )
@@ -229,7 +249,8 @@ object EbookProgressSync {
         syncJob?.cancel()
         syncJob = null
         pending = null
-        pendingOverrideByItemId[id] = 1.0
+        model.progress.setEbookProgressOverride(id, 1.0)
+        model.progress.markEbookProgressOverrideUnsent(id, 1.0)
         EbookLocalStore.clearReadiumLocator(id, format)
         EbookLocalStore.saveProgressFraction(1.0, id, markFinished = true)
         lastSyncedFractionByItemId[id] = 1.0
@@ -237,8 +258,7 @@ object EbookProgressSync {
         if (EbookReaderLauncher.session.value?.libraryItemId == id) EbookReaderLauncher.close()
         model.home.refreshEbookContinueReadingShelf()
         if (!pushOverride(id, 1.0)) return
-        val serverF = model.home.progressByItemId.value[id]?.ebookProgress
-        if (serverF != null && serverF >= 0.995) pendingOverrideByItemId.remove(id)
+        afterOverrideSent(id, 1.0)
         model.home.refreshEbookContinueReadingShelf()
     }
 
@@ -250,18 +270,42 @@ object EbookProgressSync {
         syncJob?.cancel()
         syncJob = null
         pending = null
-        pendingOverrideByItemId[id] = 0.0
+        model.progress.setEbookProgressOverride(id, 0.0)
+        model.progress.markEbookProgressOverrideUnsent(id, 0.0)
         lastSyncedFractionByItemId.remove(id)
         EbookLocalStore.clearReadiumLocator(id, format)
         EbookLocalStore.clearProgressFraction(id)
         mergeEbookProgressIntoRow(id, 0.0)
         model.home.refreshEbookContinueReadingShelf()
         if (!pushOverride(id, 0.0)) return
-        val serverF = model.home.progressByItemId.value[id]?.ebookProgress
-        if (serverF == null || serverF <= 0.005) pendingOverrideByItemId.remove(id)
-        // `/authorize` kann noch den alten Stand liefern — Override hält Anzeige/Merge auf 0.
-        mergeEbookProgressIntoRow(id, 0.0)
-        EbookLocalStore.clearProgressFraction(id)
+        afterOverrideSent(id, 0.0)
+        model.home.refreshEbookContinueReadingShelf()
+    }
+
+    /** Server hat den Override angenommen: nicht mehr nachsenden; Override fällt, sobald `/authorize` mitzieht. */
+    private fun afterOverrideSent(id: String, fraction: Double) {
+        model.progress.clearEbookProgressOverrideUnsent(id)
+        val serverF = model.progress.progress(id)?.ebookProgress ?: model.home.progressByItemId.value[id]?.ebookProgress
+        if (fraction >= 0.995) {
+            if (serverF != null && serverF >= 0.995) model.progress.setEbookProgressOverride(id, null)
+        } else {
+            if (serverF == null || serverF <= 0.005) model.progress.setEbookProgressOverride(id, null)
+            // `/authorize` kann noch den alten Stand liefern — Override hält Anzeige/Merge auf 0.
+            mergeEbookProgressIntoRow(id, 0.0)
+            EbookLocalStore.clearProgressFraction(id)
+        }
+    }
+
+    /**
+     * Nur Android: offline (oder bei Fehler) gesetztes „Mark as read"/Reset nachsenden — aufgerufen,
+     * wenn ausstehende Fortschritte zum Server gehen (`PlayerWiring.syncPendingProgressToServer`).
+     */
+    suspend fun flushUnsentOverrides() {
+        ensureEpoch()
+        for ((id, fraction) in model.progress.unsentEbookProgressOverrideSnapshot) {
+            if (!pushOverride(id, fraction)) continue
+            afterOverrideSent(id, fraction)
+        }
         model.home.refreshEbookContinueReadingShelf()
     }
 

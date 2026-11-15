@@ -63,6 +63,10 @@ class ApiClientAuthTest {
         @Volatile var refreshDelayMs = 0L
         @Volatile var nextAccess = "access-2"
         @Volatile var nextRefresh = "refresh-2"
+        /** Wird vor jeder API-Antwort (nicht `/auth/refresh`, `/login`) aufgerufen. */
+        @Volatile var onApiRequest: (() -> Unit)? = null
+        /** Wird beim Eingang von `/auth/refresh` aufgerufen. */
+        @Volatile var onRefresh: (() -> Unit)? = null
         val refreshCalls = AtomicInteger()
         val log: MutableList<String> = Collections.synchronizedList(mutableListOf())
         val refreshHeaders: MutableList<String?> = Collections.synchronizedList(mutableListOf())
@@ -77,6 +81,7 @@ class ApiClientAuthTest {
                 path == "/auth/refresh" -> {
                     refreshCalls.incrementAndGet()
                     refreshHeaders.add(request.headers["x-refresh-token"])
+                    onRefresh?.invoke()
                     if (refreshDelayMs > 0) Thread.sleep(refreshDelayMs)
                     if (refreshCode != 200) {
                         MockResponse.Builder().code(refreshCode).body("nope").build()
@@ -93,6 +98,7 @@ class ApiClientAuthTest {
                         MockResponse.Builder().code(401).body("Invalid username or password").build()
                     }
                 }
+                run { onApiRequest?.invoke(); false } -> error("unreachable")
                 auth != "Bearer $validAccess" -> MockResponse.Builder().code(401).body("Unauthorized").build()
                 path.endsWith("/download") ->
                     MockResponse.Builder().code(200).addHeader("Content-Type", "application/octet-stream")
@@ -156,7 +162,7 @@ class ApiClientAuthTest {
     }
 
     @Test
-    fun failedRefreshBacksOffForSixtySeconds() = runBlocking<Unit> {
+    fun failedRefreshAfterReal401IsNotBackedOff() = runBlocking<Unit> {
         fake.refreshCode = 500
         val unauthorized = AtomicInteger()
         val job = launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
@@ -169,18 +175,56 @@ class ApiClientAuthTest {
         // 5xx lässt das Refresh-Token stehen.
         assertEquals("refresh-1", c.currentRefreshToken())
 
-        now.addAndGet(59_000)
-        expectUnauthorized { c.libraries() }
-        assertEquals("innerhalb des Backoffs kein zweiter Refresh", 1, fake.refreshCalls.get())
-
-        now.addAndGet(2_000)
+        // Nach einem echten 401 gilt kein Backoff — sofort erneut versuchen.
+        now.addAndGet(5_000)
         fake.refreshCode = 200
         assertEquals("lib1", c.libraries().single().id)
         assertEquals(2, fake.refreshCalls.get())
 
-        withTimeout(2_000) { while (unauthorized.get() < 2) delay(10) }
-        assertEquals(2, unauthorized.get())
+        withTimeout(2_000) { while (unauthorized.get() < 1) delay(10) }
+        assertEquals(1, unauthorized.get())
         job.cancel()
+    }
+
+    @Test
+    fun failedProactiveRefreshBacksOffForSixtySeconds() = runBlocking<Unit> {
+        val soon = jwt(now.get() / 1000 + 60)
+        fake.validAccess = soon
+        fake.refreshCode = 500
+        val c = client(soon, "refresh-1")
+
+        // Proaktiver Refresh scheitert, der Request läuft mit dem alten (noch gültigen) Token durch.
+        assertEquals("lib1", c.libraries().single().id)
+        assertEquals(1, fake.refreshCalls.get())
+
+        now.addAndGet(30_000)
+        c.libraries()
+        assertEquals("innerhalb des Backoffs kein zweiter proaktiver Refresh", 1, fake.refreshCalls.get())
+
+        now.addAndGet(31_000)
+        c.libraries()
+        assertEquals(2, fake.refreshCalls.get())
+    }
+
+    @Test
+    fun late401ForReplacedBearerRetriesWithoutSecondRefresh() = runBlocking<Unit> {
+        val c = client("old-access", "refresh-1")
+        fake.validAccess = "access-2"
+        // Während der Request unterwegs ist, hat ein anderer Weg das Token schon erneuert.
+        fake.onApiRequest = { c.setToken("access-2"); fake.onApiRequest = null }
+
+        assertEquals("lib1", c.libraries().single().id)
+        assertEquals(0, fake.refreshCalls.get())
+        assertEquals(listOf("/api/libraries Bearer old-access", "/api/libraries Bearer access-2"), fake.log.toList())
+    }
+
+    @Test
+    fun refresh401KeepsRefreshTokenReplacedMeanwhile() = runBlocking<Unit> {
+        fake.refreshCode = 401
+        val c = client("stale", "refresh-1")
+        fake.onRefresh = { c.setRefreshToken("refresh-9") }
+        expectUnauthorized { c.libraries() }
+        assertEquals("refresh-9", c.currentRefreshToken())
     }
 
     @Test

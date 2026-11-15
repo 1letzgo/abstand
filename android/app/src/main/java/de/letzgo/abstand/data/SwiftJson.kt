@@ -201,6 +201,15 @@ class JObj(val o: JsonObject) {
         return arr.map { dec.decode(it) }
     }
     fun <T> tryList(key: String, dec: ElementDecoder<T>): List<T>? = runCatching { list(key, dec) }.getOrNull()
+
+    /**
+     * iOS: `ABSLossyDecodableArray` — überspringt nicht decodierbare Elemente statt die ganze Liste zu
+     * verwerfen. `null`, wenn der Schlüssel fehlt oder kein Array ist.
+     */
+    fun <T> lossyList(key: String, dec: ElementDecoder<T>): List<T>? {
+        val arr = o[key] as? JsonArray ?: return null
+        return arr.mapNotNull { e -> runCatching { dec.decode(e) }.getOrNull() }
+    }
 }
 
 /**

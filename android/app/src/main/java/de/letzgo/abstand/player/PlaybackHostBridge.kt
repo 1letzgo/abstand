@@ -26,7 +26,7 @@ class PlaybackHostBridge(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    private var lastPeriodicProgressSaveAt: Long? = null
+    private val periodicProgress = PeriodicProgressGate()
     private val smartDownload = SmartDownloadTracker(clockMillis)
 
     fun attach() {
@@ -34,9 +34,7 @@ class PlaybackHostBridge(
             handleSmartDownloadPlaybackTick()
             maybeRecordActivePlaybackProgressPeriodically()
         }
-        player.onLocalPlaybackWithoutSessionSync = { timeListened, position, duration ->
-            syncLocalDownloadedPlaybackToServer(timeListened, position, duration)
-        }
+        player.onLocalPlaybackWithoutSessionSync = { snapshot -> syncLocalDownloadedPlaybackToServer(snapshot) }
         player.onAudiobookPlaybackCompleted = {
             val bookId = player.activeBook.value?.id
             if (bookId != null && player.activePlaybackEpisodeId.value == null) {
@@ -97,49 +95,100 @@ class PlaybackHostBridge(
         if (dur <= 0) return
         val key = activePlaybackProgressLookupKey() ?: return
         val ep = player.activePlaybackEpisodeId.value?.swiftTrim()?.ifEmpty { null }
-        val p = optimisticProgress(host.progress(key), book.id, ep, player.globalPosition.value, dur, clockMillis())
+        val position = player.globalPosition.value
+        val p = optimisticProgress(host.progress(key), book.id, ep, position, dur, clockMillis())
         host.upsertProgress(p, markPendingServerSync ?: !player.isRemotePlaySessionActive)
+        periodicProgress.noteRecorded(gateKey(book.id), position)
     }
 
+    /** Billiger Titel-Schlüssel fürs Gate (ohne Folgen-Lookup, läuft auch im Leerlauf-Tick). */
+    private fun gateKey(bookId: String): String = "$bookId|${player.activePlaybackEpisodeId.value?.swiftTrim().orEmpty()}"
+
+    /**
+     * iOS: `maybeRecordActivePlaybackProgressPeriodically` — dort feuert der Zeitbeobachter nur, solange
+     * die Zeit läuft. Der Android-Tick läuft auch pausiert weiter (`IDLE_TICK_INTERVAL_MS`), daher hier
+     * nur schreiben, wenn gespielt wird oder sich die Position seit dem letzten Schreiben geändert hat —
+     * sonst überschreibt die pausierte lokale Zeile alle 5 s mit `lastUpdate = jetzt` neuere Server-Stände.
+     */
     private fun maybeRecordActivePlaybackProgressPeriodically() {
-        if (player.activeBook.value == null || player.totalDuration.value <= 0) return
-        val now = clockMillis()
-        val last = lastPeriodicProgressSaveAt
-        if (last != null && now - last < PERIODIC_PROGRESS_SAVE_INTERVAL_MS) return
-        lastPeriodicProgressSaveAt = now
+        val book = player.activeBook.value ?: return
+        if (player.totalDuration.value <= 0) return
+        val key = gateKey(book.id)
+        if (!periodicProgress.shouldRecord(clockMillis(), player.isPlaying.value, key, player.globalPosition.value)) return
         recordActivePlaybackProgressLocally()
     }
 
-    /** iOS: `syncLocalDownloadedPlaybackToServer` — lokal sichern, dann PATCH oder Offline-Hörzeit. */
-    suspend fun syncLocalDownloadedPlaybackToServer(timeListened: Int, position: Double, duration: Double) {
-        recordActivePlaybackProgressLocally(markPendingServerSync = true)
-        val book = player.activeBook.value ?: return
-        val progressKey = activePlaybackProgressLookupKey() ?: book.id
+    /**
+     * iOS: `syncLocalDownloadedPlaybackToServer(_:)` — lokal sichern, dann PATCH oder Offline-Hörzeit. Titel und
+     * Werte kommen explizit aus dem [snapshot] — beim Abriss ist der Player schon geleert.
+     */
+    suspend fun syncLocalDownloadedPlaybackToServer(snapshot: PlaybackController.LocalPlaybackSyncSnapshot) {
+        // Session wird gerade geleert: Rest-Hörzeit und Position hat `parkLocalPlaybackBeforeSessionClear`
+        // vorher im alten Account-Scope abgelegt — hier nichts in den halb geleerten Zustand schreiben.
+        if (host.isClearingSessionState) return
+        val itemId = snapshot.libraryItemId.swiftTrim()
+        if (itemId.isEmpty()) return
+        val epRaw = snapshot.episodeId?.swiftTrim().orEmpty()
+        val ep = epRaw.ifEmpty { null }
+        // Gleicher Trenner wie `progressLookupKey`.
+        val progressKey = if (ep == null) itemId else "$itemId-$ep"
+        val timeListened = snapshot.timeListened
+        val isStillActive = player.activeBook.value?.id?.swiftTrim() == itemId &&
+            player.activePlaybackEpisodeId.value?.swiftTrim().orEmpty() == epRaw
+        if (isStillActive) recordActivePlaybackProgressLocally(markPendingServerSync = true)
+        // Scope vor dem ersten Suspend festhalten — ein Account-Wechsel währenddessen darf die Sekunden nicht dem
+        // neuen Account gutschreiben.
+        val storageKey = host.pendingOfflineListeningStorageKey
+        val epoch = host.accountSessionEpoch
         val client = host.apiClient
         if (!host.mayUseServerNetwork || !host.isNetworkReachable || client == null) {
-            if (timeListened > 0) PendingOfflineListening.add(progressKey, timeListened)
+            PendingOfflineListening.add(progressKey, timeListened, storageKey)
             return
         }
-        if (player.isRemotePlaySessionActive) return
-        val dur = if (duration > 0) duration else player.totalDuration.value
-        if (dur <= 0) return
-        val pos = maxOf(0.0, position)
+        // Inzwischen läuft für denselben Titel eine Play-Session — die übernimmt Hörzeit und Position.
+        if (isStillActive && player.isRemotePlaySessionActive) return
+        val dur = if (snapshot.duration > 0) snapshot.duration else if (isStillActive) player.totalDuration.value else 0.0
+        if (dur <= 0) {
+            PendingOfflineListening.add(progressKey, timeListened, storageKey)
+            return
+        }
+        val pos = maxOf(0.0, snapshot.position)
         val prog = (pos / dur).coerceIn(0.0, 1.0)
         try {
-            client.patchProgress(book.id, player.activePlaybackEpisodeId.value, AbsProgressPatch(currentTime = pos, duration = dur, progress = prog))
-            host.clearPendingLocalProgressSync(progressKey)
+            client.patchProgress(itemId, ep, AbsProgressPatch(currentTime = pos, duration = dur, progress = prog))
+            // Pending-Keys sind je Account persistiert — nach einem Wechsel nicht im neuen Set löschen.
+            if (epoch == host.accountSessionEpoch && storageKey == host.pendingOfflineListeningStorageKey) {
+                host.clearPendingLocalProgressSync(progressKey)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (timeListened > 0) PendingOfflineListening.add(progressKey, timeListened)
+            PendingOfflineListening.add(progressKey, timeListened, storageKey)
         }
     }
 
-    /** iOS: `flushPendingOfflineListeningTime` — gespeicherte Offline-Hörzeit nachsenden. */
+    /**
+     * iOS: `parkLocalPlaybackBeforeSessionClear` — vor dem Leeren der Session (Logout, Account-Wechsel) Position und
+     * Rest-Hörzeit einer lokalen Wiedergabe ohne Play-Session noch im Scope des alten Accounts sichern.
+     */
+    fun parkLocalPlaybackBeforeSessionClear() {
+        if (player.activeBook.value == null || !player.isPlaybackFromOfflineDownload || player.isRemotePlaySessionActive) return
+        recordActivePlaybackProgressLocally(markPendingServerSync = true)
+        val leftover = player.consumePendingListenSeconds()
+        val key = activePlaybackProgressLookupKey() ?: return
+        PendingOfflineListening.add(key, leftover, host.pendingOfflineListeningStorageKey)
+    }
+
+    /** iOS: `flushPendingOfflineListeningTime` — gespeicherte Offline-Hörzeit nachsenden (Scope vorab festgehalten). */
     suspend fun flushPendingOfflineListeningTime() {
         val client = host.apiClient ?: return
         if (!host.isNetworkReachable || !host.mayUseServerNetwork) return
-        PendingOfflineListening.flush(client) { host.progress(it) }
+        val storageKey = host.pendingOfflineListeningStorageKey
+        val epoch = host.accountSessionEpoch
+        PendingOfflineListening.flush(
+            client, storageKey, migrateLegacy = host.hasCompleteAccountScope,
+            isCurrent = { host.accountSessionEpoch == epoch && host.apiClient === client },
+        ) { host.progress(it) }
     }
 
     /** iOS: `handleSmartDownloadPlaybackTick` — nach ≥ 3 min Wiedergabe im WLAN einmal herunterladen. */
@@ -203,6 +252,39 @@ class PlaybackHostBridge(
                 lastUpdate = lastUpdate,
             )
         }
+    }
+}
+
+/**
+ * Taktgeber für das periodische lokale Sichern (iOS: `lastPeriodicPlaybackProgressSaveAt` +
+ * `periodicPlaybackProgressSaveInterval`). Zusätzlich zu iOS: pausiert nur bei geänderter Position
+ * schreiben, weil der Android-Tick auch ohne Wiedergabe läuft.
+ */
+class PeriodicProgressGate(
+    private val intervalMillis: Long = PlaybackHostBridge.PERIODIC_PROGRESS_SAVE_INTERVAL_MS,
+) {
+    private var lastSaveAt: Long? = null
+    private var lastKey: String? = null
+    private var lastPosition: Double? = null
+
+    /** `true`, wenn jetzt periodisch gesichert werden soll (merkt sich den Zeitpunkt). */
+    fun shouldRecord(nowMillis: Long, isPlaying: Boolean, key: String, position: Double): Boolean {
+        val moved = key != lastKey || lastPosition == null || kotlin.math.abs(position - (lastPosition ?: 0.0)) > POSITION_EPSILON
+        if (!isPlaying && !moved) return false
+        val last = lastSaveAt
+        if (last != null && nowMillis - last < intervalMillis) return false
+        lastSaveAt = nowMillis
+        return true
+    }
+
+    /** Jede lokale Sicherung (auch Pause/Seek) meldet ihre Position, damit pausiert nichts nachgeschrieben wird. */
+    fun noteRecorded(key: String, position: Double) {
+        lastKey = key
+        lastPosition = position
+    }
+
+    private companion object {
+        const val POSITION_EPSILON = 0.5
     }
 }
 

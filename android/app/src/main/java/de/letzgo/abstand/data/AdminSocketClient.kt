@@ -27,6 +27,10 @@ sealed class AdminSocketEvent {
     data class TaskFinished(val libraryItemId: String, val action: String, val failed: Boolean) : AdminSocketEvent()
     data object Connected : AdminSocketEvent()
     data object Disconnected : AdminSocketEvent()
+    /** ABS-Server `init`: Antwort auf erfolgreiches `auth` (intern, wird nicht weitergereicht). */
+    data object AuthAccepted : AdminSocketEvent()
+    /** ABS-Server `invalid_token`: `auth` abgelehnt (abgelaufenes/rotiertes JWT; intern). */
+    data object AuthRejected : AdminSocketEvent()
 }
 
 /**
@@ -38,7 +42,13 @@ object AdminSocketProtocol {
      * [livenessTimeoutMs]: aus dem Engine.IO-Open-Paket (`pingInterval + pingTimeout`). In v4 pingt
      * nur der Server; bleibt so lange jedes Paket aus, gilt die Verbindung als tot.
      */
-    data class PacketResult(val replies: List<String> = emptyList(), val events: List<AdminSocketEvent> = emptyList(), val livenessTimeoutMs: Long? = null)
+    data class PacketResult(
+        val replies: List<String> = emptyList(),
+        val events: List<AdminSocketEvent> = emptyList(),
+        val livenessTimeoutMs: Long? = null,
+        /** Namespace verbunden: [replies] enthält genau das `auth`-Frame mit dem übergebenen Token. */
+        val authRequested: Boolean = false,
+    )
 
     /** Standard-Frist ohne Open-Paket (Engine.IO-Defaults 25 s + 20 s). */
     const val DEFAULT_LIVENESS_TIMEOUT_MS = 45_000L
@@ -80,7 +90,7 @@ object AdminSocketProtocol {
                 val payload = body.substring(1)
                 when (sio) {
                     // Namespace verbunden → Auth.
-                    0 -> PacketResult(replies = listOf(eventFrame("auth", token)), events = listOf(AdminSocketEvent.Connected))
+                    0 -> PacketResult(replies = listOf(eventFrame("auth", token)), events = listOf(AdminSocketEvent.Connected), authRequested = true)
                     2 -> PacketResult(events = listOfNotNull(parseEventPayload(payload)))
                     else -> PacketResult()
                 }
@@ -93,6 +103,10 @@ object AdminSocketProtocol {
     fun parseEventPayload(payload: String): AdminSocketEvent? {
         val arr = runCatching { AbsJson.decoder.parseToJsonElement(payload) as? JsonArray }.getOrNull() ?: return null
         val name = (arr.firstOrNull() as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        when (name) {
+            "init" -> return AdminSocketEvent.AuthAccepted
+            "invalid_token" -> return AdminSocketEvent.AuthRejected
+        }
         val obj = arr.getOrNull(1) as? JsonObject ?: return null
         return when (name) {
             "task_progress" -> {
@@ -129,6 +143,12 @@ class AdminSocketClient(private val http: OkHttpClient = Net.client) {
     var onEvent: ((AdminSocketEvent) -> Unit)? = null
     /** Aktuelles Token beim (Re-)Connect — ein früheres JWT kann nach Stunden rotiert sein. */
     var tokenProvider: (() -> String)? = null
+    /**
+     * iOS: `freshTokenProvider` — bevorzugt vor [tokenProvider]: liefert einen garantiert frischen Bearer
+     * (`AbsApiClient.freshBearerToken`). Parameter: vom Server abgelehnter Bearer (`invalid_token`) oder
+     * `null` für die normale Auth nach dem Namespace-Connect.
+     */
+    var freshTokenProvider: (suspend (rejected: String?) -> String?)? = null
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val wsClient: OkHttpClient by lazy { http.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build() }
@@ -136,7 +156,10 @@ class AdminSocketClient(private val http: OkHttpClient = Net.client) {
     private var token = ""
     private var baseURL: String? = null
     private var wantsConnection = false
+    /** Aufeinanderfolgende Reconnects ohne erfolgreiche Auth (`init`) — steuert den Backoff. */
     private var reconnectAttempt = 0
+    /** Nach `invalid_token` genau ein Refresh + Reconnect; erst ein `init` gibt den nächsten frei. */
+    private var authRetryUsed = false
     private var reconnectJob: Job? = null
     /** iOS: `livenessTask` — Server-Pings bleiben aus → Socket abbrechen, `onFailure` reconnectet. */
     private var livenessTimeoutMs = AdminSocketProtocol.DEFAULT_LIVENESS_TIMEOUT_MS
@@ -188,6 +211,7 @@ class AdminSocketClient(private val http: OkHttpClient = Net.client) {
     fun disconnect() {
         wantsConnection = false
         reconnectAttempt = 0
+        authRetryUsed = false
         disconnectSocketOnly()
         onEvent?.invoke(AdminSocketEvent.Disconnected)
     }
@@ -205,10 +229,59 @@ class AdminSocketClient(private val http: OkHttpClient = Net.client) {
         val result = AdminSocketProtocol.handlePacket(text, token)
         result.livenessTimeoutMs?.let { livenessTimeoutMs = it }
         webSocket?.let { armLivenessWatchdog(it) }
-        result.replies.forEach { webSocket?.send(it) }
+        if (result.authRequested && freshTokenProvider != null) sendAuth() else result.replies.forEach { webSocket?.send(it) }
         result.events.forEach { event ->
-            if (event is AdminSocketEvent.Connected) reconnectAttempt = 0
-            onEvent?.invoke(event)
+            when (event) {
+                // `reconnectAttempt` erst bei `init` (Auth akzeptiert) zurücksetzen — sonst hält ein
+                // abgelehntes Token den Backoff dauerhaft bei 2 s.
+                AdminSocketEvent.AuthAccepted -> {
+                    reconnectAttempt = 0
+                    authRetryUsed = false
+                }
+                AdminSocketEvent.AuthRejected -> handleAuthRejected()
+                else -> onEvent?.invoke(event)
+            }
+        }
+    }
+
+    /** Bearer holen (bevorzugt frisch über [freshTokenProvider], sonst [tokenProvider]). */
+    private suspend fun resolveToken(rejected: String?): String {
+        freshTokenProvider?.let { return it(rejected)?.trim().orEmpty() }
+        return tokenProvider?.invoke()?.trim().orEmpty()
+    }
+
+    /** `auth` mit einem nicht abgelaufenen Bearer senden — das beim `connect` gemerkte JWT kann längst ungültig sein. */
+    private fun sendAuth() {
+        val socket = webSocket ?: return
+        scope.launch {
+            val fresh = resolveToken(null)
+            if (webSocket !== socket) return@launch
+            if (fresh.isNotEmpty()) token = fresh
+            socket.send(AdminSocketProtocol.eventFrame("auth", token))
+        }
+    }
+
+    private fun handleAuthRejected() {
+        val base = baseURL
+        val socket = webSocket
+        if (!wantsConnection || base == null || socket == null) return
+        val rejected = token
+        if (authRetryUsed) {
+            // Auch der erneuerte Bearer wurde abgelehnt — aufgeben statt endlos neu zu verbinden.
+            disconnect()
+            return
+        }
+        authRetryUsed = true
+        scope.launch {
+            val fresh = resolveToken(rejected)
+            if (!wantsConnection || webSocket !== socket) return@launch
+            if (fresh.isEmpty() || fresh == rejected) {
+                disconnect()
+                return@launch
+            }
+            webSocket = null
+            socket.cancel()
+            connect(base, fresh)
         }
     }
 
@@ -227,7 +300,8 @@ class AdminSocketClient(private val http: OkHttpClient = Net.client) {
         reconnectJob = scope.launch {
             delay(delaySeconds * 1000L)
             if (!wantsConnection || webSocket !== own) return@launch
-            val fresh = tokenProvider?.invoke()?.trim().orEmpty()
+            val fresh = resolveToken(null)
+            if (!wantsConnection || webSocket !== own) return@launch
             webSocket = null
             connect(base, fresh.ifEmpty { token })
         }

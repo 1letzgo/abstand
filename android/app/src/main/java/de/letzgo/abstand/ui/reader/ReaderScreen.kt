@@ -210,6 +210,9 @@ fun ReaderScreen(session: EbookReaderSession, onClose: () -> Unit) {
     // Server steht deutlich weiter als der lokale Locator: Angebot statt stillem Überschreiben.
     // Solange es offen ist, geht kein Fortschritt zum Server.
     var serverOffer by remember { mutableStateOf<ServerPositionOffer?>(null) }
+    // Läuft gerade ein reiner Neu-Umbruch (Schriftgröße/Theme/Dauerscroll)? Dann ist eine
+    // Locator-Änderung kein Weiterblättern und beendet das Server-Angebot nicht.
+    var relayoutGeneration by remember { mutableIntStateOf(0) }
     var narrationJump by remember { mutableStateOf<EbookNarrationJumpController?>(null) }
     var pdfPage by remember { mutableIntStateOf(0) }
     val estimator = remember { EpubBookPageEstimator() }
@@ -233,7 +236,12 @@ fun ReaderScreen(session: EbookReaderSession, onClose: () -> Unit) {
     /** iOS: `publishProgressUpdate` + `fetchRenderedPageInfo` (EPUB) — gerenderte Seiten messen. */
     suspend fun refreshEpubDisplay(reader: LoadedReader.Epub, locator: Locator) {
         val fraction = ReadiumReaderService.fraction(locator)
-        val pages = renderedPageInfo(reader.fragment)?.let {
+        val chapterPages = renderedPageInfo(reader.fragment)
+        // Während des JS-Aufrufs weitergeblättert: dieser Stand ist überholt — die neuere Position meldet
+        // `onLocationChanged` selbst; nicht mit dem alten überschreiben (iOS: `publishProgressUpdate`).
+        val current = reader.fragment.currentLocator.value
+        if (current != locator) return
+        val pages = chapterPages?.let {
             estimator.bookWidePageProgress(locator.href.toString(), fraction, it)
         }
         if (pages != null) EbookLocalStore.savePageProgress(pages.current, pages.total, id, format)
@@ -254,8 +262,21 @@ fun ReaderScreen(session: EbookReaderSession, onClose: () -> Unit) {
             applyProgress(fraction, locator.locations.position, null)
         }
         narrationJump?.readerLocationDidChange()
-        // Offenes Server-Angebot: der (ältere) lokale Stand darf den Server nicht überschreiben.
-        if (serverOffer == null) EbookProgressSync.schedule(id, fraction)
+        // Offenes Server-Angebot: der (ältere) lokale Stand darf den Server nicht überschreiben — erst
+        // wenn der Nutzer selbst weiterblättert, gilt das Angebot als abgelehnt (iOS: `isLeft(by:)`).
+        val offer = serverOffer
+        if (offer != null) {
+            val href = locator.href.toString()
+            // PDF-Locatoren (`pdfLocator`) tragen nur `totalProgression`.
+            val progression = locator.locations.progression ?: locator.locations.totalProgression
+            if (relayoutGeneration > 0) {
+                serverOffer = offer.rebased(href, progression)
+                return
+            }
+            if (!offer.isLeft(href, progression)) return
+            serverOffer = null
+        }
+        EbookProgressSync.schedule(id, fraction)
     }
 
     suspend fun seekToProgression(progression: Double) {
@@ -279,10 +300,15 @@ fun ReaderScreen(session: EbookReaderSession, onClose: () -> Unit) {
     fun applyEpubPreferences() {
         val reader = loaded as? LoadedReader.Epub ?: return
         estimator.invalidate()
+        relayoutGeneration += 1
         reader.fragment.submitPreferences(ReadiumReaderService.epubPreferences())
         scope.launch {
-            delay(ReaderMetrics.relayoutRefreshDelayMs)
-            refreshEpubDisplay(reader, reader.fragment.currentLocator.value)
+            try {
+                delay(ReaderMetrics.relayoutRefreshDelayMs)
+                refreshEpubDisplay(reader, reader.fragment.currentLocator.value)
+            } finally {
+                relayoutGeneration -= 1
+            }
         }
     }
 
@@ -306,6 +332,16 @@ fun ReaderScreen(session: EbookReaderSession, onClose: () -> Unit) {
                     val initial = ReadiumReaderService.resolveInitialLocator(publication, saved, resumeTarget)
                     val fragment = makeEpubFragment(context, publication, initial, onToggleChrome = { showChrome = !showChrome })
                     val reader = LoadedReader.Epub(publication, fragment, positions.size.takeIf { it > 0 })
+                    // Erstes Layout wie ein Neu-Umbruch behandeln (iOS: `isInitialReaderLoad`): der
+                    // eingeschwungene Locator verschiebt nur den Ursprung des Server-Angebots.
+                    relayoutGeneration += 1
+                    scope.launch {
+                        try {
+                            delay(ReaderMetrics.relayoutRefreshDelayMs)
+                        } finally {
+                            relayoutGeneration -= 1
+                        }
+                    }
                     loaded = reader
                     applyProgress(ReadiumReaderService.fraction(fragment.currentLocator.value), fragment.currentLocator.value.locations.position, null)
                     narrationJump?.stop()
@@ -324,9 +360,17 @@ fun ReaderScreen(session: EbookReaderSession, onClose: () -> Unit) {
                 }
             }
             // Lokaler Locator vorhanden, Server aber weiter: anbieten statt stumm die alte Seite zu öffnen.
+            // Ursprung = tatsächlich geöffnete Stelle; wer von dort weiterblättert, lehnt das Angebot ab.
+            val opened = when (val reader = loaded) {
+                is LoadedReader.Epub -> reader.fragment.currentLocator.value
+                is LoadedReader.Pdf -> ReadiumReaderService.pdfLocator(session.file, reader.controller.currentPage, reader.controller.pageCount)
+                null -> null
+            }
             serverOffer = EbookProgressRules.serverPositionOffer(
                 saved?.let(ReadiumReaderService::fraction),
                 EbookProgressSync.serverFractionForReader(id),
+                opened?.href?.toString() ?: "",
+                opened?.locations?.let { it.progression ?: it.totalProgression },
             )
             if (!Prefs.bool(ReaderMetrics.chromeHintSeenKey)) showsChromeHint = true
         } catch (e: CancellationException) {

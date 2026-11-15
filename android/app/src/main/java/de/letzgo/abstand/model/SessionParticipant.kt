@@ -64,7 +64,13 @@ interface SessionParticipant {
     fun onAuthorizeUser(user: AbsUser, persistToDisk: Boolean) {}
 
     /** Tokens rotiert (iOS: `player.adoptRefreshedTokens`). */
-    fun onTokensRefreshed(accessToken: String, refreshToken: String) {}
+    /**
+     * iOS: `parkLocalPlaybackBeforeSessionClear` — ganz am Anfang von `clearInMemorySessionState`, solange Client,
+     * User-ID und Server noch zum alten Account gehören.
+     */
+    fun parkBeforeSessionClear() {}
+
+    fun onTokensRefreshed(accessToken: String, refreshToken: String, previousRefreshToken: String) {}
 
     /** iOS: `clearInMemorySessionState` — eigenen In-Memory-Zustand verwerfen. */
     fun onSessionCleared(clearCredentials: Boolean) {}
