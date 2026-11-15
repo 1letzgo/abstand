@@ -131,17 +131,22 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
   }
 
   private func handleBackgroundTask(_ processing: BGProcessingTask) {
+    // Eine noch offene frühere Aufgabe sauber abschließen, bevor die neue übernimmt.
+    if backgroundTask != nil {
+      runLeftWorkPending = true
+      finishBackgroundTask(success: false)
+    }
     backgroundTask = processing
+    let processingId = ObjectIdentifier(processing)
     processing.expirationHandler = { [weak self] in
       Task { @MainActor [weak self] in
-        guard let self else { return }
         // Zeit abgelaufen: Lauf abbrechen (Zwischenstand ist gesichert) und später weitermachen.
-        self.runLeftWorkPending = true
+        // Nur, wenn diese Aufgabe noch die laufende ist.
+        guard let self, let current = self.backgroundTask, ObjectIdentifier(current) == processingId else { return }
         self.stop()
-        self.finishBackgroundTask(success: false)
       }
     }
-    stop()
+    cancelRun()
     scheduleIfNeeded()
     // Nichts gestartet (aus, kein Player …) → iOS sofort Bescheid geben, sonst wertet es die
     // Aufgabe als hängend und plant die App künftig seltener ein.
@@ -158,8 +163,29 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
     }
   }
 
-  /// App in den Hintergrund, Buchwechsel, Einstellung aus.
+  /// App in den Hintergrund, Buchwechsel, Einstellung aus. Läuft gerade eine iOS-Hintergrund-
+  /// verarbeitung, wird sie wie beim Ablauf der Zeit beendet (Arbeit offen → neue Anfrage) — sonst
+  /// bliebe `backgroundTask` gesetzt und erlaubte später Arbeit ohne Hintergrund-Erlaubnis.
   func stop() {
+    cancelRun()
+    if backgroundTask != nil {
+      runLeftWorkPending = true
+      finishBackgroundTask(success: false)
+    }
+  }
+
+  /// Buchwechsel: Lauf am neuen Titel neu aufsetzen. Anders als `stop()` bleibt eine laufende
+  /// Hintergrundverarbeitung bestehen — ein Hintergrund-Launch, der den letzten Titel wiederherstellt,
+  /// würde sich sonst die eigene Aufgabe beenden.
+  func restart() {
+    cancelRun()
+    scheduleIfNeeded()
+    // Nichts gestartet → iOS sofort Bescheid geben (wie in `handleBackgroundTask`).
+    if task == nil { finishBackgroundTask(success: true) }
+  }
+
+  /// Nur den laufenden Lauf abbrechen; eine Hintergrundverarbeitung bleibt bestehen.
+  private func cancelRun() {
     runGeneration &+= 1
     task?.cancel()
     task = nil
@@ -268,10 +294,13 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
   ) async -> Bool {
     var cursor = from
     while !Task.isCancelled {
+      // Lückenanfang und -ende aus einem Lesevorgang (Transkript bleibt im Speicher, solange die
+      // Datei unverändert ist) — nach einer Pause neu, weil der Teleprompter inzwischen geschrieben haben kann.
       guard
-        let gapStart = await PlayerTranscriptLibrary.firstUncoveredTime(
+        let gap = await PlayerTranscriptLibrary.nextGap(
           bookId: bookId, source: source, locale: locale, from: cursor)
       else { return true }
+      let gapStart = gap.start
       guard runGeneration == generation else { return false }
 
       // Vorrang und Gerätezustand vor jedem Abschnitt prüfen.
@@ -286,8 +315,7 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
 
       do {
         // Nur die Lücke — am nächsten vorhandenen Segment aufhören, die Schleife sucht dann die nächste.
-        let gapEnd = await PlayerTranscriptLibrary.nextCoveredStart(
-          bookId: bookId, source: source, locale: locale, after: gapStart)
+        let gapEnd = gap.end
         let produced = try await PlayerTranscriptLibrary.produceAndPersist(
           bookId: bookId,
           source: source,
@@ -304,7 +332,17 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
             }
           }
         )
-        guard produced > gapStart + 0.5 else { return true }
+        guard produced > gapStart + 0.5 else {
+          // Bis Dateiende nichts mehr dekodierbar, obwohl die Server-Dauer länger ist: den Rest als
+          // abgedeckt (ohne Wörter) eintragen — sonst bleibt die Lücke offen und jeder Lauf öffnet
+          // Datei und Sprachmodell erneut.
+          if gapEnd == nil, source.duration > gapStart {
+            await PlayerTranscriptLibrary.mergeAndSave(
+              segment: PlayerTranscriptTrackCache.Segment(start: gapStart, end: source.duration, words: []),
+              bookId: bookId, trackIndex: source.trackIndex, locale: locale)
+          }
+          return true
+        }
         cursor = produced
       } catch {
         if AbstandErrorFilter.isBenignCancellation(error) {

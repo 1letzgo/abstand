@@ -29,6 +29,7 @@ extension AppModel {
     let expectedSortKey = catalogSortField.apiSortParameter
     let expectedAscending = catalogSortField == .random ? true : !catalogSortDescending
     let expectedFilter = activeLibraryFilter
+    let epoch = accountSessionEpoch
 
     // Lokale DB nur für die SOFORT-Anzeige, bevor der Server antwortet — und nur wenn der
     // Cache-Slug (Sort/Filter) exakt passt. Online kein Superset-Fallback: der würde kurz die
@@ -62,6 +63,8 @@ extension AppModel {
       applyCachedStartDashboard()
       return
     }
+    // Store vor dem Request festhalten — nach dem `await` kann schon der Store eines anderen Accounts aktiv sein.
+    let store = currentLocalLibraryStore()
     isLoadingLibrary = true
     defer {
       if libraryReloadSerial == reloadSerial {
@@ -94,6 +97,7 @@ extension AppModel {
         filter: expectedFilter
       )
       guard libraryReloadSerial == reloadSerial,
+        accountSessionEpoch == epoch,
         !offlineHomeUIActive,
         booksCatalogLibrary?.id == expectedLibraryId,
         catalogSortField.apiSortParameter == expectedSortKey,
@@ -101,7 +105,7 @@ extension AppModel {
         activeLibraryFilter == expectedFilter
       else { return }
       let pageBooks = page.results.filter(\.isUsableLibraryCatalogRow)
-      if let store = currentLocalLibraryStore() {
+      if let store {
         if reset, preserveOtherCachedPages {
           do { try await store.refreshCatalogFirstPagePreservingRest(
             libraryId: expectedLibraryId, sortField: expectedSortKey, ascending: expectedAscending,
@@ -128,7 +132,7 @@ extension AppModel {
           }
         }
       }
-      guard libraryReloadSerial == reloadSerial, !offlineHomeUIActive else { return }
+      guard libraryReloadSerial == reloadSerial, accountSessionEpoch == epoch, !offlineHomeUIActive else { return }
       if reset, preserveOtherCachedPages {
         // Stiller Hintergrund-Refresh (z. B. nach Bootstrap): nur die ersten `pageBooks.count`
         // Positionen mit der frischen Server-Reihenfolge ersetzen, bereits gescrollte Folgeseiten
@@ -151,9 +155,11 @@ extension AppModel {
         lastBooksCatalogServerSyncAt = Date()
       }
     } catch {
+      // Fehler eines verlassenen Accounts nicht im neuen anzeigen.
+      guard accountSessionEpoch == epoch else { return }
       publishErrorUnlessBenignCancellation(error)
     }
-    guard libraryReloadSerial == reloadSerial, !offlineHomeUIActive else { return }
+    guard libraryReloadSerial == reloadSerial, accountSessionEpoch == epoch, !offlineHomeUIActive else { return }
     if startShelves.isEmpty {
       await loadStartDashboard()
     }

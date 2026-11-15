@@ -79,10 +79,23 @@ struct HomeBookCompactCard: View {
   /// eBook-Regale („Continue reading“): Lesefortschritt statt Hörbuch-Laufzeit.
   var usesEbookProgressDisplay = false
 
-  @State private var live: LibraryBookRowLiveState
+  @State private var liveBox = LibraryRowLiveStateBox<LibraryBookRowLiveState>()
   @State private var showDetail = false
 
   private var usesEbookMetrics: Bool { book.isPureEbookLibraryItem || usesEbookProgressDisplay }
+
+  /// Einmal pro Identität beim ersten `body` gebaut (nicht bei jedem Parent-Render im Init).
+  private var live: LibraryBookRowLiveState {
+    liveBox.resolve {
+      LibraryBookRowLiveState(
+        bookId: book.id,
+        model: model,
+        observesProgress: !usesEbookMetrics,
+        observesDownload: true,
+        observesEbookProgress: usesEbookMetrics
+      )
+    }
+  }
 
   /// `book` muss bereits per `bookStubEnrichedForListDisplay` angereichert sein (macht das Karussell
   /// einmal pro `body`). Hier nicht: `ForEach` ruft den Karten-Init auch ohne Parent-Rebuild erneut auf
@@ -92,16 +105,6 @@ struct HomeBookCompactCard: View {
     self.model = model
     self.usesEbookProgressDisplay = usesEbookProgressDisplay
     self.book = resolved
-    let ebookMetrics = resolved.isPureEbookLibraryItem || usesEbookProgressDisplay
-    _live = State(
-      wrappedValue: LibraryBookRowLiveState(
-        bookId: resolved.id,
-        model: model,
-        observesProgress: !ebookMetrics,
-        observesDownload: true,
-        observesEbookProgress: ebookMetrics
-      )
-    )
   }
 
   private var prog: ABSUserMediaProgress? { live.progress }
@@ -189,19 +192,23 @@ struct HomeEpisodeCompactCard: View {
   /// Kein `@ObservedObject` — Fortschritt/Download über `LibraryPodcastEpisodeRowLiveState`.
   let model: AppModel
 
-  @State private var live: LibraryPodcastEpisodeRowLiveState
+  @State private var liveBox = LibraryRowLiveStateBox<LibraryPodcastEpisodeRowLiveState>()
   @State private var showDetail = false
 
   init(episode: ABSPodcastEpisodeListItem, model: AppModel) {
     self.episode = episode
     self.model = model
-    _live = State(
-      wrappedValue: LibraryPodcastEpisodeRowLiveState(
+  }
+
+  /// Einmal pro Identität beim ersten `body` gebaut (nicht bei jedem Parent-Render im Init).
+  private var live: LibraryPodcastEpisodeRowLiveState {
+    liveBox.resolve {
+      LibraryPodcastEpisodeRowLiveState(
         progressLookupKey: episode.progressLookupKey,
         offlineStorageId: model.podcastEpisodeOfflineStorageId(episode),
         model: model
       )
-    )
+    }
   }
 
   private var prog: ABSUserMediaProgress? { live.progress }

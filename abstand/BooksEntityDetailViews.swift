@@ -287,11 +287,11 @@ struct BooksEntityDetailView: View {
   @ViewBuilder
   private var entityDescriptionSection: some View {
     if !entityDetailIsCurrent || !model.entityDetailMetaReady {
-      ProgressView()
-        .controlSize(.regular)
-        .tint(model.appearanceAccentColor)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, AppTheme.Layout.tightSpacing)
+      AbstandLoadingSpinner(
+        controlSize: .regular,
+        verticalPadding: AppTheme.Layout.tightSpacing,
+        alignment: .leading
+      )
     } else {
       entityDetailMetaRow(
         "Description",

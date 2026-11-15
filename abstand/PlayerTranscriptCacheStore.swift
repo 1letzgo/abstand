@@ -63,11 +63,15 @@ struct PlayerTranscriptTrackCache: Codable {
   }
 
   /// Segment einfügen und mit überlappenden/angrenzenden Segmenten verschmelzen.
+  /// Sortiert wird nur, wenn die Reihenfolge nicht ohnehin stimmt (Normalfall: das neue Segment
+  /// schließt hinten an) — das Ergebnis ist dasselbe wie mit stabiler Sortierung.
   mutating func insert(segment: Segment) {
     guard !segment.words.isEmpty || segment.end > segment.start else { return }
     var merged: [Segment] = []
+    merged.reserveCapacity(segments.count + 1)
     var pending = segment
-    for existing in segments.sorted(by: { $0.start < $1.start }) {
+    let ordered = Self.isSorted(segments, by: \.start) ? segments : segments.sorted(by: { $0.start < $1.start })
+    for existing in ordered {
       if existing.end < pending.start - 0.5 {
         merged.append(existing)
         continue
@@ -85,16 +89,31 @@ struct PlayerTranscriptTrackCache: Codable {
       pending = Segment(
         start: min(existing.start, pending.start),
         end: max(existing.end, pending.end),
-        words: words.sorted { $0.s < $1.s }
+        words: Self.isSorted(words, by: \.s) ? words : words.sorted { $0.s < $1.s }
       )
     }
     merged.append(pending)
-    segments = merged.sorted { $0.start < $1.start }
+    segments = Self.isSorted(merged, by: \.start) ? merged : merged.sorted { $0.start < $1.start }
   }
 
   var allWords: [Word] {
-    segments.flatMap(\.words).sorted { $0.s < $1.s }
+    let words = segments.flatMap(\.words)
+    return Self.isSorted(words, by: \.s) ? words : words.sorted { $0.s < $1.s }
   }
+
+  /// Aufsteigend (gleiche Werte erlaubt)? Dann ändert eine stabile Sortierung nichts.
+  private static func isSorted<T>(_ items: [T], by key: KeyPath<T, Double>) -> Bool {
+    guard items.count > 1 else { return true }
+    for i in 1..<items.count where items[i][keyPath: key] < items[i - 1][keyPath: key] { return false }
+    return true
+  }
+}
+
+/// Stempel einer Transkriptdatei (Größe + Änderungszeit): billige Gültigkeitsprüfung für Daten, die
+/// aus ihr abgeleitet im Speicher liegen — ohne das JSON erneut zu dekodieren.
+struct PlayerTranscriptFileStamp: Equatable, Sendable {
+  let size: Int
+  let modified: Date
 }
 
 /// Dateibasierter Speicher für Track-Transkripte unter dem Account-Cache.
@@ -163,12 +182,51 @@ enum PlayerTranscriptCacheStore {
     }
   }
 
+  /// Stempel der Transkriptdatei, `nil` wenn sie fehlt.
+  static func transcriptStamp(
+    account: URL?,
+    bookId: String,
+    trackIndex: Int,
+    localeIdentifier: String
+  ) -> PlayerTranscriptFileStamp? {
+    guard let account, !bookId.isEmpty else { return nil }
+    return stamp(
+      of: fileURL(account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeIdentifier))
+  }
+
+  private static func stamp(of url: URL) -> PlayerTranscriptFileStamp? {
+    guard let attributes = try? fm.attributesOfItem(atPath: url.path),
+      let size = (attributes[.size] as? NSNumber)?.intValue,
+      let modified = attributes[.modificationDate] as? Date
+    else { return nil }
+    return PlayerTranscriptFileStamp(size: size, modified: modified)
+  }
+
+  /// Wie `load`, plus Stempel der gelesenen Datei. Der Stempel wird vor dem Lesen genommen — ändert
+  /// sich die Datei dazwischen, passt er beim nächsten Vergleich nicht mehr und es wird neu gelesen.
+  static func loadStamped(
+    account: URL?,
+    bookId: String,
+    trackIndex: Int,
+    localeIdentifier: String
+  ) -> (cache: PlayerTranscriptTrackCache, stamp: PlayerTranscriptFileStamp)? {
+    guard
+      let stamp = transcriptStamp(
+        account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeIdentifier),
+      let cache = load(
+        account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeIdentifier)
+    else { return nil }
+    return (cache, stamp)
+  }
+
+  /// Gibt den Stempel der geschriebenen Datei zurück (`nil` bei Fehler).
+  @discardableResult
   static func save(
     _ cache: PlayerTranscriptTrackCache,
     account: URL?,
     bookId: String
-  ) {
-    guard let account, !bookId.isEmpty else { return }
+  ) -> PlayerTranscriptFileStamp? {
+    guard let account, !bookId.isEmpty else { return nil }
     let url = fileURL(
       account: account,
       bookId: bookId,
@@ -177,7 +235,7 @@ enum PlayerTranscriptCacheStore {
     )
     guard let data = try? ABSJSON.encoder().encode(cache) else {
       AppLog.playback.warning("transcript cache encode failed")
-      return
+      return nil
     }
     ensureParentDirectory(of: url)
     do {
@@ -186,9 +244,11 @@ enum PlayerTranscriptCacheStore {
       var values = URLResourceValues()
       values.isExcludedFromBackup = true
       try? fileURL.setResourceValues(values)
+      return stamp(of: url)
     } catch {
       AppLog.playback.warning(
         "transcript cache write failed: \(error.localizedDescription, privacy: .public)")
+      return nil
     }
   }
 

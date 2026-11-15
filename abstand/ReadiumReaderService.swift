@@ -180,12 +180,14 @@ final class ReadiumReaderService {
   }
 
   func applyPDFPreferences(to navigator: PDFNavigatorViewController) {
+    ReadiumReaderDelegate.shared.markLayoutChange()
     navigator.submitPreferences(makePDFPreferences())
     updateDirectionalNavigation(for: navigator, scrollEnabled: EpubReaderSettings.loadContinuousScroll())
   }
 
   func applyEPUBPreferences(to navigator: EPUBNavigatorViewController) {
     ReadiumReaderDelegate.shared.invalidateChapterPageCache()
+    ReadiumReaderDelegate.shared.markLayoutChange()
     navigator.submitPreferences(makeEPUBPreferences())
     updateDirectionalNavigation(for: navigator, scrollEnabled: EpubReaderSettings.loadContinuousScroll())
     Task { await refreshEpubProgressDisplay(epub: navigator) }
@@ -195,17 +197,27 @@ final class ReadiumReaderService {
   func refreshEpubProgressDisplay(epub: EPUBNavigatorViewController) async {
     try? await Task.sleep(nanoseconds: 450_000_000)
     guard let locator = epub.currentLocation else { return }
-    await publishProgressUpdate(locator: locator, format: .epub, epub: epub)
+    await publishProgressUpdate(locator: locator, format: .epub, epub: epub, isLayoutRefresh: true)
   }
 
+  /// `isLayoutRefresh`: Meldung nach Neuumbruch (Schriftgröße, Theme, Darstellung) — kein Blättern
+  /// des Nutzers (siehe `ServerPositionOffer`).
   func publishProgressUpdate(
     locator: Locator,
     format: ABSEbookFormat,
-    epub: EPUBNavigatorViewController? = nil
+    epub: EPUBNavigatorViewController? = nil,
+    isLayoutRefresh: Bool = false
   ) async {
     var userInfo: [String: Any] = [ReadiumReaderProgressInfo.locatorKey: locator]
+    if isLayoutRefresh { userInfo[ReadiumReaderProgressInfo.isLayoutRefreshKey] = true }
     if format == .epub, let epub {
-      if let chapterPages = await fetchRenderedPageInfo(from: epub) {
+      let chapterPages = await fetchRenderedPageInfo(from: epub)
+      // Während des JS-Aufrufs weitergeblättert: dieser Stand ist überholt. Die neuere Position hat
+      // `locationDidChange` schon gespeichert und meldet sie selbst — nicht überschreiben.
+      // Toleranter Vergleich: Readium liefert für dieselbe Stelle nicht zwingend einen gleichen
+      // `Locator` (Textkontext, berechnete Felder) — nur Abschnitt und Fortschritt zählen.
+      if let current = epub.currentLocation, Self.isSupersededLocator(current, by: locator) { return }
+      if let chapterPages {
         let bookPages = ReadiumReaderDelegate.shared.bookWidePageProgress(
           locator: locator, chapterPages: chapterPages)
         userInfo[ReadiumReaderProgressInfo.bookPageProgressKey] = bookPages
@@ -219,6 +231,19 @@ final class ReadiumReaderService {
       object: nil,
       userInfo: userInfo
     )
+  }
+
+  /// `true`, wenn `current` eine andere Stelle als `captured` meint: anderer Abschnitt oder spürbar
+  /// anderer Fortschritt innerhalb des Abschnitts.
+  private static func isSupersededLocator(_ current: Locator, by captured: Locator) -> Bool {
+    if current.href.string != captured.href.string { return true }
+    // Kleiner als eine Seite in jedem realistischen Abschnitt, groß genug für Rundungsrauschen.
+    let progressionEpsilon = 0.001
+    guard let lhs = current.locations.progression, let rhs = captured.locations.progression else {
+      // Ohne Fortschritt auf einer Seite lässt sich kein Unterschied belegen — Update behalten.
+      return false
+    }
+    return abs(lhs - rhs) > progressionEpsilon
   }
 
   /// Paginierte EPUB-Ansicht: tatsächliche Spalten/Seiten im aktuellen Abschnitt (reagiert auf Schriftgröße).
@@ -392,6 +417,19 @@ final class ReadiumReaderDelegate: NSObject, EPUBNavigatorDelegate, PDFNavigator
     chapterPageTotalsByHref.removeAll()
   }
 
+  /// Zeitpunkt der letzten Layout-Änderung (Einstellungen, Darstellung). Positionsmeldungen kurz
+  /// danach stammen vom Neuumbruch, nicht vom Nutzer.
+  private var layoutChangedAt: Date?
+  private static let layoutChangeWindow: TimeInterval = 2
+
+  func markLayoutChange() {
+    layoutChangedAt = Date()
+  }
+
+  private var isLayoutChangeRecent: Bool {
+    layoutChangedAt.map { Date().timeIntervalSince($0) < Self.layoutChangeWindow } ?? false
+  }
+
   func setPositionCount(_ count: Int?) {
     positionCount = count
   }
@@ -452,22 +490,26 @@ final class ReadiumReaderDelegate: NSObject, EPUBNavigatorDelegate, PDFNavigator
       }
       EbookLocalStore.saveReadiumLocator(locator, libraryItemId: libraryItemId, format: format)
     }
+    let isLayoutRefresh = isLayoutChangeRecent
     if format == .epub, let epub = navigator as? EPUBNavigatorViewController {
       Task {
         await ReadiumReaderService.shared.publishProgressUpdate(
-          locator: locator, format: .epub, epub: epub)
+          locator: locator, format: .epub, epub: epub, isLayoutRefresh: isLayoutRefresh)
       }
     } else {
+      var userInfo: [String: Any] = [ReadiumReaderProgressInfo.locatorKey: locator]
+      if isLayoutRefresh { userInfo[ReadiumReaderProgressInfo.isLayoutRefreshKey] = true }
       NotificationCenter.default.post(
         name: .readiumReaderProgressDidChange,
         object: nil,
-        userInfo: [ReadiumReaderProgressInfo.locatorKey: locator]
+        userInfo: userInfo
       )
     }
   }
 
   func navigator(_ navigator: VisualNavigator, presentationDidChange presentation: VisualNavigatorPresentation) {
     guard format == .epub, let epub = navigator as? EPUBNavigatorViewController else { return }
+    markLayoutChange()
     invalidateChapterPageCache()
     Task { await ReadiumReaderService.shared.refreshEpubProgressDisplay(epub: epub) }
   }
@@ -503,6 +545,8 @@ struct BookPageProgress: Equatable {
 enum ReadiumReaderProgressInfo {
   static let locatorKey = "locator"
   static let bookPageProgressKey = "bookPageProgress"
+  /// `true`: Meldung nach Neuumbruch, nicht nach Blättern des Nutzers.
+  static let isLayoutRefreshKey = "isLayoutRefresh"
 
   static func fraction(from locator: Locator) -> Double {
     if let total = locator.locations.totalProgression {

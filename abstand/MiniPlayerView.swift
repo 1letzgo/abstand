@@ -5,14 +5,22 @@ import UIKit
 
 // MARK: - Abspielgeschwindigkeit (Label, locale Zahlenformat)
 
+/// Einmal gebaut statt pro Aufruf — das Label rendert bei jeder Steuerzeilen-Aktualisierung.
+@MainActor
+private enum MiniPlayerRateFormatter {
+  static let shared: NumberFormatter = {
+    let f = NumberFormatter()
+    f.locale = Locale.autoupdatingCurrent
+    f.minimumFractionDigits = 0
+    f.maximumFractionDigits = 2
+    f.numberStyle = .decimal
+    return f
+  }()
+}
+
+@MainActor
 private func miniPlayerFormatPlaybackRate(_ rate: Float) -> String {
-  let n = NSNumber(value: rate)
-  let f = NumberFormatter()
-  f.locale = Locale.autoupdatingCurrent
-  f.minimumFractionDigits = 0
-  f.maximumFractionDigits = 2
-  f.numberStyle = .decimal
-  let s = f.string(from: n) ?? String(format: "%g", rate)
+  let s = MiniPlayerRateFormatter.shared.string(from: NSNumber(value: rate)) ?? String(format: "%g", rate)
   return "\(s)×"
 }
 
@@ -1280,7 +1288,7 @@ struct NowPlayingDetailView: View {
       // auf einer kleinen Fixed-Frame-View unvorhersehbar — der Griff verschwand komplett) oder
       // reinem `.padding` (seit `fullPlayerStack` per `.ignoresSafeArea()` bis unter Notch/
       // Dynamic Island blutet, säße er sonst IN der Notch statt sichtbar darunter).
-      .padding(.top, keyWindowTopSafeAreaInset + 8)
+      .padding(.top, keyWindowTopSafeAreaInset + AppTheme.Layout.stackSpacing)
       .accessibilityHidden(true)
   }
 

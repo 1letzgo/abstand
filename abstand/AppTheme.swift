@@ -806,14 +806,15 @@ struct AbstandBrowseStripIconMenu: View {
   }
 }
 
-/// Großtitel → fixer Browse-Menüstreifen → je Sektion ein eigener `ScrollView` (Scrollposition bleibt erhalten).
-/// Nur bereits besuchte Sektionen werden aufgebaut — verhindert N× schwere Listen (z. B. jede Podcast-Sendung).
+/// Großtitel → fixer Browse-Menüstreifen → je Sektion ein eigener `ScrollView`.
+/// Gerendert wird immer nur die aktive Sektion (verhindert N× schwere Listen, z. B. jede
+/// Podcast-Sendung); die Scrollposition jeder besuchten Sektion bleibt in `sectionScrollPositions`.
 struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content: View>: View {
-  @EnvironmentObject private var model: AppModel
+  /// Nur für die Hintergrundfarbe — kein `@EnvironmentObject`, sonst rendert das ganze Layout bei
+  /// jeder der ~180 `@Published`-Änderungen neu (die Aufrufer beobachten `AppModel` ohnehin selbst).
+  @Environment(\.appearanceThemeRevision) private var themeRevision
 
   var showsStrip: Bool = true
-  /// `false`: nur aktive Sektion (schneller Wechsel, z. B. Settings); `true`: besuchte Sektionen behalten Scroll-Position.
-  var retainOffscreenSections: Bool = true
   /// Tab-Wechsel o. Ä.: gespeicherte Scroll-Position erneut anwenden, damit Lazy-Inhalte layouten.
   var relayoutTrigger: AnyHashable?
   /// Wenn sich dieser Wert ändert (z. B. `nowPlayingAccessoryScrollBottomInset` 56↔0, wenn die
@@ -832,35 +833,28 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
   @ViewBuilder var strip: () -> Strip
   @ViewBuilder var sectionBody: (ID) -> Content
 
-  @State private var mountedSectionIDs: Set<ID> = []
   @State private var sectionScrollPositions: [ID: ScrollPosition] = [:]
+  /// Verzögertes Zurücksetzen nach dem `nil`-Zwischenschritt — je Sektion genau eines, damit ein
+  /// zweiter Auslöser im 32-ms-Fenster nicht `nil` als „gespeichert“ liest und auf `.top` springt.
+  @State private var pendingScrollRestores: [ID: Task<Void, Never>] = [:]
+  /// Vom ersten Auslöser gesicherte Position, solange dessen Wiederherstellung noch aussteht.
+  @State private var pendingScrollRestoreTargets: [ID: ScrollPosition?] = [:]
 
   var body: some View {
-    let screenBackground = model.appearancePalette.background
+    let _ = themeRevision
+    let screenBackground = AppTheme.palette.background
     VStack(spacing: 0) {
       if showsStrip {
         strip().abstandFixedBrowseStripHeaderChrome()
       }
       ZStack {
         screenBackground
-        if shouldRenderSection(selection) {
-          sectionScrollView(for: selection, screenBackground: screenBackground)
-        }
+        sectionScrollView(for: selection, screenBackground: screenBackground)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .abstandScrollScreenBackground()
-    .onAppear {
-      if retainOffscreenSections {
-        mountedSectionIDs.insert(selection)
-      }
-    }
-    .onChange(of: selection) { _, newSelection in
-      if retainOffscreenSections {
-        mountedSectionIDs.insert(newSelection)
-      }
-    }
     .onChange(of: relayoutTrigger) { _, _ in
       guard relayoutTrigger != nil else { return }
       reapplyScrollPosition(for: selection)
@@ -874,15 +868,6 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
     }
   }
 
-  private func shouldRenderSection(_ sectionID: ID) -> Bool {
-    // Die aktive Sektion wird IMMER gerendert — `mountedSectionIDs` steuert nur, ob
-    // zusätzlich besuchte (inaktive) Sektionen offscreen behalten werden.
-    if selection == sectionID { return true }
-    return retainOffscreenSections
-      ? mountedSectionIDs.contains(sectionID)
-      : false
-  }
-
   private func scrollPositionBinding(for sectionID: ID) -> Binding<ScrollPosition> {
     Binding(
       get: { sectionScrollPositions[sectionID] ?? ScrollPosition(edge: .top) },
@@ -892,7 +877,10 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
 
   /// Nach Tab-Wechsel: gespeicherte Offset-Position erneut setzen → Lazy-Inhalte layouten.
   private func reapplyScrollPosition(for sectionID: ID) {
-    let saved = sectionScrollPositions[sectionID]
+    // Läuft für diese Sektion noch eine Wiederherstellung, steht hier schon `nil` — dann gilt die
+    // vom ersten Auslöser gesicherte Position weiter.
+    let saved: ScrollPosition? =
+      pendingScrollRestoreTargets[sectionID] ?? sectionScrollPositions[sectionID]
     // Ohne abgeschaltete Animation animiert SwiftUI beide Schritte (auf Anfang, zurück) —
     // sichtbar als Wackeln der Liste. Der Zwischenschritt soll gar nicht wahrnehmbar sein.
     var transaction = Transaction()
@@ -900,24 +888,38 @@ struct AbstandFixedBrowseStripSectionsLayout<ID: Hashable, Strip: View, Content:
     withTransaction(transaction) {
       sectionScrollPositions[sectionID] = nil
     }
-    Task { @MainActor in
-      try? await Task.sleep(nanoseconds: 32_000_000)
-      var restore = Transaction()
-      restore.disablesAnimations = true
-      withTransaction(restore) {
-        sectionScrollPositions[sectionID] = saved ?? ScrollPosition(edge: .top)
-      }
-    }
+    scheduleScrollRestore(for: sectionID, to: saved, disablesAnimations: true)
   }
 
   /// Sort/Filter/Delete: aktive Sektion an den Anfang.
   /// Zuerst `nil` (wie `reapplyScrollPosition`), sonst bleibt ein point-basierter Offset past
   /// Content erhalten → weißer Viewport / kein Scrollen mehr (SwiftUI clamped Edge, nicht Point).
   private func scrollActiveSectionToTop() {
-    sectionScrollPositions[selection] = nil
-    Task { @MainActor in
+    let sectionID = selection
+    sectionScrollPositions[sectionID] = nil
+    // Ziel ist bewusst `.top` — ein ausstehendes Wiederherstellen der alten Position wird ersetzt.
+    scheduleScrollRestore(for: sectionID, to: ScrollPosition(edge: .top), disablesAnimations: false)
+  }
+
+  /// Setzt nach 32 ms `target` (oder `.top`) für `sectionID`. Ein noch ausstehender Lauf derselben
+  /// Sektion wird abgebrochen; nach dem Sleep zählt die erfasste `sectionID`, nicht `selection`.
+  private func scheduleScrollRestore(
+    for sectionID: ID,
+    to target: ScrollPosition?,
+    disablesAnimations: Bool
+  ) {
+    pendingScrollRestores[sectionID]?.cancel()
+    pendingScrollRestoreTargets[sectionID] = .some(target)
+    pendingScrollRestores[sectionID] = Task { @MainActor in
       try? await Task.sleep(nanoseconds: 32_000_000)
-      sectionScrollPositions[selection] = ScrollPosition(edge: .top)
+      guard !Task.isCancelled else { return }
+      pendingScrollRestores[sectionID] = nil
+      pendingScrollRestoreTargets[sectionID] = nil
+      var restore = Transaction()
+      restore.disablesAnimations = disablesAnimations
+      withTransaction(restore) {
+        sectionScrollPositions[sectionID] = target ?? ScrollPosition(edge: .top)
+      }
     }
   }
 
@@ -1014,35 +1016,40 @@ extension View {
 
 /// Paper: Bogen auf Papier — Füllung, Form, Haarlinie in `palette.rule`, nur ein Hauch Schatten.
 private struct AbstandCardChromeModifier<S: Shape>: ViewModifier {
-  @EnvironmentObject private var model: AppModel
+  /// Revision statt `@EnvironmentObject`: der Modifier sitzt an jeder Karte — sonst hinge jede an
+  /// allen `@Published`-Änderungen des `AppModel` (nur die Palette wird gebraucht).
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   let fill: Color
   let shape: S
   let elevation: AppTheme.CardElevation
 
   func body(content: Content) -> some View {
-    content
+    let _ = themeRevision
+    return content
       .background(fill)
       .clipShape(shape)
       .overlay {
-        shape.stroke(model.appearancePalette.rule, lineWidth: AppTheme.Layout.hairlineWidth)
+        shape.stroke(AppTheme.palette.rule, lineWidth: AppTheme.Layout.hairlineWidth)
       }
       .abstandCardElevation(elevation)
   }
 }
 
 private struct AbstandCardElevationModifier: ViewModifier {
-  @EnvironmentObject private var model: AppModel
+  /// Revision statt `@EnvironmentObject` — wie `AbstandCardChromeModifier` (an jeder Karte).
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   @Environment(\.abstandCardShadowEnabled) private var cardShadowEnabled
   let elevation: AppTheme.CardElevation
 
   private var shadowColor: Color {
     switch elevation {
-    case .hero: model.appearancePalette.heroCardShadow
-    case .subtle, .standard: model.appearancePalette.cardShadow
+    case .hero: AppTheme.palette.heroCardShadow
+    case .subtle, .standard: AppTheme.palette.cardShadow
     }
   }
 
   func body(content: Content) -> some View {
+    let _ = themeRevision
     if cardShadowEnabled {
       content
         .compositingGroup()
@@ -1177,13 +1184,15 @@ struct AbstandLoadingSpinner: View {
   var controlSize: ControlSize = .large
   var verticalPadding: CGFloat = AppTheme.Layout.loadingVerticalPadding
   var scale: CGFloat = 1
+  /// Platzhalter in Meta-Zeilen sitzen linksbündig (`.leading`); Standard bleibt zentriert.
+  var alignment: Alignment = .center
 
   var body: some View {
     ProgressView()
       .controlSize(controlSize)
       .tint(themeAccent)
       .scaleEffect(scale)
-      .frame(maxWidth: .infinity)
+      .frame(maxWidth: .infinity, alignment: alignment)
       .padding(.vertical, verticalPadding)
   }
 }

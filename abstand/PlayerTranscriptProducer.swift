@@ -35,9 +35,17 @@ enum PlayerTranscriptProducer {
   /// Wie weit (Audiosekunden) das Füttern der Erkennung vorauslaufen darf. Ohne Grenze landet bei
   /// langen Einzeldatei-Hörbüchern fast die ganze Datei als PCM im Speicher (GB-Bereich).
   private static let maxFeedLeadSeconds: Double = 120
-  /// Bei Stille liefert die Erkennung keine Ergebnisse — dann nach dieser Wartezeit trotzdem
-  /// ein Stück weiterfüttern, statt sich festzuwarten.
+  /// Bei Stille liefert die Erkennung keine Ergebnisse — kam so lange kein Ergebnis mehr, trotzdem
+  /// ein Stück weiterfüttern, statt sich festzuwarten. Nur bei echter Ergebnis-Stille: eine bloß
+  /// langsame Erkennung liefert weiter Ergebnisse und bremst damit das Füttern.
   private static let stallNudgeNanoseconds: UInt64 = 1_500_000_000
+  /// Harte Grenze für den echten Vorsprung (gefüttert − Ende des letzten Ergebnisses), unabhängig
+  /// vom Schub — sonst puffert der `AsyncStream` bei langsamer Erkennung unbegrenzt PCM.
+  private static let maxTrueLeadSeconds: Double = 300
+  /// Steht die harte Grenze und kommt so lange gar kein Ergebnis (minutenlange Musik/Stille), darf
+  /// trotzdem ein Stück nachgeschoben werden — die Erkennung arbeitet Stille weit schneller als
+  /// Echtzeit ab, der Puffer wächst dadurch nicht.
+  private static let hardCapEscapeNanoseconds: UInt64 = 30_000_000_000
   private static let throttleSleepNanoseconds: UInt64 = 100_000_000
 
   /// Transkribiert `[startSeconds, endSeconds)` der Datei und liefert Wort-Batches.
@@ -99,7 +107,7 @@ enum PlayerTranscriptProducer {
           if Task.isCancelled { return }
           // Ergebnisse kommen erst nach dem ersten gefütterten Buffer — der Ursprung steht dann fest.
           let words = Self.words(from: result.text, offset: gate.timelineOrigin ?? startSeconds)
-          if let end = words.last?.end { gate.advance(to: end) }
+          gate.recordResult(end: words.last?.end)
           guard !words.isEmpty else { continue }
           continuation.yield(
             PlayerTranscriptProductionBatch(
@@ -238,17 +246,24 @@ enum PlayerTranscriptProducer {
         await Task.yield()
       }
 
-      // Gegendruck: nicht mehr als `maxFeedLeadSeconds` vor der Erkennung. Stille (keine Ergebnisse)
-      // löst nach `stallNudge` einen Schub aus, damit das Füttern nie ganz stehen bleibt.
-      var waited: UInt64 = 0
-      while origin + fedSeconds - gate.analyzedThrough > Self.maxFeedLeadSeconds,
-        waited < Self.stallNudgeNanoseconds, !Task.isCancelled
-      {
+      // Gegendruck: nicht mehr als `maxFeedLeadSeconds` vor der Erkennung. Echte Stille (seit
+      // `stallNudge` kein Ergebnis) löst einen Schub aus, damit das Füttern nie ganz stehen bleibt —
+      // aber nie über `maxTrueLeadSeconds` echten Vorsprung hinaus.
+      while !Task.isCancelled {
+        let fedThrough = origin + fedSeconds
+        let softBlocked = fedThrough - gate.analyzedThrough > Self.maxFeedLeadSeconds
+        let hardBlocked = fedThrough - gate.recognizedThrough > Self.maxTrueLeadSeconds
+        guard softBlocked || hardBlocked else { break }
+        if let failure = gate.failure { throw failure }
         try? await Task.sleep(nanoseconds: Self.throttleSleepNanoseconds)
-        waited += Self.throttleSleepNanoseconds
-      }
-      if waited >= Self.stallNudgeNanoseconds {
-        gate.advance(to: origin + fedSeconds - Self.maxFeedLeadSeconds / 2)
+        let silence = gate.nanosecondsSinceLastResult
+        if hardBlocked {
+          if silence >= Self.hardCapEscapeNanoseconds {
+            gate.advanceRecognized(to: fedThrough - Self.maxFeedLeadSeconds / 2)
+          }
+        } else if silence >= Self.stallNudgeNanoseconds {
+          gate.advance(to: fedThrough - Self.maxFeedLeadSeconds / 2)
+        }
       }
     }
 
@@ -332,11 +347,50 @@ enum PlayerTranscriptProducer {
 /// Erkennungsfortschritt (Track-Sekunden), geteilt zwischen Ergebnis- und Fütter-Task.
 private final class FeedGate: @unchecked Sendable {
   private let lock = NSLock()
+  /// Fortschritt inkl. Stille-Schub (weicher Gegendruck).
   private var value: Double
+  /// Ende des letzten echten Ergebnisses (harte Grenze).
+  private var recognized: Double
+  private var lastResultAt = ContinuousClock.now
   private var origin: Double?
   private var error: Error?
 
-  init(analyzedThrough: Double) { value = analyzedThrough }
+  init(analyzedThrough: Double) {
+    value = analyzedThrough
+    recognized = analyzedThrough
+  }
+
+  /// Finales Ergebnis eingetroffen (auch ohne Wörter: die Erkennung arbeitet).
+  func recordResult(end: Double?) {
+    lock.lock()
+    lastResultAt = ContinuousClock.now
+    if let end {
+      if end > value { value = end }
+      if end > recognized { recognized = end }
+    }
+    lock.unlock()
+  }
+
+  var recognizedThrough: Double {
+    lock.lock(); defer { lock.unlock() }
+    return recognized
+  }
+
+  /// Nur für den Notausgang bei minutenlanger Stille an der harten Grenze.
+  func advanceRecognized(to time: Double) {
+    lock.lock()
+    if time > recognized { recognized = time }
+    if time > value { value = time }
+    lastResultAt = ContinuousClock.now
+    lock.unlock()
+  }
+
+  var nanosecondsSinceLastResult: UInt64 {
+    lock.lock(); defer { lock.unlock() }
+    let elapsed = ContinuousClock.now - lastResultAt
+    let (seconds, attoseconds) = elapsed.components
+    return UInt64(max(0, seconds)) * 1_000_000_000 + UInt64(max(0, attoseconds) / 1_000_000_000)
+  }
 
   /// Track-Sekunde des ersten gefütterten Samples (Nullpunkt der Erkennungszeiten).
   var timelineOrigin: Double? {

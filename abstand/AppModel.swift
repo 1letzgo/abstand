@@ -977,6 +977,8 @@ final class AppModel: ObservableObject {
   var startDashboardGeneration: UInt = 0
   /// Serialisiert `reloadLibrary`-Applies (Sort/Filter/Focus/Bootstrap).
   var libraryReloadSerial: UInt = 0
+  /// Wie `libraryReloadSerial` für `reloadPodcastLibrary` — veraltete Antworten nach jedem `await` verwerfen.
+  private var podcastLibraryReloadSerial: UInt = 0
   /// LocalStore-Persists: ältere fire-and-forget Writes dürfen nicht gewinnen.
   private var librariesPersistGeneration: UInt64 = 0
   private var homeShelvesPersistGeneration: UInt64 = 0
@@ -1007,6 +1009,8 @@ final class AppModel: ObservableObject {
   /// Lokale Fortschritts-Schreibungen, die noch nicht am Server sind (vgl. Absorb `pending_syncs`).
   /// Persistiert je Server + Benutzer — sonst wüsste der Offline-Sync nach einem Neustart nicht mehr,
   /// welche Einträge wirklich lokal geändert wurden.
+  /// Während `clearInMemorySessionState` — lokale Sync-Callbacks aus dem Player-Abriss ignorieren.
+  private var isClearingSessionState = false
   var pendingLocalProgressSyncKeys: Set<String> = [] {
     didSet {
       guard persistsPendingLocalProgressSyncKeys, oldValue != pendingLocalProgressSyncKeys else { return }
@@ -1029,6 +1033,8 @@ final class AppModel: ObservableObject {
   /// Aus beim Laden und beim Leeren des Speichers (Account-Wechsel) — der persistierte Stand bleibt dann erhalten.
   private var persistsPendingBookmarkChanges = true
   private var isFlushingPendingBookmarkChanges = false
+  /// Re-Entrancy-Schutz für `flushPendingOfflineListeningTime` (Path-Monitor + Offline-Sync parallel).
+  private var isFlushingPendingOfflineListeningTime = false
   /// „Fertig“ lokal gesetzt — schützt vor veraltetem `mediaProgress` nach Offline-Sync.
   private var localFinishedProgressKeys: Set<String> = []
   /// Reset Progress: Keys gegen Wiedereinspeisung aus SwiftData/`authorize`, mit Zeitpunkt des Resets (ms).
@@ -1174,9 +1180,19 @@ final class AppModel: ObservableObject {
       Task { @MainActor [weak self] in
         guard let model = self else { return }
         let wasReachable = model.isNetworkReachable
-        model.isNetworkReachable = reachable
-        model.networkUsesUnmeteredLAN = reachable && onWiFiOrEthernet
-        model.refreshDownloadedShelfFromManifests()
+        // Nur bei Änderung zuweisen — der Monitor feuert auch bei Interface-/Pfad-Details ohne
+        // Erreichbarkeitswechsel, und jede `@Published`-Zuweisung invalidiert alle Views.
+        if wasReachable != reachable {
+          model.isNetworkReachable = reachable
+        }
+        let unmetered = reachable && onWiFiOrEthernet
+        if model.networkUsesUnmeteredLAN != unmetered {
+          model.networkUsesUnmeteredLAN = unmetered
+        }
+        // Disk-Scan aller Manifeste nur bei echtem Erreichbarkeitswechsel (Offline-Regal/Continue-Reparatur).
+        if wasReachable != reachable {
+          model.refreshDownloadedShelfFromManifests()
+        }
         if !reachable {
           model.isServerReachable = false
           if !model.offlineHomeUIActive {
@@ -1223,12 +1239,8 @@ final class AppModel: ObservableObject {
       self?.handleSmartDownloadPlaybackTick()
       self?.maybeRecordActivePlaybackProgressPeriodically()
     }
-    player.onLocalPlaybackWithoutSessionSync = { [weak self] timeListened, position, duration in
-      await self?.syncLocalDownloadedPlaybackToServer(
-        timeListened: timeListened,
-        position: position,
-        duration: duration
-      )
+    player.onLocalPlaybackWithoutSessionSync = { [weak self] snapshot in
+      await self?.syncLocalDownloadedPlaybackToServer(snapshot)
     }
     player.onAudiobookPlaybackCompleted = { [weak self] in
       Task { @MainActor [weak self] in
@@ -1248,8 +1260,7 @@ final class AppModel: ObservableObject {
     player.onActiveMediaPrepared = { [weak self] in
       guard let self, self.readAlongPrefetchEnabled else { return }
       // Neues Buch: Vorproduktion am neuen Titel neu aufsetzen.
-      self.transcriptPrefetcher.stop()
-      self.transcriptPrefetcher.scheduleIfNeeded()
+      self.transcriptPrefetcher.restart()
     }
     let accountBootstrap = Self.bootstrapStoredAccountsState()
     storedAccounts = accountBootstrap.accounts
@@ -1290,7 +1301,10 @@ final class AppModel: ObservableObject {
 
   /// Abgleich `downloadedItemIds` mit Disk: ungültige IDs entfernen **und** vorhandene Ordner
   /// des aktiven Accounts entdecken (sonst bleibt Continue offline leer, wenn UserDefaults veraltet ist).
-  func reconcileDownloadedItemIdsWithDisk() {
+  /// - Returns: die dabei gelesenen Manifeste des aktiven Accounts je Storage-ID — damit der Aufrufer
+  ///   sie nicht ein zweites Mal von Disk lädt.
+  @discardableResult
+  private func reconcileDownloadedItemIdsWithDisk() -> [String: ABSDownloadManifest] {
     let downloadsRoot = URL.documentsDirectory.appendingPathComponent("Downloads", isDirectory: true)
     guard FileManager.default.fileExists(atPath: downloadsRoot.path) else {
       if !downloadedItemIds.isEmpty {
@@ -1300,9 +1314,10 @@ final class AppModel: ObservableObject {
         invalidateDownloadedAudiobooksFullMetadataCache()
         persistDownloads()
       }
-      return
+      return [:]
     }
     var discovered = Set<String>()
+    var manifests: [String: ABSDownloadManifest] = [:]
     if let dirs = try? FileManager.default.contentsOfDirectory(
       at: downloadsRoot, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
     ) {
@@ -1315,29 +1330,29 @@ final class AppModel: ObservableObject {
           downloadManifestBelongsToActiveAccount(manifest)
         else { continue }
         discovered.insert(id)
+        manifests[id] = manifest
       }
     }
-    // Immer zuweisen: auch bei gleicher Menge `@Published` feuern, damit Download-Badges
-    // nach Manifest-/Index-Rebuild (Pull-to-Refresh) neu evaluieren.
-    let changed = discovered != downloadedItemIds
-    downloadedItemIds = discovered
-    if changed {
+    // Nur bei echter Änderung zuweisen — jede Zuweisung invalidiert alle Views am `AppModel`.
+    // Download-Badges nach Manifest-/Index-Rebuild evaluieren trotzdem neu: `syncDownloadedShelfBooksFromDisk`
+    // setzt `downloadedShelfBooks` (ebenfalls `@Published`) bei jedem Durchlauf.
+    if discovered != downloadedItemIds {
+      downloadedItemIds = discovered
       persistDownloads(skipRefresh: true)
     }
+    return manifests
   }
 
   /// Disk → `downloadedItemIds` + `downloadedShelfBooks` + Lookup-Index (ohne Continue-Regal-Mutation).
   private func syncDownloadedShelfBooksFromDisk() {
-    reconcileDownloadedItemIdsWithDisk()
+    // Manifeste nur einmal pro Durchlauf lesen (früher: Reconcile und Regal-Aufbau je einmal).
+    let manifests = reconcileDownloadedItemIdsWithDisk()
     var list: [ABSBook] = []
     var storageByLibraryItem: [String: String] = [:]
     list.reserveCapacity(downloadedItemIds.count)
     storageByLibraryItem.reserveCapacity(downloadedItemIds.count)
     for id in downloadedItemIds.sorted() {
-      guard let root = try? downloads.downloadFolder(for: id),
-        let manifest = ABSDownloadManifest.load(from: root),
-        downloadManifestBelongsToActiveAccount(manifest)
-      else { continue }
+      guard let manifest = manifests[id] else { continue }
       list.append(ABSBook.fromDownloadManifest(manifest))
       let lid = manifest.libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
       if !lid.isEmpty {
@@ -4165,6 +4180,9 @@ final class AppModel: ObservableObject {
   }
 
   func clearInMemorySessionState(clearCredentials: Bool) {
+    parkLocalPlaybackBeforeSessionClear()
+    isClearingSessionState = true
+    defer { isClearingSessionState = false }
     cancelDeferredBootstrapWork()
     mainTab = .start
     if clearCredentials {
@@ -4179,7 +4197,11 @@ final class AppModel: ObservableObject {
     pendingPostOfflineModeCatalogReload = false
     clearPendingLocalProgressSyncKeysInMemory()
     pendingEbookProgressOverrideByItemId = [:]
-    UserDefaults.standard.removeObject(forKey: Keys.pendingOfflineListeningSeconds)
+    // Ausstehender eBook-Stand gehört zum verlassenen Account — nie mit dem Client des nächsten senden.
+    ebookProgressSyncTask?.cancel()
+    ebookProgressSyncTask = nil
+    pendingEbookProgressSync = nil
+    lastSyncedEbookFractionByItemId = [:]
     suppressOfflineModeSideEffects = false
     if clearCredentials {
       token = ""
@@ -4469,9 +4491,10 @@ final class AppModel: ObservableObject {
       }
       let localStore = self.currentLocalLibraryStore()
       let shelfLibraryIds = self.homeShelvesCacheLibraryIds(primary: libId)
-      async let localSnapshot: ([ABSUserMediaProgress], [ABSAudioBookmark]) = {
-        guard let localStore else { return ([], []) }
-        let progress = (try? await localStore.fetchAllProgress()) ?? []
+      // Progress optional: `nil` = nicht gelesen (kein Store/Fehler) — dann bleibt `ensureLocalProgressLoaded` zuständig.
+      async let localSnapshot: ([ABSUserMediaProgress]?, [ABSAudioBookmark]) = {
+        guard let localStore else { return (nil, []) }
+        let progress = try? await localStore.fetchAllProgress()
         let bookmarks = (try? await localStore.fetchAllBookmarks()) ?? []
         return (progress, bookmarks)
       }()
@@ -4484,13 +4507,25 @@ final class AppModel: ObservableObject {
         }
         return nil
       }()
-      let (progressList, bookmarksList) = await localSnapshot
+      let (loadedProgress, bookmarksList) = await localSnapshot
+      let progressList = loadedProgress ?? []
       let cachedShelves = await cachedShelvesTask
       guard !Task.isCancelled else { return }
       // Kaltstart-Flag am tatsächlichen Store-Inhalt ausrichten — nur hier ist er sicher bekannt.
       self.setHasCachedLaunchArtifacts(!progressList.isEmpty || !(cachedShelves ?? []).isEmpty)
+      // Ganze Tabelle gelesen und noch derselbe Account-Store: als geladen markieren — sonst lädt
+      // `ensureLocalProgressLoaded()` sie später noch einmal synchron auf dem Main-Context.
+      let restoredWholeTable = loadedProgress != nil && localStore != nil
+        && self.currentLocalLibraryStore() === localStore
+      if restoredWholeTable {
+        // Guard-Keys vor dem Merge — wie in `ensureLocalProgressLoaded`.
+        self.loadLocalProgressGuardKeys()
+      }
       if !progressList.isEmpty {
         self.applyUserProgress(progressList, persistToDisk: false)
+      }
+      if restoredWholeTable {
+        self.localProgressLoaded = true
       }
       if !bookmarksList.isEmpty {
         self.applyUserBookmarks(bookmarksList, persistToDisk: false)
@@ -4515,9 +4550,14 @@ final class AppModel: ObservableObject {
     guard cacheAccountURL() != nil else { return }
     let context = currentLocalLibraryMainContext()
     if let context {
-      let progressRows = (try? context.fetch(FetchDescriptor<LocalProgress>())) ?? []
-      if !progressRows.isEmpty {
+      // Guard-Keys vor dem Merge laden — danach gilt die Tabelle als geladen (kein zweiter Fetch).
+      loadLocalProgressGuardKeys()
+      let progressRows = try? context.fetch(FetchDescriptor<LocalProgress>())
+      if let progressRows, !progressRows.isEmpty {
         applyUserProgress(progressRows.map { $0.toABSUserMediaProgress() }, persistToDisk: false)
+      }
+      if progressRows != nil {
+        localProgressLoaded = true
       }
       let bookmarkRows = (try? context.fetch(FetchDescriptor<LocalBookmark>())) ?? []
       if !bookmarkRows.isEmpty {
@@ -5115,8 +5155,24 @@ final class AppModel: ObservableObject {
       return
     }
     guard let c = client else { return }
+    podcastLibraryReloadSerial &+= 1
+    let reloadSerial = podcastLibraryReloadSerial
+    let epoch = accountSessionEpoch
+    let expectedLibraryId = lib.id
+    // Store vor dem Request festhalten — nach dem `await` kann schon der Store eines anderen Accounts aktiv sein.
+    let store = currentLocalLibraryStore()
+    /// Antwort gehört noch zu diesem Reload, dieser Podcast-Bibliothek und diesem Account.
+    func isCurrent() -> Bool {
+      podcastLibraryReloadSerial == reloadSerial
+        && accountSessionEpoch == epoch
+        && podcastCatalogLibrary?.id == expectedLibraryId
+    }
     isLoadingPodcasts = true
-    defer { isLoadingPodcasts = false }
+    defer {
+      if podcastLibraryReloadSerial == reloadSerial {
+        isLoadingPodcasts = false
+      }
+    }
     // Local-DB-First: bei Reset immer zuerst lokal anzeigen (nicht nur wenn leer).
     if reset {
       applyPodcastListFromLocalStore(libraryId: lib.id)
@@ -5130,17 +5186,19 @@ final class AppModel: ObservableObject {
 
       if podcastEpisodesPagingFromRecentAPI {
         let (res, _) = try await c.recentPodcastEpisodes(libraryId: lib.id, page: pageIndex, limit: 40)
+        guard isCurrent() else { return }
         let rows = res.episodes.compactMap { ABSPodcastEpisodeListItem.fromDTO($0, libraryId: lib.id) }
 
         if rows.isEmpty, pageIndex == 0 {
           let fallback = unplayedEpisodesForNewFeed(
             await loadPodcastEpisodesFallback(client: c, libraryId: lib.id))
+          guard isCurrent() else { return }
           if !fallback.isEmpty {
             podcastEpisodesPagingFromRecentAPI = false
             podcastEpisodes = fallback
             podcastLibraryTotal = fallback.count
             podcastLibraryPage = 1
-            if let store = currentLocalLibraryStore() {
+            if let store {
               do { try await store.replacePodcastEpisodes(
                 libraryId: lib.id, total: fallback.count, pagingFromRecentAPI: false, items: fallback)
               } catch {
@@ -5148,6 +5206,7 @@ final class AppModel: ObservableObject {
                   "LocalStore replacePodcastEpisodes failed: \(error.localizedDescription, privacy: .public)")
               }
             }
+            guard isCurrent() else { return }
             lastPodcastCatalogServerSyncAt = Date()
             if reset { await reloadPodcastShowsCatalog() }
             return
@@ -5165,7 +5224,7 @@ final class AppModel: ObservableObject {
           podcastLibraryTotal = podcastEpisodes.count
         }
         podcastLibraryPage = res.page + 1
-        if let store = currentLocalLibraryStore() {
+        if let store {
           let snapshot = podcastEpisodes
           let total = podcastLibraryTotal
           do { try await store.replacePodcastEpisodes(
@@ -5175,6 +5234,7 @@ final class AppModel: ObservableObject {
               "LocalStore replacePodcastEpisodes failed: \(error.localizedDescription, privacy: .public)")
           }
         }
+        guard isCurrent() else { return }
         if reset {
           lastPodcastCatalogServerSyncAt = Date()
         }
@@ -5185,8 +5245,11 @@ final class AppModel: ObservableObject {
         }
       }
     } catch {
+      guard isCurrent() else { return }
       publishErrorUnlessBenignCancellation(error)
     }
+    // Die Folgeseiten-Rekursion oben erhöht den Serial — hier nur Account und Bibliothek prüfen.
+    guard accountSessionEpoch == epoch, podcastCatalogLibrary?.id == expectedLibraryId else { return }
     if reset {
       await reloadPodcastShowsCatalog()
     }
@@ -9496,6 +9559,7 @@ final class AppModel: ObservableObject {
       )
       return
     }
+    let epoch = accountSessionEpoch
     do {
       if wasCurrentPlayback {
         // Play-Session VOR dem PATCH schließen: `closeSessionIfNeeded` schickt einen letzten
@@ -9508,6 +9572,8 @@ final class AppModel: ObservableObject {
       }
       try await c.markFinished(libraryItemId: bookId)
       let auth = try await c.authorize()
+      // Account während des Requests gewechselt: Antwort nicht in den neuen Account übernehmen.
+      guard isAuthorizeResponseCurrent(auth.user, epoch: epoch, client: c) else { return }
       applyAuthorizeUser(auth.user)
       clearLocallyFinishedProgressKey(bookId)
       pendingLocalProgressSyncKeys.remove(bookId)
@@ -9583,6 +9649,7 @@ final class AppModel: ObservableObject {
       await refreshStartDashboardIfNeeded()
       return
     }
+    let epoch = accountSessionEpoch
     do {
       try await c.patchProgress(
         libraryItemId: libraryItemId,
@@ -9591,6 +9658,8 @@ final class AppModel: ObservableObject {
       )
       patchCatalog()
       let auth = try await c.authorize()
+      // Account während des Requests gewechselt: Antwort nicht in den neuen Account übernehmen.
+      guard isAuthorizeResponseCurrent(auth.user, epoch: epoch, client: c) else { return }
       applyAuthorizeSession(auth)
       pendingLocalProgressSyncKeys.remove(key)
       syncContinueListeningShelvesWithProgress()
@@ -9607,6 +9676,7 @@ final class AppModel: ObservableObject {
   /// („Reset wirkt erst beim zweiten Mal").
   func discardBookProgress(bookId: String) async {
     guard let c = client else { return }
+    let epoch = accountSessionEpoch
     guard isNetworkReachable else {
       errorMessage = "No network connection."
       return
@@ -9649,6 +9719,8 @@ final class AppModel: ObservableObject {
       removeAudiobookFromContinueListeningShelves(bookId: bookId)
       syncContinueListeningShelvesWithProgress()
       let auth = try await c.authorize()
+      // Account während des Requests gewechselt: Antwort nicht in den neuen Account übernehmen.
+      guard isAuthorizeResponseCurrent(auth.user, epoch: epoch, client: c) else { return }
       applyAuthorizeSession(auth)
       // Stale authorize darf den Key nicht zurückbringen — Discard-Set filtert in applyUserProgress.
       progressByItemId.removeValue(forKey: bookId)
@@ -9671,7 +9743,9 @@ final class AppModel: ObservableObject {
       )
       if !verified {
         clearDiscardedProgressKey(bookId)
-        if let fresh = try? await c.authorize() {
+        let fresh = try? await c.authorize()
+        guard accountSessionEpoch == epoch, client === c else { return }
+        if let fresh, isAuthorizeResponseCurrent(fresh.user, epoch: epoch, client: c) {
           applyAuthorizeSession(fresh)
         } else {
           applyUserProgress(auth.user.mediaProgress)
@@ -9690,7 +9764,7 @@ final class AppModel: ObservableObject {
       // Discard-Schutz aufheben — sonst bleibt der Server-Stand lokal dauerhaft unsichtbar.
       clearDiscardedProgressKey(bookId)
       suppressedContinueListeningKeys.remove(bookId)
-      if let auth = try? await c.authorize() {
+      if let auth = try? await c.authorize(), isAuthorizeResponseCurrent(auth.user, epoch: epoch, client: c) {
         applyAuthorizeSession(auth)
       }
       publishErrorUnlessBenignCancellation(error)
@@ -9736,6 +9810,7 @@ final class AppModel: ObservableObject {
       )
       return
     }
+    let epoch = accountSessionEpoch
     do {
       if wasPlaying {
         // Play-Session VOR dem PATCH schließen — sonst überschreibt der Session-Sync/-Close
@@ -9747,6 +9822,8 @@ final class AppModel: ObservableObject {
       }
       try await c.markFinished(libraryItemId: episode.libraryItemId, episodeId: episode.episodeId)
       let auth = try await c.authorize()
+      // Account während des Requests gewechselt: Antwort nicht in den neuen Account übernehmen.
+      guard isAuthorizeResponseCurrent(auth.user, epoch: epoch, client: c) else { return }
       applyAuthorizeUser(auth.user)
       clearLocallyFinishedProgressKey(episode.progressLookupKey)
       pendingLocalProgressSyncKeys.remove(episode.progressLookupKey)
@@ -9767,6 +9844,7 @@ final class AppModel: ObservableObject {
   /// Podcast-Folge: Fortschritt UND Hör-Sitzungen vollständig löschen (wie beim Hörbuch).
   func discardPodcastEpisodeProgress(_ episode: ABSPodcastEpisodeListItem) async {
     guard let c = client else { return }
+    let epoch = accountSessionEpoch
     guard isNetworkReachable else {
       errorMessage = "No network connection."
       return
@@ -9810,6 +9888,8 @@ final class AppModel: ObservableObject {
       removePodcastEpisodeFromContinueListeningShelves(episode)
       syncContinueListeningShelvesWithProgress()
       let auth = try await c.authorize()
+      // Account während des Requests gewechselt: Antwort nicht in den neuen Account übernehmen.
+      guard isAuthorizeResponseCurrent(auth.user, epoch: epoch, client: c) else { return }
       applyAuthorizeSession(auth)
       purgeLocalProgressForPodcastEpisode(episode)
       removePodcastEpisodeFromContinueListeningShelves(episode)
@@ -9828,7 +9908,9 @@ final class AppModel: ObservableObject {
       if !verified {
         clearDiscardedProgressKey(key)
         clearDiscardedProgressKey(legacyKey)
-        if let fresh = try? await c.authorize() {
+        let fresh = try? await c.authorize()
+        guard accountSessionEpoch == epoch, client === c else { return }
+        if let fresh, isAuthorizeResponseCurrent(fresh.user, epoch: epoch, client: c) {
           applyAuthorizeSession(fresh)
         } else {
           applyUserProgress(auth.user.mediaProgress)
@@ -9848,7 +9930,7 @@ final class AppModel: ObservableObject {
       clearDiscardedProgressKey(key)
       clearDiscardedProgressKey(legacyKey)
       suppressedContinueListeningKeys.remove(key)
-      if let auth = try? await c.authorize() {
+      if let auth = try? await c.authorize(), isAuthorizeResponseCurrent(auth.user, epoch: epoch, client: c) {
         applyAuthorizeSession(auth)
       }
       publishErrorUnlessBenignCancellation(error)
@@ -9865,6 +9947,7 @@ final class AppModel: ObservableObject {
     mediaProgress: [ABSUserMediaProgress]?
   ) async throws -> Bool {
     let key = progressKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    let epoch = accountSessionEpoch
     func stillPresent(_ list: [ABSUserMediaProgress]?) -> ABSUserMediaProgress? {
       (list ?? []).first { $0.progressLookupKey == key }
     }
@@ -9891,6 +9974,8 @@ final class AppModel: ObservableObject {
         ].compactMap { $0 }
       )
       let auth2 = try await c.authorize()
+      // Account gewechselt: abbrechen — der Aufrufer behandelt das wie einen abgebrochenen Request.
+      guard isAuthorizeResponseCurrent(auth2.user, epoch: epoch, client: c) else { throw CancellationError() }
       applyAuthorizeSession(auth2)
       progressByItemId.removeValue(forKey: key)
       if stillPresent(auth2.user.mediaProgress) == nil,
@@ -9942,9 +10027,9 @@ final class AppModel: ObservableObject {
   /// Reset Progress: aufgelaufene Offline-Hörsekunden für diesen Key verwerfen — sonst legt
   /// `flushPendingOfflineListeningTime` beim nächsten Sync wieder eine Server-Session an.
   private func clearPendingOfflineListeningSeconds(progressKey: String) {
-    var map = Self.loadPendingOfflineListeningSecondsMap()
+    var map = loadPendingOfflineListeningSecondsMap()
     guard map.removeValue(forKey: progressKey) != nil else { return }
-    Self.savePendingOfflineListeningSecondsMap(map)
+    savePendingOfflineListeningSecondsMap(map)
   }
 
   private func endDownloadBackgroundExecution() {
@@ -10483,39 +10568,84 @@ final class AppModel: ObservableObject {
 
   /// Kumulierte Hörzeit ohne aktive Play-Session (lokale Dateien, vgl. Absorb `offline_listening_*`).
   func addPendingOfflineListeningSeconds(progressKey: String, seconds: Int) {
-    guard seconds > 0 else { return }
-    var map = Self.loadPendingOfflineListeningSecondsMap()
-    map[progressKey, default: 0] += seconds
-    Self.savePendingOfflineListeningSecondsMap(map)
+    addPendingOfflineListeningSeconds(
+      progressKey: progressKey, seconds: seconds, storageKey: pendingOfflineListeningStorageKey())
   }
 
-  private static func loadPendingOfflineListeningSecondsMap() -> [String: Int] {
-    guard let data = UserDefaults.standard.data(forKey: Keys.pendingOfflineListeningSeconds),
+  /// Mit vorab festgehaltenem Scope — für Aufrufer, die zwischen Erfassen und Schreiben `await`en.
+  private func addPendingOfflineListeningSeconds(progressKey: String, seconds: Int, storageKey: String) {
+    guard seconds > 0 else { return }
+    var map = loadPendingOfflineListeningSecondsMap(storageKey: storageKey)
+    map[progressKey, default: 0] += seconds
+    Self.savePendingOfflineListeningSecondsMap(map, storageKey: storageKey)
+  }
+
+  /// Offline-Hörsekunden je Server **und** Benutzer (wie `pendingBookmarkChanges`) — ein globaler Key
+  /// ging beim Account-Wechsel verloren bzw. wäre mit dem Client des nächsten Accounts gesendet worden.
+  private func pendingOfflineListeningStorageKey() -> String {
+    progressGuardStorageKey(base: Keys.pendingOfflineListeningSeconds)
+  }
+
+  private func loadPendingOfflineListeningSecondsMap() -> [String: Int] {
+    loadPendingOfflineListeningSecondsMap(storageKey: pendingOfflineListeningStorageKey())
+  }
+
+  private func loadPendingOfflineListeningSecondsMap(storageKey: String) -> [String: Int] {
+    var map = Self.decodePendingOfflineListeningSeconds(forKey: storageKey)
+    // Einmalige Migration: früherer globaler Key gehört zum damals aktiven Account — nur übernehmen,
+    // wenn der Scope vollständig (Server + User) feststeht, sonst landet er im falschen Bucket.
+    let legacyKey = Keys.pendingOfflineListeningSeconds
+    if storageKey != legacyKey, !progressGuardUserId().isEmpty,
+      UserDefaults.standard.object(forKey: legacyKey) != nil
+    {
+      for (k, v) in Self.decodePendingOfflineListeningSeconds(forKey: legacyKey) {
+        map[k, default: 0] += v
+      }
+      Self.savePendingOfflineListeningSecondsMap(map, storageKey: storageKey)
+      UserDefaults.standard.removeObject(forKey: legacyKey)
+    }
+    return map
+  }
+
+  private func savePendingOfflineListeningSecondsMap(_ map: [String: Int]) {
+    Self.savePendingOfflineListeningSecondsMap(map, storageKey: pendingOfflineListeningStorageKey())
+  }
+
+  private static func decodePendingOfflineListeningSeconds(forKey key: String) -> [String: Int] {
+    guard let data = UserDefaults.standard.data(forKey: key),
       let map = try? ABSJSON.decoder().decode([String: Int].self, from: data)
     else { return [:] }
     return map
   }
 
-  private static func savePendingOfflineListeningSecondsMap(_ map: [String: Int]) {
+  private static func savePendingOfflineListeningSecondsMap(_ map: [String: Int], storageKey: String) {
     if map.isEmpty {
-      UserDefaults.standard.removeObject(forKey: Keys.pendingOfflineListeningSeconds)
+      UserDefaults.standard.removeObject(forKey: storageKey)
       return
     }
     if let data = try? ABSJSON.encoder().encode(map) {
-      UserDefaults.standard.set(data, forKey: Keys.pendingOfflineListeningSeconds)
+      UserDefaults.standard.set(data, forKey: storageKey)
     }
   }
 
   /// Sendet gespeicherte Offline-Hörsekunden per kurzer Play-Session (Absorb `flushOfflineListeningTime`).
   func flushPendingOfflineListeningTime() async {
+    guard !isFlushingPendingOfflineListeningTime else { return }
     guard let c = client, isNetworkReachable, mayUseServerNetwork else { return }
-    var map = Self.loadPendingOfflineListeningSecondsMap()
-    guard !map.isEmpty else { return }
+    // Scope vor dem ersten `await` festhalten — ein Account-Wechsel währenddessen darf weder
+    // in die Map des neuen Accounts schreiben noch dessen Fortschritt verwenden.
+    let storageKey = pendingOfflineListeningStorageKey()
+    let epoch = accountSessionEpoch
+    let snapshot = loadPendingOfflineListeningSecondsMap(storageKey: storageKey)
+    guard !snapshot.isEmpty else { return }
+    isFlushingPendingOfflineListeningTime = true
+    defer { isFlushingPendingOfflineListeningTime = false }
 
-    var flushedKeys: [String] = []
-    for (key, seconds) in map where seconds > 0 {
+    var sentSeconds: [String: Int] = [:]
+    for (key, seconds) in snapshot where seconds > 0 {
+      guard accountSessionEpoch == epoch, client === c else { break }
       guard let p = progressByItemId[key] else {
-        flushedKeys.append(key)
+        sentSeconds[key] = seconds
         continue
       }
       let pos = max(0, p.currentTime)
@@ -10532,15 +10662,19 @@ final class AppModel: ObservableObject {
           currentTime: pos
         )
         try? await c.closePlaySession(sessionId: session.id)
-        flushedKeys.append(key)
+        sentSeconds[key] = seconds
       } catch {
         if Self.isTransientURLFailure(error) { break }
       }
     }
-    for key in flushedKeys {
-      map.removeValue(forKey: key)
+    guard !sentSeconds.isEmpty else { return }
+    // Frisch laden: während der Requests können neue Sekunden hinzugekommen sein — nur das Gesendete abziehen.
+    var fresh = Self.decodePendingOfflineListeningSeconds(forKey: storageKey)
+    for (key, sent) in sentSeconds {
+      let remaining = (fresh[key] ?? 0) - sent
+      if remaining > 0 { fresh[key] = remaining } else { fresh.removeValue(forKey: key) }
     }
-    Self.savePendingOfflineListeningSecondsMap(map)
+    Self.savePendingOfflineListeningSecondsMap(fresh, storageKey: storageKey)
   }
 
   private static func isTransientURLFailure(_ error: Error) -> Bool {
@@ -10561,40 +10695,70 @@ final class AppModel: ObservableObject {
   }
 
   /// Lokale Download-Wiedergabe: Fortschritt lokal, dann Session-Sync oder PATCH / Offline-Hörzeit.
-  func syncLocalDownloadedPlaybackToServer(
-    timeListened: Int,
-    position: Double,
-    duration: Double
-  ) async {
-    recordActivePlaybackProgressLocally(markPendingServerSync: true)
-    guard let book = player.activeBook else { return }
-    let progressKey = activePlaybackProgressLookupKey() ?? book.id
+  /// Titel und Werte kommen explizit aus dem Snapshot — beim Abriss ist der Player schon geleert.
+  func syncLocalDownloadedPlaybackToServer(_ snapshot: PlaybackController.LocalPlaybackSyncSnapshot) async {
+    // Session wird gerade geleert: Rest-Hörzeit und Position hat `parkLocalPlaybackBeforeSessionClear`
+    // vorher im alten Account-Scope abgelegt — hier nichts mehr in den halb geleerten Zustand schreiben.
+    guard !isClearingSessionState else { return }
+    let itemId = snapshot.libraryItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !itemId.isEmpty else { return }
+    let epRaw = snapshot.episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let ep: String? = epRaw.isEmpty ? nil : epRaw
+    // Gleicher Trenner wie `ABSUserMediaProgress.progressLookupKey`.
+    let progressKey = ep.map { "\(itemId)-\($0)" } ?? itemId
+    let timeListened = snapshot.timeListened
+    let isStillActive =
+      player.activeBook?.id.trimmingCharacters(in: .whitespacesAndNewlines) == itemId
+      && (player.activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == epRaw
+    if isStillActive {
+      recordActivePlaybackProgressLocally(markPendingServerSync: true)
+    }
+    // Scope vor dem ersten `await` festhalten — ein Account-Wechsel währenddessen darf die Sekunden
+    // nicht dem neuen Account gutschreiben.
+    let storageKey = pendingOfflineListeningStorageKey()
+    let epoch = accountSessionEpoch
 
     guard mayUseServerNetwork, isNetworkReachable, let c = client else {
-      if timeListened > 0 {
-        addPendingOfflineListeningSeconds(progressKey: progressKey, seconds: timeListened)
-      }
+      addPendingOfflineListeningSeconds(progressKey: progressKey, seconds: timeListened, storageKey: storageKey)
       return
     }
 
-    if player.isRemotePlaySessionActive { return }
+    // Inzwischen läuft für denselben Titel eine Play-Session — die übernimmt Hörzeit und Position.
+    if isStillActive, player.isRemotePlaySessionActive { return }
 
-    let ep = player.activePlaybackEpisodeId
-    let dur = duration > 0 ? duration : player.totalDuration
-    guard dur > 0 else { return }
-    let pos = max(0, position)
+    let dur = snapshot.duration > 0 ? snapshot.duration : (isStillActive ? player.totalDuration : 0)
+    guard dur > 0 else {
+      addPendingOfflineListeningSeconds(progressKey: progressKey, seconds: timeListened, storageKey: storageKey)
+      return
+    }
+    let pos = max(0, snapshot.position)
     let prog = min(1, max(0, pos / dur))
     do {
       try await c.patchProgress(
-        libraryItemId: book.id,
+        libraryItemId: itemId,
         episodeId: ep,
         patch: ABSProgressPatch(currentTime: pos, duration: dur, progress: prog, isFinished: nil)
       )
-      pendingLocalProgressSyncKeys.remove(progressKey)
-    } catch {
-      if timeListened > 0 {
-        addPendingOfflineListeningSeconds(progressKey: progressKey, seconds: timeListened)
+      // Pending-Keys sind je Account persistiert — nach einem Wechsel nicht im neuen Set löschen.
+      if epoch == accountSessionEpoch, storageKey == pendingOfflineListeningStorageKey() {
+        pendingLocalProgressSyncKeys.remove(progressKey)
       }
+    } catch {
+      addPendingOfflineListeningSeconds(progressKey: progressKey, seconds: timeListened, storageKey: storageKey)
+    }
+  }
+
+  /// Vor dem Leeren der Session (Logout, Account-Wechsel): Position und Rest-Hörzeit einer lokalen
+  /// Wiedergabe ohne Play-Session noch im Scope des alten Accounts sichern. Der spätere Abriss des
+  /// Players liefe erst nach dem Leeren von Client, `sessionUserId` und Fortschritt — die Sekunden
+  /// landeten sonst im falschen (bzw. globalen Legacy-) Bucket und würden einem anderen Account gutgeschrieben.
+  private func parkLocalPlaybackBeforeSessionClear() {
+    guard player.activeBook != nil, player.isPlaybackFromOfflineDownload, !player.isRemotePlaySessionActive
+    else { return }
+    recordActivePlaybackProgressLocally(markPendingServerSync: true)
+    let leftover = player.consumePendingListenSeconds()
+    if leftover > 0, let key = activePlaybackProgressLookupKey() {
+      addPendingOfflineListeningSeconds(progressKey: key, seconds: leftover)
     }
   }
 
@@ -11160,6 +11324,16 @@ final class AppModel: ObservableObject {
     return t.prefix(1).uppercased() + t.dropFirst()
   }
 
+  /// Nach `await c.authorize()` in Aktionen (Fertig markieren, Reset, eBook-Sync): nur übernehmen,
+  /// wenn Account-Epoche und Client noch dieselben sind und die Antwort zum aktiven User gehört —
+  /// sonst landet Fortschritt von Account A im Zustand (und SwiftData) von Account B.
+  /// Login/Bootstrap prüfen selbst (dort ist `sessionUserId` noch leer bzw. der alte Wert).
+  func isAuthorizeResponseCurrent(_ user: ABSUser, epoch: UInt, client c: ABSAPIClient) -> Bool {
+    guard accountSessionEpoch == epoch, client === c else { return false }
+    let active = sessionUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+    return active.isEmpty || active == user.id
+  }
+
   func applyAuthorizeUser(_ user: ABSUser, persistToDisk: Bool = true) {
     isServerRoot = user.isRoot
     isServerAdmin = user.isAdmin
@@ -11169,7 +11343,8 @@ final class AppModel: ObservableObject {
     UserDefaults.standard.set(user.id, forKey: Keys.sessionUserId)
     EbookLocalStore.updateActiveSession(account: cacheAccountURL(), userId: user.id)
     PlayerTranscriptCacheStore.updateActiveAccount(cacheAccountURL())
-    applyUserProgress(user.mediaProgress, persistToDisk: persistToDisk)
+    // `/authorize`/Login liefern die vollständige Liste — serverseitig gelöschte Keys entfernen.
+    applyUserProgress(user.mediaProgress, persistToDisk: persistToDisk, isCompleteServerList: true)
     // `sessionUserId` steht erst hier sicher fest — Ausstehendes dieses Accounts vor dem Merge laden.
     loadPendingBookmarkChanges()
     applyUserBookmarks(user.bookmarks, persistToDisk: persistToDisk)
@@ -11556,6 +11731,13 @@ final class AppModel: ObservableObject {
         }
       }
       m4bAdminSocket.tokenProvider = { [weak self] in self?.token ?? "" }
+      // Frischer Bearer über den API-Client (proaktiver JWT-Refresh, nach `invalid_token` erzwungen) —
+      // ohne Client bleibt es beim gespeicherten Token.
+      m4bAdminSocket.freshTokenProvider = { [weak self] rejected in
+        guard let self else { return nil }
+        guard let client = self.client else { return self.token }
+        return await client.freshBearerToken(rejecting: rejected)
+      }
       m4bSocketBound = true
     }
     m4bAdminSocket.connect(serverURL: base, token: tok)
@@ -11790,8 +11972,11 @@ final class AppModel: ObservableObject {
         ebookProgress: pending.fraction
       )
     else { return }
+    let epoch = accountSessionEpoch
     do {
       try await c.patchProgress(libraryItemId: pending.libraryItemId, patch: patch)
+      // Account während des PATCH gewechselt: Ergebnis nicht in den Zustand des neuen Accounts schreiben.
+      guard accountSessionEpoch == epoch, client === c else { return }
       lastSyncedEbookFractionByItemId[pending.libraryItemId] = pending.fraction
       pendingEbookProgressSync = nil
       mergeEbookProgressIntoRow(libraryItemId: pending.libraryItemId, fraction: pending.fraction)
@@ -11964,7 +12149,9 @@ final class AppModel: ObservableObject {
   }
 
   private func syncEbookFractionCacheFromAuthorizeRow(_ progress: ABSUserMediaProgress) {
-    guard progress.episodeId == nil, let f = progress.ebookProgress, f > 0.001 else { return }
+    guard (progress.episodeId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+      let f = progress.ebookProgress, f > 0.001
+    else { return }
     let id = progress.libraryItemId
     // Pending Mark-as-read / Reset nicht durch veralteten authorize-Stand überschreiben.
     if let pending = pendingEbookProgressOverrideByItemId[id] {
@@ -11976,6 +12163,8 @@ final class AppModel: ObservableObject {
         return
       }
     }
+    // Unverändert gegenüber dem zuletzt übernommenen Stand: kein Datei-Read/-Write auf dem Main Thread.
+    if let last = lastSyncedEbookFractionByItemId[id], abs(last - f) < 0.0005 { return }
     if let localF = EbookLocalStore.loadProgressFraction(libraryItemId: id),
       localF >= 0.995, f < 0.995
     { return }
@@ -12003,9 +12192,12 @@ final class AppModel: ObservableObject {
     refreshEbookContinueReadingShelf()
     guard mayUseServerNetwork, isNetworkReachable, let c = client else { return }
     guard let patch = patchPreservingAudiobookFields(libraryItemId: id, ebookProgress: fraction) else { return }
+    let epoch = accountSessionEpoch
     do {
       try await c.patchProgress(libraryItemId: id, patch: patch)
       let auth = try await c.authorize()
+      // Account während des Requests gewechselt: Antwort nicht in den neuen Account übernehmen.
+      guard isAuthorizeResponseCurrent(auth.user, epoch: epoch, client: c) else { return }
       applyAuthorizeUser(auth.user)
       // Nach erfolgreichem Sync Override freigeben, falls authorize schon mitzieht.
       if let serverF = progressByItemId[id]?.ebookProgress, serverF >= 0.995 {
@@ -12033,9 +12225,12 @@ final class AppModel: ObservableObject {
     refreshEbookContinueReadingShelf()
     guard mayUseServerNetwork, isNetworkReachable, let c = client else { return }
     guard let patch = patchPreservingAudiobookFields(libraryItemId: id, ebookProgress: 0) else { return }
+    let epoch = accountSessionEpoch
     do {
       try await c.patchProgress(libraryItemId: id, patch: patch)
       let auth = try await c.authorize()
+      // Account während des Requests gewechselt: Antwort nicht in den neuen Account übernehmen.
+      guard isAuthorizeResponseCurrent(auth.user, epoch: epoch, client: c) else { return }
       applyAuthorizeUser(auth.user)
       if let serverF = progressByItemId[id]?.ebookProgress, serverF <= 0.005 {
         pendingEbookProgressOverrideByItemId.removeValue(forKey: id)
@@ -12366,6 +12561,8 @@ final class AppModel: ObservableObject {
     incoming: ABSUserMediaProgress,
     base: ABSUserMediaProgress
   ) -> ABSUserMediaProgress {
+    // Podcast-Folgen haben keinen eBook-Fortschritt — kein synchroner Datei-Read je Folgen-Zeile.
+    if !(base.episodeId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return base }
     let resolved = resolvedEbookProgressFraction(
       libraryItemId: base.libraryItemId,
       rowFraction: base.ebookProgress,
@@ -12960,12 +13157,17 @@ final class AppModel: ObservableObject {
   /// SwiftData-`LocalProgress` in `progressByItemId` mergen — z. B. Offline-Home ohne vorherigen `/authorize`.
   private var localProgressLoaded = false
 
-  func ensureLocalProgressLoaded() {
-    guard !localProgressLoaded else { return }
+  /// Schutz-Keys des aktiven Accounts laden, bevor lokaler Fortschritt gemergt wird.
+  private func loadLocalProgressGuardKeys() {
     loadLocalFinishedProgressKeys()
     loadDiscardedProgressKeys()
     loadPendingLocalProgressSyncKeys()
     loadPendingBookmarkChanges()
+  }
+
+  func ensureLocalProgressLoaded() {
+    guard !localProgressLoaded else { return }
+    loadLocalProgressGuardKeys()
     guard let context = currentLocalLibraryMainContext() else { return }
     // Flag erst setzen, wenn der Store offen ist — sonst kein Retry nach verzögertem Store-Open.
     localProgressLoaded = true
@@ -12981,15 +13183,25 @@ final class AppModel: ObservableObject {
     persistHomeShelvesToLocalStore()
   }
 
-  private func applyUserProgress(_ list: [ABSUserMediaProgress]?, persistToDisk: Bool = true) {
+  /// - Parameter isCompleteServerList: `true` nur für die vollständige `mediaProgress`-Liste aus
+  ///   `/authorize` bzw. Login — dann werden Keys entfernt, die der Server nicht mehr kennt. Lokale
+  ///   Restores (SwiftData, Offline) und Teil-Listen dürfen nie prunen.
+  private func applyUserProgress(
+    _ list: [ABSUserMediaProgress]?,
+    persistToDisk: Bool = true,
+    isCompleteServerList: Bool = false
+  ) {
     var strippedDiscarded = false
+    // In lokaler Kopie mergen und einmal zuweisen — jede Zuweisung an das `@Published`-Dictionary
+    // invalidiert sonst alle beobachtenden Views (bei großen Bibliotheken hunderte Male pro Apply).
+    var merged = progressByItemId
     for p in list ?? [] {
       let key = p.progressLookupKey
       // Reset Progress: verworfene Keys nicht aus Cache/`authorize` wieder einspielen —
       // außer die Zeile wurde nach dem Reset aktualisiert (anderswo weitergehört).
       if isProgressKeyDiscarded(key) {
         if isStaleDiscardedServerRow(p) {
-          progressByItemId.removeValue(forKey: key)
+          merged.removeValue(forKey: key)
           strippedDiscarded = true
           continue
         }
@@ -12998,16 +13210,32 @@ final class AppModel: ObservableObject {
       if p.isFinished {
         clearLocallyFinishedProgressKey(key)
       }
-      progressByItemId[key] = mergedUserMediaProgress(existing: progressByItemId[key], incoming: p)
-      if let merged = progressByItemId[key] {
-        syncEbookFractionCacheFromAuthorizeRow(merged)
+      let row = mergedUserMediaProgress(existing: merged[key], incoming: p)
+      merged[key] = row
+      syncEbookFractionCacheFromAuthorizeRow(row)
+    }
+    var prunedMissing = false
+    if isCompleteServerList, let list {
+      // Serverseitig gelöschter Fortschritt (z. B. im Web zurückgesetzt) — sonst bleibt der Key
+      // für immer im Speicher, wird per `replaceAllProgress` erneut geschrieben und taucht wieder
+      // in „Continue listening“ auf. Lokal Ausstehendes und die laufende Wiedergabe bleiben.
+      let serverKeys = Set(list.map(\.progressLookupKey))
+      let pendingEbookId = pendingEbookProgressSync?.libraryItemId
+      for (key, row) in merged where !serverKeys.contains(key) {
+        if pendingLocalProgressSyncKeys.contains(key) || localFinishedProgressKeys.contains(key) { continue }
+        if pendingEbookProgressOverrideByItemId[key] != nil || key == pendingEbookId { continue }
+        if isActivelyPlayingProgress(row) { continue }
+        merged.removeValue(forKey: key)
+        prunedMissing = true
       }
     }
+    progressByItemId = merged
     syncLastPlayedPreferenceWithServerProgress()
     pruneFinishedEpisodesFromNewFeed()
     syncContinueListeningShelvesWithProgress()
-    // Verworfene Keys aus dem Persist-Snapshot halten — sonst landet der Reset wieder in SwiftData.
-    guard persistToDisk || strippedDiscarded else { return }
+    // Verworfene/geprunte Keys aus dem Persist-Snapshot halten — `replaceAllProgress` löscht dabei
+    // auch die fehlenden SwiftData-Zeilen, sonst kämen sie beim nächsten Start zurück.
+    guard persistToDisk || strippedDiscarded || prunedMissing else { return }
     persistProgressToLocalStore()
   }
 
@@ -13079,7 +13307,8 @@ final class AppModel: ObservableObject {
       {
         return p
       }
-      if let hit = open.first(where: { $0.progressLookupKey.hasPrefix("\(lastId)/ep/") }) {
+      // Folgen-Key wie `progressLookupKey`: `<libraryItemId>-<episodeId>` (nicht das Legacy-`/ep/`).
+      if let hit = open.first(where: { $0.progressLookupKey.hasPrefix("\(lastId)-") }) {
         return hit
       }
     }

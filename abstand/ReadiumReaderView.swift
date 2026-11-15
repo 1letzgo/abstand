@@ -134,7 +134,13 @@ struct ReadiumReaderView: View {
       }
       // Offenes Server-Angebot: der (ältere) lokale Stand darf den Server nicht überschreiben — erst
       // wenn der Nutzer hier selbst weiterblättert, gilt das Angebot als abgelehnt.
+      // Neuumbruch (Schriftgröße, Theme) ist kein Weiterblättern: Angebot bleibt offen, Ausgangspunkt
+      // ist ab jetzt die neu umbrochene Stelle, und nichts geht an den Server.
       if let offer = serverPositionOffer {
+        if note.userInfo?[ReadiumReaderProgressInfo.isLayoutRefreshKey] as? Bool == true {
+          serverPositionOffer = offer.rebased(on: locator)
+          return
+        }
         guard offer.isLeft(by: locator) else { return }
         withAnimation(.snappy(duration: 0.25)) { serverPositionOffer = nil }
       }
@@ -724,6 +730,11 @@ struct ServerPositionOffer: Equatable {
     guard locator.href.string == origin.href.string else { return true }
     let delta = abs((locator.locations.progression ?? 0) - (origin.locations.progression ?? 0))
     return delta > ReaderChromeMetrics.serverOfferDeclineProgression
+  }
+
+  /// Gleiches Angebot mit neuem Ausgangspunkt (nach Neuumbruch derselben Stelle).
+  func rebased(on locator: Locator) -> ServerPositionOffer {
+    ServerPositionOffer(serverFraction: serverFraction, localFraction: localFraction, origin: locator)
   }
 
   private static func percent(_ fraction: Double) -> String { "\(Int((fraction * 100).rounded())) %" }

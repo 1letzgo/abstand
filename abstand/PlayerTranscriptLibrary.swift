@@ -26,18 +26,11 @@ enum PlayerTranscriptLibrary {
   static func beginPriorityWork() { priorityWorkCount += 1 }
 
   static func endPriorityWork() { priorityWorkCount = max(0, priorityWorkCount - 1) }
-  /// Wortliste eines Tracks aus dem Cache (lokale Track-Sekunden).
-  static func cachedWords(
-    bookId: String,
-    trackIndex: Int,
-    locale: Locale
-  ) async -> [PlayerTranscriptTrackCache.Word] {
-    await cache(bookId: bookId, trackIndex: trackIndex, locale: locale)?.allWords ?? []
-  }
 
   /// Transkriptdatei lesen. Das JSON eines Tracks ist schnell ein paar hundert Kilobyte —
   /// Lesen und Dekodieren gehören deshalb vom MainActor herunter, sonst ruckelt die Wiedergabe-UI
-  /// bei jedem Track-Wechsel und bei jedem Zwischenspeichern der Vorproduktion.
+  /// bei jedem Track-Wechsel und bei jedem Zwischenspeichern der Vorproduktion. Ein zuletzt gelesener
+  /// oder geschriebener Stand wird ohne Dekodieren wiederverwendet, solange die Datei unverändert ist.
   static func cache(
     bookId: String,
     trackIndex: Int,
@@ -45,26 +38,51 @@ enum PlayerTranscriptLibrary {
   ) async -> PlayerTranscriptTrackCache? {
     let account = PlayerTranscriptCacheStore.activeAccount
     let localeId = locale.identifier(.bcp47)
-    return await loadOffMain(
-      account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeId)
-  }
-
-  nonisolated private static func loadOffMain(
-    account: URL?,
-    bookId: String,
-    trackIndex: Int,
-    localeIdentifier: String
-  ) async -> PlayerTranscriptTrackCache? {
-    await Task.detached(priority: .utility) {
-      PlayerTranscriptCacheStore.load(
-        account: account,
-        bookId: bookId,
-        trackIndex: trackIndex,
-        localeIdentifier: localeIdentifier
-      )
+    let key = chainKey(bookId: bookId, trackIndex: trackIndex, localeId: localeId)
+    let known = memo[key]
+    let loaded = await Task.detached(priority: .utility) { () -> MemoEntry? in
+      if let known,
+        PlayerTranscriptCacheStore.transcriptStamp(
+          account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeId) == known.stamp
+      {
+        return known
+      }
+      return PlayerTranscriptCacheStore.loadStamped(
+        account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeId
+      ).map { MemoEntry(cache: $0.cache, stamp: $0.stamp) }
     }.value
+    remember(loaded, forKey: key)
+    return loaded?.cache
   }
 
+  /// Zuletzt gelesener/geschriebener Stand je Transkriptdatei samt Datei-Stempel. Nur wenige
+  /// Einträge — bei Ein-Datei-Hörbüchern ist ein Transkript mehrere MB groß.
+  nonisolated private struct MemoEntry: Sendable {
+    let cache: PlayerTranscriptTrackCache
+    let stamp: PlayerTranscriptFileStamp
+  }
+
+  private static let maxMemoEntries = 2
+  private static var memo: [String: MemoEntry] = [:]
+  /// Zuletzt genutzt am Ende.
+  private static var memoOrder: [String] = []
+
+  private static func remember(_ entry: MemoEntry?, forKey key: String) {
+    memoOrder.removeAll { $0 == key }
+    guard let entry else {
+      memo[key] = nil
+      return
+    }
+    memo[key] = entry
+    memoOrder.append(key)
+    while memoOrder.count > maxMemoEntries {
+      memo[memoOrder.removeFirst()] = nil
+    }
+  }
+
+  private static func chainKey(bookId: String, trackIndex: Int, localeId: String) -> String {
+    "\(bookId)|\(trackIndex)|\(localeId)"
+  }
 
   /// Zwischenspeichern nach so vielen produzierten Audiosekunden. Liegt hier (nicht im
   /// UI-Controller): der geteilte Service definiert den Persist-Takt für alle Schreiber.
@@ -78,7 +96,9 @@ enum PlayerTranscriptLibrary {
   private static var mergeGenerationCounter: UInt64 = 0
 
   /// Segment atomar in die Transkriptdatei mergen: wartet auf einen laufenden Schreibvorgang
-  /// derselben Datei, dann load→insert→save off-main. Gibt den zusammengeführten Stand zurück.
+  /// derselben Datei, dann insert→save off-main. Der zusammengeführte Stand bleibt im Speicher;
+  /// dekodiert wird nur, wenn die Datei inzwischen von außen geändert wurde (Stempel).
+  /// Gibt den zusammengeführten Stand zurück.
   @discardableResult
   static func mergeAndSave(
     segment: PlayerTranscriptTrackCache.Segment,
@@ -88,19 +108,33 @@ enum PlayerTranscriptLibrary {
   ) async -> PlayerTranscriptTrackCache {
     let localeId = locale.identifier(.bcp47)
     let account = PlayerTranscriptCacheStore.activeAccount
-    let chainKey = "\(bookId)|\(trackIndex)|\(localeId)"
+    let chainKey = chainKey(bookId: bookId, trackIndex: trackIndex, localeId: localeId)
     let previous = mergeChains[chainKey]
     let task = Task<PlayerTranscriptTrackCache, Never> {
       _ = await previous?.value
-      return await Task.detached(priority: .utility) { () -> PlayerTranscriptTrackCache in
-        var cache =
-          PlayerTranscriptCacheStore.load(
+      // Erst nach dem Vorgänger lesen — er hat den Speicherstand gerade fortgeschrieben.
+      let known = memo[chainKey]
+      let (merged, stamp) = await Task.detached(priority: .utility) {
+        () -> (PlayerTranscriptTrackCache, PlayerTranscriptFileStamp?) in
+        var cache: PlayerTranscriptTrackCache
+        if let known,
+          PlayerTranscriptCacheStore.transcriptStamp(
             account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeId)
-          ?? PlayerTranscriptTrackCache(localeIdentifier: localeId, trackIndex: trackIndex)
+            == known.stamp
+        {
+          cache = known.cache
+        } else {
+          cache =
+            PlayerTranscriptCacheStore.load(
+              account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeId)
+            ?? PlayerTranscriptTrackCache(localeIdentifier: localeId, trackIndex: trackIndex)
+        }
         cache.insert(segment: segment)
-        PlayerTranscriptCacheStore.save(cache, account: account, bookId: bookId)
-        return cache
+        return (cache, PlayerTranscriptCacheStore.save(cache, account: account, bookId: bookId))
       }.value
+      // Nicht geschrieben (kein Account, Schreibfehler): nichts merken, nächstes Mal von der Platte.
+      remember(stamp.map { MemoEntry(cache: merged, stamp: $0) }, forKey: chainKey)
+      return merged
     }
     mergeGenerationCounter &+= 1
     let generation = mergeGenerationCounter
@@ -115,29 +149,20 @@ enum PlayerTranscriptLibrary {
     return merged
   }
 
-  /// Fehlt im Track noch etwas ab `from`? Liefert die erste offene lokale Sekunde.
-  static func firstUncoveredTime(
+  /// Fehlt im Track noch etwas ab `from`? Liefert die erste offene lokale Sekunde und den Beginn des
+  /// nächsten schon transkribierten Segments danach (Ende der Lücke) — aus einem Lesevorgang.
+  static func nextGap(
     bookId: String,
     source: PlayerTranscriptTrackSource,
     locale: Locale,
     from: Double
-  ) async -> Double? {
+  ) async -> (start: Double, end: Double?)? {
     let existing =
       await cache(bookId: bookId, trackIndex: source.trackIndex, locale: locale)
       ?? PlayerTranscriptTrackCache(
         localeIdentifier: locale.identifier(.bcp47), trackIndex: source.trackIndex)
-    return existing.firstUncoveredTime(from: from, duration: source.duration)
-  }
-
-  /// Beginn des nächsten schon transkribierten Segments nach `after` (Endpunkt einer Lücke).
-  static func nextCoveredStart(
-    bookId: String,
-    source: PlayerTranscriptTrackSource,
-    locale: Locale,
-    after: Double
-  ) async -> Double? {
-    await cache(bookId: bookId, trackIndex: source.trackIndex, locale: locale)?
-      .nextCoveredStart(after: after)
+    guard let start = existing.firstUncoveredTime(from: from, duration: source.duration) else { return nil }
+    return (start, existing.nextCoveredStart(after: start))
   }
 
   /// Einen Track-Bereich produzieren und persistieren. Läuft ungedrosselt; der Aufrufer

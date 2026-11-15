@@ -111,18 +111,6 @@ actor LocalLibraryStore {
     if modelContext.hasChanges { try modelContext.save() }
   }
 
-  /// Progress-Zeilen löschen, die im aktuellen Server-/Memory-Stand nicht mehr vorkommen.
-  /// Gegenstück zu `upsertProgress` für den vollen Abgleich ohne Delete-All.
-  func pruneProgress(keeping keys: Set<String>) throws {
-    let rows = try modelContext.fetch(FetchDescriptor<LocalProgress>())
-    var removed = false
-    for row in rows where !keys.contains(row.progressLookupKey) {
-      modelContext.delete(row)
-      removed = true
-    }
-    if removed { try modelContext.save() }
-  }
-
   func fetchAllProgress() throws -> [ABSUserMediaProgress] {
     try modelContext.fetch(FetchDescriptor<LocalProgress>()).map { $0.toABSUserMediaProgress() }
   }
@@ -601,10 +589,14 @@ actor LocalLibraryStore {
   /// Folgeseite: an bestehenden Reihenfolge-Index anhängen (kein Wipe).
   func appendCatalogPage(libraryId: String, total: Int, items: [ABSBook]) throws {
     let entryPredicate = #Predicate<LocalCatalogEntry> { $0.libraryId == libraryId }
-    let existingCount = try modelContext.fetchCount(FetchDescriptor(predicate: entryPredicate))
+    // Start hinter dem höchsten Rang, nicht bei `count`: `deleteBook` hinterlässt Lücken, und ein
+    // count-basierter Start würde den bestehenden Eintrag mit dem höchsten Rang (Unique-Key) überschreiben.
+    var lastDescriptor = FetchDescriptor(predicate: entryPredicate, sortBy: [SortDescriptor(\.rank, order: .reverse)])
+    lastDescriptor.fetchLimit = 1
+    let startRank = (try modelContext.fetch(lastDescriptor).first?.rank).map { $0 + 1 } ?? 0
     try upsertBooks(items)
     for (idx, item) in items.enumerated() {
-      modelContext.insert(LocalCatalogEntry(libraryId: libraryId, rank: existingCount + idx, bookId: item.id))
+      modelContext.insert(LocalCatalogEntry(libraryId: libraryId, rank: startRank + idx, bookId: item.id))
     }
     var stateDescriptor = FetchDescriptor<LocalCatalogListState>(predicate: #Predicate { $0.libraryId == libraryId })
     stateDescriptor.fetchLimit = 1

@@ -272,7 +272,20 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Wie `playBook`: alle Tracks lokal — sonst Stream trotz Download-Ordner.
   var isUsingLocalTrackFiles: Bool {
     guard let root = localRoot, let book = activeBook else { return false }
-    return Self.allTracksPresent(root: root, book: book)
+    return cachedLocalTracksPresent(root: root, book: book)
+  }
+
+  /// `allTracksPresent` mit Cache je Download-Ordner + Titel.
+  private func cachedLocalTracksPresent(
+    root: URL, book: ABSBook, manifest: ABSDownloadManifest? = nil
+  ) -> Bool {
+    if let cache = localTracksPresentCache, cache.rootPath == root.path, cache.bookId == book.id {
+      return cache.present
+    }
+    let present = Self.allTracksPresent(
+      root: root, book: book, manifest: manifest ?? ABSDownloadManifest.load(from: root))
+    localTracksPresentCache = (root.path, book.id, present)
+    return present
   }
 
   /// Read-along nur bei vollständig heruntergeladenem Titel mit lokalen Audio-Dateien.
@@ -283,6 +296,22 @@ final class PlaybackController: NSObject, ObservableObject {
   }
   /// Nach Laden: sofort abspielen oder nur positionieren (App-Start).
   private var shouldAutoPlayAfterLoad = true
+  /// Zählt `pause()` hoch — ein Track-Laden, das vor der Pause mit `play: true` begann, startet die
+  /// Wiedergabe nach seinem Seek-Abschluss nicht mehr (sonst überstimmt es die Pause des Nutzers
+  /// bzw. des Kapitel-Sleep-Timers an einer Track-Grenze).
+  private var playIntentGeneration = 0
+  /// Läuft gerade eine Session-Recovery? Parallele `flushSync`-Fehler starten keine zweite.
+  private var sessionRecoveryTask: Task<Void, Never>?
+  private var sessionRecoveryToken = 0
+  /// Nach Ende des Unterdrückungsfensters einmal echten Engine-Zustand übernehmen.
+  private var enginePauseRecheckTask: Task<Void, Never>?
+  /// Ergebnis von `allTracksPresent` für den aktiven Download-Ordner — vermeidet Manifest-Decode und
+  /// Datei-Stats pro Render (`isReadAlongDownloadReady`). Ungültig bei Titelwechsel/Download-Änderung.
+  private var localTracksPresentCache: (rootPath: String, bookId: String, present: Bool)?
+  /// Zuletzt an `MPNowPlayingInfoCenter` gemeldeter Stand — der Tick schreibt nur bei Abweichung.
+  private var nowPlayingPushedElapsed: Double = 0
+  private var nowPlayingPushedAt: Date = .distantPast
+  private var nowPlayingPushedRate: Double = -1
 
   /// Neues Medium fertig geladen (Tracks stehen) — z. B. für die Transkript-Vorproduktion.
   var onActiveMediaPrepared: (() -> Void)?
@@ -292,8 +321,23 @@ final class PlaybackController: NSObject, ObservableObject {
   var onAudiobookPlaybackCompleted: (() -> Void)?
   /// Letzter Track einer Podcast-Folge zu Ende.
   var onPodcastEpisodePlaybackCompleted: (() -> Void)?
+  /// Feuert einmal am Ende jedes `seek(global:)` (Vollbild-Player, Sperrbildschirm, CarPlay) — kein
+  /// `@Published`, damit Beobachter nur bei Sprüngen und nie pro Tick neu rechnen (Mini-Player-Restzeit).
+  let seekDidOccur = PassthroughSubject<Void, Never>()
+
+  /// Stand eines lokalen Syncs ohne Play-Session — Titel und Werte explizit, damit der Empfänger
+  /// nicht vom Player-Zustand abhängt (beim Abriss ist `activeBook` danach schon `nil`).
+  struct LocalPlaybackSyncSnapshot: Sendable {
+    let libraryItemId: String
+    let episodeId: String?
+    let timeListened: Int
+    let position: Double
+    let duration: Double
+  }
+
   /// Lokale Download-Wiedergabe ohne aktive Play-Session: PATCH / Offline-Hörzeit (vgl. Absorb).
-  var onLocalPlaybackWithoutSessionSync: ((Int, Double, Double) async -> Void)?
+  /// `@MainActor`: läuft beim Abriss synchron (`Task.immediate`) bis zum ersten echten `await`.
+  var onLocalPlaybackWithoutSessionSync: (@MainActor (LocalPlaybackSyncSnapshot) async -> Void)?
 
   /// Wie Absorb `_playFromLocal`: Session starten wenn online (nicht im Offline-Home-Modus).
   private var attemptServerPlaySessionForLocal = true
@@ -399,6 +443,14 @@ final class PlaybackController: NSObject, ObservableObject {
     Task { @MainActor in
       await liveTranscription.refreshReadAlongAvailability()
     }
+
+    // Download fertig/gelöscht: „alle Tracks lokal“ neu prüfen.
+    NotificationCenter.default.publisher(for: .abstandDownloadFolderDidChange)
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] _ in
+        self?.localTracksPresentCache = nil
+      }
+      .store(in: &cancellables)
 
     $sleepEndDate
       .sink { [weak self] end in
@@ -564,6 +616,9 @@ final class PlaybackController: NSObject, ObservableObject {
 
   private func resumeSleepTimerIfNeeded() {
     guard sleepTimerMode != .off, let remaining = sleepTimerRemaining, remaining > 0 else { return }
+    // Laufender Timer: nie neu ansetzen — `sleepTimerRemaining` stammt aus der letzten Pause und ist
+    // veraltet; ein Reschedule (Track-Wechsel, Kickstart) schöbe das Ende sonst immer wieder hinaus.
+    if sleepEndDate != nil, !sleepTimerPaused { return }
     // Ohne Wiedergabe pausiert lassen — `scheduleSleepTimerWakeIfNeeded` würde sonst `sleepEndDate = nil`
     // bei `paused == false` setzen, und der `$sleepEndDate`-Sink schaltet den Timer ab.
     guard isPlaying else { return }
@@ -641,6 +696,24 @@ final class PlaybackController: NSObject, ObservableObject {
     } else {
       suppressEnginePauseSyncUntil = until
     }
+    scheduleEnginePauseRecheck()
+  }
+
+  /// Ein im Fenster verworfenes echtes `.paused` meldet der KVO nicht noch einmal — nach Fensterende
+  /// den Engine-Zustand einmal übernehmen, sonst bleibt `isPlaying` stehen und Wanduhrzeit zählt als Hörzeit.
+  private func scheduleEnginePauseRecheck() {
+    enginePauseRecheckTask?.cancel()
+    guard let until = suppressEnginePauseSyncUntil else { return }
+    let delay = max(0, until.timeIntervalSinceNow) + 0.1
+    enginePauseRecheckTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+      guard !Task.isCancelled, let self else { return }
+      guard let current = self.suppressEnginePauseSyncUntil, current <= Date() else { return }
+      // Track lädt noch: `replacePlayerItem` öffnet gleich ein neues Fenster und prüft danach selbst.
+      guard !self.isSwitchingTrack else { return }
+      self.suppressEnginePauseSyncUntil = nil
+      self.syncPlayingStateFromPlayerIfNeeded()
+    }
   }
 
   /// Display aus / App in den Hintergrund. An der Audio-Session wird hier **nichts** verändert:
@@ -695,7 +768,6 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Media-Services-Reset (selten, u. a. nach Telefonat): laut Apple-Doku sind Session-Konfiguration
   /// und alle Audio-Objekte danach ungültig — Session neu aufbauen und Player-Item neu binden.
   private func handleMediaServicesWereReset() {
-    prefersTrackReloadAfterInterruption = true
     let resume = isPlaying
     DebugLogCollector.shared.log("audioSession mediaServicesWereReset resume=\(resume)")
     audioSession.rebuildAfterMediaServicesReset()
@@ -703,16 +775,46 @@ final class PlaybackController: NSObject, ObservableObject {
       syncPlayingStateFromPlayerIfNeeded()
       return
     }
+    // Offset noch vom alten Player lesen, bevor er ersetzt wird.
     let offset = resumeOffsetInCurrentTrack()
+    let playIntent = playIntentGeneration
+    // Laut Apple sind nach dem Reset alle AV-Objekte ungültig: neuen `AVPlayer` anlegen. Observer,
+    // Zeit-Observer und EQ-Tap installiert `replacePlayerItem` am neuen Player/Item neu.
+    replacePlayerAfterMediaServicesReset()
     Task { @MainActor [weak self] in
       guard let self else { return }
-      await self.loadCurrentTrack(play: resume, localOffset: offset, pauseOnFailure: false)
-      if resume {
+      await self.loadCurrentTrack(
+        play: resume, localOffset: offset, pauseOnFailure: false, playIntent: playIntent)
+      // Track ist neu gebunden — `performPlayResume` soll ihn nicht ein zweites Mal laden.
+      self.prefersTrackReloadAfterInterruption = false
+      guard self.player?.currentItem != nil else {
+        self.reconcilePlayingStateWithEngine()
+        return
+      }
+      if resume, playIntent == self.playIntentGeneration {
         self.play()
       } else {
         self.syncPlayingStateFromPlayerIfNeeded()
       }
     }
+  }
+
+  /// Alten Player samt Observern abbauen und einen leeren neuen Player einsetzen (Media-Services-Reset).
+  private func replacePlayerAfterMediaServicesReset() {
+    removeTimeObserverIfNeeded()
+    if let endObserver {
+      NotificationCenter.default.removeObserver(endObserver)
+    }
+    endObserver = nil
+    statusObserver?.invalidate()
+    statusObserver = nil
+    playbackEngineStateObserver?.invalidate()
+    playbackEngineStateObserver = nil
+    teardownEQTap()
+    player?.pause()
+    let fresh = AVPlayer()
+    applyBackgroundPlaybackPolicy(fresh)
+    player = fresh
   }
 
   /// Abgleich nach App-Rückkehr oder wenn das OS den Player stilllegt (ohne unser `pause()`).
@@ -936,6 +1038,8 @@ final class PlaybackController: NSObject, ObservableObject {
     DebugLogCollector.shared.log("tearDownPlayer START activeBook=\(activeBook?.id ?? "nil") episodeId=\(activePlaybackEpisodeId ?? "nil") isPlaying=\(isPlaying)")
     playResumeTask?.cancel()
     playResumeTask = nil
+    // Eine Recovery des alten Titels läuft generation-geschützt aus; der neue Titel startet bei Bedarf eine eigene.
+    sessionRecoveryTask = nil
     liveTranscription.playbackDidStop()
     clearSleepTimer()
     showMiniPlayerPlaceholder = false
@@ -946,6 +1050,18 @@ final class PlaybackController: NSObject, ObservableObject {
     nowPlayingArtwork = nil
     syncTask?.cancel()
     syncTask = nil
+    enginePauseRecheckTask?.cancel()
+    enginePauseRecheckTask = nil
+    // Hörzeit seit dem letzten Tick einrechnen, bevor sie unten gesendet bzw. verworfen wird.
+    accumulateListenTime()
+    if playSessionId == nil, localRoot != nil, activeBook != nil, onLocalPlaybackWithoutSessionSync != nil {
+      // Lokale Wiedergabe ohne Session: Rest-Hörzeit + Position über den lokalen Pfad sichern.
+      // `Task.immediate` läuft synchron bis zum ersten echten `await` — der Callback liest Titel und
+      // Position also noch, bevor der Abriss unten sie löscht.
+      Task.immediate { @MainActor [weak self] in
+        await self?.flushSync(force: true)
+      }
+    }
     if let sid = playSessionId, let client = apiClient {
       // Noch nicht synchronisierte Hörzeit + Position vor dem Schließen senden — sonst gehen beim
       // Buch-/Account-Wechsel bis zu einem Sync-Intervall Hörstatistik und Fortschritt verloren.
@@ -990,6 +1106,8 @@ final class PlaybackController: NSObject, ObservableObject {
     activePlaybackEpisodeId = nil
     transcriptionLanguageOverride = nil
     localRoot = nil
+    localTracksPresentCache = nil
+    nowPlayingPushedRate = -1
     MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
   }
 
@@ -1036,7 +1154,7 @@ final class PlaybackController: NSObject, ObservableObject {
     attemptServerPlaySessionForLocal = attemptServerPlaySession
 
     do {
-      if let root = localDownloadRoot, Self.allTracksPresent(root: root, book: book) {
+      if let root = localDownloadRoot, cachedLocalTracksPresent(root: root, book: book) {
         try await startLocalPlayback(
           client: client,
           book: book,
@@ -1081,11 +1199,13 @@ final class PlaybackController: NSObject, ObservableObject {
 
   /// Rotierte Tokens auch in den Client des Players übernehmen — er kann eine eigene Instanz sein
   /// (Offline-Wiedergabe) und würde mit dem alten Refresh-Token beim nächsten Erneuern 401 bekommen.
-  func adoptRefreshedTokens(accessToken: String, refreshToken: String) {
+  /// Compare-and-Swap wie beim App-Client: nur übernehmen, wenn dieser Client noch `previousRefreshToken`
+  /// hält — eine verspätete Rotation darf weder einen neueren Stand noch einen anderen Account überschreiben.
+  func adoptRefreshedTokens(accessToken: String, refreshToken: String, previousRefreshToken: String) {
     guard let client = apiClient else { return }
     Task {
-      await client.setToken(accessToken)
-      if !refreshToken.isEmpty { await client.setRefreshToken(refreshToken) }
+      await client.adoptRotatedTokens(
+        accessToken: accessToken, refreshToken: refreshToken, previousRefreshToken: previousRefreshToken)
     }
   }
 
@@ -1133,7 +1253,10 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   private static func allTracksPresent(root: URL, book: ABSBook) -> Bool {
-    let manifest = ABSDownloadManifest.load(from: root)
+    allTracksPresent(root: root, book: book, manifest: ABSDownloadManifest.load(from: root))
+  }
+
+  private static func allTracksPresent(root: URL, book: ABSBook, manifest: ABSDownloadManifest?) -> Bool {
     if let m = manifest, !m.tracks.isEmpty {
       return m.tracks.allSatisfy { tr in
         resolvedLocalTrackURL(root: root, trackIndex: tr.index, manifest: m) != nil
@@ -1310,8 +1433,9 @@ final class PlaybackController: NSObject, ObservableObject {
             // ohne Player ab, die Session wurde also nie für `.playback` konfiguriert/aktiviert. Ohne das
             // spielt iOS mit der Default-Kategorie — die stoppt beim Wechsel in den Hintergrund (Stille).
             self.audioSession.activateForPlayback(reclaimingOutput: true)
-            self.applyPlayingRate()
-            self.isPlaying = true
+            // Über `beginPlaybackEngine`: ein von `restoreSleepTimer` pausiert gemerkter Timer läuft
+            // sonst nie wieder an (der KVO-Pfad greift nicht, weil `isPlaying` schon passt).
+            self.beginPlaybackEngine()
           } else {
             self.player?.pause()
             self.isPlaying = false
@@ -1387,8 +1511,9 @@ final class PlaybackController: NSObject, ObservableObject {
             // ohne Player ab, die Session wurde also nie für `.playback` konfiguriert/aktiviert. Ohne das
             // spielt iOS mit der Default-Kategorie — die stoppt beim Wechsel in den Hintergrund (Stille).
             self.audioSession.activateForPlayback(reclaimingOutput: true)
-            self.applyPlayingRate()
-            self.isPlaying = true
+            // Über `beginPlaybackEngine`: ein von `restoreSleepTimer` pausiert gemerkter Timer läuft
+            // sonst nie wieder an (der KVO-Pfad greift nicht, weil `isPlaying` schon passt).
+            self.beginPlaybackEngine()
           } else {
             self.player?.pause()
             self.isPlaying = false
@@ -1496,9 +1621,13 @@ final class PlaybackController: NSObject, ObservableObject {
     onPlaybackTick?()
     liveTranscription.handlePlaybackTick(player: self)
     refreshGlobalFromPlayer()
+    let chapterBefore = currentChapterOrdinal
     updateChapterUI(global: globalPosition)
-    // Nur Position/Rate — volles Ersetzen von nowPlayingInfo jedes Tick lässt das Sperrbildschirm-Cover verschwinden.
-    pushNowPlayingPlaybackProgress()
+    // Nur Position/Rate — volles Ersetzen von nowPlayingInfo jedes Tick lässt das Sperrbildschirm-Cover
+    // verschwinden. Und nur bei Bedarf: das System extrapoliert die Zeit aus Rate + Startwert selbst.
+    if chapterBefore != currentChapterOrdinal || nowPlayingNeedsProgressPush() {
+      pushNowPlayingPlaybackProgress()
+    }
     // Zeit-Timer: Wanduhr-abhängig.
     if isPlaying, let end = sleepEndDate, Date() >= end {
       // Wie der Wake-Task: abgelaufen markieren (erlaubt den Neustart innerhalb der Grace-Zeit).
@@ -1651,8 +1780,11 @@ final class PlaybackController: NSObject, ObservableObject {
     DebugLogCollector.shared.log(
       "advanceToNextTrack -> track \(currentTrackIndex + 1)/\(tracks.count) local=\(localRoot != nil) background=\(appState == .background) lowPower=\(ProcessInfo.processInfo.isLowPowerModeEnabled)"
     )
+    // Play-Absicht synchron erfassen: ein `pause()` in derselben Runloop-Runde (z. B. Kapitel-Sleep-Timer
+    // am Track-Ende) bumpt die Generation, bevor der Task läuft.
+    let playIntent = playIntentGeneration
     Task {
-      await loadCurrentTrack(play: true, localOffset: 0)
+      await loadCurrentTrack(play: true, localOffset: 0, playIntent: playIntent)
       await waitUntilEnginePlaysOrTimeout()
       endTrackSwitchBackgroundTask()
     }
@@ -1668,6 +1800,11 @@ final class PlaybackController: NSObject, ObservableObject {
       try? await Task.sleep(nanoseconds: 250_000_000)
     }
     DebugLogCollector.shared.log("advanceToNextTrack: engine not playing after \(Int(Self.trackSwitchPlaybackWaitSeconds)) s")
+    // Ein im Unterdrückungsfenster verworfenes `.paused` jetzt übernehmen (Fenster ist längst vorbei).
+    if let until = suppressEnginePauseSyncUntil, until <= Date() {
+      suppressEnginePauseSyncUntil = nil
+    }
+    syncPlayingStateFromPlayerIfNeeded()
   }
 
   private func beginTrackSwitchBackgroundTask() {
@@ -1685,15 +1822,21 @@ final class PlaybackController: NSObject, ObservableObject {
     trackSwitchBackgroundTask = .invalid
   }
 
-  private func loadCurrentTrack(play: Bool, localOffset: Double, pauseOnFailure: Bool = true) async {
+  /// `playIntent`: vom Aufrufer synchron erfasste Play-Absicht. Ohne Angabe gilt die Generation zum
+  /// Ladebeginn — Aufrufer, die das Laden über einen `Task` verschieben, müssen sie selbst mitgeben.
+  private func loadCurrentTrack(
+    play: Bool, localOffset: Double, pauseOnFailure: Bool = true, playIntent capturedPlayIntent: Int? = nil
+  ) async {
     trackLoadGeneration &+= 1
     let loadGen = trackLoadGeneration
+    // Play-Absicht — eine `pause()` danach hebt sie auf.
+    let playIntent = capturedPlayIntent ?? playIntentGeneration
     // Erfolg setzt das Flag schon in `replacePlayerItem` zurück — hier nur für Abbruch-/Fehlerpfade;
     // ein inzwischen gestartetes neueres Laden behält es.
     defer { if loadGen == trackLoadGeneration { isSwitchingTrack = false } }
     guard let book = activeBook else { return }
-    if let root = localRoot, Self.allTracksPresent(root: root, book: book) {
-      let man = ABSDownloadManifest.load(from: root)
+    let man = localRoot.flatMap { ABSDownloadManifest.load(from: $0) }
+    if let root = localRoot, cachedLocalTracksPresent(root: root, book: book, manifest: man) {
       guard
         let url = Self.resolvedLocalTrackURL(
           root: root, trackIndex: tracks[currentTrackIndex].index, manifest: man)
@@ -1706,7 +1849,8 @@ final class PlaybackController: NSObject, ObservableObject {
         _ = try? await asset.load(.isPlayable)
       }
       guard loadGen == trackLoadGeneration else { return }
-      replacePlayerItem(AVPlayerItem(asset: asset), localOffset: localOffset, play: play)
+      replacePlayerItem(
+        AVPlayerItem(asset: asset), localOffset: localOffset, play: play, playIntent: playIntent)
       return
     }
     guard let client = apiClient, let sid = playSessionId else {
@@ -1720,7 +1864,8 @@ final class PlaybackController: NSObject, ObservableObject {
       )
       let asset = AVURLAsset(url: streamURL, options: AVURLAsset.httpHeaderOptions(token: await client.currentToken(), url: streamURL))
       guard loadGen == trackLoadGeneration else { return }
-      replacePlayerItem(AVPlayerItem(asset: asset), localOffset: localOffset, play: play)
+      replacePlayerItem(
+        AVPlayerItem(asset: asset), localOffset: localOffset, play: play, playIntent: playIntent)
     } catch {
       if pauseOnFailure {
         pause()
@@ -1728,7 +1873,7 @@ final class PlaybackController: NSObject, ObservableObject {
     }
   }
 
-  private func replacePlayerItem(_ item: AVPlayerItem, localOffset: Double, play: Bool) {
+  private func replacePlayerItem(_ item: AVPlayerItem, localOffset: Double, play: Bool, playIntent: Int) {
     isSwitchingTrack = false
     removeTimeObserverIfNeeded()
     if let endObserver {
@@ -1766,10 +1911,12 @@ final class PlaybackController: NSObject, ObservableObject {
           self.globalPosition = g
           self.updateChapterUI(global: g)
           self.updateNowPlaying()
-          if shouldPlay {
+          // Inzwischen pausiert (Nutzer, Sleep-Timer): Absicht vom Ladebeginn nicht mehr anwenden.
+          if shouldPlay, playIntent == self.playIntentGeneration {
             self.beginSuppressingEnginePauseSync(for: 2)
             self.applyPlayingRate()
             self.isPlaying = true
+            self.resumeSleepTimerIfNeeded()
           }
       }
     }
@@ -1907,6 +2054,8 @@ final class PlaybackController: NSObject, ObservableObject {
       let offset = resumeOffsetInCurrentTrack()
       prefersTrackReloadAfterInterruption = false
       await loadCurrentTrack(play: true, localOffset: offset)
+      // `pause()` (auch aus einem fehlgeschlagenen Laden) bricht diesen Task ab.
+      guard !Task.isCancelled else { return }
       beginPlaybackEngine()
       await schedulePlaybackEngineKickstartIfStillPaused(alreadyReloadedTrack: true)
       return
@@ -1975,6 +2124,7 @@ final class PlaybackController: NSObject, ObservableObject {
 
     // Nach langer Pause / Fremd-App: oft abgelaufene Session oder stale Stream-URL.
     if await recoverStaleRemotePlaybackIfNeeded(wantPlay: true) {
+      guard !Task.isCancelled else { return }
       beginPlaybackEngine()
       return
     }
@@ -1986,6 +2136,7 @@ final class PlaybackController: NSObject, ObservableObject {
         "playKickstart: reload local track offset=\(String(format: "%.1f", offset))"
       )
       await loadCurrentTrack(play: true, localOffset: offset, pauseOnFailure: false)
+      guard !Task.isCancelled else { return }
       beginPlaybackEngine()
       try? await Task.sleep(nanoseconds: 400_000_000)
       guard !Task.isCancelled else { return }
@@ -2034,17 +2185,29 @@ final class PlaybackController: NSObject, ObservableObject {
       let book = activeBook,
       attemptServerPlaySessionForLocal
     else { return }
-    if let session = await startPlaySessionWithTimeout(
-      client: client,
-      itemId: book.id,
-      episodeId: activePlaybackEpisodeId
-    ) {
-      playSessionId = session.id
+    let generation = loadGeneration
+    guard
+      let session = await startPlaySessionWithTimeout(
+        client: client,
+        itemId: book.id,
+        episodeId: activePlaybackEpisodeId
+      )
+    else { return }
+    // Inzwischen anderer Titel oder schon eine Session (paralleles Resume): diese nicht verwaisen lassen.
+    guard generation == loadGeneration, playSessionId == nil else {
+      Task { try? await client.closePlaySession(sessionId: session.id) }
+      return
     }
+    playSessionId = session.id
   }
 
   func pause() {
     DebugLogCollector.shared.log("pause()\(DebugLogCollector.callerHint())")
+    // Laufende Play-Absichten aufheben: Initial-Laden, Track-Wechsel und Resume starten danach nicht neu.
+    shouldAutoPlayAfterLoad = false
+    playIntentGeneration &+= 1
+    playResumeTask?.cancel()
+    playResumeTask = nil
     accumulateListenTime()
     pauseSleepTimer()
     player?.pause()
@@ -2172,11 +2335,13 @@ final class PlaybackController: NSObject, ObservableObject {
     pendingSeekTarget = g
     if idx != currentTrackIndex {
       let wasPlaying = isPlaying
+      // Synchron erfassen — ein `pause()` direkt nach dem Seek muss den verschobenen Ladevorgang stoppen.
+      let playIntent = playIntentGeneration
       prepareForTrackSwitch(keepsPlayingIntent: wasPlaying)
       currentTrackIndex = idx
       liveTranscription.notifyPlaybackTrackAdvanced()
       Task {
-        await loadCurrentTrack(play: wasPlaying, localOffset: offset)
+        await loadCurrentTrack(play: wasPlaying, localOffset: offset, playIntent: playIntent)
       }
     } else if isSwitchingTrack {
       // Dieser Track lädt gerade noch: kein Seek aufs alte Item — `replacePlayerItem` springt
@@ -2205,6 +2370,7 @@ final class PlaybackController: NSObject, ObservableObject {
     globalPosition = g
     updateChapterUI(global: g)
     updateNowPlaying()
+    seekDidOccur.send()
   }
 
   /// Nach Metadaten-/Cover-Änderung: Titel/Autor/Cover des laufenden Hörbuchs ohne Neu-Start
@@ -2291,17 +2457,20 @@ final class PlaybackController: NSObject, ObservableObject {
     return max(bookEnd, ch.start + 1)
   }
 
+  /// Läuft pro Tick — `@Published` nur bei echter Änderung setzen, sonst invalidiert jede Zuweisung die UI.
   private func updateChapterUI(global: Double) {
-    guard !sortedChapters.isEmpty else {
-      chapterCount = 0
-      currentChapterOrdinal = 0
-      currentChapterTitle = ""
-      return
+    let count: Int
+    let ordinal: Int
+    let title: String
+    if sortedChapters.isEmpty {
+      (count, ordinal, title) = (0, 0, "")
+    } else {
+      let idx = chapterIndex(for: global) ?? 0
+      (count, ordinal, title) = (sortedChapters.count, idx + 1, sortedChapters[idx].title)
     }
-    chapterCount = sortedChapters.count
-    let idx = chapterIndex(for: global) ?? 0
-    currentChapterOrdinal = idx + 1
-    currentChapterTitle = sortedChapters[idx].title
+    if chapterCount != count { chapterCount = count }
+    if currentChapterOrdinal != ordinal { currentChapterOrdinal = ordinal }
+    if currentChapterTitle != title { currentChapterTitle = title }
   }
 
   private func startPeriodicSync() {
@@ -2331,17 +2500,27 @@ final class PlaybackController: NSObject, ObservableObject {
         // Inzwischen anderer Titel geladen: Zeit nicht dem neuen Titel gutschreiben, keine
         // Session-Recovery für ihn anstoßen (der Abriss hat die alte Session bereits final gesynct).
         guard generation == loadGeneration, playSessionId == sid else { return }
-        pendingListenSeconds += Double(tl)
-        if Self.isTransientNetworkError(error) { return }
+        if Self.isTransientNetworkError(error) {
+          pendingListenSeconds += Double(tl)
+          return
+        }
+        // Die Recovery schickt `tl` an die neue Session (oder legt es bei Misserfolg zurück) — nicht
+        // zusätzlich in den Zähler, sonst zählt der nächste Sync dieselben Sekunden ein zweites Mal.
         await recoverPlaySessionAfterSyncFailure(lostTimeListened: tl)
       }
       return
     }
 
-    guard localRoot != nil, tl > 0 || force else { return }
+    guard localRoot != nil, tl > 0 || force, let book = activeBook else { return }
     pendingListenSeconds = max(0, raw - Double(tl))
-    let listen = max(0, tl)
-    await onLocalPlaybackWithoutSessionSync?(listen, globalPosition, totalDuration)
+    let snapshot = LocalPlaybackSyncSnapshot(
+      libraryItemId: book.id,
+      episodeId: activePlaybackEpisodeId,
+      timeListened: max(0, tl),
+      position: globalPosition,
+      duration: totalDuration
+    )
+    await onLocalPlaybackWithoutSessionSync?(snapshot)
   }
 
   /// Keine neue Play-Session bei Netzwerkfehler — sonst wirkt die alte Server-Session „gelöscht“.
@@ -2375,10 +2554,39 @@ final class PlaybackController: NSObject, ObservableObject {
   }
 
   /// Absorb: bei ungültiger Session neue starten und verlorene Hörzeit nachsyncen.
+  /// Single-Flight: läuft schon eine Recovery, wartet der Aufrufer auf sie — seine verlorene Hörzeit
+  /// geht zurück in den Zähler und mit dem nächsten Sync an die neue Session.
   private func recoverPlaySessionAfterSyncFailure(lostTimeListened: Int) async {
+    if let running = sessionRecoveryTask {
+      if lostTimeListened > 0 { pendingListenSeconds += Double(lostTimeListened) }
+      await running.value
+      return
+    }
+    sessionRecoveryToken &+= 1
+    let token = sessionRecoveryToken
+    let task = Task { @MainActor [weak self] () -> Void in
+      guard let self else { return }
+      await self.performPlaySessionRecovery(lostTimeListened: lostTimeListened)
+    }
+    sessionRecoveryTask = task
+    await task.value
+    // `tearDownPlayer` leert den Slot; eine danach gestartete Recovery hier nicht austragen.
+    if token == sessionRecoveryToken { sessionRecoveryTask = nil }
+  }
+
+  private func performPlaySessionRecovery(lostTimeListened: Int) async {
+    let generation = loadGeneration
+    // Nicht an den Server gebrachte Hörzeit bleibt im Zähler (gleicher Titel vorausgesetzt).
+    var undelivered = lostTimeListened
+    defer {
+      if undelivered > 0, generation == loadGeneration {
+        pendingListenSeconds += Double(undelivered)
+      }
+    }
     guard let client = apiClient, let book = activeBook else { return }
     let resumeAt = playbackGlobalPosition()
     let wantPlay = isPlaying
+    let playIntent = playIntentGeneration
     let ep = activePlaybackEpisodeId?.trimmingCharacters(in: .whitespacesAndNewlines)
     let episodeId = (ep?.isEmpty == false) ? ep : nil
     do {
@@ -2388,25 +2596,35 @@ final class PlaybackController: NSObject, ObservableObject {
         deviceId: Self.stableDeviceId(),
         appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
       )
+      // Inzwischen anderer Titel: Session des alten Titels nicht in den neuen schreiben, sondern schließen.
+      guard generation == loadGeneration else {
+        Task { try? await client.closePlaySession(sessionId: session.id) }
+        return
+      }
       playSessionId = session.id
-      if lostTimeListened > 0 {
+      if undelivered > 0 {
         try await client.syncPlaySession(
           sessionId: session.id,
-          timeListened: max(0, lostTimeListened),
+          timeListened: max(0, undelivered),
           currentTime: resumeAt
         )
+        undelivered = 0
       }
+      guard generation == loadGeneration else { return }
       guard !isUsingLocalTrackFiles, !tracks.isEmpty else { return }
       currentTrackIndex = trackIndex(forGlobal: resumeAt)
       guard currentTrackIndex < trackStarts.count else { return }
       let offsetInTrack = max(0, resumeAt - trackStarts[currentTrackIndex])
       // Stream-URL neu: Seek meldet `.paused` — Absicht (`wantPlay`) nicht verlieren.
       if wantPlay { beginSuppressingEnginePauseSync(for: 3) }
-      await loadCurrentTrack(play: wantPlay, localOffset: offsetInTrack, pauseOnFailure: false)
-      if wantPlay {
+      await loadCurrentTrack(
+        play: wantPlay, localOffset: offsetInTrack, pauseOnFailure: false, playIntent: playIntent)
+      guard generation == loadGeneration else { return }
+      if wantPlay, playIntent == playIntentGeneration {
         beginPlaybackEngine()
       }
     } catch {
+      guard generation == loadGeneration else { return }
       if !Self.isTransientNetworkError(error) {
         playSessionId = nil
       }
@@ -2432,6 +2650,22 @@ final class PlaybackController: NSObject, ObservableObject {
       info[MPMediaItemPropertyArtwork] = existing
     }
     MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    recordNowPlayingPush()
+  }
+
+  /// Gemeldeten Stand merken (Basis für die Drift-Prüfung im Tick).
+  private func recordNowPlayingPush() {
+    nowPlayingPushedElapsed = globalPosition
+    nowPlayingPushedAt = Date()
+    nowPlayingPushedRate = isPlaying ? Double(playbackRate) : 0
+  }
+
+  /// `true`, wenn Rate/Spielzustand abweichen oder die vom System hochgerechnete Zeit > 1 s danebenliegt.
+  private func nowPlayingNeedsProgressPush() -> Bool {
+    let rate = isPlaying ? Double(playbackRate) : 0
+    guard rate == nowPlayingPushedRate else { return true }
+    let expected = nowPlayingPushedElapsed + Date().timeIntervalSince(nowPlayingPushedAt) * rate
+    return abs(expected - globalPosition) > 1
   }
 
   /// Leichte Progress-Aktualisierung — Artwork/Titel unverändert lassen (Sperrbildschirm).
@@ -2453,6 +2687,7 @@ final class PlaybackController: NSObject, ObservableObject {
       }
     }
     MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    recordNowPlayingPush()
   }
 
   /// Cover aus letztem Tint-Bild oder Memory-Cache wiederherstellen (ohne Netz).

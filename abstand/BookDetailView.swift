@@ -29,6 +29,11 @@ struct BookDetailView: View {
   @State private var linkedEntityDetailNav: BooksEntityDetailNav?
   /// Admin-Sheets (Match / Kapitel / Metadaten) — ein Item statt drei Bools.
   @State private var presentedAdminSheet: BookDetailAdminSheet?
+  /// Memo für den synchronen Cover-Tint-Seed (sonst Disk-Read pro `body`, zweimal).
+  @State private var coverTintMemo = CoverDominantTintSeedMemo()
+  /// Listen-Stub aus `books`/`startBooks`/`searchBooks`/`downloadedShelfBooks`, einmal in `.task`
+  /// aufgelöst — sonst scannt jeder Zugriff auf `book` bis zu vier Arrays linear, solange `detail` fehlt.
+  @State private var fallbackListBook: ABSBook?
 
   private enum BookDetailAdminSheet: String, Identifiable {
     case match
@@ -38,11 +43,9 @@ struct BookDetailView: View {
   }
 
   private var book: ABSBook {
-    detail
-      ?? model.books.first { $0.id == bookId }
-      ?? model.startBooks.first { $0.id == bookId }
-      ?? model.searchBooks.first { $0.id == bookId }
-      ?? model.downloadedShelfBooks.first { $0.id == bookId }
+    if let detail { return detail }
+    if let fallbackListBook, fallbackListBook.id == bookId { return fallbackListBook }
+    return scannedListBook
       ?? ABSBook(
         id: bookId,
         libraryId: nil,
@@ -52,23 +55,33 @@ struct BookDetailView: View {
         addedAt: nil, updatedAt: nil)
   }
 
+  private var scannedListBook: ABSBook? {
+    model.books.first { $0.id == bookId }
+      ?? model.startBooks.first { $0.id == bookId }
+      ?? model.searchBooks.first { $0.id == bookId }
+      ?? model.downloadedShelfBooks.first { $0.id == bookId }
+  }
+
   /// Der persistierte Cover-Durchschnitt steht bereits vor `.task` zur Verfügung.
+  /// Memoisiert (`CoverDominantTintSeedMemo`): neu nur bei anderem Scope, Revision oder Theme.
   private var resolvedCoverTint: Color {
     let scope = model.coverImageCacheScopeId(for: bookId, tier: .hero)
     let revision = model.coverImageCacheRevision(forItemUpdatedAt: book.updatedAt)
-    return CoverDominantTintSeed.resolve(
+    return coverTintMemo.tint(
       account: model.coverImageCacheAccountDirectory(),
       itemId: bookId,
       heroScopeId: scope,
       fallbackScopeId: bookId,
-      revision: revision
-    )?.tint ?? coverTintColor
+      revision: revision,
+      themeRevision: model.appearanceThemeRevision
+    ) ?? coverTintColor
   }
 
   private var prog: ABSUserMediaProgress? { model.progressByItemId[bookId] }
 
   var body: some View {
-    ScrollView {
+    let coverTint = resolvedCoverTint
+    return ScrollView {
       VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         VStack(spacing: 0) {
           coverSection
@@ -84,9 +97,9 @@ struct BookDetailView: View {
         .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
     .scrollContentBackground(.hidden)
-    .abstandDetailScrollBackground(resolvedCoverTint)
+    .abstandDetailScrollBackground(coverTint)
     // Karten in der Farbfamilie des Cover-Tint-Hintergrunds statt neutraler Palette-`card`.
-    .detailSectionCardsTinted(fromBackgroundTint: resolvedCoverTint)
+    .detailSectionCardsTinted(fromBackgroundTint: coverTint)
     .navigationTitle("")
     .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
@@ -107,6 +120,9 @@ struct BookDetailView: View {
         detail = model.immediateBookDetail(id: bookId)
         coverImageForTint = nil
         cachedCoverAverageRGB = nil
+      }
+      if detail == nil, fallbackListBook?.id != bookId {
+        fallbackListBook = scannedListBook
       }
       seedCoverTintFromLocalCache()
       let loaded = await model.loadBookDetail(id: bookId)
@@ -294,6 +310,7 @@ struct BookDetailView: View {
           itemId: bookId,
           red: Double(r), green: Double(g), blue: Double(b)
         )
+        coverTintMemo.invalidate()
       }
     }
   }

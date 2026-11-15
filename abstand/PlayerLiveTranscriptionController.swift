@@ -715,24 +715,52 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       lineAccumulator.appendFinalizedWords(mapped)
     } else {
       // Der Cache enthält schon ein späteres Segment (z. B. früher gehörtes Kapitelende) —
-      // dann muss einsortiert und neu umgebrochen werden statt angehängt.
-      finalizedWords = Self.mergedByTime(finalizedWords + mapped)
-      lineAccumulator.rebuildLines(
-        from: finalizedWords, maxCharactersPerLine: lineAccumulator.maxCharactersPerLine)
+      // dann muss einsortiert und neu umgebrochen werden statt angehängt. Einfügestelle per
+      // Binärsuche; nur der Teil dahinter wird gemischt und ab der betroffenen Zeile neu umgebrochen.
+      let earliest = mapped.lazy.map(\.globalStart).min() ?? firstStart
+      let insertion = Self.firstIndex(in: finalizedWords, startingAfter: earliest)
+      finalizedWords = Self.mergedByTime(existing: finalizedWords, from: insertion, adding: mapped)
+      lineAccumulator.rebuildLines(from: finalizedWords, unchangedPrefix: insertion)
     }
     publishWords()
   }
 
-  /// Nach Startzeit sortieren und Wörter im selben Zeitfenster nur einmal behalten.
-  private static func mergedByTime(_ words: [PlayerTranscriptWord]) -> [PlayerTranscriptWord] {
-    let sorted = words.sorted { $0.globalStart < $1.globalStart }
-    var out: [PlayerTranscriptWord] = []
-    out.reserveCapacity(sorted.count)
-    for word in sorted {
+  /// Erster Index mit `globalStart > time` (Wörter sind nach Startzeit sortiert).
+  private static func firstIndex(in words: [PlayerTranscriptWord], startingAfter time: Double) -> Int {
+    var low = 0
+    var high = words.count
+    while low < high {
+      let mid = (low + high) / 2
+      if words[mid].globalStart <= time { low = mid + 1 } else { high = mid }
+    }
+    return low
+  }
+
+  /// `existing[from...]` und `adding` nach Startzeit mischen (bei gleicher Zeit Bestehendes zuerst,
+  /// wie eine stabile Sortierung) und Wörter im selben Zeitfenster nur einmal behalten. Der Teil vor
+  /// `from` bleibt unverändert.
+  private static func mergedByTime(
+    existing: [PlayerTranscriptWord], from start: Int, adding: [PlayerTranscriptWord]
+  ) -> [PlayerTranscriptWord] {
+    let added = adding.sorted { $0.globalStart < $1.globalStart }
+    var out = Array(existing[..<start])
+    out.reserveCapacity(existing.count + added.count)
+    func append(_ word: PlayerTranscriptWord) {
       if let last = out.last, abs(last.globalStart - word.globalStart) < 0.05, last.text == word.text {
-        continue
+        return
       }
       out.append(word)
+    }
+    var i = start
+    var j = 0
+    while i < existing.count || j < added.count {
+      if j >= added.count || (i < existing.count && existing[i].globalStart <= added[j].globalStart) {
+        append(existing[i])
+        i += 1
+      } else {
+        append(added[j])
+        j += 1
+      }
     }
     return out
   }

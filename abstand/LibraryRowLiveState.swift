@@ -44,6 +44,25 @@ enum LibraryRowLiveState {
   }
 }
 
+/// Hält den Live-State einer Karte einmal pro View-Identität.
+///
+/// `@State private var x = State(wrappedValue: LiveState(...))` im Karten-Init baut das Objekt bei
+/// jedem Parent-Render neu (Combine-Abos, Disk-Read, SwiftData-Fetch) und wirft es sofort wieder weg.
+/// Die Box selbst ist billig; `@State` behält die erste Instanz, und der Live-State entsteht erst beim
+/// ersten Zugriff im `body` — synchron, also schon im ersten Frame mit korrekten Werten.
+/// Bewusst nicht `@Observable`: beobachtet wird nur der Live-State selbst.
+@MainActor
+final class LibraryRowLiveStateBox<Value: AnyObject> {
+  private var value: Value?
+
+  func resolve(_ make: () -> Value) -> Value {
+    if let value { return value }
+    let created = make()
+    value = created
+    return created
+  }
+}
+
 /// Hörbuch-Zeile: nur `progressByItemId[bookId]` + Download-Status für diese ID.
 @MainActor
 @Observable

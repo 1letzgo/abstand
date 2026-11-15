@@ -200,7 +200,9 @@ private struct BookCollapsedAuthorLine: View {
 
 /// Zweite Zeile in Library-Karten (Label + Wert), z. B. „Author …“ oder „Books 3 books“.
 struct LibraryRowCollapsedMetaLine: View {
-  @EnvironmentObject private var model: AppModel
+  /// Revision statt `@EnvironmentObject` — die Zeile steckt in jeder Karte; sonst hinge jede Instanz
+  /// an allen `@Published`-Änderungen des `AppModel` (siehe CLAUDE.md, Palette-Ausnahme).
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   let label: String
   let value: String?
   var valueLineLimit: Int = 2
@@ -209,7 +211,8 @@ struct LibraryRowCollapsedMetaLine: View {
   var valueColor: Color? = nil
 
   var body: some View {
-    let palette = model.appearancePalette
+    let _ = themeRevision
+    let palette = AppTheme.palette
     let resolvedLabel = labelColor ?? palette.textSecondary
     let resolvedValue = valueColor ?? palette.textPrimary
     let resolvedEmpty = labelColor ?? palette.textSecondary
@@ -425,7 +428,7 @@ private struct ContinueHeroPlayPillButton: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel(showsPause ? "Pause" : "Play")
-    .accessibilityValue(showsPause ? "Playing" : "Noch \(caption)")
+    .accessibilityValue(showsPause ? "Playing" : "\(caption) remaining")
     .onAppear {
       showsPause = model.player.isPlaying
         && model.isActivelyPlayingMedia(libraryItemId: libraryItemId, episodeId: episodeId)
@@ -446,7 +449,7 @@ struct PodcastEpisodeRowCard: View {
   /// (nötig in `LazyVStack` — per-Zeile `isPresented` kommt dort oft nicht an).
   var onOpenDetail: (() -> Void)? = nil
 
-  @State private var live: LibraryPodcastEpisodeRowLiveState
+  @State private var liveBox = LibraryRowLiveStateBox<LibraryPodcastEpisodeRowLiveState>()
   @State private var showDetail = false
 
   init(
@@ -459,13 +462,17 @@ struct PodcastEpisodeRowCard: View {
     self.opensDetailOnTap = opensDetailOnTap
     self.onOpenDetail = onOpenDetail
     self.model = model
-    _live = State(
-      wrappedValue: LibraryPodcastEpisodeRowLiveState(
+  }
+
+  /// Einmal pro Identität beim ersten `body` gebaut (nicht bei jedem Parent-Render im Init).
+  private var live: LibraryPodcastEpisodeRowLiveState {
+    liveBox.resolve {
+      LibraryPodcastEpisodeRowLiveState(
         progressLookupKey: episode.progressLookupKey,
         offlineStorageId: model.podcastEpisodeOfflineStorageId(episode),
         model: model
       )
-    )
+    }
   }
 
   private var usesOwnedDetailDestination: Bool {
@@ -648,7 +655,7 @@ private struct LibraryHeroPodcastEpisodeCard: View {
   var opensDetailOnTap = true
   var onOpenDetail: (() -> Void)? = nil
 
-  @State private var live: LibraryPodcastEpisodeRowLiveState
+  @State private var liveBox = LibraryRowLiveStateBox<LibraryPodcastEpisodeRowLiveState>()
   @State private var showDetail = false
 
   init(
@@ -661,13 +668,17 @@ private struct LibraryHeroPodcastEpisodeCard: View {
     self.opensDetailOnTap = opensDetailOnTap
     self.onOpenDetail = onOpenDetail
     self.model = model
-    _live = State(
-      wrappedValue: LibraryPodcastEpisodeRowLiveState(
+  }
+
+  /// Einmal pro Identität beim ersten `body` gebaut (nicht bei jedem Parent-Render im Init).
+  private var live: LibraryPodcastEpisodeRowLiveState {
+    liveBox.resolve {
+      LibraryPodcastEpisodeRowLiveState(
         progressLookupKey: episode.progressLookupKey,
         offlineStorageId: model.podcastEpisodeOfflineStorageId(episode),
         model: model
       )
-    )
+    }
   }
 
   private var prog: ABSUserMediaProgress? { live.progress }
@@ -865,7 +876,7 @@ struct ContinueListeningHeroBookCard: View {
   @EnvironmentObject private var model: AppModel
   let book: ABSBook
   var cardWidth: CGFloat = AppTheme.Layout.continueHeroCardWidth
-  @State private var rowLive: LibraryBookRowLiveState
+  @State private var rowLiveBox = LibraryRowLiveStateBox<LibraryBookRowLiveState>()
   @State private var showDetail = false
   /// Kartenfläche in Cover-Farbe wie im Player; `nil` = neutrale Palette, bis sie geladen ist.
   @State private var coverTint: Color?
@@ -873,9 +884,11 @@ struct ContinueListeningHeroBookCard: View {
   init(book: ABSBook, model: AppModel, cardWidth: CGFloat = AppTheme.Layout.continueHeroCardWidth) {
     self.book = book
     self.cardWidth = cardWidth
-    _rowLive = State(
-      wrappedValue: LibraryBookRowLiveState(bookId: book.id, model: model)
-    )
+  }
+
+  /// Einmal pro Identität beim ersten `body` gebaut (nicht bei jedem Parent-Render im Init).
+  private var rowLive: LibraryBookRowLiveState {
+    rowLiveBox.resolve { LibraryBookRowLiveState(bookId: book.id, model: model) }
   }
 
   private var tintSource: ContinueHeroCardTintSource {
@@ -1029,7 +1042,7 @@ struct ContinueListeningHeroPodcastCard: View {
   @EnvironmentObject private var model: AppModel
   let episode: ABSPodcastEpisodeListItem
   var cardWidth: CGFloat = AppTheme.Layout.continueHeroCardWidth
-  @State private var rowLive: LibraryPodcastEpisodeRowLiveState
+  @State private var rowLiveBox = LibraryRowLiveStateBox<LibraryPodcastEpisodeRowLiveState>()
   @State private var showDetail = false
   /// Kartenfläche in Cover-Farbe wie im Player; `nil` = neutrale Palette, bis sie geladen ist.
   @State private var coverTint: Color?
@@ -1041,13 +1054,17 @@ struct ContinueListeningHeroPodcastCard: View {
   ) {
     self.episode = episode
     self.cardWidth = cardWidth
-    _rowLive = State(
-      wrappedValue: LibraryPodcastEpisodeRowLiveState(
+  }
+
+  /// Einmal pro Identität beim ersten `body` gebaut (nicht bei jedem Parent-Render im Init).
+  private var rowLive: LibraryPodcastEpisodeRowLiveState {
+    rowLiveBox.resolve {
+      LibraryPodcastEpisodeRowLiveState(
         progressLookupKey: episode.progressLookupKey,
         offlineStorageId: model.podcastEpisodeOfflineStorageId(episode),
         model: model
       )
-    )
+    }
   }
 
   private var tintSource: ContinueHeroCardTintSource {
@@ -1227,14 +1244,16 @@ private enum FacetBrowseTileMetrics {
 }
 
 struct FacetBrowseTileCard: View {
-  @EnvironmentObject private var model: AppModel
+  /// Nur die Palette wird gebraucht — Revision statt `@EnvironmentObject` (Kacheln im Raster).
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   let kind: BooksBrowseSection
   let title: String
   let count: Int?
 
   var body: some View {
-    facetBrowseTileCardChrome(
-      palette: model.appearancePalette,
+    let _ = themeRevision
+    return facetBrowseTileCardChrome(
+      palette: AppTheme.palette,
       title: title,
       count: count,
       accessibilityLabel: facetBrowseTileAccessibilityLabel
@@ -1331,7 +1350,8 @@ func browseEntityBooksCountLine(count: Int?) -> String? {
 
 /// Serien-Cover: bis zu vier Miniatur-Covers im 82×82-Slot (2×2, bei 2–3 Büchern angepasst).
 private struct SeriesMultiCoverView: View {
-  @EnvironmentObject private var model: AppModel
+  /// Vom Aufrufer durchgereicht, nicht beobachtet — `BrowseEntityRowCard` rendert bei Änderungen neu.
+  let model: AppModel
   let bookIds: [String]
 
   private static let gap: CGFloat = 1
@@ -1428,7 +1448,7 @@ struct BrowseEntityRowCard: View {
       } else {
         LibraryRowLayout.coverSlot {
           if let ids = coverBookIds, ids.count > 1 {
-            SeriesMultiCoverView(bookIds: ids)
+            SeriesMultiCoverView(model: model, bookIds: ids)
           } else {
             LibraryRowLayout.rowCoverImage(
               url: coverURL,
@@ -2120,12 +2140,25 @@ private struct LibraryHeroBookRowCard: View {
   /// eBook-Lesefortschritt in Balken auf dem Cover.
   var usesEbookProgressDisplay = false
 
-  @State private var live: LibraryBookRowLiveState
+  @State private var liveBox = LibraryRowLiveStateBox<LibraryBookRowLiveState>()
   @State private var showDetail = false
   private let supplementaryEbookBadge: Bool
 
   private var usesEbookMetrics: Bool {
     book.isPureEbookLibraryItem || usesEbookProgressDisplay
+  }
+
+  /// Einmal pro Identität beim ersten `body` gebaut (nicht bei jedem Parent-Render im Init).
+  private var live: LibraryBookRowLiveState {
+    liveBox.resolve {
+      LibraryBookRowLiveState(
+        bookId: book.id,
+        model: model,
+        observesProgress: progressOverride == nil && !usesEbookMetrics,
+        observesDownload: showsDownloadStatus,
+        observesEbookProgress: usesEbookMetrics
+      )
+    }
   }
 
   init(
@@ -2148,18 +2181,7 @@ private struct LibraryHeroBookRowCard: View {
     self.coverAspectRatio = coverAspectRatio
     self.model = model
     self.supplementaryEbookBadge = model.bookShowsSupplementaryEbookBadge(book)
-    let resolvedBook = model.bookStubEnrichedForListDisplay(book)
-    self.book = resolvedBook
-    let ebookMetrics = resolvedBook.isPureEbookLibraryItem || usesEbookProgressDisplay
-    _live = State(
-      wrappedValue: LibraryBookRowLiveState(
-        bookId: resolvedBook.id,
-        model: model,
-        observesProgress: progressOverride == nil && !ebookMetrics,
-        observesDownload: showsDownloadStatus,
-        observesEbookProgress: ebookMetrics
-      )
-    )
+    self.book = model.bookStubEnrichedForListDisplay(book)
   }
 
   private var prog: ABSUserMediaProgress? { progressOverride ?? live.progress }
@@ -2483,18 +2505,20 @@ private struct LibraryHeroFinishedBadge: View {
 
 /// Kompaktes Cover-Badge (Play / eBook) — unten links oder rechts auf Listen-Covers.
 private struct LibraryCoverCornerBadge: View {
-  @EnvironmentObject private var model: AppModel
+  /// Revision statt `@EnvironmentObject` — Badge sitzt auf jedem Listen-Cover.
+  @Environment(\.appearanceThemeRevision) private var themeRevision
   let systemImage: String
   let accessibilityLabel: String
   var accessibilityHidden: Bool = false
 
   var body: some View {
-    Image(systemName: systemImage)
+    let _ = themeRevision
+    return Image(systemName: systemImage)
       .font(.caption2.weight(.semibold))
       // Bewusst Weiß statt Palette: liegt auf der dunklen Badge-Kapsel über beliebigem Cover-Artwork.
       .foregroundStyle(.white)
       .frame(width: AppTheme.Layout.coverBadgeSize, height: AppTheme.Layout.coverBadgeSize)
-      .background(model.appearancePalette.coverPlayBadgeBackground)
+      .background(AppTheme.palette.coverPlayBadgeBackground)
       .clipShape(Circle())
       .padding(AppTheme.Layout.tightSpacing)
       .accessibilityLabel(accessibilityLabel)
@@ -2523,13 +2547,26 @@ struct BookRowCard: View {
   /// eBooks-/Supplementary-Tab: Lesefortschritt statt Hörbuch-Dauer/-Fortschritt anzeigen.
   var usesEbookProgressDisplay = false
 
-  @State private var live: LibraryBookRowLiveState
+  @State private var liveBox = LibraryRowLiveStateBox<LibraryBookRowLiveState>()
   @State private var showDetail = false
   private let supplementaryEbookBadge: Bool
 
   private var isPureEbookRow: Bool { book.isPureEbookLibraryItem }
   /// Reines eBook oder Hörbuch mit angehängtem eBook im eBooks-Tab — beide zeigen Lesefortschritt.
   private var usesEbookMetrics: Bool { isPureEbookRow || usesEbookProgressDisplay }
+
+  /// Einmal pro Identität beim ersten `body` gebaut (nicht bei jedem Parent-Render im Init).
+  private var live: LibraryBookRowLiveState {
+    liveBox.resolve {
+      LibraryBookRowLiveState(
+        bookId: book.id,
+        model: model,
+        observesProgress: progressOverride == nil && !usesEbookMetrics,
+        observesDownload: showsDownloadStatus,
+        observesEbookProgress: usesEbookMetrics
+      )
+    }
+  }
   private var showsAudiobookPlayControl: Bool { book.isPlayableAudiobook && showsPlaybackControls }
   private var showsAttachedEbookCoverBadge: Bool {
     supplementaryEbookBadge
@@ -2559,18 +2596,7 @@ struct BookRowCard: View {
     self.usesEbookProgressDisplay = usesEbookProgressDisplay
     self.model = model
     self.supplementaryEbookBadge = model.bookShowsSupplementaryEbookBadge(book)
-    let resolvedBook = model.bookStubEnrichedForListDisplay(book)
-    self.book = resolvedBook
-    let ebookMetrics = resolvedBook.isPureEbookLibraryItem || usesEbookProgressDisplay
-    _live = State(
-      wrappedValue: LibraryBookRowLiveState(
-        bookId: resolvedBook.id,
-        model: model,
-        observesProgress: progressOverride == nil && !ebookMetrics,
-        observesDownload: showsDownloadStatus,
-        observesEbookProgress: ebookMetrics
-      )
-    )
+    self.book = model.bookStubEnrichedForListDisplay(book)
   }
 
   private var prog: ABSUserMediaProgress? { progressOverride ?? live.progress }

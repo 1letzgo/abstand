@@ -401,7 +401,7 @@ struct MainRootView: View {
     LibraryBookListCard(
       book: book,
       model: model,
-      showEbookBadge: model.bookShowsSupplementaryEbookBadge(book),
+      // Kein `showEbookBadge:` — die Karte ermittelt das Badge selbst (einmal im Init).
       usesEbookProgressDisplay: true
     )
     .task(id: book.id) {
@@ -413,8 +413,7 @@ struct MainRootView: View {
   private func libraryCatalogBookCard(_ book: ABSBook) -> some View {
     LibraryBookListCard(
       book: book,
-      model: model,
-      showEbookBadge: model.bookShowsSupplementaryEbookBadge(book)
+      model: model
     )
     .task(id: book.id) {
       await model.loadMoreIfNeeded(currentItemId: book.id)
@@ -638,7 +637,7 @@ struct MainRootView: View {
         model.isLoadingPodcastShowEpisodes,
         !episodes.isEmpty
       {
-        AbstandLoadingSpinner(controlSize: .small, verticalPadding: 8)
+        AbstandLoadingSpinner(controlSize: .small, verticalPadding: AppTheme.Layout.rowVerticalPadding)
       }
     }
   }

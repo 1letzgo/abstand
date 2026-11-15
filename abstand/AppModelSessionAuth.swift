@@ -397,9 +397,12 @@ extension AppModel {
   }
 
   /// Flag nachziehen — sowohl nach Persists als auch nach dem Restore, der den echten Zustand kennt.
+  /// Schreibt nur bei echter Änderung — der Wiedergabe-Tick ruft das alle paar Sekunden mit `true` auf.
   func setHasCachedLaunchArtifacts(_ available: Bool) {
     guard cacheAccountURL() != nil else { return }
-    UserDefaults.standard.set(available, forKey: cachedLaunchArtifactsDefaultsKey())
+    let key = cachedLaunchArtifactsDefaultsKey()
+    if UserDefaults.standard.object(forKey: key) as? Bool == available { return }
+    UserDefaults.standard.set(available, forKey: key)
   }
 
   /// LocalStore-Artefakte für schnellen Kaltstart (auch wenn Regale im Speicher noch leer sind).
@@ -539,6 +542,9 @@ extension AppModel {
     guard offlineHomeUIActive else { return }
     isServerReachable = false
     player.suspendServerNetworkingForOfflineMode()
+    // Instanz für die Offline-Wiedergabe aufheben — sonst entstünde ein zweiter Client mit demselben
+    // rotierenden Refresh-Token (zwei Single-Flights → der zweite Refresh fliegt mit 401 raus).
+    if let c = client { rememberSessionClient(c) }
     client = nil
   }
 
@@ -572,18 +578,48 @@ extension AppModel {
   }
 
   func restoreServerClientIfNeeded() {
-    guard client == nil,
-      let url = ABSAPIClient.normalizeServerURL(serverURL),
-      !token.isEmpty
-    else { return }
-    client = ABSAPIClient(baseURL: url, token: token, refreshToken: refreshToken)
+    guard client == nil else { return }
+    client = sessionClientForCurrentCredentials()
   }
 
   /// Client nur für lokale Wiedergabe (kein Authorize); entsteht nach `suspendServerClientForOfflineHome`.
+  /// Je Session genau eine Instanz (gecacht), damit es für das rotierende Refresh-Token nur einen
+  /// Single-Flight gibt.
   func clientForOfflineLocalPlayback() -> ABSAPIClient? {
     if let c = client { return c }
+    return sessionClientForCurrentCredentials()
+  }
+
+  /// Identität der Zugangsdaten, für die ein gecachter Client gilt.
+  private struct SessionClientKey: Equatable {
+    let server: String
+    let token: String
+    let refreshToken: String
+  }
+
+  /// Zuletzt gebauter bzw. beim Offline-Wechsel abgelegter Client dieser Session.
+  private static var cachedSessionClient: (key: SessionClientKey, client: ABSAPIClient)?
+
+  private func currentSessionClientKey() -> SessionClientKey? {
     guard let url = ABSAPIClient.normalizeServerURL(serverURL), !token.isEmpty else { return nil }
-    return ABSAPIClient(baseURL: url, token: token, refreshToken: refreshToken)
+    return SessionClientKey(server: url.absoluteString, token: token, refreshToken: refreshToken)
+  }
+
+  /// Gecachten Client wiederverwenden, solange Server und Tokens gleich sind; sonst neu bauen.
+  private func sessionClientForCurrentCredentials() -> ABSAPIClient? {
+    guard let key = currentSessionClientKey(), let url = ABSAPIClient.normalizeServerURL(serverURL) else {
+      return nil
+    }
+    if let cached = Self.cachedSessionClient, cached.key == key { return cached.client }
+    let c = ABSAPIClient(baseURL: url, token: token, refreshToken: refreshToken)
+    Self.cachedSessionClient = (key, c)
+    return c
+  }
+
+  /// Bestehenden Client für die aktuellen Zugangsdaten merken (z. B. vor `client = nil`).
+  private func rememberSessionClient(_ c: ABSAPIClient) {
+    guard let key = currentSessionClientKey() else { return }
+    Self.cachedSessionClient = (key, c)
   }
 
   func login(server: String, username: String, password: String) async {
@@ -695,6 +731,9 @@ extension AppModel {
     else { return }
     isSwitchingAccount = true
     defer { isSwitchingAccount = false }
+    // Epoch sofort erhöhen: späte Antworten des alten Accounts dürfen während des Bootstraps des
+    // neuen die Epoch-Guards nicht mehr passieren. Der zweite Bump am Ende baut die Views neu auf.
+    accountSessionEpoch &+= 1
     if savingCurrentSession {
       syncStoredAccountFromSession()
     }
@@ -786,22 +825,29 @@ extension AppModel {
   }
 
   /// Vom Client erneuerte Tokens übernehmen (nur wenn sie zur aktiven Session gehören — nach einem
-  /// Account-Wechsel kann noch ein Refresh des alten Clients eintreffen).
+  /// Account-Wechsel kann noch ein Refresh des alten Clients eintreffen; der landet dann im
+  /// gespeicherten Account, dem er gehört).
   func adoptRefreshedSessionTokens(
     serverURL refreshedServer: String,
     accessToken: String,
     refreshToken newRefresh: String,
     previousRefreshToken: String
   ) {
-    guard !accessToken.isEmpty,
-      let active = ABSAPIClient.normalizeServerURL(serverURL)?.absoluteString,
-      active.caseInsensitiveCompare(refreshedServer) == .orderedSame
-    else { return }
+    let previous = previousRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !accessToken.isEmpty, !previous.isEmpty else { return }
+    let activeServerMatches =
+      ABSAPIClient.normalizeServerURL(serverURL)?.absoluteString
+      .caseInsensitiveCompare(refreshedServer) == .orderedSame
     // Gleicher Server reicht nicht: nach einem Wechsel A→B auf demselben Server kann ein alter Client
     // von A noch erneuern — dessen Tokens dürfen B nicht überschreiben. Nur die eigene Session übernehmen.
     let current = refreshToken.trimmingCharacters(in: .whitespacesAndNewlines)
     // Legacy-Session ohne Refresh-Token erneuert nie selbst — fremde Rotation ebenfalls ignorieren.
-    guard !current.isEmpty, current == previousRefreshToken else { return }
+    guard activeServerMatches, !current.isEmpty, current == previous else {
+      adoptRefreshedTokensForStoredAccount(
+        serverURL: refreshedServer, accessToken: accessToken, refreshToken: newRefresh, previousRefreshToken: previous)
+      return
+    }
+    let oldKey = currentSessionClientKey()
     token = accessToken
     UserDefaults.standard.set(accessToken, forKey: Keys.token)
     if !newRefresh.isEmpty {
@@ -811,16 +857,45 @@ extension AppModel {
     syncStoredAccountFromSession(markActive: false)
     // Alle lebenden Clients angleichen (App-Client + ggf. eigene Player-Instanz aus dem Offline-Pfad) —
     // sonst erneuert der andere Client später mit dem bereits rotierten Refresh-Token und fliegt raus.
-    if let c = client {
-      let refresh = newRefresh
-      Task {
-        await c.setToken(accessToken)
-        if !refresh.isEmpty { await c.setRefreshToken(refresh) }
+    // Compare-and-Swap: eine verspätete Notification darf einen neueren Stand nicht zurückrollen.
+    var clientsToAdopt: [ABSAPIClient] = []
+    if let c = client { clientsToAdopt.append(c) }
+    if let cached = Self.cachedSessionClient {
+      if !clientsToAdopt.contains(where: { $0 === cached.client }) { clientsToAdopt.append(cached.client) }
+      // Gecachter Client gehört zu dieser Session → unter den neuen Zugangsdaten weiterführen.
+      if cached.key == oldKey, let newKey = currentSessionClientKey() {
+        Self.cachedSessionClient = (newKey, cached.client)
       }
     }
-    player.adoptRefreshedTokens(accessToken: accessToken, refreshToken: newRefresh)
+    for c in clientsToAdopt {
+      let rotated = newRefresh
+      Task {
+        await c.adoptRotatedTokens(accessToken: accessToken, refreshToken: rotated, previousRefreshToken: previous)
+      }
+    }
+    player.adoptRefreshedTokens(accessToken: accessToken, refreshToken: newRefresh, previousRefreshToken: previous)
     // Cover-/Asset-Requests lesen `token` direkt — Views neu binden.
     objectWillChange.send()
+  }
+
+  /// Rotation eines nicht (mehr) aktiven Accounts: in dessen gespeicherten Eintrag schreiben — sonst
+  /// bleibt dort das serverseitig schon invalidierte Refresh-Token und der Wechsel zurück erzwingt Re-Login.
+  private func adoptRefreshedTokensForStoredAccount(
+    serverURL refreshedServer: String,
+    accessToken: String,
+    refreshToken newRefresh: String,
+    previousRefreshToken previous: String
+  ) {
+    guard
+      let idx = storedAccounts.firstIndex(where: { account in
+        account.refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines) == previous
+          && ABSAPIClient.normalizeServerURL(account.serverURL)?.absoluteString
+            .caseInsensitiveCompare(refreshedServer) == .orderedSame
+      })
+    else { return }
+    storedAccounts[idx].token = accessToken
+    if !newRefresh.isEmpty { storedAccounts[idx].refreshToken = newRefresh }
+    persistStoredAccounts()
   }
 
   func syncStoredAccountFromSession() {

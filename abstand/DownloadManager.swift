@@ -1,5 +1,11 @@
 import Combine
 import Foundation
+import os
+
+extension Notification.Name {
+  /// Download-Ordner fertig geschrieben oder gelöscht — z. B. für den „alle Tracks lokal“-Cache im Player.
+  static let abstandDownloadFolderDidChange = Notification.Name("abstand_download_folder_did_change")
+}
 
 private struct DownloadWIP: Codable {
   var storageItemId: String
@@ -47,8 +53,9 @@ final class DownloadManager: ObservableObject {
   /// der geteilten Session und würde einen gerade gestarteten Download mitreißen.
   private var isCancellingInFlight = false
 
-  /// Zeitstempel des letzten Intra-Track-Progress-Emits (Throttling der Byte-Callback-Flut).
-  private var lastIntraTrackEmit: Date = .distantPast
+  /// Track (Position in der Liste), dessen Byte-Fortschritt gerade gilt — verspätete Callbacks eines
+  /// fertigen Tracks oder abgebrochenen Laufs setzen `progress` damit nicht mehr zurück.
+  private var intraTrackProgressSlot: Int?
 
   /// Interne FIFO-Queue mit allen Parametern für verzögerten Start.
   private var downloadQueue: [QueuedDownload] = []
@@ -128,12 +135,33 @@ final class DownloadManager: ObservableObject {
     return dir
   }
 
-  /// Entfernt den kompletten Download-Ordner inkl. partieller Tracks (Mini-Roadmap: Multi-Track-Fehler).
+  /// Entfernt den kompletten Download-Ordner inkl. partieller Tracks und `download-wip.json`.
+  /// Bei einem Fehlschlag nur nach echten Fehlern (4xx, Manifest nicht schreibbar) — bei Netzwerk-
+  /// fehlern bleiben fertige Tracks + WIP liegen, damit der nächste Versuch dort weitermacht.
   func deleteDownload(itemId: String) {
     guard let root = try? downloadsRootURL() else { return }
     let url = root.appendingPathComponent(itemId, isDirectory: true)
     guard FileManager.default.fileExists(atPath: url.path) else { return }
     try? FileManager.default.removeItem(at: url)
+    NotificationCenter.default.post(name: .abstandDownloadFolderDidChange, object: nil)
+  }
+
+  /// Vorübergehender Fehler (Netz weg, Timeout, 5xx/408/429): Teil-Download behalten und fortsetzbar lassen.
+  nonisolated private static func isResumableDownloadError(_ error: Error) -> Bool {
+    if let urlError = error as? URLError {
+      switch urlError.code {
+      case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost, .timedOut,
+        .cannotFindHost, .dnsLookupFailed, .internationalRoamingOff, .dataNotAllowed,
+        .callIsActive, .backgroundSessionWasDisconnected, .secureConnectionFailed:
+        return true
+      default:
+        return false
+      }
+    }
+    if case ABSAPIError.httpStatus(let code, _) = error {
+      return code >= 500 || code == 408 || code == 429
+    }
+    return false
   }
 
   private func wipURL(in folder: URL) -> URL {
@@ -179,6 +207,7 @@ final class DownloadManager: ObservableObject {
     activeItemId = nil
     progress = 1
     completedDownloadCount &+= 1
+    NotificationCenter.default.post(name: .abstandDownloadFolderDidChange, object: nil)
     completion?(true)
     startNextQueuedDownload()
   }
@@ -447,15 +476,23 @@ final class DownloadManager: ObservableObject {
           let trackWeight = weights[i]
           let baseDoneW = doneW
           // Intra-Track-Fortschritt: `fraction` (0…1) vom Delegate → interpoliert in den Gesamtfortschritt.
-          // Throttling über `lastProgressEmit`, damit nicht jedes Byte-Event einen Main-Actor-Hop auslöst.
+          // Gedrosselt wird schon auf dem Delegate-Thread (vor dem Hop), sonst entsteht pro Byte-Event
+          // ein Main-Actor-Task. Im Task prüfen Lauf und Track, dass kein verspäteter Callback zählt.
           // Kein `[weak self]`: Der umgebende Download-Task (`task = Task { @MainActor in … }`)
           // hält `self` ohnehin stark, solange der Download läuft — eine schwache Capture wäre
           // hier wirkungslos und weicht vom implizit starken Verweis des äußeren Scopes ab.
+          intraTrackProgressSlot = i
+          let lastEmit = OSAllocatedUnfairLock(initialState: Date.distantPast)
           let progressSink: @Sendable (Double) -> Void = { fraction in
+            let now = Date()
+            let due = lastEmit.withLock { last -> Bool in
+              guard now.timeIntervalSince(last) >= 0.08 else { return false }
+              last = now
+              return true
+            }
+            guard due else { return }
             Task { @MainActor in
-              let now = Date()
-              if now.timeIntervalSince(self.lastIntraTrackEmit) < 0.08 { return }
-              self.lastIntraTrackEmit = now
+              guard runId == self.downloadRunId, self.intraTrackProgressSlot == i else { return }
               self.progress = min(1, (baseDoneW + fraction * trackWeight) / sumW)
             }
           }
@@ -481,9 +518,9 @@ final class DownloadManager: ObservableObject {
           if savedAudioExtension == nil {
             savedAudioExtension = finalURL.pathExtension.lowercased()
           }
+          intraTrackProgressSlot = nil
           doneW += weights[i]
           progress = min(1, doneW / sumW)
-          lastIntraTrackEmit = .distantPast
           resumeCompleted.insert(tr.index)
           wip.completedTrackIndexes = Array(resumeCompleted).sorted()
           try? saveWIP(wip, folder: folder)
@@ -544,7 +581,10 @@ final class DownloadManager: ObservableObject {
         if ownsPlaySession, !streamSessionId.isEmpty {
           try? await client.closePlaySession(sessionId: streamSessionId)
         }
-        if cancelled {
+        if runId == downloadRunId { intraTrackProgressSlot = nil }
+        if cancelled || Self.isResumableDownloadError(error) {
+          // Abbruch oder Netzwerkfehler: fertige Tracks + `download-wip.json` behalten — der nächste
+          // Versuch setzt dort fort (Aufräumen nur bei echten Fehlern).
           finishDownloadInterruptedIfCurrent(runId: runId, completion: completion)
         } else {
           finishDownloadFailureIfCurrent(runId: runId, itemId: id, completion: completion)

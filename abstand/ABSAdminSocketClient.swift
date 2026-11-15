@@ -22,13 +22,19 @@ final class ABSAdminSocketClient {
   private var token: String = ""
   private var baseURL: URL?
   private var wantsConnection = false
-  /// Aufeinanderfolgende Reconnects ohne erfolgreiche Verbindung — steuert den Backoff.
+  /// Aufeinanderfolgende Reconnects ohne erfolgreiche Auth (`init`) — steuert den Backoff.
   private var reconnectAttempt = 0
+  /// Nach `invalid_token` genau ein Refresh + Reconnect; erst ein `init` gibt den nächsten frei.
+  private var authRetryUsed = false
 
   var onEvent: ((Event) -> Void)?
   /// Liefert beim (Re-)Connect das aktuelle Token — ein im ersten `connect` gemerktes JWT kann
   /// nach Stunden (langer Encode) längst rotiert sein; dann würde `auth` stumm abgelehnt.
   var tokenProvider: (() -> String)?
+  /// Bevorzugt vor `tokenProvider`: liefert einen garantiert frischen Bearer (z. B.
+  /// `ABSAPIClient.freshBearerToken(rejecting:)`). Parameter: der vom Server abgelehnte Bearer
+  /// (`invalid_token`) oder `nil` für die normale Auth nach dem Namespace-Connect.
+  var freshTokenProvider: (@MainActor (_ rejected: String?) async -> String?)?
 
   /// Eigene Session mit Trust-Delegate (selbstsignierte Zertifikate lokaler Server wie im API-Client).
   init(
@@ -63,6 +69,7 @@ final class ABSAdminSocketClient {
   func disconnect() {
     wantsConnection = false
     reconnectAttempt = 0
+    authRetryUsed = false
     disconnectSocketOnly()
     onEvent?(.disconnected)
   }
@@ -157,9 +164,9 @@ final class ABSAdminSocketClient {
       let payload = String(body.dropFirst())
       switch sio {
       case 0:
-        // Namespace verbunden → Auth
-        reconnectAttempt = 0
-        sendEvent("auth", arguments: [token])
+        // Namespace verbunden → Auth. `reconnectAttempt` erst bei `init` (Auth akzeptiert) zurücksetzen,
+        // sonst hält ein abgelehntes Token den Backoff dauerhaft bei 2 s.
+        sendAuth()
         onEvent?(.connected)
       case 2:
         parseEventPayload(payload)
@@ -178,6 +185,15 @@ final class ABSAdminSocketClient {
     else { return }
 
     switch name {
+    case "init":
+      // ABS-Server: Antwort auf erfolgreiches `auth`.
+      reconnectAttempt = 0
+      authRetryUsed = false
+
+    case "invalid_token":
+      // ABS-Server: `auth` abgelehnt (abgelaufenes/rotiertes JWT) — erneuern und neu verbinden.
+      handleAuthRejected()
+
     case "task_progress":
       guard arr.count >= 2, let obj = arr[1] as? [String: Any] else { return }
       let lid = (obj["libraryItemId"] as? String)?
@@ -209,6 +225,54 @@ final class ABSAdminSocketClient {
 
     default:
       break
+    }
+  }
+
+  /// Bearer holen (bevorzugt frisch über `freshTokenProvider`, sonst `tokenProvider`).
+  private func resolveToken(rejecting rejected: String?) async -> String {
+    if let freshTokenProvider {
+      return (await freshTokenProvider(rejected))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+    return tokenProvider?().trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+  }
+
+  /// `auth` mit einem nicht abgelaufenen Bearer senden — nach Stunden (langer Encode, Reconnect)
+  /// wäre das beim `connect` gemerkte JWT längst ungültig.
+  private func sendAuth() {
+    guard let socket = webSocket else { return }
+    guard freshTokenProvider != nil else {
+      sendEvent("auth", arguments: [token])
+      return
+    }
+    Task { [weak self] in
+      guard let self else { return }
+      let fresh = await self.resolveToken(rejecting: nil)
+      guard self.webSocket === socket else { return }
+      if !fresh.isEmpty { self.token = fresh }
+      self.sendEvent("auth", arguments: [self.token])
+    }
+  }
+
+  private func handleAuthRejected() {
+    guard wantsConnection, let baseURL, let socket = webSocket else { return }
+    let rejected = token
+    guard !authRetryUsed else {
+      // Auch der erneuerte Bearer wurde abgelehnt — aufgeben statt endlos neu zu verbinden.
+      disconnect()
+      return
+    }
+    authRetryUsed = true
+    Task { [weak self] in
+      guard let self else { return }
+      let fresh = await self.resolveToken(rejecting: rejected)
+      guard self.wantsConnection, self.webSocket === socket else { return }
+      guard !fresh.isEmpty, fresh != rejected else {
+        self.disconnect()
+        return
+      }
+      socket.cancel(with: .goingAway, reason: nil)
+      self.webSocket = nil
+      self.connect(serverURL: baseURL, token: fresh)
     }
   }
 

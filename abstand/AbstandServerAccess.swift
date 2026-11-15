@@ -78,19 +78,28 @@ nonisolated enum AbstandCustomHeadersStore {
   static func save(_ headers: [ServerHTTPHeader], forServer raw: String) -> Bool {
     guard let key = originKey(forServer: raw) else { return false }
     let clean = ServerHTTPHeader.sanitized(headers)
-    lock.lock(); cache[key] = nil; lock.unlock()
-    guard !clean.isEmpty else { return delete(originKey: key) }
-    guard let data = try? JSONEncoder().encode(clean) else { return false }
+    // Erst Keychain schreiben, dann Cache setzen — würde der Cache vorher geleert, könnte ein
+    // paralleles `load` noch die alten Header aus dem Keychain lesen und wieder cachen.
+    guard !clean.isEmpty else {
+      let ok = delete(originKey: key)
+      lock.lock(); cache[key] = ok ? [] : nil; lock.unlock()
+      return ok
+    }
+    guard let data = try? ABSJSON.encoder().encode(clean) else { return false }
     let attributes: [String: Any] = [
       kSecValueData as String: data,
       kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
     ]
     let updateStatus = SecItemUpdate(baseQuery(account: key) as CFDictionary, attributes as CFDictionary)
-    if updateStatus == errSecSuccess { return true }
-    guard updateStatus == errSecItemNotFound else { return false }
-    var addQuery = baseQuery(account: key)
-    attributes.forEach { addQuery[$0.key] = $0.value }
-    return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+    var ok = updateStatus == errSecSuccess
+    if updateStatus == errSecItemNotFound {
+      var addQuery = baseQuery(account: key)
+      attributes.forEach { addQuery[$0.key] = $0.value }
+      ok = SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+    }
+    // Bei Fehlschlag Cache verwerfen, damit der nächste Zugriff den tatsächlichen Keychain-Stand liest.
+    lock.lock(); cache[key] = ok ? clean : nil; lock.unlock()
+    return ok
   }
 
   /// Header für einen Request an `url` — nur, wenn er an einen Server mit gespeicherten Headern
@@ -121,11 +130,17 @@ nonisolated enum AbstandCustomHeadersStore {
     var item: CFTypeRef?
     var loaded: [ServerHTTPHeader] = []
     if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data,
-      let decoded = try? JSONDecoder().decode([ServerHTTPHeader].self, from: data)
+      // `ABSJSON.decoder()` ändert nur die Datumsstrategie — `ServerHTTPHeader` hat keine Daten,
+      // bereits gespeicherte Einträge (früher mit `JSONEncoder()` geschrieben) lesen sich unverändert.
+      let decoded = try? ABSJSON.decoder().decode([ServerHTTPHeader].self, from: data)
     {
       loaded = decoded
     }
-    lock.lock(); cache[key] = loaded; lock.unlock()
+    // Nur cachen, wenn nicht inzwischen ein `save` den neuen Stand eingetragen hat.
+    lock.lock()
+    defer { lock.unlock() }
+    if let newer = cache[key] { return newer }
+    cache[key] = loaded
     return loaded
   }
 
@@ -199,7 +214,13 @@ nonisolated final class AbstandTrustDelegate: NSObject, URLSessionDelegate, URLS
     if normalizedHost == "localhost" || normalizedHost.hasSuffix(".local") { return true }
     if normalizedHost.contains(":") { return isLocalIPv6(normalizedHost) }
 
-    let octets = normalizedHost.split(separator: ".").compactMap { Int($0) }
+    // Genau vier rein numerische Labels — `10.0.0.1.example.com` oder `192.168.1.5.nip.io` sind
+    // öffentliche Namen und dürfen nicht als private IP durchgehen.
+    let labels = normalizedHost.split(separator: ".", omittingEmptySubsequences: false)
+    guard labels.count == 4,
+      labels.allSatisfy({ !$0.isEmpty && $0.count <= 3 && $0.allSatisfy { $0.isASCII && $0.isNumber } })
+    else { return false }
+    let octets = labels.compactMap { Int($0) }
     guard octets.count == 4, octets.allSatisfy({ (0...255).contains($0) }) else { return false }
     switch (octets[0], octets[1]) {
     case (127, _), (10, _): return true

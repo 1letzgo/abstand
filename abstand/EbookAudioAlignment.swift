@@ -1,9 +1,10 @@
 import Foundation
 
 // Abgleich Hörbuch ↔ eBook: genau eine Quelle der Wahrheit für „welches eBook-Wort wird wann gesprochen".
-// Nutzer: der Teleprompter (`displayWords()`), der Reader-Button `EbookNarrationJumpController`
-// (springt zur Seite der Hörposition, markiert die letzten gesprochenen Wörter) und der Player-Button
-// „Jump to ebook position" (`EbookNarrationSync.playbackPosition`, Rückrichtung Wort → Zeit).
+// Nutzer: der Reader-Button `EbookNarrationJumpController` (springt zur Seite der Hörposition, markiert
+// die letzten gesprochenen Wörter) und der Player-Button „Jump to ebook position"
+// (`EbookNarrationSync.playbackPosition`, Rückrichtung Wort → Zeit). Der Teleprompter zeigt immer das
+// Transkript und nutzt den Abgleich nicht.
 //
 // Je Track wird das Transkript (Erkennung, mit Zeiten) global-monoton gegen das eBook ausgerichtet:
 // eindeutige Trigramme und seltene lange Wörter als Fixpunkte (längste aufsteigende Teilfolge), Lücken rekursiv über eindeutige
@@ -32,14 +33,16 @@ nonisolated struct EbookTrackAlignment: Sendable {
   /// Für die Gültigkeit der gespeicherten Datei: eBook und Transkript, mit denen gerechnet wurde.
   let ebookWordCount: Int
   let spokenWordCount: Int
-  /// Ende des letzten erkannten Worts (lokale Sekunden) — dahinter gibt es noch kein Transkript.
+  /// Ende des letzten erkannten Worts (lokale Sekunden). Nur Teil des Dateiformats — für Abfragen
+  /// ungeeignet, weil Transkript-Lücken auch mitten im Track liegen (dafür `EbookTranscriptCoverage`).
   let spokenEnd: Double
 
   let words: [Int32]
   /// Lokale Track-Sekunden.
   let starts: [Float]
   let ends: [Float]
-  /// 1 = direkt erkannt, 0 = zwischen erkannten Nachbarn verteilt.
+  /// 1 = direkt erkannt, 0 = zwischen erkannten Nachbarn verteilt. Wird in der App nicht gelesen,
+  /// bleibt aber Teil des Dateiformats (Android und Golden-Files lesen/schreiben es mit).
   let flags: [UInt8]
 
   var isEmpty: Bool { words.isEmpty }
@@ -52,9 +55,10 @@ nonisolated struct EbookTrackAlignment: Sendable {
 
   // MARK: Abfragen
 
-  /// eBook-Wort, das zur Track-Zeit gesprochen wird. In einer Pause bleibt das letzte Wort stehen,
-  /// nach längerer Lücke (nur im Hörbuch gesprochener Teil) gibt es keine Antwort.
-  func ebookWord(atLocalTime time: Double, maxGap: Double = 3) -> Int? {
+  /// Index (in `words`) des letzten ausgerichteten Worts, das bis zur Track-Zeit begonnen hat.
+  /// `nil` vor dem ersten ausgerichteten Wort des Tracks. Ob der Treffer plausibel ist (Abdeckung des
+  /// Transkripts, Abstand), prüft der Aufrufer — siehe `EbookTrackLookup`.
+  func lastAlignedIndex(atOrBeforeLocalTime time: Double) -> Int? {
     guard !words.isEmpty else { return nil }
     var low = 0
     var high = words.count
@@ -62,24 +66,7 @@ nonisolated struct EbookTrackAlignment: Sendable {
       let mid = (low + high) / 2
       if Double(starts[mid]) <= time { low = mid + 1 } else { high = mid }
     }
-    guard low > 0 else { return nil }
-    let i = low - 1
-    guard time <= Double(ends[i]) + maxGap else { return nil }
-    return Int(words[i])
-  }
-
-  /// Zuletzt gesprochenes eBook-Wort bis zur Track-Zeit — anders als `ebookWord(atLocalTime:)` auch
-  /// über lange Pausen und nur im Hörbuch gesprochene Stellen hinweg („wo war ich?").
-  /// `nil` vor dem ersten ausgerichteten Wort des Tracks.
-  func lastEbookWord(atOrBeforeLocalTime time: Double) -> Int? {
-    guard !words.isEmpty else { return nil }
-    var low = 0
-    var high = words.count
-    while low < high {
-      let mid = (low + high) / 2
-      if Double(starts[mid]) <= time { low = mid + 1 } else { high = mid }
-    }
-    return low > 0 ? Int(words[low - 1]) : nil
+    return low > 0 ? low - 1 : nil
   }
 
   /// Erstes und letztes ausgerichtetes eBook-Wort dieses Tracks.
@@ -88,9 +75,9 @@ nonisolated struct EbookTrackAlignment: Sendable {
     return Int(first)...Int(last)
   }
 
-  /// Track-Zeit, ab der das eBook-Wort gesprochen wird. Ein nicht ausgerichtetes Wort (nur im Buch
-  /// vorhanden) nimmt das nächste ausgerichtete danach. `nil` außerhalb von `ebookWordRange`.
-  func localTime(forEbookWord position: Int) -> Double? {
+  /// Index (in `words`) des eBook-Worts oder — bei nicht ausgerichtetem Wort (nur im Buch vorhanden) —
+  /// des nächsten ausgerichteten danach. `nil` außerhalb von `ebookWordRange`.
+  func alignedIndex(forEbookWord position: Int) -> Int? {
     guard let range = ebookWordRange, range.contains(position) else { return nil }
     let target = Int32(position)
     var low = 0
@@ -99,7 +86,7 @@ nonisolated struct EbookTrackAlignment: Sendable {
       let mid = (low + high) / 2
       if words[mid] < target { low = mid + 1 } else { high = mid }
     }
-    return words.indices.contains(low) ? Double(starts[low]) : nil
+    return words.indices.contains(low) ? low : nil
   }
 
   // MARK: Persistenz
@@ -167,37 +154,100 @@ nonisolated struct EbookTrackAlignment: Sendable {
   }
 }
 
-// MARK: - Anzeige (Teleprompter)
+// MARK: - Abfrage mit Transkript-Abdeckung
 
-/// eBook-Wörter eines Tracks in globaler Zeit plus die Zeitspannen, in denen der eBook-Text lückenlos
-/// steht. Nur außerhalb dieser Spannen bleibt der Erkennungstext sichtbar.
-nonisolated struct EbookDisplayWords {
-  let words: [PlayerTranscriptWord]
-  let spans: [(start: Double, end: Double)]
+/// Transkribierte Zeitbereiche eines Tracks (lokale Sekunden, sortiert, überschneidungsfrei) — aus den
+/// Segmenten der Transkriptdatei, nicht aus dem `.bin`. Außerhalb davon weiß der Abgleich nichts.
+nonisolated struct EbookTranscriptCoverage: Sendable {
+  struct Span: Sendable {
+    let start: Double
+    let end: Double
+  }
+
+  let spans: [Span]
+
+  /// Wie `PlayerTranscriptTrackCache.covers`: halbe Sekunde Toleranz am Segmentanfang.
+  static let tolerance = 0.5
+
+  func span(containing time: Double) -> Span? {
+    spans.first { $0.start - Self.tolerance <= time && time < $0.end }
+  }
+
+  /// Liegt `start...end` ohne Lücke in einem transkribierten Bereich?
+  func coversContinuously(from start: Double, through end: Double) -> Bool {
+    guard let span = span(containing: start) else { return false }
+    return end <= span.end + Self.tolerance
+  }
 }
 
-extension EbookTrackAlignment {
-  nonisolated func displayWords(index: EbookReadAlongIndex, globalOffset: Double) -> EbookDisplayWords {
-    var out: [PlayerTranscriptWord] = []
-    out.reserveCapacity(words.count)
-    var spans: [(start: Double, end: Double)] = []
-    var previousPosition = -2
-    for i in words.indices {
-      let position = Int(words[i])
-      guard index.words.indices.contains(position) else { continue }
-      let start = globalOffset + Double(starts[i])
-      let end = globalOffset + Double(ends[i])
-      out.append(
-        PlayerTranscriptWord(
-          id: "e-\(position)", text: index.words[position].display, globalStart: start, globalEnd: end))
-      if position == previousPosition + 1, !spans.isEmpty {
-        spans[spans.count - 1].end = end
-      } else {
-        spans.append((start, end))
-      }
-      previousPosition = position
+/// Abgleich eines Tracks plus Abdeckung seines Transkripts — Abfragen liefern nur dann eine Stelle,
+/// wenn sie durch das Transkript belegt ist. Sonst `nil`, statt still Minuten daneben zu springen.
+nonisolated struct EbookTrackLookup: Sendable {
+  let alignment: EbookTrackAlignment
+  let coverage: EbookTranscriptCoverage
+
+  /// Höchster Abstand (Sekunden) zwischen Abfragezeit und nächstem ausgerichteten Wort — wie die
+  /// Plausibilitätsgrenze der Lückenfüllung im Builder.
+  static let maxGapSeconds: Double = 120
+
+  enum NarratedWord {
+    case word(Int)
+    /// Transkribiert, aber vor dem ersten ausgerichteten Wort (Kapitelansage, Musik).
+    case beforeFirstWord
+    case unavailable
+  }
+
+  /// Zuletzt gesprochenes eBook-Wort bis zur Track-Zeit („wo war ich?").
+  func narratedWord(atLocalTime time: Double) -> NarratedWord {
+    guard let span = coverage.span(containing: time) else { return .unavailable }
+    guard let i = alignment.lastAlignedIndex(atOrBeforeLocalTime: time) else {
+      return span.start <= EbookTranscriptCoverage.tolerance ? .beforeFirstWord : .unavailable
     }
-    return EbookDisplayWords(words: out, spans: spans)
+    // Das Wort muss im selben lückenlos transkribierten Bereich liegen und nah genug sein.
+    guard Double(alignment.starts[i]) >= span.start - EbookTranscriptCoverage.tolerance,
+      time - Double(alignment.ends[i]) <= Self.maxGapSeconds
+    else { return .unavailable }
+    return .word(Int(alignment.words[i]))
+  }
+
+  /// Track-Zeit, ab der das eBook-Wort gesprochen wird. Ein nicht ausgerichtetes Wort nimmt das nächste
+  /// ausgerichtete danach — aber nur, wenn zwischen den Nachbarn lückenlos transkribiert ist und sie
+  /// nicht weiter als `maxGapSeconds` auseinanderliegen.
+  func localTime(forEbookWord position: Int) -> Double? {
+    guard let i = alignment.alignedIndex(forEbookWord: position) else { return nil }
+    let start = Double(alignment.starts[i])
+    if Int(alignment.words[i]) == position { return start }
+    guard i > 0 else { return nil }
+    let previousEnd = Double(alignment.ends[i - 1])
+    guard start - previousEnd <= Self.maxGapSeconds,
+      coverage.coversContinuously(from: previousEnd, through: start)
+    else { return nil }
+    return start
+  }
+
+  /// Zeit des ersten ausgerichteten Worts, wenn es nah am Trackanfang liegt und davor lückenlos
+  /// transkribiert ist (Wort fällt zwischen zwei Tracks → Anfang des nächsten).
+  var leadingWordTime: Double? {
+    guard let first = alignment.starts.first else { return nil }
+    let time = Double(first)
+    guard time <= Self.maxGapSeconds, coverage.coversContinuously(from: 0, through: time) else { return nil }
+    return time
+  }
+
+  /// Letztes ausgerichtetes eBook-Wort, wenn es nah am Trackende liegt und dahinter lückenlos
+  /// transkribiert ist.
+  func trailingWord(trackDuration: Double) -> Int? {
+    guard let last = alignment.words.indices.last else { return nil }
+    let end = Double(alignment.ends[last])
+    guard end >= trackDuration - Self.maxGapSeconds,
+      coverage.coversContinuously(from: Double(alignment.starts[last]), through: max(0, trackDuration - 1))
+    else { return nil }
+    return Int(alignment.words[last])
+  }
+
+  /// Ganzer Track transkribiert (Kriterium wie `firstUncoveredTime`: bis eine Sekunde vor Ende).
+  func isFullyCovered(trackDuration: Double) -> Bool {
+    coverage.coversContinuously(from: 0, through: max(0, trackDuration - 1))
   }
 }
 
@@ -270,8 +320,7 @@ nonisolated enum EbookAlignmentBuilder {
     var anchors: [(e: Int, s: Int, length: Int)] = []
     for i in 0..<(n - 2) {
       let key = keys[i]
-      guard firstPosition[key] == i, let positions = index.trigrams[key], positions.count == 1 else { continue }
-      let e = positions[0]
+      guard firstPosition[key] == i, let e = index.uniqueTrigramPosition(forKey: key) else { continue }
       guard e + 2 < index.ids.count,
         sIds[i] >= 0, sIds[i] == index.ids[e],
         sIds[i + 1] == index.ids[e + 1], sIds[i + 2] == index.ids[e + 2]
@@ -463,14 +512,8 @@ nonisolated private struct GapAligner {
     matchS.append(Int32(s))
   }
 
-  /// Gleich oder (ab 4 Zeichen) gemeinsamer Wortstamm — die Erkennung trifft Endungen oft nicht.
-  private func wordsMatch(_ e: Int, _ s: Int) -> Bool {
-    if sIds[s] >= 0, sIds[s] == index.ids[e] { return true }
-    let a = index.words[e].normalized
-    let b = sNorm[s]
-    guard a.count >= 4, b.count >= 4 else { return false }
-    return a.hasPrefix(b) || b.hasPrefix(a)
-  }
+  /// Ab dieser Länge zählt ein gemeinsamer Wortstamm als Treffer — die Erkennung trifft Endungen oft nicht.
+  private static let stemMinimumLength = 4
 
   mutating func fill(eLo: Int, eHi: Int, sLo: Int, sHi: Int, depth: Int) {
     let n = eHi - eLo
@@ -513,13 +556,33 @@ nonisolated private struct GapAligner {
     fill(eLo: previousE, eHi: eHi, sLo: previousS, sHi: sHi, depth: depth + 1)
   }
 
+  /// Treffer: gleiche Wort-ID oder (beide ab `stemMinimumLength` Zeichen) gemeinsamer Wortstamm.
+  /// Längen und Treffer werden je Lücke einmal vorberechnet — nicht in jeder Tabellenzelle zweimal.
   private mutating func lcs(eLo: Int, n: Int, sLo: Int, m: Int) {
+    let eLong = (0..<n).map { index.words[eLo + $0].normalized.count >= Self.stemMinimumLength }
+    let sLong = (0..<m).map { sNorm[sLo + $0].count >= Self.stemMinimumLength }
+    var matches = [Bool](repeating: false, count: n * m)
+    for i in 0..<n {
+      let e = eLo + i
+      let eId = index.ids[e]
+      for j in 0..<m {
+        let s = sLo + j
+        if sIds[s] >= 0, sIds[s] == eId {
+          matches[i * m + j] = true
+        } else if eLong[i], sLong[j] {
+          let a = index.words[e].normalized
+          let b = sNorm[s]
+          matches[i * m + j] = a.hasPrefix(b) || b.hasPrefix(a)
+        }
+      }
+    }
+
     let width = m + 1
     var table = [UInt16](repeating: 0, count: (n + 1) * width)
     for i in stride(from: n - 1, through: 0, by: -1) {
       for j in stride(from: m - 1, through: 0, by: -1) {
         table[i * width + j] =
-          wordsMatch(eLo + i, sLo + j)
+          matches[i * m + j]
           ? table[(i + 1) * width + j + 1] + 1
           : max(table[(i + 1) * width + j], table[i * width + j + 1])
       }
@@ -527,7 +590,7 @@ nonisolated private struct GapAligner {
     var i = 0
     var j = 0
     while i < n, j < m {
-      if wordsMatch(eLo + i, sLo + j), table[i * width + j] == table[(i + 1) * width + j + 1] + 1 {
+      if matches[i * m + j], table[i * width + j] == table[(i + 1) * width + j + 1] + 1 {
         add(eLo + i, sLo + j)
         i += 1
         j += 1
@@ -543,56 +606,78 @@ nonisolated private struct GapAligner {
 // MARK: - Speicher
 
 /// Hält die Abgleiche im Speicher, lädt/schreibt sie je Track und rechnet nur bei geändertem
-/// Transkript oder eBook neu. Die Berechnung läuft im Hintergrund.
+/// Transkript oder eBook neu. Gültigkeit im Speicher hängt am Stempel der Transkriptdatei (Größe +
+/// Änderungszeit) — ein unverändertes Transkript wird nicht erneut dekodiert. Die Arbeit läuft im
+/// Hintergrund, aber mit `.userInitiated`: sie hängt immer an einem Knopfdruck.
 @MainActor
 final class EbookAlignmentStore {
   static let shared = EbookAlignmentStore()
 
-  private struct Entry {
-    let alignment: EbookTrackAlignment
-    let validatedAt: Date
+  nonisolated private struct Entry: Sendable {
+    let lookup: EbookTrackLookup
+    let stamp: PlayerTranscriptFileStamp
   }
 
   private var entries: [String: Entry] = [:]
-  private var inflight: [String: Task<EbookTrackAlignment?, Never>] = [:]
+  private var inflight: [String: Task<Entry?, Never>] = [:]
 
   private func key(bookId: String, trackIndex: Int, locale: Locale, index: EbookReadAlongIndex) -> String {
     "\(bookId)|\(trackIndex)|\(locale.identifier(.bcp47))|\(index.words.count)"
   }
 
-  /// Abgleich eines Tracks aus den gespeicherten Transkripten. `maxAge`: so lange gilt ein
-  /// Speicher-Treffer, ohne das Transkript erneut von der Platte zu prüfen.
-  func alignment(
+  /// Abgleich eines Tracks samt Abdeckung seines Transkripts. `nil` ohne Transkript.
+  func lookup(
     forTrack trackIndex: Int,
     bookId: String,
     locale: Locale,
-    index: EbookReadAlongIndex,
-    maxAge: TimeInterval
-  ) async -> EbookTrackAlignment? {
+    index: EbookReadAlongIndex
+  ) async -> EbookTrackLookup? {
     let key = key(bookId: bookId, trackIndex: trackIndex, locale: locale, index: index)
-    if let entry = entries[key], Date().timeIntervalSince(entry.validatedAt) < maxAge {
-      return entry.alignment
-    }
-    if let running = inflight[key] { return await running.value }
+    if let running = inflight[key] { return await running.value?.lookup }
 
     let account = PlayerTranscriptCacheStore.activeAccount
     let localeId = locale.identifier(.bcp47)
-    let task = Task<EbookTrackAlignment?, Never> {
-      let cached = await PlayerTranscriptLibrary.cachedWords(
-        bookId: bookId, trackIndex: trackIndex, locale: locale)
-      guard !cached.isEmpty else { return nil }
-      let input = cached.map { AlignmentInputWord(text: $0.t, start: $0.s, end: $0.e) }
-      return await Task.detached(priority: .utility) {
-        Self.loadOrBuild(
-          account: account, bookId: bookId, trackIndex: trackIndex, localeId: localeId,
-          words: input, index: index)
-      }.value
+    let previous = entries[key]
+    let task = Task.detached(priority: .userInitiated) { () -> Entry? in
+      Self.refresh(
+        previous: previous, account: account, bookId: bookId, trackIndex: trackIndex,
+        localeId: localeId, index: index)
     }
     inflight[key] = task
     let result = await task.value
     inflight[key] = nil
-    if let result { entries[key] = Entry(alignment: result, validatedAt: Date()) }
-    return result
+    entries[key] = result
+    return result?.lookup
+  }
+
+  /// Stempel unverändert → bisheriger Eintrag (nur ein `stat`); sonst Transkript laden und den
+  /// gespeicherten Abgleich prüfen bzw. neu berechnen.
+  nonisolated private static func refresh(
+    previous: Entry?,
+    account: URL?,
+    bookId: String,
+    trackIndex: Int,
+    localeId: String,
+    index: EbookReadAlongIndex
+  ) -> Entry? {
+    guard
+      let stamp = PlayerTranscriptCacheStore.transcriptStamp(
+        account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeId)
+    else { return nil }
+    if let previous, previous.stamp == stamp { return previous }
+    guard
+      let loaded = PlayerTranscriptCacheStore.loadStamped(
+        account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeId)
+    else { return nil }
+    let cached = loaded.cache.allWords
+    guard !cached.isEmpty else { return nil }
+    let input = cached.map { AlignmentInputWord(text: $0.t, start: $0.s, end: $0.e) }
+    let alignment = loadOrBuild(
+      account: account, bookId: bookId, trackIndex: trackIndex, localeId: localeId,
+      words: input, index: index)
+    let coverage = EbookTranscriptCoverage(
+      spans: loaded.cache.segments.map { EbookTranscriptCoverage.Span(start: $0.start, end: $0.end) })
+    return Entry(lookup: EbookTrackLookup(alignment: alignment, coverage: coverage), stamp: loaded.stamp)
   }
 
   nonisolated private static func loadOrBuild(

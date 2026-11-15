@@ -343,10 +343,7 @@ struct ListeningMonthHeatmapCard: View {
 
   private func selectedDayMetricTitle(key: String) -> String {
     guard let date = ABSListeningStatsResponse.parseDayKey(key, calendar: calendar) else { return key }
-    let f = DateFormatter()
-    f.locale = locale
-    f.dateFormat = "EEE, MMM d"
-    return f.string(from: date)
+    return HeatmapDateFormatterCache.formatter(locale: locale, format: "EEE, MMM d").string(from: date)
   }
 
   private func listeningTimeLabel(seconds: Int) -> String {
@@ -356,11 +353,7 @@ struct ListeningMonthHeatmapCard: View {
   private func selectedDayAccessibilityLabel(key: String, seconds: Int) -> String {
     let dateLabel: String
     if let date = ABSListeningStatsResponse.parseDayKey(key, calendar: calendar) {
-      let f = DateFormatter()
-      f.locale = locale
-      f.dateStyle = .medium
-      f.timeStyle = .none
-      dateLabel = f.string(from: date)
+      dateLabel = HeatmapDateFormatterCache.formatter(locale: locale, format: nil).string(from: date)
     } else {
       dateLabel = key
     }
@@ -407,6 +400,30 @@ struct ListeningMonthHeatmapCard: View {
 }
 
 /// Wie `summaryPeriodCard` / Today in Stats › Listening time.
+/// Formatter einmal je Locale/Format statt bei jedem Render neu (`DateFormatter()` ist teuer).
+/// Zeitzone `autoupdatingCurrent` — wie vorher der pro Aufruf frisch gebaute Formatter.
+@MainActor
+private enum HeatmapDateFormatterCache {
+  private static var formatters: [String: DateFormatter] = [:]
+
+  /// `format == nil` → `dateStyle = .medium`, ohne Uhrzeit.
+  static func formatter(locale: Locale, format: String?) -> DateFormatter {
+    let key = "\(locale.identifier)|\(format ?? "medium")"
+    if let cached = formatters[key] { return cached }
+    let f = DateFormatter()
+    f.locale = locale
+    f.timeZone = .autoupdatingCurrent
+    if let format {
+      f.dateFormat = format
+    } else {
+      f.dateStyle = .medium
+      f.timeStyle = .none
+    }
+    formatters[key] = f
+    return f
+  }
+}
+
 private struct StatsTimelineMetricCard: View {
   @EnvironmentObject private var model: AppModel
   let title: String

@@ -2815,7 +2815,8 @@ struct ABSLibraryResultsPageEnvelope<T: Decodable>: Decodable {
 
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
-    results = (try? c.decode([T].self, forKey: .results)) ?? []
+    // Elementweise tolerant: ein kaputter Eintrag darf nicht die ganze Seite leeren (sonst hängt das Paging).
+    results = (try? c.decode(ABSLossyDecodableArray<T>.self, forKey: .results))?.elements ?? []
     if let t = try? c.decode(Int.self, forKey: .total) {
       total = t
     } else if let s = try? c.decode(String.self, forKey: .total), let t = Int(s) {
@@ -2823,6 +2824,30 @@ struct ABSLibraryResultsPageEnvelope<T: Decodable>: Decodable {
     } else {
       total = results.count
     }
+  }
+}
+
+/// Array, das nicht decodierbare Elemente überspringt statt das ganze Array zu verwerfen.
+struct ABSLossyDecodableArray<Element: Decodable>: Decodable {
+  let elements: [Element]
+
+  /// Verbraucht ein Element, das nicht als `Element` lesbar ist, damit der Container weiterläuft
+  /// (leeres `Decodable` liest nichts und gelingt für jeden Wert).
+  private struct Skip: Decodable {}
+
+  init(from decoder: Decoder) throws {
+    var container = try decoder.unkeyedContainer()
+    var out: [Element] = []
+    if let count = container.count { out.reserveCapacity(count) }
+    while !container.isAtEnd {
+      if let element = try? container.decode(Element.self) {
+        out.append(element)
+      } else if (try? container.decode(Skip.self)) == nil {
+        // Ohne Fortschritt würde die Schleife hängen.
+        break
+      }
+    }
+    elements = out
   }
 }
 

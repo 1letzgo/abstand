@@ -1,3 +1,4 @@
+import Combine
 import StoreKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -633,7 +634,6 @@ struct SettingsHubRootView: View {
     let _ = model.appearanceThemeRevision
     let sections = hubSectionIDs
     AbstandFixedBrowseStripSectionsLayout(
-      retainOffscreenSections: false,
       selection: hubSection,
       sectionIDs: sections,
       scrollBottomInset: scrollBottomInset,
@@ -1347,7 +1347,7 @@ struct SettingsPlaybackView: View {
   @EnvironmentObject private var model: AppModel
 
   var body: some View {
-    SettingsPlaybackContent(player: model.player)
+    SettingsPlaybackContent(player: model.player, prefetcher: model.transcriptPrefetcher)
       .environmentObject(model)
       .tint(model.appearanceAccentColor)
   }
@@ -1355,6 +1355,8 @@ struct SettingsPlaybackView: View {
 
 private struct SettingsPlaybackContent: View {
   @ObservedObject var player: PlaybackController
+  /// Eigenes `ObservableObject` — ohne Beobachtung bliebe der Vorproduktions-Status stehen.
+  @ObservedObject var prefetcher: PlayerTranscriptPrefetcher
   @EnvironmentObject private var model: AppModel
 
   var body: some View {
@@ -1410,13 +1412,13 @@ private struct SettingsPlaybackContent: View {
   /// Schalter; ausgeschaltet gibt es keinen Erklärtext.
   private var teleprompterPrefetchSubtitle: String? {
     guard model.readAlongPrefetchEnabled else { return nil }
-    if let reason = model.transcriptPrefetcher.pausedReason { return reason }
-    if model.transcriptPrefetcher.isRunning {
-      let total = model.transcriptPrefetcher.totalTracks
-      let done = model.transcriptPrefetcher.preparedTracks
+    if let reason = prefetcher.pausedReason { return reason }
+    if prefetcher.isRunning {
+      let total = prefetcher.totalTracks
+      let done = prefetcher.preparedTracks
       let progress = String(
         format: String(localized: "%d of %d tracks", comment: "Teleprompter prefetch state"), done, total)
-      if let title = model.transcriptPrefetcher.currentJobTitle {
+      if let title = prefetcher.currentJobTitle {
         return "Preparing \(title) · \(progress)"
       }
       return "Preparing… \(progress)"
@@ -3134,6 +3136,9 @@ private struct SettingsDownloadsManageView: View {
   /// Live-Fortschritt des aktiven Downloads — direkt (ohne AppModel-Throttling) beobachtet,
   /// damit die ProgressView auch bei schnellen Podcast-Episoden (oft nur ein Track) sichtbar läuft.
   @State private var activeDownloadProgress: Double = 0
+  /// Zähler für Neuladen: mehrere Auslöser im selben Durchlauf ergeben einen einzigen Lauf,
+  /// `.task(id:)` bricht einen noch laufenden älteren ab.
+  @State private var reloadGeneration = 0
 
   var body: some View {
     ServerAdminScrollScreen {
@@ -3147,21 +3152,23 @@ private struct SettingsDownloadsManageView: View {
     .navigationTitle("Downloads")
     .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
-    .task { await reload() }
-    .onReceive(model.$downloadedItemIds) { _ in
-      Task { await reload() }
+    .task(id: reloadGeneration) { await reload() }
+    // `@Published` feuert beim Abonnieren sofort — `dropFirst`, sonst lädt der Screen beim Öffnen
+    // viermal statt einmal (den ersten Lauf übernimmt `.task`).
+    .onReceive(model.$downloadedItemIds.dropFirst()) { _ in
+      reloadGeneration &+= 1
     }
-    .onReceive(model.downloads.$activeItemId) { _ in
+    .onReceive(model.downloads.$activeItemId.dropFirst()) { _ in
       activeDownloadProgress = model.downloads.progress
-      Task { await reload() }
+      reloadGeneration &+= 1
     }
     .onReceive(model.downloads.$progress) { p in
       // Nur während ein Download aktiv ist — sonst bleibt die Anzeige auf dem letzten Stand.
       guard model.downloads.activeItemId != nil else { return }
       activeDownloadProgress = p
     }
-    .onReceive(model.downloads.$queuedItemIds) { _ in
-      Task { await reload() }
+    .onReceive(model.downloads.$queuedItemIds.dropFirst()) { _ in
+      reloadGeneration &+= 1
     }
   }
 
@@ -3256,15 +3263,21 @@ private struct SettingsDownloadsManageView: View {
   // MARK: Helpers
 
   /// Lädt alle Manifeste + Ordnergrößen; sortiert nach Speicherdatum (neu zuerst).
+  /// Manifest-Lesen und rekursive Ordnergröße laufen abseits des MainActors; nur Ordner-URLs,
+  /// Account-Filter und das Setzen des States bleiben auf dem Main-Thread.
   private func reload() async {
+    let folders: [(id: String, root: URL)] = model.downloadedItemIds.sorted().compactMap { id in
+      guard let root = try? model.downloads.downloadFolder(for: id) else { return nil }
+      return (id, root)
+    }
+    let scanned = await Task.detached(priority: .userInitiated) {
+      Self.scanDownloadFolders(folders)
+    }.value
+    guard !Task.isCancelled else { return }
     var collected: [DownloadManageRow] = []
     var sum: Int64 = 0
-    for id in model.downloadedItemIds.sorted() {
-      guard let root = try? model.downloads.downloadFolder(for: id),
-        let manifest = ABSDownloadManifest.load(from: root),
-        model.downloadManifestBelongsToActiveAccount(manifest)
-      else { continue }
-      let bytes = folderSize(at: root)
+    for (id, manifest, bytes) in scanned {
+      guard model.downloadManifestBelongsToActiveAccount(manifest) else { continue }
       sum += bytes
       collected.append(
         DownloadManageRow(
@@ -3289,8 +3302,18 @@ private struct SettingsDownloadsManageView: View {
     model.removeLocalDownload(bookId: row.storageId)
   }
 
+  /// Manifest + Größe je Download-Ordner — reine Dateiarbeit, darf abseits des MainActors laufen.
+  nonisolated private static func scanDownloadFolders(
+    _ folders: [(id: String, root: URL)]
+  ) -> [(id: String, manifest: ABSDownloadManifest, bytes: Int64)] {
+    folders.compactMap { folder in
+      guard let manifest = ABSDownloadManifest.load(from: folder.root) else { return nil }
+      return (folder.id, manifest, folderSize(at: folder.root))
+    }
+  }
+
   /// Rekursive Verzeichnisgröße (Bytes) — nur für Anzeige, bewusst einfach gehalten.
-  private func folderSize(at url: URL) -> Int64 {
+  nonisolated private static func folderSize(at url: URL) -> Int64 {
     var total: Int64 = 0
     let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
     guard let enumerator = FileManager.default.enumerator(
@@ -3332,13 +3355,20 @@ private struct DownloadManageRow: Identifiable {
     return formatDuration(seconds: d)
   }
 
-  var savedLabel: String {
-    guard savedAtEpoch > 0 else { return "" }
-    let date = Date(timeIntervalSince1970: savedAtEpoch)
+  /// Einmal gebaut statt pro Zeile; `autoupdatingCurrent` folgt Sprach-/Regionswechseln wie vorher
+  /// der pro Aufruf neu erzeugte Formatter.
+  private static let savedDateFormatter: DateFormatter = {
     let fmt = DateFormatter()
+    fmt.locale = .autoupdatingCurrent
+    fmt.timeZone = .autoupdatingCurrent
     fmt.dateStyle = .medium
     fmt.timeStyle = .none
-    return fmt.string(from: date)
+    return fmt
+  }()
+
+  var savedLabel: String {
+    guard savedAtEpoch > 0 else { return "" }
+    return Self.savedDateFormatter.string(from: Date(timeIntervalSince1970: savedAtEpoch))
   }
 
   /// Kompakte Daueranzeige (z. B. „10h 23m").

@@ -54,8 +54,9 @@ nonisolated struct EbookReadAlongIndex: Sendable {
 
   let sentences: [Sentence]
   let words: [Word]
-  /// Trigramm (drei aufeinanderfolgende Wörter) → Wortpositionen des ersten Worts.
-  let trigrams: [Int: [Int]]
+  /// Trigramm (drei aufeinanderfolgende Wörter) → Position des ersten Worts, -1 bei mehrfachem
+  /// Vorkommen. Der Abgleich nutzt nur eindeutige Trigramme — eine Liste je Trigramm wäre Ballast.
+  let trigrams: [Int: Int32]
   /// Wort-ID je eBook-Wort (Index in `vocabulary`) — schneller Vergleich im Abgleich.
   let ids: [Int32]
   let vocabulary: [String: Int32]
@@ -66,6 +67,12 @@ nonisolated struct EbookReadAlongIndex: Sendable {
 
   static let empty = EbookReadAlongIndex(
     sentences: [], words: [], trigrams: [:], ids: [], vocabulary: [:], uniquePositions: [])
+
+  /// Einzige Position eines Trigramms im eBook, `nil` bei fehlendem oder mehrfachem Vorkommen.
+  func uniqueTrigramPosition(forKey key: Int) -> Int? {
+    guard let position = trigrams[key], position >= 0 else { return nil }
+    return Int(position)
+  }
 
   func uniquePosition(ofWordId id: Int32) -> Int? {
     guard uniquePositions.indices.contains(Int(id)) else { return nil }
@@ -167,12 +174,12 @@ nonisolated struct EbookReadAlongIndex: Sendable {
       }
     }
 
-    var trigrams: [Int: [Int]] = [:]
+    var trigrams: [Int: Int32] = [:]
     if words.count >= 3 {
       for i in 0..<(words.count - 2) {
         let key = ReadAlongText.trigramKey(
           words[i].normalized, words[i + 1].normalized, words[i + 2].normalized)
-        trigrams[key, default: []].append(i)
+        trigrams[key] = trigrams[key] == nil ? Int32(i) : -1
       }
     }
     var vocabulary: [String: Int32] = [:]
@@ -222,34 +229,40 @@ nonisolated private extension String {
 /// bewusst kein automatischer Seiten-Sync.
 @MainActor
 enum EbookNarrationSync {
-  /// So lange gilt ein Abgleich im Speicher, ohne das Transkript neu von der Platte zu prüfen.
-  private static let alignmentMaxAge: TimeInterval = 30
   private static var locales: [String: Locale] = [:]
 
   static let downloadRequiredMessage = "Download the audiobook to jump between it and the ebook."
   static let ebookUnreadableMessage = "The ebook couldn't be read."
 
   /// eBook-Wort an der aktuellen Hörposition. Steht sie vor dem ersten erkannten Wort des Tracks
-  /// (Kapitelansage, Musik), gilt das letzte Wort des Vortracks.
+  /// (Kapitelansage, Musik), gilt das letzte Wort des Vortracks. `nil`, wenn die Hörposition nicht im
+  /// Transkript liegt (Lücke, noch nicht vorproduziert) oder das nächste ausgerichtete Wort zu weit weg ist.
   static func narrationWord(player: PlaybackController, index: EbookReadAlongIndex) async -> Int? {
     guard let context = await context(player: player) else { return nil }
     player.syncGlobalPositionFromPlayer()
     let position = player.liveGlobalPlaybackPosition
     let sources = context.sources
     guard let current = sources.lastIndex(where: { $0.globalOffset <= position }),
-      let alignment = await alignment(sources[current], context: context, index: index)
+      let lookup = await lookup(sources[current], context: context, index: index)
     else { return nil }
-    if let word = alignment.lastEbookWord(atOrBeforeLocalTime: position - sources[current].globalOffset) {
+    switch lookup.narratedWord(atLocalTime: position - sources[current].globalOffset) {
+    case .word(let word):
       return word
+    case .unavailable:
+      return nil
+    case .beforeFirstWord:
+      let local = position - sources[current].globalOffset
+      guard current > 0, local <= EbookTrackLookup.maxGapSeconds,
+        let previous = await self.lookup(sources[current - 1], context: context, index: index)
+      else { return nil }
+      return previous.trailingWord(trackDuration: sources[current - 1].duration)
     }
-    guard current > 0, let previous = await self.alignment(sources[current - 1], context: context, index: index)
-    else { return nil }
-    return previous.ebookWordRange?.upperBound
   }
 
   /// Globale Hörposition, ab der das eBook-Wort gesprochen wird. Zuerst der Track, in dem das Wort
   /// anteilig liegen müsste, sonst alle Tracks der Reihe nach. Fällt das Wort zwischen zwei Tracks
   /// (Kapitelgrenze, nur im Buch vorhandener Text), beginnt die Wiedergabe am Anfang des nächsten.
+  /// `nil`, wenn die Stelle nicht durch ein Transkript belegt ist.
   static func playbackPosition(
     forEbookWord word: Int, player: PlaybackController, index: EbookReadAlongIndex
   ) async -> Double? {
@@ -259,26 +272,33 @@ enum EbookNarrationSync {
     let total = last.globalOffset + last.duration
     let estimate = Double(word) / Double(max(1, index.words.count)) * total
     if let guess = sources.lastIndex(where: { $0.globalOffset <= estimate }),
-      let alignment = await alignment(sources[guess], context: context, index: index),
-      let time = alignment.localTime(forEbookWord: word)
+      let lookup = await lookup(sources[guess], context: context, index: index),
+      let time = lookup.localTime(forEbookWord: word)
     {
       return sources[guess].globalOffset + time
     }
 
-    // Ein Track ohne Transkript: dahinter ist offen, wo das Wort liegt — lieber keine Antwort als eine falsche.
-    var missingTranscript = false
+    // Ein Track ohne (vollständiges) Transkript: dahinter ist offen, wo das Wort liegt — lieber keine
+    // Antwort als eine falsche.
+    var previousTailCovered = true
     for source in sources {
-      guard let alignment = await alignment(source, context: context, index: index) else {
-        missingTranscript = true
+      guard let lookup = await lookup(source, context: context, index: index) else {
+        previousTailCovered = false
         continue
       }
-      guard let range = alignment.ebookWordRange else { continue }
+      guard let range = lookup.alignment.ebookWordRange else {
+        // Transkript ohne eBook-Treffer (Musik, Vorspann): durchlässig, solange es vollständig ist.
+        previousTailCovered = previousTailCovered && lookup.isFullyCovered(trackDuration: source.duration)
+        continue
+      }
       if word < range.lowerBound {
-        guard !missingTranscript, let first = alignment.localTime(forEbookWord: range.lowerBound) else { return nil }
+        guard previousTailCovered, let first = lookup.leadingWordTime else { return nil }
         return source.globalOffset + first
       }
-      if let time = alignment.localTime(forEbookWord: word) { return source.globalOffset + time }
-      missingTranscript = false
+      if word <= range.upperBound {
+        return lookup.localTime(forEbookWord: word).map { source.globalOffset + $0 }
+      }
+      previousTailCovered = lookup.trailingWord(trackDuration: source.duration) != nil
     }
     return nil
   }
@@ -349,12 +369,11 @@ enum EbookNarrationSync {
     return Context(bookId: bookId, locale: locale, sources: sources)
   }
 
-  private static func alignment(
+  private static func lookup(
     _ source: PlayerTranscriptTrackSource, context: Context, index: EbookReadAlongIndex
-  ) async -> EbookTrackAlignment? {
-    await EbookAlignmentStore.shared.alignment(
-      forTrack: source.trackIndex, bookId: context.bookId, locale: context.locale, index: index,
-      maxAge: alignmentMaxAge)
+  ) async -> EbookTrackLookup? {
+    await EbookAlignmentStore.shared.lookup(
+      forTrack: source.trackIndex, bookId: context.bookId, locale: context.locale, index: index)
   }
 }
 

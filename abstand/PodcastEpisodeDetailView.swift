@@ -22,6 +22,8 @@ struct PodcastEpisodeDetailView: View {
   @State private var confirmMarkEpisodeFinished = false
   @State private var confirmMarkEpisodeUnfinished = false
   @State private var didSeedCoverTintFromCache = false
+  /// Memo für den synchronen Cover-Tint-Seed (sonst Disk-Read pro `body`, zweimal).
+  @State private var coverTintMemo = CoverDominantTintSeedMemo()
 
   private var prog: ABSUserMediaProgress? { model.progressByItemId[episode.progressLookupKey] }
 
@@ -31,15 +33,17 @@ struct PodcastEpisodeDetailView: View {
   }
 
   /// Der persistierte Cover-Durchschnitt steht bereits vor `.onAppear` und `.task` zur Verfügung.
+  /// Memoisiert (`CoverDominantTintSeedMemo`): neu nur bei anderem Scope, Revision oder Theme.
   private var resolvedCoverTint: Color {
     let scope = model.coverImageCacheScopeId(for: episode.libraryItemId, tier: .hero)
-    return CoverDominantTintSeed.resolve(
+    return coverTintMemo.tint(
       account: model.coverImageCacheAccountDirectory(),
       itemId: episode.libraryItemId,
       heroScopeId: scope,
       fallbackScopeId: episode.libraryItemId,
-      revision: showCoverCacheRevision
-    )?.tint ?? coverTintColor
+      revision: showCoverCacheRevision,
+      themeRevision: model.appearanceThemeRevision
+    ) ?? coverTintColor
   }
 
   /// `recentEpisode` in „items-in-progress" liefert oft keine Länge; die kommt dann aus `mediaProgress`.
@@ -50,7 +54,8 @@ struct PodcastEpisodeDetailView: View {
   }
 
   var body: some View {
-    ScrollView {
+    let coverTint = resolvedCoverTint
+    return ScrollView {
       VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         VStack(spacing: 0) {
           coverSection
@@ -66,9 +71,9 @@ struct PodcastEpisodeDetailView: View {
         .bottom, AppTheme.Layout.scrollBottomInsetBase + model.nowPlayingAccessoryScrollBottomInset)
     }
     .scrollContentBackground(.hidden)
-    .abstandDetailScrollBackground(resolvedCoverTint)
+    .abstandDetailScrollBackground(coverTint)
     // Karten in der Farbfamilie des Cover-Tint-Hintergrunds statt neutraler Palette-`card`.
-    .detailSectionCardsTinted(fromBackgroundTint: resolvedCoverTint)
+    .detailSectionCardsTinted(fromBackgroundTint: coverTint)
     .navigationTitle("")
     .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
@@ -192,6 +197,7 @@ struct PodcastEpisodeDetailView: View {
           itemId: episode.libraryItemId,
           red: Double(r), green: Double(g), blue: Double(b)
         )
+        coverTintMemo.invalidate()
       }
     }
   }
@@ -322,26 +328,38 @@ struct PodcastEpisodeDetailView: View {
     return value
   }
 
-  private static func parseEpisodePublicationDate(_ raw: String) -> Date? {
-    let isoFractional = ISO8601DateFormatter()
-    isoFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    if let d = isoFractional.date(from: raw) { return d }
+  // Parser einmal gebaut statt pro Aufruf; je Format ein eigener Formatter (nie umkonfiguriert).
+  // Zeitzone `autoupdatingCurrent` wie zuvor beim frisch gebauten Formatter (zählt nur für Formate ohne Offset).
+  private static let isoFractionalParser: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return f
+  }()
 
-    let iso = ISO8601DateFormatter()
-    iso.formatOptions = [.withInternetDateTime]
-    if let d = iso.date(from: raw) { return d }
+  private static let isoParser: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime]
+    return f
+  }()
 
-    let formats = [
-      "yyyy-MM-dd HH:mm:ss Z",
-      "yyyy-MM-dd HH:mm:ss",
-      "EEE, dd MMM yyyy HH:mm:ss Z",
-      "EEE, dd MMM yyyy HH:mm:ss zzz",
-      "dd MMM yyyy HH:mm:ss Z",
-    ]
+  private static let fallbackDateParsers: [DateFormatter] = [
+    "yyyy-MM-dd HH:mm:ss Z",
+    "yyyy-MM-dd HH:mm:ss",
+    "EEE, dd MMM yyyy HH:mm:ss Z",
+    "EEE, dd MMM yyyy HH:mm:ss zzz",
+    "dd MMM yyyy HH:mm:ss Z",
+  ].map { format in
     let df = DateFormatter()
     df.locale = Locale(identifier: "en_US_POSIX")
-    for format in formats {
-      df.dateFormat = format
+    df.timeZone = .autoupdatingCurrent
+    df.dateFormat = format
+    return df
+  }
+
+  private static func parseEpisodePublicationDate(_ raw: String) -> Date? {
+    if let d = isoFractionalParser.date(from: raw) { return d }
+    if let d = isoParser.date(from: raw) { return d }
+    for df in fallbackDateParsers {
       if let d = df.date(from: raw) { return d }
     }
     return nil

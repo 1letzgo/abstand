@@ -65,20 +65,20 @@ struct SearchTabRootView: View {
       .frame(maxWidth: .infinity)
       .padding(.vertical, AppTheme.Layout.loadingVerticalPadding)
     } else if q.count < 3 {
-      Text("Enter at least three characters.")
-        .font(.subheadline)
-        .foregroundStyle(model.appearancePalette.textSecondary)
-        .frame(maxWidth: .infinity)
-        .multilineTextAlignment(.center)
-        .padding(AppTheme.Layout.blockSpacing)
+      // Ganzer Ergebnisbereich leer → `ContentUnavailableView` wie im Leerzustand ohne Suchtext.
+      ContentUnavailableView(
+        "Search",
+        systemImage: "magnifyingglass",
+        description: Text("Enter at least three characters.")
+      )
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, AppTheme.Layout.loadingVerticalPadding)
     } else if model.isSearchingBooks || model.isSearchingPodcasts, !hasAnyResults {
       AbstandLoadingSpinner()
     } else if !hasAnyResults {
-      Text("No results.")
-        .font(.subheadline)
-        .foregroundStyle(model.appearancePalette.textSecondary)
+      ContentUnavailableView.search(text: q)
         .frame(maxWidth: .infinity)
-        .padding(AppTheme.Layout.blockSpacing)
+        .padding(.vertical, AppTheme.Layout.loadingVerticalPadding)
     }
   }
 }

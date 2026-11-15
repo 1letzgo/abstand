@@ -24,6 +24,8 @@ struct PodcastDirectoryShowView: View {
   /// Persistierter Cover-Durchschnitts-RGB (`DetailCoverAverageRGBCache`) — Seed beim Öffnen,
   /// bevor das Hero-Cover geladen ist; auch Basis für Theme-Wechsel ohne Bild im Speicher.
   @State private var cachedCoverAverageRGB: (r: Double, g: Double, b: Double)?
+  /// Memo für den synchronen Cover-Tint-Seed (sonst Disk-Read pro `body`, zweimal).
+  @State private var coverTintMemo = CoverDominantTintSeedMemo()
 
   /// Erste Seite der Folgenliste — lange Feeds (oft 500+) bleiben scrollbar schnell.
   private let initialEpisodeCount = 20
@@ -56,17 +58,21 @@ struct PodcastDirectoryShowView: View {
   private var coverCacheItemId: String { "podcast-dir:\(hit.id)" }
 
   /// Der persistierte Cover-Durchschnitt steht bereits vor `.task` zur Verfügung.
+  /// Memoisiert (`CoverDominantTintSeedMemo`): neu nur bei anderem Scope oder Theme.
   private var resolvedCoverTint: Color {
-    CoverDominantTintSeed.resolve(
+    coverTintMemo.tint(
       account: model.coverImageCacheAccountDirectory(),
       itemId: coverCacheItemId,
       heroScopeId: coverCacheItemId,
-      revision: 0
-    )?.tint ?? coverTintColor
+      fallbackScopeId: nil,
+      revision: 0,
+      themeRevision: model.appearanceThemeRevision
+    ) ?? coverTintColor
   }
 
   var body: some View {
-    ScrollView {
+    let coverTint = resolvedCoverTint
+    return ScrollView {
       // Rhythmus wie `BookDetailView`: Hero, Aktionsleiste und Meta-Karten in einem Block.
       VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         VStack(spacing: 0) {
@@ -93,9 +99,9 @@ struct PodcastDirectoryShowView: View {
       )
     }
     .scrollContentBackground(.hidden)
-    .abstandDetailScrollBackground(resolvedCoverTint)
+    .abstandDetailScrollBackground(coverTint)
     // Karten in der Farbfamilie des Cover-Tint-Hintergrunds statt neutraler Palette-`card`.
-    .detailSectionCardsTinted(fromBackgroundTint: resolvedCoverTint)
+    .detailSectionCardsTinted(fromBackgroundTint: coverTint)
     .navigationTitle("")
     .toolbarTitleDisplayMode(.inline)
     .tint(model.appearanceAccentColor)
@@ -523,6 +529,7 @@ struct PodcastDirectoryShowView: View {
           itemId: coverCacheItemId,
           red: Double(r), green: Double(g), blue: Double(b)
         )
+        coverTintMemo.invalidate()
       }
     }
   }

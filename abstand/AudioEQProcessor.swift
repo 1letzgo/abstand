@@ -225,16 +225,18 @@ struct AudioEQBiquadCoefficients {
 
 // MARK: - DSP-Prozessor
 
-/// Biquad-Kaskade pro Kanal mit Zustandsspeicher (Direct-Form-I transposed).
-/// LOCK-FREI auf dem Realtime-Audio-Thread: `process` nimmt keine Locks und allokriert keinen
-/// Speicher — Voraussetzung für Core-Audio-Realtime-Safety (sonst Clicks/Deadlock/Crash).
-/// Reconfigure tauscht einen atomaren Zeiger auf eine unveränderliche Koeffizienten-Tabelle.
+/// Biquad-Kaskade pro Kanal mit Zustandsspeicher (Direct-Form-II transposed).
+/// Realtime-sicher: `process` blockiert nie und gibt keinen Speicher frei. Der Wechsel der
+/// Konfiguration läuft über ein Unfair-Lock, das `process` nur per Try-Lock nimmt — ist es
+/// gerade belegt (Main tauscht), rendert der Callback mit dem zuletzt aktiven Snapshot weiter.
+/// Eine abgelöste Konfiguration wird erst beim nächsten `configure` (Main/Pipeline) freigegeben,
+/// nie auf dem Audio-Thread.
 final class AudioEQProcessor {
-  /// Immutable Biquad-Koeffizienten-Tabelle + kanalbezogener Zustandspuffer.
-  /// Wird als Ganzes atomar getauscht — `process` liest nur einen stabilen Snapshot.
+  /// Unveränderliche Biquad-Koeffizienten-Tabelle + kanalbezogener Zustandspuffer.
+  /// Die Zustände beschreibt nur der Render-Thread (und `copyStates` beim Tausch unter dem Lock).
   private final class Configuration {
     let coefficients: [AudioEQBiquadCoefficients]
-    /// [Kanal][Stage] — Direct-Form-I transposed Zustände. Feste Puffer, keine Reallokation.
+    /// [Kanal][Stage] — Direct-Form-II-transposed-Zustände. Feste Puffer, keine Reallokation.
     let states: UnsafeMutablePointer<StageState>
     let stageCount: Int
     let channelCount: Int
@@ -260,37 +262,65 @@ final class AudioEQProcessor {
     }
   }
 
-  /// Zustand pro Biquad (Direct-Form-I transposed).
+  /// Zustand pro Biquad (Direct-Form-II transposed).
   struct StageState {
     var z1: Double = 0
     var z2: Double = 0
   }
 
-  /// Atomic-Swap-Konfiguration. `process` hält eine starke Referenz auf den gelesenen Snapshot.
-  private var heap: Configuration
-
-  init() {
-    heap = Configuration(coefficients: [], channelCount: 2)
+  /// Übergabe zwischen `configure` (Main/Pipeline) und `process` (Render-Thread).
+  /// `active` tauscht nur der Render-Thread; `pending` setzt nur `configure`; `retired` hält die
+  /// abgelöste Konfiguration, bis `configure` sie abholt und außerhalb des Audio-Threads freigibt.
+  private struct SwapState {
+    var active: Configuration
+    var pending: Configuration?
+    var retired: Configuration?
   }
 
-  /// Konfiguriert die Filterkette neu. Aufrufbar vom Main-Thread oder aus `prepare` (Audio-Pipeline).
-  /// Kein Lock — `process` hält den alten Snapshot per starker Referenz, bis der Callback fertig ist.
+  private let swapState: OSAllocatedUnfairLock<SwapState>
+  /// Fallback, wenn das Lock gerade belegt ist. Unretained: zeigt immer auf `swapState.active`
+  /// (nur der Render-Thread ersetzt `active`, und er aktualisiert diesen Zeiger im selben Schritt),
+  /// das Objekt lebt also mindestens so lange wie dieser Zeiger gilt.
+  private var lastRendered: Unmanaged<Configuration>
+
+  init() {
+    let initial = Configuration(coefficients: [], channelCount: 2)
+    lastRendered = Unmanaged.passUnretained(initial)
+    swapState = OSAllocatedUnfairLock(uncheckedState: SwapState(active: initial))
+  }
+
+  /// Konfiguriert die Filterkette neu. Aufrufbar vom Main-Thread oder aus `prepare` (Audio-Pipeline,
+  /// nicht der Render-Callback). Legt die neue Konfiguration nur bereit — übernommen wird sie im
+  /// nächsten `process`. Freigaben (abgelöste bzw. nie übernommene Konfiguration) passieren hier.
   func configure(filters: [AudioEQBiquadFilter], sampleRate: Double, channelCount: Int) {
     let coeffs = filters.map { AudioEQBiquadCoefficients.compute(filter: $0, sampleRate: sampleRate) }
     let newConfig = Configuration(coefficients: coeffs, channelCount: max(1, channelCount))
-    let previous = heap
-    if previous.stageCount == newConfig.stageCount,
-      previous.channelCount == newConfig.channelCount,
-      newConfig.stageCount > 0
-    {
-      newConfig.copyStates(from: previous)
+    let garbage = swapState.withLockUnchecked { state -> (Configuration?, Configuration?) in
+      let dropped = (state.retired, state.pending)
+      state.retired = nil
+      state.pending = newConfig
+      return dropped
     }
-    heap = newConfig
+    // Erst nach dem Lock loslassen — `deinit` soll den Render-Thread nicht aufhalten.
+    withExtendedLifetime(garbage) {}
   }
 
   /// Verarbeitet deinterleaved Float32-Puffer (ein `AudioBuffer` pro Kanal, wie `MTAudioProcessingTap`).
   func process(buffers: UnsafeMutableAudioBufferListPointer, frameCount: AVAudioFrameCount) {
-    let config = heap
+    // Try-Lock: blockiert nie. Liegt eine neue Konfiguration bereit, Filterzustände übernehmen
+    // (memcpy, keine Allokation) und die alte nach `retired` schieben — freigegeben wird sie in `configure`.
+    let fresh = swapState.withLockIfAvailableUnchecked { state -> Unmanaged<Configuration> in
+      if let next = state.pending, state.retired == nil {
+        if next.stageCount > 0 { next.copyStates(from: state.active) }
+        state.retired = state.active
+        state.active = next
+        state.pending = nil
+      }
+      return Unmanaged.passUnretained(state.active)
+    }
+    if let fresh { lastRendered = fresh }
+    // Unretained lesen: kein Release auf dem Audio-Thread; das Objekt hält `swapState.active`.
+    let config = lastRendered.takeUnretainedValue()
     let stages = config.stageCount
     guard stages > 0 else { return }
     let frames = Int(frameCount)
@@ -323,9 +353,6 @@ final class AudioEQProcessor {
     }
   }
 
-  deinit {
-    // `heap` wird durch ARC freigegeben.
-  }
 }
 
 // MARK: - MTAudioProcessingTap Factory
@@ -356,7 +383,7 @@ final class AudioEQTapContext {
       filters: filters.withLock { $0 }, sampleRate: lastSampleRate, channelCount: lastChannelCount)
   }
 
-  /// Live-Wechsel — nur Filterkoeffizienten tauschen (thread-sicher im Processor).
+  /// Live-Wechsel — nur Filterkoeffizienten tauschen; übernommen im nächsten Render-Callback.
   func reconfigure(filters newFilters: [AudioEQBiquadFilter]) {
     filters.withLock { $0 = newFilters }
     processor.configure(

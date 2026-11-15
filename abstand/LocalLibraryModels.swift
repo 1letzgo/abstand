@@ -221,6 +221,10 @@ final class LocalAuthorDetail {
 /// statt eigener Datei). Server liefert Sprecher unsortiert; Anzeige-Sortierung passiert clientseitig.
 @Model
 final class LocalNarrator {
+  /// Zusammengesetzter Schlüssel `"\(libraryId)|\(narratorId)"` — die Server-ID leitet sich nur aus dem
+  /// Namen ab, derselbe Sprecher in zwei Bibliotheken kollidierte sonst (Unique-Upsert verschob die Zeile).
+  /// Bewusst in der bestehenden Spalte statt eines neuen Attributs: keine Schemaänderung, keine Migration.
+  /// Altzeilen ohne Präfix bleiben lesbar und verschwinden beim nächsten `replaceNarrators`.
   @Attribute(.unique) var id: String
   var libraryId: String
   var name: String
@@ -228,14 +232,24 @@ final class LocalNarrator {
   var coverItemId: String?
 
   init(libraryId: String, item: ABSLibraryNarratorListItem) {
-    id = item.id
+    id = Self.storageKey(libraryId: libraryId, narratorId: item.id)
     self.libraryId = libraryId
     name = item.name
     numBooks = item.numBooks
   }
 
+  static func storageKey(libraryId: String, narratorId: String) -> String {
+    "\(libraryId)|\(narratorId)"
+  }
+
+  /// Server-ID ohne Bibliotheks-Präfix.
+  var narratorId: String {
+    let prefix = "\(libraryId)|"
+    return id.hasPrefix(prefix) ? String(id.dropFirst(prefix.count)) : id
+  }
+
   func toItem() -> ABSLibraryNarratorListItem {
-    ABSLibraryNarratorListItem(id: id, name: name, numBooks: numBooks)
+    ABSLibraryNarratorListItem(id: narratorId, name: name, numBooks: numBooks)
   }
 }
 

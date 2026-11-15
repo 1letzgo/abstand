@@ -198,6 +198,8 @@ final class FloatingPlayerChromeController: ObservableObject {
   func skipBackward() {
     guard let seconds = model?.player.skipBackwardSeconds else { return }
     model?.player.skip(seconds: -Double(seconds))
+    // `seek` setzt `globalPosition` synchron — Restzeit sofort nachziehen statt bis zum Minutentakt.
+    refresh()
   }
 
   func togglePlayPause() {
@@ -222,6 +224,12 @@ final class FloatingPlayerChromeController: ObservableObject {
       player.$showMiniPlayerPlaceholder.map { _ in () }.eraseToAnyPublisher(),
       player.$skipBackwardSeconds.map { _ in () }.eraseToAnyPublisher(),
       player.$skipForwardSeconds.map { _ in () }.eraseToAnyPublisher(),
+      // Restzeit nach Kapitelsprung / Kapitelwechsel durch Seek und nach Dauer-Änderung (Track-Load)
+      // aktualisieren — feuert nur bei echten Wechseln, nicht pro Tick.
+      player.$currentChapterOrdinal.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
+      player.$totalDuration.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
+      // Seek innerhalb eines Kapitels ändert die Restzeit ohne Kapitelwechsel — sonst bis zu 60 s veraltet.
+      player.seekDidOccur.eraseToAnyPublisher(),
       model.$isRestoringLaunchPlayback.map { _ in () }.eraseToAnyPublisher(),
       model.$isPreparingPlayback.map { _ in () }.eraseToAnyPublisher(),
       model.$offlineHomeMode.map { _ in () }.eraseToAnyPublisher(),

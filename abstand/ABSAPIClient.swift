@@ -46,6 +46,15 @@ actor ABSAPIClient {
   /// Separate Session für Datei-Downloads — eigener Connection-Pool, damit langlaufende Downloads
   /// API-Calls (z. B. `startPlaySession` für Streaming) nicht blockieren (vgl. `waitsForConnectivity`).
   private let downloadURLSession: URLSession
+  /// Eigene Session für eBook-/PDF-Downloads — `cancelInFlightDownloads` (Hörbuch-Warteschlange)
+  /// bricht nur `downloadURLSession` ab und darf ein gerade ladendes eBook nicht mitreißen.
+  private lazy var ebookDownloadURLSession: URLSession = {
+    let cfg = URLSessionConfiguration.default
+    cfg.waitsForConnectivity = true
+    cfg.timeoutIntervalForRequest = 60
+    cfg.timeoutIntervalForResource = 3_600
+    return URLSession(configuration: cfg, delegate: AbstandTrustDelegate.shared, delegateQueue: nil)
+  }()
 
   init(baseURL: URL, token: String, refreshToken: String? = nil) {
     self.baseURL = baseURL
@@ -87,6 +96,33 @@ actor ABSAPIClient {
     refreshToken = trimmed.isEmpty ? nil : trimmed
   }
 
+  /// Rotierte Tokens eines anderen Clients derselben Session übernehmen — Compare-and-Swap: nur wenn
+  /// dieser Client noch das Refresh-Token hält, das rotiert wurde. Sonst (schon neuer, anderer Account,
+  /// verspätete Notification) bleibt der Stand unangetastet, damit nichts zurückrollt.
+  /// - Returns: `true`, wenn übernommen wurde.
+  @discardableResult
+  func adoptRotatedTokens(accessToken: String, refreshToken newRefresh: String, previousRefreshToken: String) -> Bool {
+    let access = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+    let previous = previousRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !access.isEmpty, !previous.isEmpty, refreshToken == previous else { return false }
+    token = access
+    let rotated = newRefresh.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !rotated.isEmpty { refreshToken = rotated }
+    return true
+  }
+
+  /// Bearer, der garantiert nicht kurz vor dem Ablauf steht (z. B. für die Socket-Auth).
+  /// - Parameter rejected: vom Server abgelehnter Bearer — ist er noch der aktuelle, wird ohne
+  ///   Backoff erneuert; wurde inzwischen erneuert, kommt direkt der neue zurück.
+  func freshBearerToken(rejecting rejected: String? = nil) async -> String {
+    if let rejected, !rejected.isEmpty, rejected == token {
+      _ = await refreshTokens(respectingBackoff: false)
+    } else {
+      await refreshIfExpiringSoon()
+    }
+    return token
+  }
+
   // MARK: - JWT-Refresh
 
   /// Vorlauf vor Ablauf, ab dem proaktiv erneuert wird (vermeidet 401 mitten in Download/Sync).
@@ -109,16 +145,29 @@ actor ABSAPIClient {
   private func refreshIfExpiringSoon() async {
     guard refreshToken != nil, let exp = Self.jwtExpiry(of: token) else { return }
     if exp.timeIntervalSinceNow < Self.accessTokenRefreshLeeway {
-      _ = await refreshTokens()
+      // Proaktiv mit Backoff: offline soll nicht jeder Request erst auf `/auth/refresh` warten.
+      _ = await refreshTokens(respectingBackoff: true)
     }
   }
 
   /// `POST /auth/refresh` mit `x-refresh-token`. Liefert `true`, wenn ein neues Access-Token gesetzt wurde.
+  /// Ohne Backoff — nach einem echten 401 muss immer erneuert werden dürfen.
   @discardableResult
   func refreshTokens() async -> Bool {
+    await refreshTokens(respectingBackoff: false)
+  }
+
+  /// - Parameter respectingBackoff: nur der proaktive Pfad wartet den Backoff nach einem
+  ///   fehlgeschlagenen Refresh ab; ein 401 versucht es immer (sonst wird ein gültiges
+  ///   Refresh-Token nach einem Netzfehler eine Minute lang zum Re-Login).
+  private func refreshTokens(respectingBackoff: Bool) async -> Bool {
     if let running = refreshTask { return await running.value }
     guard let current = refreshToken else { return false }
-    if let failed = lastRefreshFailureAt, Date().timeIntervalSince(failed) < Self.refreshFailureBackoff { return false }
+    if respectingBackoff, let failed = lastRefreshFailureAt,
+      Date().timeIntervalSince(failed) < Self.refreshFailureBackoff
+    {
+      return false
+    }
     let base = baseURL
     let task = Task<Bool, Never> { [weak self] in
       guard let self else { return false }
@@ -126,7 +175,8 @@ actor ABSAPIClient {
     }
     refreshTask = task
     let ok = await task.value
-    refreshTask = nil
+    // Nur den eigenen Task austragen — nach dem Resume kann schon ein neuer laufen.
+    if refreshTask == task { refreshTask = nil }
     lastRefreshFailureAt = ok ? nil : Date()
     return ok
   }
@@ -143,7 +193,8 @@ actor ABSAPIClient {
     guard (200 ..< 300).contains(http.statusCode) else {
       // 401 = Refresh-Token ungültig/abgelaufen → verwerfen, damit der nächste 401 sauber zum Re-Login führt.
       // Andere Fehler (Netz, 5xx, Rate-Limit) lassen das Token stehen.
-      if http.statusCode == 401 { refreshToken = nil }
+      // Nur verwerfen, wenn es noch das gesendete ist — inzwischen übernommene neuere Tokens bleiben.
+      if http.statusCode == 401, refreshToken == current { refreshToken = nil }
       return false
     }
     guard let res = try? decoder.decode(ABSLoginResponse.self, from: data),
@@ -172,26 +223,35 @@ actor ABSAPIClient {
   private func authedData(for request: URLRequest) async throws -> (Data, URLResponse) {
     await refreshIfExpiringSoon()
     var req = request
+    let sentBearer = token
     if req.value(forHTTPHeaderField: "Authorization") != nil {
-      req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+      req.setValue("Bearer \(sentBearer)", forHTTPHeaderField: "Authorization")
     }
     let (data, resp) = try await urlSession.data(for: req)
     guard let http = resp as? HTTPURLResponse, http.statusCode == 401,
       req.value(forHTTPHeaderField: "Authorization") != nil,
-      await refreshTokens()
+      await renewBearerAfter401(sentBearer: sentBearer)
     else { return (data, resp) }
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     return try await urlSession.data(for: req)
   }
 
+  /// Nach 401: `true`, wenn mit neuem Bearer wiederholt werden soll. Wurde das Token seit dem Senden
+  /// schon erneuert (paralleler Request), direkt wiederholen statt ein zweites Mal zu refreshen.
+  private func renewBearerAfter401(sentBearer: String) async -> Bool {
+    if token != sentBearer { return true }
+    return await refreshTokens(respectingBackoff: false)
+  }
+
   /// Für Download-Schleifen: `true`, wenn nach 401 erneuert wurde und der Versuch wiederholt werden soll.
-  private func shouldRetryDownloadAfterRefresh(_ http: HTTPURLResponse, temp: URL) async -> Bool {
-    guard http.statusCode == 401, await refreshTokens() else { return false }
+  private func shouldRetryDownloadAfterRefresh(_ http: HTTPURLResponse, temp: URL, sentBearer: String) async -> Bool {
+    guard http.statusCode == 401, await renewBearerAfter401(sentBearer: sentBearer) else { return false }
     try? FileManager.default.removeItem(at: temp)
     return true
   }
 
-  /// Bricht laufende Tasks der Download-Session ab (ergänzt Swift-`Task.cancel`).
+  /// Bricht laufende Tasks der Hörbuch-Download-Session ab (ergänzt Swift-`Task.cancel`).
+  /// eBook-Downloads laufen über `ebookDownloadURLSession` und bleiben unberührt.
   func cancelInFlightDownloads() async {
     let tasks = await downloadURLSession.allTasks
     for task in tasks {
@@ -230,14 +290,15 @@ actor ABSAPIClient {
       do {
         await refreshIfExpiringSoon()
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let sentBearer = token
+        req.setValue("Bearer \(sentBearer)", forHTTPHeaderField: "Authorization")
         AbstandCustomHeadersStore.apply(to: &req)
-        let (temp, resp) = try await downloadURLSession.download(for: req)
+        let (temp, resp) = try await ebookDownloadURLSession.download(for: req)
         guard let http = resp as? HTTPURLResponse else {
           try? FileManager.default.removeItem(at: temp)
           throw ABSAPIError.emptyBody
         }
-        if !refreshRetryUsed, await shouldRetryDownloadAfterRefresh(http, temp: temp) {
+        if !refreshRetryUsed, await shouldRetryDownloadAfterRefresh(http, temp: temp, sentBearer: sentBearer) {
           refreshRetryUsed = true
           attemptLimit += 1
           continue
@@ -1202,12 +1263,9 @@ actor ABSAPIClient {
         lastError = ABSAPIError.httpStatus(404, "Media progress id not found: \(id)")
         continue
       } catch {
-        lastError = error
-        // Nicht-404: trotzdem weitere Kandidaten versuchen (falsche ID vs. echter Serverfehler).
-        if case ABSAPIError.httpStatus(let code, _) = error, (500 ..< 600).contains(code) {
-          throw error
-        }
-        continue
+        // Nur 404 heißt „falsche ID“ — 401/403, Server- und Netzfehler gelten für alle Kandidaten
+        // gleich; weitere Versuche bringen nichts (und 401 meldet `throwForStatus` schon zentral).
+        throw error
       }
     }
 
@@ -1303,14 +1361,15 @@ actor ABSAPIClient {
       do {
         await refreshIfExpiringSoon()
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let sentBearer = token
+        req.setValue("Bearer \(sentBearer)", forHTTPHeaderField: "Authorization")
         AbstandCustomHeadersStore.apply(to: &req)
         let (temp, resp) = try await downloadURLSession.download(for: req)
         guard let http = resp as? HTTPURLResponse else {
           try? FileManager.default.removeItem(at: temp)
           throw ABSAPIError.emptyBody
         }
-        if !refreshRetryUsed, await shouldRetryDownloadAfterRefresh(http, temp: temp) {
+        if !refreshRetryUsed, await shouldRetryDownloadAfterRefresh(http, temp: temp, sentBearer: sentBearer) {
           refreshRetryUsed = true
           attemptLimit += 1
           continue
@@ -1349,10 +1408,6 @@ actor ABSAPIClient {
     maxAttempts: Int = 3,
     progress: @escaping @Sendable (Double) -> Void
   ) async throws -> URL {
-    // Content-Length vorab via HEAD ermitteln — viele Stream-Responses liefern keine
-    // `expectedContentLength` an den Download-Delegate (dann ist `totalBytesExpectedToWrite == -1`
-    // und der Fortschritts-Callback schweigt → Sprung von 0 auf fertig bei Einzel-Track-Folgen).
-    let knownSize: Int64? = await fetchExpectedContentLength(url: streamURL)
     var lastError: Error?
     var attemptLimit = maxAttempts
     var refreshRetryUsed = false
@@ -1362,15 +1417,20 @@ actor ABSAPIClient {
       do {
         await refreshIfExpiringSoon()
         var req = URLRequest(url: streamURL, timeoutInterval: 600)
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let sentBearer = token
+        req.setValue("Bearer \(sentBearer)", forHTTPHeaderField: "Authorization")
         AbstandCustomHeadersStore.apply(to: &req)
-        let delegate = FileDownloadProgressDelegate(onProgress: progress, knownExpectedBytes: knownSize)
+        // Kein HEAD vorab: die Größe kommt normalerweise mit der GET-Antwort. Nur wenn die
+        // `totalBytesExpectedToWrite == -1` meldet, holt der Delegate sie einmalig per HEAD nach.
+        let delegate = FileDownloadProgressDelegate(onProgress: progress) { [weak self] in
+          await self?.fetchExpectedContentLength(url: streamURL)
+        }
         let (temp, resp) = try await downloadURLSession.download(for: req, delegate: delegate)
         guard let http = resp as? HTTPURLResponse else {
           try? FileManager.default.removeItem(at: temp)
           throw ABSAPIError.emptyBody
         }
-        if !refreshRetryUsed, await shouldRetryDownloadAfterRefresh(http, temp: temp) {
+        if !refreshRetryUsed, await shouldRetryDownloadAfterRefresh(http, temp: temp, sentBearer: sentBearer) {
           refreshRetryUsed = true
           attemptLimit += 1
           continue
@@ -1402,8 +1462,8 @@ actor ABSAPIClient {
   }
 
   /// Ermittelt die Content-Length via HEAD-Request. Liefert `nil` bei Fehler oder unbekannter Größe
-  /// (z. B. Server ohne `Content-Length`-Header). Wird für den Intra-Track-Download-Fortschritt gebraucht,
-  /// da `URLSessionDownloadTask.expectedContentLength` bei gestreamten Responses oft -1 ist.
+  /// (z. B. Server ohne `Content-Length`-Header). Nur Fallback für den Intra-Track-Fortschritt, wenn
+  /// die GET-Antwort keine Größe nennt (`totalBytesExpectedToWrite == -1`).
   private func fetchExpectedContentLength(url: URL) async -> Int64? {
     var req = URLRequest(url: url, timeoutInterval: 30)
     req.httpMethod = "HEAD"
@@ -1667,15 +1727,43 @@ actor ABSAPIClient {
 
 /// Downloads-Fortschritt-Delegate: reicht `bytesWritten/totalBytes` als `fractionCompleted` weiter.
 /// Läuft auf der URLSession-Delegate-Queue (nicht isoliert) — `onProgress` muss thread-safe sein.
-private final class FileDownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
+private final class FileDownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
   private let onProgress: @Sendable (Double) -> Void
-  /// Fallback-Größe (via HEAD ermittelt) — genutzt, wenn `totalBytesExpectedToWrite == -1`
-  /// (Server ohne `Content-Length`-Header).
-  private let knownExpectedBytes: Int64?
+  /// Holt die Größe nach (HEAD), wenn die GET-Antwort keine `Content-Length` hat.
+  private let resolveUnknownLength: @Sendable () async -> Int64?
+  /// Schützt `knownExpectedBytes`/`lookupStarted` (Delegate-Queue vs. Lookup-Task).
+  private let lock = NSLock()
+  /// Fallback-Größe (via HEAD ermittelt) — genutzt, wenn `totalBytesExpectedToWrite == -1`.
+  private var knownExpectedBytes: Int64?
+  private var lookupStarted = false
 
-  init(onProgress: @escaping @Sendable (Double) -> Void, knownExpectedBytes: Int64?) {
+  init(
+    onProgress: @escaping @Sendable (Double) -> Void,
+    resolveUnknownLength: @escaping @Sendable () async -> Int64?
+  ) {
     self.onProgress = onProgress
-    self.knownExpectedBytes = knownExpectedBytes
+    self.resolveUnknownLength = resolveUnknownLength
+  }
+
+  /// Fallback-Größe, falls schon bekannt; startet beim ersten Bedarf einmalig den HEAD-Lookup.
+  private func fallbackExpectedBytes() -> Int64? {
+    lock.lock()
+    defer { lock.unlock() }
+    if let knownExpectedBytes { return knownExpectedBytes }
+    guard !lookupStarted else { return nil }
+    lookupStarted = true
+    let resolve = resolveUnknownLength
+    Task { [weak self] in
+      let size = await resolve()
+      self?.storeKnownExpectedBytes(size)
+    }
+    return nil
+  }
+
+  private func storeKnownExpectedBytes(_ size: Int64?) {
+    lock.lock()
+    knownExpectedBytes = size
+    lock.unlock()
   }
 
   func urlSession(
@@ -1688,7 +1776,7 @@ private final class FileDownloadProgressDelegate: NSObject, URLSessionDownloadDe
     // Erwartete Größe: bevorzugt aus dem URLSession-Callback, Fallback aus HEAD-Request.
     let expected = totalBytesExpectedToWrite > 0
       ? totalBytesExpectedToWrite
-      : (knownExpectedBytes ?? -1)
+      : (fallbackExpectedBytes() ?? -1)
     guard expected > 0 else { return }
     let fraction = Double(totalBytesWritten) / Double(expected)
     onProgress(min(max(0, fraction), 1))

@@ -10,6 +10,15 @@ final class PlayerTranscriptLineAccumulator {
   private var openCharCount = 0
   private var nextLineIndex = 0
   private var nextWordIndex = 0
+  /// Je geschlossener Zeile: Anzahl der bis dahin verarbeiteten Eingabewörter (Wiederaufsetzpunkt).
+  /// Damit lässt sich ab einer Zeile neu umbrechen, ohne die Zeilen davor anzufassen.
+  private var lineRestartPoints: [Int] = []
+  /// Je geschlossener Zeile: Anzahl der Eingabewörter, von denen ihr Umbruch abhängt. Bei Satzende
+  /// gleich dem Wiederaufsetzpunkt; bei Überlauf eins mehr — dort entscheidet das Wort AM
+  /// Wiederaufsetzpunkt über den Umbruch. Monoton steigend wie `lineRestartPoints`.
+  private var lineDependencyEnds: [Int] = []
+  /// Zeichenlimit, mit dem die bestehenden Zeilen gebaut wurden (`nil` = gemischt/unbekannt).
+  private var linesLimit: Int?
   /// Aus Panel-Breite abgeleitet; Fallback bis Layout bekannt ist.
   var maxCharactersPerLine = 84
 
@@ -19,20 +28,54 @@ final class PlayerTranscriptLineAccumulator {
     openCharCount = 0
     nextLineIndex = 0
     nextWordIndex = 0
+    lineRestartPoints = []
+    lineDependencyEnds = []
+    linesLimit = maxCharactersPerLine
   }
 
   /// Bestehende Wörter mit neuem Zeichenlimit neu umbrechen (z. B. Schriftgröße).
   func rebuildLines(from words: [PlayerTranscriptWord], maxCharactersPerLine limit: Int) {
     maxCharactersPerLine = limit
-    closedLines = []
-    openWords = []
-    openCharCount = 0
-    nextLineIndex = 0
-    nextWordIndex = 0
+    reset()
     appendFinalizedWords(words)
   }
 
-  func appendFinalizedWords(_ incoming: [PlayerTranscriptWord]) {
+  /// Neu umbrechen, wenn sich `words` erst ab Index `unchangedPrefix` geändert hat (eingefügte
+  /// Wörter): Zeilen, die vollständig davor liegen, bleiben stehen — Ergebnis wie `rebuildLines`.
+  func rebuildLines(from words: [PlayerTranscriptWord], unchangedPrefix: Int) {
+    guard linesLimit == maxCharactersPerLine else {
+      rebuildLines(from: words, maxCharactersPerLine: maxCharactersPerLine)
+      return
+    }
+    // Letzte Zeile, deren Umbruch nur von Wörtern im unveränderten Teil abhängt (Binärsuche).
+    var low = 0
+    var high = lineDependencyEnds.count
+    while low < high {
+      let mid = (low + high) / 2
+      if lineDependencyEnds[mid] <= unchangedPrefix { low = mid + 1 } else { high = mid }
+    }
+    let keptLines = low
+    let restart = keptLines > 0 ? lineRestartPoints[keptLines - 1] : 0
+    guard restart <= words.count else {
+      rebuildLines(from: words, maxCharactersPerLine: maxCharactersPerLine)
+      return
+    }
+    closedLines.removeSubrange(keptLines...)
+    lineRestartPoints.removeSubrange(keptLines...)
+    lineDependencyEnds.removeSubrange(keptLines...)
+    openWords = []
+    openCharCount = 0
+    nextLineIndex = keptLines
+    nextWordIndex = restart
+    appendFinalizedWords(words[restart...])
+  }
+
+  func appendFinalizedWords<Words: Sequence<PlayerTranscriptWord>>(_ incoming: Words) {
+    if linesLimit != maxCharactersPerLine, !closedLines.isEmpty || !openWords.isEmpty {
+      linesLimit = nil
+    } else if closedLines.isEmpty, openWords.isEmpty {
+      linesLimit = maxCharactersPerLine
+    }
     for raw in incoming {
       let word = stabilized(raw)
       if word.isWhitespaceOnly {
@@ -41,12 +84,13 @@ final class PlayerTranscriptLineAccumulator {
       }
       let add = word.text.count
       if openCharCount > 0, openCharCount + add > maxCharactersPerLine {
-        closeOpenLine()
+        // Das aktuelle Wort gehört schon zur nächsten Zeile — Wiederaufsetzpunkt davor.
+        closeOpenLine(restartPoint: nextWordIndex - 1, dependsOnRestartWord: true)
       }
       openWords.append(word)
       openCharCount += add
       if Self.endsSentence(in: word.text) {
-        closeOpenLine()
+        closeOpenLine(restartPoint: nextWordIndex, dependsOnRestartWord: false)
       }
     }
   }
@@ -70,13 +114,15 @@ final class PlayerTranscriptLineAccumulator {
     )
   }
 
-  private func closeOpenLine() {
+  private func closeOpenLine(restartPoint: Int, dependsOnRestartWord: Bool) {
     guard let snapshot = openLineSnapshot() else {
       openWords = []
       openCharCount = 0
       return
     }
     closedLines.append(snapshot)
+    lineRestartPoints.append(restartPoint)
+    lineDependencyEnds.append(dependsOnRestartWord ? restartPoint + 1 : restartPoint)
     nextLineIndex += 1
     openWords = []
     openCharCount = 0

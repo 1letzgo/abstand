@@ -174,6 +174,50 @@ enum CoverDominantTintSeed {
   }
 }
 
+/// Memo für `CoverDominantTintSeed.resolve` pro Detail-View (wie `FullPlayerCoverTintMemo` im Player).
+///
+/// Detail-`body`s laufen bei jeder `AppModel`-Änderung; ungecacht kostete das pro Render Datei-Read
+/// plus JSON-Decode, ohne RGB-Cache sogar Cover-Decode und Pixelanalyse auf dem Main-Thread — und
+/// das zweimal (Hintergrund + Karten-Tint). Neu aufgelöst wird nur bei anderem Account, Scope,
+/// Revision oder Theme. `nil`-Treffer werden mitgecacht; danach greift der asynchron geladene
+/// `coverTintColor` der View. Als Referenz in `@State` gehalten, damit `body` ohne State-Mutation
+/// schreiben darf (nicht beobachtet).
+@MainActor
+final class CoverDominantTintSeedMemo {
+  private var key: String?
+  private var tint: Color?
+
+  func tint(
+    account: URL?,
+    itemId: String,
+    heroScopeId: String,
+    fallbackScopeId: String?,
+    revision: Int,
+    themeRevision: Int
+  ) -> Color? {
+    let key =
+      "\(account?.path ?? "")|\(itemId)|\(heroScopeId)|\(fallbackScopeId ?? "")|\(revision)|\(themeRevision)"
+    if self.key == key { return tint }
+    let resolved = CoverDominantTintSeed.resolve(
+      account: account,
+      itemId: itemId,
+      heroScopeId: heroScopeId,
+      fallbackScopeId: fallbackScopeId,
+      revision: revision
+    )?.tint
+    self.key = key
+    tint = resolved
+    return resolved
+  }
+
+  /// Nach dem Schreiben eines neuen Cover-RGB (`DetailCoverAverageRGBCache.save`) beim nächsten
+  /// `body` frisch von der Platte lesen — sonst bliebe ein älterer Treffer vor `coverTintColor`.
+  func invalidate() {
+    key = nil
+    tint = nil
+  }
+}
+
 /// Cover → Kartenfarbe (Cache, lokales Cover, optional Netz) für Continue-Hero und Home-Mini-Karten.
 /// Achtung Main-Thread: `syncUIImage` (Disk-Read) und `coverAverageRGB` (Pixel-Analyse, Hero-Größe)
 /// sind teuer — beides läuft bewusst in `Task.detached`, nicht auf dem MainActor (Launch-Jank).
