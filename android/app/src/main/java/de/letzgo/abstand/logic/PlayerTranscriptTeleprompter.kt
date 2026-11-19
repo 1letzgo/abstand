@@ -136,6 +136,13 @@ object PlayerTranscriptTimeline {
 
     /** iOS: `ReadAlongLinePosition.transitionSeconds` — Übergangsdauer τ zwischen zwei Zeilen (s). */
     const val LINE_TRANSITION_SECONDS = 0.3
+    /**
+     * iOS: `ReadAlongLinePosition.pauseOnsetDelaySeconds` — Wortanfänge nach Sprechpausen legt der Refiner
+     * `SpeechOnsetRefiner.LEAD_SECONDS` (10 ms) vor den Anfang des ersten Hüllkurvenfensters über der
+     * Schwelle; für den Zeilenwechsel wird dieser Vorlauf zurückgenommen (nur Scroll-Position, nicht die
+     * Wortmarkierung; wirkt auch auf gespeicherte Transkripte).
+     */
+    const val PAUSE_ONSET_DELAY_SECONDS = 0.01
     /** iOS: `endHoldSeconds` — so lange bleibt die letzte Zeile nach ihrem Ende noch stehen (s). */
     const val END_HOLD_SECONDS = 0.25
     /** iOS: `endMinimumSpan` — Mindest-Zeilendauer für das Weiterscrollen hinter der letzten Zeile (s). */
@@ -149,9 +156,22 @@ object PlayerTranscriptTimeline {
      */
     fun transitionHalfWidth(lines: List<PlayerTranscriptLine>, k: Int): Double {
         var h = LINE_TRANSITION_SECONDS / 2
-        h = minOf(h, maxOf(0.0, lines[k].globalStart - lines[k - 1].globalStart) / 2)
-        if (k + 1 < lines.size) h = minOf(h, maxOf(0.0, lines[k + 1].globalStart - lines[k].globalStart) / 2)
+        h = minOf(h, maxOf(0.0, displayLineStart(lines, k) - displayLineStart(lines, k - 1)) / 2)
+        if (k + 1 < lines.size) h = minOf(h, maxOf(0.0, displayLineStart(lines, k + 1) - displayLineStart(lines, k)) / 2)
         return h
+    }
+
+    /**
+     * iOS: `ReadAlongLinePosition.displayStart` — Anzeige-Start der Zeile [k]: nach einer Sprechpause (Start
+     * hinter dem Ende der Vorzeile) [PAUSE_ONSET_DELAY_SECONDS] später, höchstens bis zum Start der
+     * Folgezeile — die Starts bleiben aufsteigend, die Position stetig und monoton. Sonst der rohe Start.
+     */
+    fun displayLineStart(lines: List<PlayerTranscriptLine>, k: Int): Double {
+        val raw = lines[k].globalStart
+        if (k < 1 || raw <= lines[k - 1].globalEnd) return raw
+        var shifted = raw + PAUSE_ONSET_DELAY_SECONDS
+        if (k + 1 < lines.size) shifted = minOf(shifted, lines[k + 1].globalStart)
+        return maxOf(raw, shifted)
     }
 
     /** iOS: `smoothFraction` — Smoothstep 3x² − 2x³ über `[0, width]`; Breite 0 = harter Schritt. */
@@ -166,27 +186,31 @@ object PlayerTranscriptTimeline {
      * `s_i ≤ t`: die Position ist exakt `i`, solange die Zeile gesprochen wird, auch in Pausen. Nur um
      * jeden Zeilenstart `s_k` (k ≥ 1) gleitet sie im Fenster `[s_k − h_k, s_k + h_k]` per Smoothstep von
      * `k − 1` nach `k` (bei `t = s_k` genau `k − 0,5`). Stetig und monoton. Hinter der letzten Zeile
-     * (Transkript hinkt hinterher) nach [END_HOLD_SECONDS] linear in den leeren Bereich.
+     * (Transkript hinkt hinterher) nach [END_HOLD_SECONDS] linear in den leeren Bereich. `s_k` ist der
+     * Anzeige-Start [displayLineStart] (nach Sprechpausen um [PAUSE_ONSET_DELAY_SECONDS] später).
      */
     fun fractionalActiveLinePosition(lines: List<PlayerTranscriptLine>, globalTime: Double): Double {
         if (lines.isEmpty()) return 0.0
         val t = globalTime
-        if (t <= lines[0].globalStart) return 0.0
+        if (t <= displayLineStart(lines, 0)) return 0.0
         val lastIdx = lines.size - 1
-        val i = activeLineIndex(lines, t)
+        // Anzeige-Starts liegen höchstens einen Vorlauf hinter den rohen: Zeile `i` kann für die Anzeige
+        // noch nicht begonnen haben, dann ist es die vorige.
+        var i = activeLineIndex(lines, t)
+        if (i > 0 && t < displayLineStart(lines, i)) i -= 1
 
         // Übergang in die nächste Zeile (erste Hälfte des Fensters um s_{i+1}).
         if (i < lastIdx) {
             val h = transitionHalfWidth(lines, i + 1)
-            val windowStart = lines[i + 1].globalStart - h
+            val windowStart = displayLineStart(lines, i + 1) - h
             if (t >= windowStart) return i + smoothFraction(t - windowStart, 2 * h)
         }
         // Ausklang des Übergangs aus der vorigen Zeile (zweite Hälfte des Fensters um s_i).
-        var holdUntil = lines[i].globalStart
+        var holdUntil = displayLineStart(lines, i)
         if (i >= 1) {
             val h = transitionHalfWidth(lines, i)
-            val windowStart = lines[i].globalStart - h
-            holdUntil = lines[i].globalStart + h
+            val windowStart = displayLineStart(lines, i) - h
+            holdUntil = displayLineStart(lines, i) + h
             if (t < holdUntil) return (i - 1) + smoothFraction(t - windowStart, 2 * h)
         }
         // Hinter der letzten Zeile: kurz stehen bleiben, dann in den leeren Bereich scrollen.

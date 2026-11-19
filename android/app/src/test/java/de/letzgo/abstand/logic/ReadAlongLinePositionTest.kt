@@ -11,6 +11,7 @@ import kotlin.math.floor
 /** Zeilengebundene Teleprompter-Position, Wortmarkierung und Decoder-Drift-Diagnose. */
 class ReadAlongLinePositionTest {
     private val tau = PlayerTranscriptTimeline.LINE_TRANSITION_SECONDS
+    private val d = PlayerTranscriptTimeline.PAUSE_ONSET_DELAY_SECONDS
 
     private fun w(id: String, text: String, s: Double, e: Double) = PlayerTranscriptWord(id, text, s, e)
 
@@ -21,7 +22,7 @@ class ReadAlongLinePositionTest {
 
     private fun pos(lines: List<PlayerTranscriptLine>, t: Double) = PlayerTranscriptTimeline.fractionalActiveLinePosition(lines, t)
 
-    // Zeilen 0–2 s, 2–4 s, Pause, 6–8 s, 8–10 s.
+    // Zeilen 0–2 s, 2–4 s, Pause, 6–8 s, 8–10 s. Nur Zeile 2 beginnt nach einer Pause (Anzeige-Start 6 s + d).
     private val sample = lines(0.0 to 2.0, 2.0 to 4.0, 6.0 to 8.0, 8.0 to 10.0)
 
     @Test
@@ -38,14 +39,38 @@ class ReadAlongLinePositionTest {
     @Test
     fun pauseStaysOnSpokenLine() {
         // Zeile 1 endet bei 4 s, Zeile 2 beginnt bei 6 s: bis kurz vor dem Fenster bleibt es bei 1.
-        for (t in listOf(4.0, 4.5, 5.0, 5.5, 6.0 - tau / 2)) assertEquals("t=$t", 1.0, pos(sample, t), 1e-12)
+        for (t in listOf(4.0, 4.5, 5.0, 5.5, 6.0 + d - tau / 2)) assertEquals("t=$t", 1.0, pos(sample, t), 1e-12)
     }
 
     @Test
     fun lineStartIsHalfway() {
         assertEquals(0.5, pos(sample, 2.0), 1e-12)
-        assertEquals(1.5, pos(sample, 6.0), 1e-12)
+        assertEquals(1.5, pos(sample, 6.0 + d), 1e-12)
         assertEquals(2.5, pos(sample, 8.0), 1e-12)
+    }
+
+    @Test
+    fun lineAfterPauseStartsOneLeadLater() {
+        assertEquals(0.01, d, 0.0)
+        // Nach Pause: Anzeige-Start = Wortanfang + d; ohne Pause (Start = Ende der Vorzeile): roh.
+        assertEquals(6.0 + d, PlayerTranscriptTimeline.displayLineStart(sample, 2), 1e-12)
+        assertEquals(2.0, PlayerTranscriptTimeline.displayLineStart(sample, 1), 0.0)
+        assertEquals(8.0, PlayerTranscriptTimeline.displayLineStart(sample, 3), 0.0)
+        assertEquals(0.0, PlayerTranscriptTimeline.displayLineStart(sample, 0), 0.0)
+        // Die mittige Zeile (round(pos)) wechselt erst bei 6 s + d.
+        assertTrue(pos(sample, 6.0) < 1.5)
+        assertEquals(1, floor(pos(sample, 6.0 + d / 2) + 0.5).toInt())
+        assertEquals(2, floor(pos(sample, 6.0 + 1.5 * d) + 0.5).toInt())
+    }
+
+    @Test
+    fun pauseDelayNeverPassesNextLineStart() {
+        // Zeile 1 nach Pause, Zeile 2 schon 5 ms später: Anzeige-Start höchstens am Start von Zeile 2.
+        val tight = lines(0.0 to 1.0, 1.5 to 1.5, 1.505 to 2.0, 2.0 to 3.0)
+        assertEquals(1.505, PlayerTranscriptTimeline.displayLineStart(tight, 1), 1e-12)
+        assertEquals(1.505 + d, PlayerTranscriptTimeline.displayLineStart(tight, 2), 1e-12)
+        assertContinuousMonotonicLoose(tight, -0.2, 3.5)
+        assertEquals(3.0, pos(tight, 2.5), 0.0)
     }
 
     @Test
@@ -122,11 +147,11 @@ class ReadAlongLinePositionTest {
 
     @Test
     fun centeredLineIsTheSpokenLine() {
-        // Mittig steht round(pos); außerhalb der Übergänge ist das genau die aktive Zeile.
+        // Mittig steht round(pos); außerhalb der Übergänge ist das genau die Zeile, deren Anzeige-Start erreicht ist.
         var t = 0.0
         while (t < 10.0) {
             val p = pos(sample, t)
-            val active = PlayerTranscriptTimeline.activeLineIndex(sample, t)
+            val active = sample.indices.last { it == 0 || PlayerTranscriptTimeline.displayLineStart(sample, it) <= t }
             val centered = floor(p + 0.5).toInt()
             if (abs(p - floor(p) - 0.5) > 1e-9) assertEquals("t=$t", active, centered)
             t += 0.01

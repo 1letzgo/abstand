@@ -1064,7 +1064,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     return ReadAlongLinePosition.position(
       lineCount: lines.count,
       start: { lines[$0].globalStart },
-      lastLineEnd: lines[lines.count - 1].globalEnd,
+      end: { lines[$0].globalEnd },
       activeIndex: activeLineIndex(in: lines, at: globalTime),
       at: globalTime
     )
@@ -1115,9 +1115,20 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 /// damit sich Fenster eng liegender Zeilen nie überlappen — die Funktion bleibt stetig und
 /// monoton. Hinter dem Ende der letzten Zeile (Transkript hinkt der Wiedergabe hinterher)
 /// scrollt sie nach `endHoldSeconds` linear in den leeren Bereich.
+///
+/// `s_k` ist dabei der Anzeige-Start `displayStart(k)`: Beginnt eine Zeile erst nach dem Ende der
+/// vorigen (Sprechpause), liegt ihr Start `pauseOnsetDelaySeconds` hinter dem Wortanfang.
 enum ReadAlongLinePosition {
   /// Übergangsdauer τ zwischen zwei Zeilen (s).
   static let transitionSeconds: Double = 0.3
+  /// Wortanfänge nach Sprechpausen legt der Refiner `SpeechOnsetRefiner.leadSeconds` (10 ms) vor
+  /// den Anfang des ersten Hüllkurvenfensters über der Schwelle. Für den Zeilenwechsel wird dieser
+  /// Vorlauf zurückgenommen: Die Zeile wechselt am Fensteranfang, nie nach dem Einsatz. Gemessen
+  /// (Gerät DE 126 Tracks, EN echt, Synthetik mit exakten Phrasenanfängen): „Fenster korrekt"
+  /// +0,6…+0,7 Pp gegen alle Wahrheiten, Synthetik bestes bei 10 ms (15 ms schon schlechter),
+  /// Zeilenwechsel ±0,15 s unverändert. Nur die Scroll-Position — Wortmarkierung unverändert;
+  /// wirkt auch auf bereits gespeicherte Transkripte.
+  static let pauseOnsetDelaySeconds: Double = 0.01
   /// So lange bleibt die letzte Zeile nach ihrem Ende noch stehen (s).
   static let endHoldSeconds: Double = 0.25
   /// Mindest-Zeilendauer für das Weiterscrollen hinter der letzten Zeile (s).
@@ -1125,16 +1136,25 @@ enum ReadAlongLinePosition {
   /// Höchstens so viele Zeilen in den leeren Bereich hinter der letzten Zeile scrollen.
   static let endMaximumOvershoot: Double = 3.5
 
+  /// `activeIndex` = letzte Zeile mit rohem Start `start(i) ≤ t` (Binärsuche des Aufrufers).
   static func position(
     lineCount: Int,
-    start: (Int) -> Double,
-    lastLineEnd: Double,
-    activeIndex i: Int,
+    start rawStart: (Int) -> Double,
+    end: (Int) -> Double,
+    activeIndex: Int,
     at t: Double
   ) -> Double {
     guard lineCount > 0 else { return 0 }
+    func start(_ k: Int) -> Double {
+      displayStart(k, lineCount: lineCount, start: rawStart, end: end)
+    }
     if t <= start(0) { return 0 }
     let lastIdx = lineCount - 1
+    let lastLineEnd = end(lastIdx)
+    // Anzeige-Starts liegen höchstens einen Vorlauf hinter den rohen: Zeile `i` kann für die
+    // Anzeige noch nicht begonnen haben, dann ist es die vorige.
+    var i = min(max(0, activeIndex), lastIdx)
+    if i > 0, t < start(i) { i -= 1 }
 
     // Übergang in die nächste Zeile (erste Hälfte des Fensters um s_{i+1}).
     if i < lastIdx {
@@ -1158,11 +1178,27 @@ enum ReadAlongLinePosition {
     if i == lastIdx {
       let endStart = max(lastLineEnd, holdUntil) + endHoldSeconds
       if t > endStart {
-        let span = max(endMinimumSpan, lastLineEnd - start(lastIdx))
+        let span = max(endMinimumSpan, lastLineEnd - rawStart(lastIdx))
         return Double(lastIdx) + min(endMaximumOvershoot, (t - endStart) / span)
       }
     }
     return Double(i)
+  }
+
+  /// Anzeige-Start der Zeile `k`: nach einer Sprechpause (Start hinter dem Ende der Vorzeile)
+  /// `pauseOnsetDelaySeconds` später, höchstens bis zum Start der Folgezeile — so bleiben die
+  /// Starts aufsteigend und die Position stetig und monoton. Sonst der rohe Start.
+  static func displayStart(
+    _ k: Int,
+    lineCount: Int,
+    start: (Int) -> Double,
+    end: (Int) -> Double
+  ) -> Double {
+    let raw = start(k)
+    guard k >= 1, raw > end(k - 1) else { return raw }
+    var shifted = raw + pauseOnsetDelaySeconds
+    if k + 1 < lineCount { shifted = min(shifted, start(k + 1)) }
+    return max(raw, shifted)
   }
 
   /// Halbe Fensterbreite um den Start von Zeile `k` (k ≥ 1), an die Nachbarabstände geklemmt.
