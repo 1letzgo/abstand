@@ -909,6 +909,49 @@ typealias HomeListeningStatsSectionView = SettingsStatsSectionView
 
 // MARK: - Account
 
+/// Bibliotheks-Karte einer Buch-Art (Audiobooks bzw. eBooks) — beide Sektionen identisch aufgebaut:
+/// Primary-Picker (inkl. „None“), darunter je Buch-Bibliothek ein Schalter für den Tab-Picker.
+private struct SettingsBookLibraryKindCard: View {
+  @EnvironmentObject private var model: AppModel
+  let primaryTitle: String
+  let primaryIcon: String
+  let libraryIcon: String
+  let selection: Binding<String>
+  let isNone: Bool
+  let isActive: (String) -> Bool
+  let setActive: (String, Bool) -> Void
+
+  var body: some View {
+    AbstandGroupedCard {
+      if model.sortedBookLibraries.isEmpty {
+        AbstandCardEmptyState(title: "No book libraries on this server.")
+      } else {
+        SettingsCardPickerRow(
+          icon: primaryIcon,
+          title: primaryTitle,
+          selection: selection,
+          options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
+            + model.sortedBookLibraries.map { (id: $0.id, label: $0.name) }
+        )
+        if !isNone {
+          SettingsCardDivider()
+          ForEach(Array(model.sortedBookLibraries.enumerated()), id: \.element.id) { index, lib in
+            if index > 0 { SettingsCardDivider() }
+            SettingsCardToggleRow(
+              icon: libraryIcon,
+              title: lib.name,
+              isOn: Binding(
+                get: { isActive(lib.id) },
+                set: { setActive(lib.id, $0) }
+              )
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
 struct SettingsAccountView: View {
   @EnvironmentObject private var model: AppModel
   @State private var showAddAccount = false
@@ -926,6 +969,21 @@ struct SettingsAccountView: View {
         } else if let lib = model.sortedBookLibraries.first(where: { $0.id == newId }) {
           model.selectBooksLibrary(lib)
           Task { await model.reloadLibrary(reset: true) }
+        }
+      })
+  }
+
+  private var ebooksLibraryPickerSelection: Binding<String> {
+    Binding(
+      get: {
+        if model.ebooksLibraryPreferenceIsNone { return AppModel.libraryPickerNoneTag }
+        return model.selectedEbooksLibrary?.id ?? AppModel.libraryPickerNoneTag
+      },
+      set: { newId in
+        if newId == AppModel.libraryPickerNoneTag {
+          model.clearEbooksLibrarySelection()
+        } else if let lib = model.sortedBookLibraries.first(where: { $0.id == newId }) {
+          model.selectEbooksLibrary(lib)
         }
       })
   }
@@ -1002,6 +1060,32 @@ struct SettingsAccountView: View {
       .presentationDetents([.large])
     }
 
+    // Audiobooks und eBooks gleichwertig: je eigene Sektion mit Primary (inkl. „None“ → Tab aus)
+    // und eigenen Zusatzbibliotheken für den Bibliotheks-Picker des jeweiligen Tabs.
+    ServerAdminSection(title: "Audiobooks") {
+      SettingsBookLibraryKindCard(
+        primaryTitle: "Primary audiobook library",
+        primaryIcon: "books.vertical.fill",
+        libraryIcon: "books.vertical",
+        selection: booksLibraryPickerSelection,
+        isNone: model.booksLibraryPreferenceIsNone,
+        isActive: { model.isBooksLibraryActive($0) },
+        setActive: { model.setBooksLibraryActive($0, enabled: $1) }
+      )
+    }
+
+    ServerAdminSection(title: "eBooks") {
+      SettingsBookLibraryKindCard(
+        primaryTitle: "Primary eBook library",
+        primaryIcon: "book.closed.fill",
+        libraryIcon: "book.closed",
+        selection: ebooksLibraryPickerSelection,
+        isNone: model.ebooksLibraryPreferenceIsNone,
+        isActive: { model.isEbooksLibraryActive($0) },
+        setActive: { model.setEbooksLibraryActive($0, enabled: $1) }
+      )
+    }
+
     ServerAdminSection(title: "Account") {
       LazyVStack(spacing: AppTheme.Layout.withinSectionSpacing) {
         HStack(spacing: AppTheme.Layout.withinSectionSpacing) {
@@ -1015,34 +1099,6 @@ struct SettingsAccountView: View {
             title: "Account Type",
             value: model.sessionAccountTypeLabel
           )
-        }
-
-        AbstandGroupedCard {
-          if model.sortedBookLibraries.isEmpty {
-            AbstandCardEmptyState(title: "No book libraries on this server.")
-          } else {
-            SettingsCardPickerRow(
-              icon: "books.vertical.fill",
-              title: "Primary books library",
-              selection: booksLibraryPickerSelection,
-              options: [(id: AppModel.libraryPickerNoneTag, label: "None")]
-                + model.sortedBookLibraries.map { (id: $0.id, label: $0.name) }
-            )
-            if !model.booksLibraryPreferenceIsNone {
-              SettingsCardDivider()
-              ForEach(Array(model.sortedBookLibraries.enumerated()), id: \.element.id) { index, lib in
-                if index > 0 { SettingsCardDivider() }
-                SettingsCardToggleRow(
-                  icon: "books.vertical",
-                  title: lib.name,
-                  isOn: Binding(
-                    get: { model.isBooksLibraryActive(lib.id) },
-                    set: { model.setBooksLibraryActive(lib.id, enabled: $0) }
-                  )
-                )
-              }
-            }
-          }
         }
 
         AbstandGroupedCard {

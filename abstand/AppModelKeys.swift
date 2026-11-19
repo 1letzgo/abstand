@@ -12,13 +12,19 @@ extension AppModel {
   static let userDefaultLibraryId = "abstand_user_default_library_id"
   /// Legacy; wird nach `booksLibrary` migriert.
   static let library = "abstand_library_id"
+  /// Primary Audiobook-Library (UI: „Primary audiobook library“). Key-Name historisch „books“ — nicht ändern,
+  /// sonst verlieren bestehende Installationen ihre Auswahl.
   static let booksLibrary = "abstand_books_library_id"
+  /// Primary eBook-Library des eBooks-Tabs (Bibliotheks-ID oder `librarySelectionNone`; leer = automatisch).
   static let ebooksLibrary = "abstand_ebooks_library_id"
   static let podcastsLibrary = "abstand_podcasts_library_id"
   /// Bewusst keine Bibliothek gewählt (Tabs ausblenden, kein Auto-Pick).
   static let librarySelectionNone = "__abstand_no_library__"
   /// Zusätzlich zur Primary aktivierte Books-Libraries (JSON `[String]`), account-gebunden.
   static let activeBooksLibraryIds = "abstand_active_books_library_ids"
+  /// Aktive eBook-Libraries des eBooks-Tabs inkl. eBook-Primary (JSON `[String]`), account-gebunden
+  /// (Suffix `.<accountKey>`). Fehlt der Wert, übernimmt die Migration einmalig die Audiobook-Auswahl.
+  static let activeEbooksLibraryIds = "abstand_active_ebooks_library_ids"
   /// Zusätzlich zur Primary aktivierte Podcast-Libraries (JSON `[String]`), account-gebunden.
   static let activePodcastLibraryIds = "abstand_active_podcast_library_ids"
   static let downloads = "abstand_downloaded_ids"
@@ -74,6 +80,8 @@ extension AppModel {
   static let showPodcastsTab = "abstand_show_podcasts_tab"
   /// Audiobooks-Tab in der Tab-Leiste (gecacht; unabhängig vom Bootstrap-Fetch).
   static let showAudiobooksTab = "abstand_show_audiobooks_tab"
+  /// eBooks-Tab in der Tab-Leiste (gecacht; unabhängig vom Bootstrap-Fetch).
+  static let showEbooksTab = "abstand_show_ebooks_tab"
   /// Akzentfarbe als „r,g,b“ (0…1) in sRGB.
   static let appearanceAccentRGB = "abstand_appearance_accent_rgb"
   static let appearanceAccentRGBDark = "abstand_appearance_accent_rgb_dark"

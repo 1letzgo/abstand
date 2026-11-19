@@ -535,8 +535,14 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     activeTrackDuration = trackDuration
     finalizedWords = []
     lineAccumulator.reset()
+    // Alter Stand (unverfeinerte Wortanfänge) nur, wenn er den Track ganz abdeckt — dann wird nichts
+    // produziert und die Anzeige-Heuristik greift. Mit Lücken würde die Produktion ihn beim ersten
+    // Zwischenspeichern ersetzen; dann gleich frisch beginnen statt alte und neue Wörter zu mischen.
+    let usable = loaded.flatMap { cache in
+      cache.isOnsetRefined || cache.firstUncoveredTime(from: 0, duration: trackDuration) == nil ? cache : nil
+    }
     trackCache =
-      loaded ?? PlayerTranscriptTrackCache(localeIdentifier: localeId, trackIndex: context.trackIndex)
+      usable ?? PlayerTranscriptTrackCache(localeIdentifier: localeId, trackIndex: context.trackIndex)
 
     rebuildDisplayFromCache()
     let playbackLocal = player.transcriptionLocalPlaybackSeconds(
@@ -554,7 +560,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       return
     }
     let offset = context.trackGlobalOffset
-    finalizedWords = cache.allWords.enumerated().map { index, word in
+    let words = cache.allWords.enumerated().map { index, word in
       PlayerTranscriptWord(
         id: "c-\(context.trackIndex)-\(index)",
         text: word.t + " ",
@@ -562,6 +568,9 @@ final class PlayerLiveTranscriptionController: ObservableObject {
         globalEnd: max(offset + word.s, offset + word.e)
       )
     }
+    // Verfeinerte Transkripte tragen schon die akustischen Einsätze. Nur alte Stände (Version 2)
+    // bekommen beim Anzeigen die Heuristik für in Pausen vorgezogene Wortanfänge.
+    finalizedWords = cache.isOnsetRefined ? words : ReadAlongWordTiming.corrected(words)
     lineAccumulator.rebuildLines(
       from: finalizedWords, maxCharactersPerLine: lineAccumulator.maxCharactersPerLine)
     publishWords()
@@ -570,7 +579,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
   /// Produktionslauf für die erste nicht abgedeckte Stelle ab `fromLocalTime`.
   /// Läuft bis zum nächsten schon transkribierten Segment und setzt dann an der nächsten Lücke an —
   /// bis zum Track-Ende, ohne Vorhandenes erneut zu erkennen.
-  /// Bewusst NICHT über `PlayerTranscriptLibrary.produceAndPersist`: dieser Pfad muss pro Batch
+  /// Bewusst NICHT über `PlayerTranscriptLibrary.persistProduction`: dieser Pfad muss pro Batch
   /// die Anzeige fortschreiben, den geteilten Fortschritt pflegen und bei leerem Ergebnis die
   /// Session beenden — über `onBatch` ließe sich das nur mit Verhaltensänderung nachbilden.
   private func startProduction(fromLocalTime requested: Double, generation: UInt) {
@@ -585,6 +594,10 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
     // Nur bis zum nächsten schon transkribierten Segment — danach geht es an der nächsten Lücke weiter.
     let end = cache.nextCoveredStart(after: start)
+    // Mit Vor-/Nachlauf füttern: sonst klebt das erste Wort am Laufstart und das Wort an der
+    // Grenze zum nächsten Segment geht verloren. Übernommen wird nur, was in der Lücke beginnt.
+    let window = PlayerTranscriptRunWindow(gapStart: start, gapEnd: end)
+    let trackDuration = activeTrackDuration
 
     productionTask?.cancel()
     // Lauf-Kennung: ein abgebrochener Vorgänger-Lauf räumt beim Auslaufen sonst das
@@ -613,6 +626,10 @@ final class PlayerLiveTranscriptionController: ObservableObject {
       // Inkrementell: jedes Zwischenspeichern schreibt nur das seit dem letzten Persist
       // Produzierte (sonst quadratische Merge-Kosten über die Lauflänge).
       var segmentStart = start
+      // Nur ein Lauf mit finalem Batch hat den Bereich ganz gesehen. Ein abgebrochener Stream endet
+      // regulär (ohne Fehler) — daraus darf weder „Lauf durch" noch „kein Inhalt" folgen.
+      var sawFinalBatch = false
+      var keptAnyWord = false
       defer {
         PlayerTranscriptLibrary.endPriorityWork()
         if self.productionRunId == runId, self.sessionIsCurrent(generation),
@@ -624,21 +641,24 @@ final class PlayerLiveTranscriptionController: ObservableObject {
 
       do {
         for try await batch in PlayerTranscriptProducer.transcribe(
-          assetURL: assetURL, startSeconds: start, endSeconds: end, locale: locale)
+          assetURL: assetURL, startSeconds: window.runStart, endSeconds: window.runEnd, locale: locale)
         {
           guard self.sessionIsCurrent(generation),
             self.activeContext?.trackIndex == trackIndex,
             !Task.isCancelled
           else { break }
 
-          if !batch.words.isEmpty {
+          let kept = batch.words.filter { window.keeps(start: $0.start) }
+          if !kept.isEmpty {
+            keptAnyWord = true
             pending.append(
-              contentsOf: batch.words.map {
+              contentsOf: kept.map {
                 PlayerTranscriptTrackCache.Word(t: $0.text, s: $0.start, e: $0.end)
               })
-            self.appendProducedWords(batch.words, trackIndex: trackIndex)
+            self.appendProducedWords(kept, trackIndex: trackIndex)
           }
           through = max(through, batch.processedThrough)
+          if batch.isFinalBatch { sawFinalBatch = true }
           self.productionThroughLocalTime = through
 
           // Zwischenspeichern: ein Absturz oder App-Wechsel soll die Rechenzeit nicht verlieren.
@@ -653,13 +673,20 @@ final class PlayerLiveTranscriptionController: ObservableObject {
         await self.persistProducedSegment(
           start: segmentStart, end: through, words: pending, bookId: bookId,
           trackIndex: trackIndex, locale: locale)
+        // Nur ein Lauf mit finalem Batch, nicht abgebrochen und noch aktuell, zählt als „durch".
+        let completed =
+          sawFinalBatch && !Task.isCancelled && self.productionRunId == runId
+          && self.sessionIsCurrent(generation) && self.activeContext?.trackIndex == trackIndex
+        // Datei endet vor der Server-Dauer (belegt durch den finalen Batch): Rest ohne Wörter als
+        // abgedeckt eintragen — sonst setzte `followPlaybackPosition` am Track-Ende bei jedem Tick neu an.
+        if completed, end == nil, trackDuration > through + 1 {
+          await self.persistProducedSegment(
+            start: through, end: trackDuration, words: [], bookId: bookId,
+            trackIndex: trackIndex, locale: locale)
+        }
         // Lauf durch, aber kein einziges Wort — sonst bliebe die Karte dauerhaft im Ladezustand.
-        // (`segmentStart == start` schließt aus, dass zwischendurch schon persistiert wurde.)
         // Nur ein regulär durchgelaufener Lauf zählt — ein wegen Sprung abgebrochener endet ebenfalls leer.
-        if !Task.isCancelled, self.productionRunId == runId,
-          pending.isEmpty, segmentStart == start, self.transcriptLines.isEmpty,
-          self.sessionIsCurrent(generation)
-        {
+        if completed, !keptAnyWord, self.transcriptLines.isEmpty {
           // Nicht hier im Lauf abwarten: `disable()` → `stopSession()` wartet auf genau diesen
           // Task (`productionTask.value`) — das wäre ein Selbst-Deadlock.
           Task { @MainActor [weak self] in
@@ -667,9 +694,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
           }
         }
         // Lücke geschlossen: hinter dem vorhandenen Segment mit der nächsten Lücke weitermachen.
-        if let end, !Task.isCancelled, self.productionRunId == runId,
-          self.sessionIsCurrent(generation), self.activeContext?.trackIndex == trackIndex
-        {
+        if let end, completed {
           Task { @MainActor [weak self] in
             guard let self, self.productionRunId == runId else { return }
             self.startProduction(fromLocalTime: end, generation: generation)
@@ -700,6 +725,7 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     guard let context = activeContext, context.trackIndex == trackIndex, !words.isEmpty else { return }
     let offset = context.trackGlobalOffset
     let tail = finalizedWords.last?.globalStart ?? -1
+    // Frisch produzierte Wörter sind verfeinert (`SpeechOnsetRefiner`) — keine Anzeige-Heuristik.
     let mapped = words.enumerated().map { index, word in
       PlayerTranscriptWord(
         id: "p-\(trackIndex)-\(Int((word.start * 1000).rounded()))-\(index)",
@@ -788,7 +814,18 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     )
     // Anzeige-Cache nur fortschreiben, wenn der Track noch der aktive ist.
     if activeContext?.trackIndex == trackIndex {
+      guard merged.isOnsetRefined else {
+        // Merge abgelehnt (alter Stand in der Datei hätte mehr Wörter verloren als dazukamen): die Datei
+        // bleibt, wie sie ist; der Lauf führt seine Abdeckung im Speicher weiter, damit er nicht
+        // dieselbe Lücke erneut ansetzt.
+        trackCache?.insert(segment: PlayerTranscriptTrackCache.Segment(start: start, end: end, words: words))
+        return
+      }
+      let replacedLegacy = trackCache?.isOnsetRefined == false && merged.isOnsetRefined
       trackCache = merged
+      // Der Merge hat einen alten Stand verworfen: dessen Wörter auch aus der Anzeige nehmen, sonst
+      // stünden sie doppelt neben den neu produzierten.
+      if replacedLegacy { rebuildDisplayFromCache() }
     }
   }
 
@@ -985,20 +1022,22 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     activeWordHit(at: globalTime)?.word
   }
 
-  /// Aktives Wort samt Zeilenindex. Die View braucht pro Frame beides und darf dafür nicht
-  /// über alle bisherigen Zeilen und Wörter suchen.
+  /// Aktives Wort samt Zeilenindex: in der aktiven Zeile das letzte Wort mit Start ≤ `globalTime`.
+  /// In Pausen zwischen Wörtern (und nach dem Zeilenende bis zur nächsten Zeile) bleibt es aktiv —
+  /// die Markierung darf dort nicht verschwinden oder springen. Binärsuche über die Zeilen, die
+  /// Wörter einer Zeile sind wenige.
   func activeWordHit(at globalTime: Double) -> (lineIndex: Int, word: PlayerTranscriptWord)? {
     let lines = transcriptLines
     guard !lines.isEmpty else { return nil }
     let idx = activeLineIndex(in: lines, at: globalTime)
     let line = lines[idx]
-    guard globalTime >= line.globalStart, globalTime < line.globalEnd else { return nil }
+    guard globalTime >= line.globalStart else { return nil }
     guard let word = activeWord(in: line, at: globalTime) else { return nil }
     return (idx, word)
   }
 
   func activeWord(in line: PlayerTranscriptLine, at globalTime: Double) -> PlayerTranscriptWord? {
-    line.spokenWords.first { globalTime >= $0.globalStart && globalTime < $0.globalEnd }
+    line.words.last { !$0.isWhitespaceOnly && $0.globalStart <= globalTime }
   }
 
   func activeLineIndex(at globalTime: Double) -> Int {
@@ -1017,38 +1056,18 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     refreshTeleprompterReadiness()
   }
 
-  /// Fortlaufende Zeilenposition (Ganzzahl = Zeilenanfang, Nachkomma = Fortschritt in der Zeile).
+  /// Fortlaufende Zeilenposition für das Scrollen (Ganzzahl = Zeile steht mittig).
+  /// Zeilengebunden: siehe `ReadAlongLinePosition`.
   func fractionalActiveLinePosition(at globalTime: Double) -> Double {
-    fractionalActiveLinePosition(in: transcriptLines, at: globalTime)
-  }
-
-  private func fractionalActiveLinePosition(
-    in lines: [PlayerTranscriptLine],
-    at globalTime: Double
-  ) -> Double {
+    let lines = transcriptLines
     guard !lines.isEmpty else { return 0 }
-    if globalTime <= lines[0].globalStart { return 0 }
-
-    let lastIdx = lines.count - 1
-    if globalTime >= lines[lastIdx].globalEnd {
-      let gap = globalTime - lines[lastIdx].globalEnd
-      let span = max(0.35, lines[lastIdx].globalEnd - lines[lastIdx].globalStart)
-      // Wiedergabe voraus: in leeren Bereich hinter letzter Zeile scrollen (nicht alten Text zentrieren).
-      if gap > 0.25 {
-        return Double(lastIdx + 1) + min(2.5, gap / span)
-      }
-      return Double(lastIdx) + min(0.92, gap / span)
-    }
-
-    let idx = activeLineIndex(in: lines, at: globalTime)
-    let line = lines[idx]
-    if globalTime < line.globalEnd {
-      let span = line.globalEnd - line.globalStart
-      let progress = span > 0 ? (globalTime - line.globalStart) / span : 0
-      return Double(idx) + min(1, max(0, progress))
-    }
-    // Lücke zwischen zwei Zeilen — am Anfang der nächsten stehen bleiben.
-    return Double(min(lastIdx, idx + 1))
+    return ReadAlongLinePosition.position(
+      lineCount: lines.count,
+      start: { lines[$0].globalStart },
+      lastLineEnd: lines[lines.count - 1].globalEnd,
+      activeIndex: activeLineIndex(in: lines, at: globalTime),
+      at: globalTime
+    )
   }
 
   /// Letzte Zeile, die nicht nach `globalTime` beginnt. Zeilen sind zeitlich sortiert
@@ -1083,4 +1102,83 @@ final class PlayerLiveTranscriptionController: ObservableObject {
     return min(1, max(0, (globalTime - line.globalStart) / span))
   }
 
+}
+
+// MARK: - Zeilengebundene Scroll-Position
+
+/// Scroll-Position des Teleprompters aus der Wiedergabezeit (identisch auf Android).
+///
+/// Sei `i` die letzte Zeile mit `start_i ≤ t`. Die Position ist exakt `i`, solange die Zeile
+/// gesprochen wird — auch in Pausen nach ihrem Ende. Nur um jeden Zeilenstart `s_k` (k ≥ 1)
+/// gleitet sie im Fenster `[s_k − h_k, s_k + h_k]` per Smoothstep von `k − 1` nach `k`
+/// (bei `t = s_k` genau `k − 0,5`). `h_k = min(τ/2, (s_k − s_{k−1})/2, (s_{k+1} − s_k)/2)`,
+/// damit sich Fenster eng liegender Zeilen nie überlappen — die Funktion bleibt stetig und
+/// monoton. Hinter dem Ende der letzten Zeile (Transkript hinkt der Wiedergabe hinterher)
+/// scrollt sie nach `endHoldSeconds` linear in den leeren Bereich.
+enum ReadAlongLinePosition {
+  /// Übergangsdauer τ zwischen zwei Zeilen (s).
+  static let transitionSeconds: Double = 0.3
+  /// So lange bleibt die letzte Zeile nach ihrem Ende noch stehen (s).
+  static let endHoldSeconds: Double = 0.25
+  /// Mindest-Zeilendauer für das Weiterscrollen hinter der letzten Zeile (s).
+  static let endMinimumSpan: Double = 0.35
+  /// Höchstens so viele Zeilen in den leeren Bereich hinter der letzten Zeile scrollen.
+  static let endMaximumOvershoot: Double = 3.5
+
+  static func position(
+    lineCount: Int,
+    start: (Int) -> Double,
+    lastLineEnd: Double,
+    activeIndex i: Int,
+    at t: Double
+  ) -> Double {
+    guard lineCount > 0 else { return 0 }
+    if t <= start(0) { return 0 }
+    let lastIdx = lineCount - 1
+
+    // Übergang in die nächste Zeile (erste Hälfte des Fensters um s_{i+1}).
+    if i < lastIdx {
+      let h = halfWindow(boundary: i + 1, lineCount: lineCount, start: start)
+      let windowStart = start(i + 1) - h
+      if t >= windowStart {
+        return Double(i) + smoothFraction(t - windowStart, width: 2 * h)
+      }
+    }
+    // Ausklang des Übergangs aus der vorigen Zeile (zweite Hälfte des Fensters um s_i).
+    var holdUntil = start(i)
+    if i >= 1 {
+      let h = halfWindow(boundary: i, lineCount: lineCount, start: start)
+      let windowStart = start(i) - h
+      holdUntil = start(i) + h
+      if t < holdUntil {
+        return Double(i - 1) + smoothFraction(t - windowStart, width: 2 * h)
+      }
+    }
+    // Hinter der letzten Zeile: kurz stehen bleiben, dann in den leeren Bereich scrollen.
+    if i == lastIdx {
+      let endStart = max(lastLineEnd, holdUntil) + endHoldSeconds
+      if t > endStart {
+        let span = max(endMinimumSpan, lastLineEnd - start(lastIdx))
+        return Double(lastIdx) + min(endMaximumOvershoot, (t - endStart) / span)
+      }
+    }
+    return Double(i)
+  }
+
+  /// Halbe Fensterbreite um den Start von Zeile `k` (k ≥ 1), an die Nachbarabstände geklemmt.
+  static func halfWindow(boundary k: Int, lineCount: Int, start: (Int) -> Double) -> Double {
+    var h = transitionSeconds / 2
+    h = min(h, max(0, start(k) - start(k - 1)) / 2)
+    if k + 1 < lineCount {
+      h = min(h, max(0, start(k + 1) - start(k)) / 2)
+    }
+    return h
+  }
+
+  /// Smoothstep 3x² − 2x³ über `[0, width]`; Breite 0 = harter Schritt.
+  static func smoothFraction(_ elapsed: Double, width: Double) -> Double {
+    guard width > 0 else { return elapsed >= 0 ? 1 : 0 }
+    let x = min(1, max(0, elapsed / width))
+    return x * x * (3 - 2 * x)
+  }
 }

@@ -293,6 +293,9 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
     generation: UInt
   ) async -> Bool {
     var cursor = from
+    // Lückenanfang des letzten regulär durchgelaufenen Abschnitts. Taucht dieselbe Lücke danach wieder
+    // auf (Merge abgelehnt, Datei nicht schreibbar), nicht endlos neu transkribieren.
+    var lastFilledGapStart: Double?
     while !Task.isCancelled {
       // Lückenanfang und -ende aus einem Lesevorgang (Transkript bleibt im Speicher, solange die
       // Datei unverändert ist) — nach einer Pause neu, weil der Teleprompter inzwischen geschrieben haben kann.
@@ -301,7 +304,12 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
           bookId: bookId, source: source, locale: locale, from: cursor)
       else { return true }
       let gapStart = gap.start
-      guard runGeneration == generation else { return false }
+      guard runGeneration == generation, !Task.isCancelled else { return false }
+      if let lastFilledGapStart, gapStart <= lastFilledGapStart + 0.5 {
+        DebugLogCollector.shared.log(
+          "readAlong prefetch: gap at \(gapStart) track=\(source.trackIndex) not closed — giving up for this run")
+        return false
+      }
 
       // Vorrang und Gerätezustand vor jedem Abschnitt prüfen.
       if let reason = blockingReason() {
@@ -314,15 +322,18 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
       pausedReason = nil
 
       do {
-        // Nur die Lücke — am nächsten vorhandenen Segment aufhören, die Schleife sucht dann die nächste.
-        let gapEnd = gap.end
-        let produced = try await PlayerTranscriptLibrary.produceAndPersist(
+        // Nur die Lücke (mit Vor-/Nachlauf) — am nächsten vorhandenen Segment aufhören, die Schleife
+        // sucht dann die nächste. Abbruch kommt immer als Fehler zurück, nie als „nichts produziert".
+        cursor = try await PlayerTranscriptLibrary.fillGap(
           bookId: bookId,
           source: source,
           locale: locale,
-          fromLocalTime: gapStart,
-          toLocalTime: gapEnd,
+          gapStart: gapStart,
+          gapEnd: gap.end,
           priority: .utility,
+          isCurrent: { [weak self] in
+            !Task.isCancelled && self?.runGeneration == generation
+          },
           onBatch: { [weak self] _ in
             // Ein Track läuft minutenlang. Ohne diese Prüfung zwischendrin liefe die
             // Vorproduktion weiter, während der Teleprompter startet oder das Gerät heiß wird —
@@ -332,18 +343,9 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
             }
           }
         )
-        guard produced > gapStart + 0.5 else {
-          // Bis Dateiende nichts mehr dekodierbar, obwohl die Server-Dauer länger ist: den Rest als
-          // abgedeckt (ohne Wörter) eintragen — sonst bleibt die Lücke offen und jeder Lauf öffnet
-          // Datei und Sprachmodell erneut.
-          if gapEnd == nil, source.duration > gapStart {
-            await PlayerTranscriptLibrary.mergeAndSave(
-              segment: PlayerTranscriptTrackCache.Segment(start: gapStart, end: source.duration, words: []),
-              bookId: bookId, trackIndex: source.trackIndex, locale: locale)
-          }
-          return true
-        }
-        cursor = produced
+        // Ohne folgendes Segment lief der Producer bis Dateiende — ab der Lücke ist der Track fertig.
+        if gap.end == nil { return true }
+        lastFilledGapStart = gapStart
       } catch {
         if AbstandErrorFilter.isBenignCancellation(error) {
           // Pause (Teleprompter, Gerät warm) bricht nur den Abschnitt ab — Track nicht

@@ -53,6 +53,11 @@ enum PlayerTeleprompterMetrics {
   static let fontSizeStorageKey = "abstand_teleprompter_font_size"
   /// Zeilen außerhalb des aktiven Absatzes (symmetrisch ausgeblendet).
   static let inactiveLineTextOpacity: CGFloat = 0.32
+  /// Übrige Zeilen des aktiven Absatzes — zwischen aktiver Zeile und Rest.
+  static let activeParagraphLineTextOpacity: CGFloat = 0.58
+  /// Noch nicht gesprochene Wörter der aktiven Zeile; gesprochene stehen in voller Tinte.
+  /// Nur Deckkraft, kein Gewichtswechsel — die Zeilenbreite darf sich nicht ändern.
+  static let upcomingWordTextOpacity: CGFloat = 0.72
 
   static func clampFontSize(_ size: CGFloat) -> CGFloat {
     min(maxFontSize, max(minFontSize, size))
@@ -139,8 +144,6 @@ struct PlayerLiveTranscriptPanelView: View {
   /// Gespeicherte Nutzer-Schriftgröße (nil = Auto-Fit bzw. noch kein Override).
   var userFontSize: CGFloat?
 
-  @State private var playbackClock = ReadAlongPlaybackClock()
-
   private var livePlaybackTime: Double { player.liveGlobalPlaybackPosition }
 
   private var teleprompterLayout: PlayerTeleprompterLayout {
@@ -159,13 +162,9 @@ struct PlayerLiveTranscriptPanelView: View {
     let _ = themeRevision
     return ZStack {
       if showsTeleprompterContent {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { timeline in
-          let displayTime = playbackClock.displayedTime(
-            at: timeline.date,
-            target: livePlaybackTime,
-            isPlaying: player.isPlaying,
-            playbackRate: Double(player.playbackRate)
-          )
+        // Pro Frame direkt die Player-Zeit — keine eigene Uhr, keine Extrapolation (Nachhängen).
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { _ in
+          let displayTime = livePlaybackTime
           GeometryReader { geo in
             let layout = teleprompterLayout
             // Aktive Zeile (Mitte des Stacks) immer auf Viewport-Mitte — auch beim Start.
@@ -219,14 +218,6 @@ struct PlayerLiveTranscriptPanelView: View {
         alignTeleprompterToLivePlayback()
         syncTeleprompterLayout()
       }
-    }
-    .onChange(of: livePlaybackTime) { _, newTime in
-      if abs(newTime - playbackClock.lastSyncedTarget) > 2 {
-        playbackClock.hardReset(to: newTime)
-      }
-    }
-    .onChange(of: transcription.teleprompterSyncGeneration) { _, _ in
-      playbackClock.hardReset(to: transcription.teleprompterSyncedPlaybackTime)
     }
     .onChange(of: transcription.isTeleprompterReady) { _, ready in
       if ready {
@@ -310,12 +301,10 @@ struct PlayerLiveTranscriptPanelView: View {
     return String(localized: "Transcribing audio…", comment: "Live transcript placeholder")
   }
 
-  /// Teleprompter an Live-Wiedergabe ausrichten und Uhr zurücksetzen.
+  /// Teleprompter an Live-Wiedergabe ausrichten.
   private func alignTeleprompterToLivePlayback() {
     player.syncGlobalPositionFromPlayer()
-    let live = player.liveGlobalPlaybackPosition
-    transcription.syncTeleprompterToPlayback(at: live)
-    playbackClock.hardReset(to: live)
+    transcription.syncTeleprompterToPlayback(at: player.liveGlobalPlaybackPosition)
   }
 
   private func teleprompterStack(at time: Double) -> some View {
@@ -326,10 +315,14 @@ struct PlayerLiveTranscriptPanelView: View {
     let layout = teleprompterLayout
     let intraLineOffset = -CGFloat(progress) * layout.rowStride
     let paragraphs = transcription.transcriptParagraphIndices
-    // Über die Zeile, nicht das Wort: in Pausen zwischen Wörtern gibt es keinen Treffer,
-    // die Markierung darf dort nicht springen.
-    let activeLineIndex = lines.isEmpty ? centerIdx : transcription.activeLineIndex(at: time)
+    // Zeile und Wort: jeweils das letzte mit Start ≤ t — in Pausen bleibt die Markierung stehen.
+    let wordHit = transcription.activeWordHit(at: time)
+    let activeLineIndex =
+      wordHit?.lineIndex ?? (lines.isEmpty ? centerIdx : transcription.activeLineIndex(at: time))
     let activeParagraph = paragraphs.indices.contains(activeLineIndex) ? paragraphs[activeLineIndex] : nil
+    // Nur der Start des aktiven Worts geht in die Zeile ein — die Zeile ändert sich damit nur beim
+    // Wortwechsel, nicht pro Frame.
+    let spokenThroughStart = wordHit?.word.globalStart ?? -Double.infinity
 
     return VStack(alignment: .leading, spacing: layout.lineSpacing) {
       ForEach(-layout.linesBeforeCenter...layout.linesBeforeCenter, id: \.self) { delta in
@@ -339,8 +332,10 @@ struct PlayerLiveTranscriptPanelView: View {
           if lineIndex >= 0, lineIndex < lines.count {
             lineText(
               lines[lineIndex],
-              isInActiveParagraph: paragraphs.indices.contains(lineIndex)
-                && paragraphs[lineIndex] == activeParagraph,
+              emphasis: lineIndex == activeLineIndex
+                ? .activeLine(spokenThroughStart: spokenThroughStart)
+                : (paragraphs.indices.contains(lineIndex) && paragraphs[lineIndex] == activeParagraph
+                  ? .activeParagraph : .inactive),
               layout: layout,
               lookupSelection: transcription.wordLookupSelection,
               onWordTap: selectWordForLookup
@@ -373,7 +368,7 @@ struct PlayerLiveTranscriptPanelView: View {
   @ViewBuilder
   private func lineText(
     _ line: PlayerTranscriptLine,
-    isInActiveParagraph: Bool,
+    emphasis: TeleprompterLineEmphasis,
     layout: PlayerTeleprompterLayout,
     lookupSelection: PlayerTranscriptWordLookupSelection?,
     onWordTap: @escaping (PlayerTranscriptWord) -> Void
@@ -391,9 +386,7 @@ struct PlayerLiveTranscriptPanelView: View {
           } label: {
             Text(word.text)
               .font(layout.transcriptFont)
-              .foregroundStyle(
-                wordColor(isInActiveParagraph: isInActiveParagraph, isSelected: isSelected)
-              )
+              .foregroundStyle(wordColor(word, emphasis: emphasis, isSelected: isSelected))
               .underline(isSelected, color: AppTheme.accent)
           }
           .buttonStyle(.plain)
@@ -408,59 +401,30 @@ struct PlayerLiveTranscriptPanelView: View {
     .lineLimit(1)
   }
 
-  private func wordColor(isInActiveParagraph: Bool, isSelected: Bool) -> Color {
+  private func wordColor(
+    _ word: PlayerTranscriptWord,
+    emphasis: TeleprompterLineEmphasis,
+    isSelected: Bool
+  ) -> Color {
     if isSelected { return AppTheme.accent }
-    return model.appearancePalette.textPrimary.opacity(
-      isInActiveParagraph ? 1 : PlayerTeleprompterMetrics.inactiveLineTextOpacity
-    )
+    let opacity: CGFloat
+    switch emphasis {
+    case .activeLine(let spokenThroughStart):
+      opacity = word.globalStart <= spokenThroughStart
+        ? 1 : PlayerTeleprompterMetrics.upcomingWordTextOpacity
+    case .activeParagraph:
+      opacity = PlayerTeleprompterMetrics.activeParagraphLineTextOpacity
+    case .inactive:
+      opacity = PlayerTeleprompterMetrics.inactiveLineTextOpacity
+    }
+    return model.appearancePalette.textPrimary.opacity(opacity)
   }
 }
 
-// MARK: - Smooth time (60 fps)
-
-/// Während Wiedergabe direkt AVPlayer-Ziel — keine Extrapolation (verhindert Nachhängen).
-private final class ReadAlongPlaybackClock {
-  private var anchorTime: Double = 0
-  private var anchorInstant: TimeInterval = 0
-  private var lastTarget: Double = -1
-  private var hasAnchor = false
-
-  var lastSyncedTarget: Double { lastTarget }
-
-  func hardReset(to target: Double) {
-    anchorTime = target
-    anchorInstant = Date().timeIntervalSinceReferenceDate
-    lastTarget = target
-    hasAnchor = true
-  }
-
-  func displayedTime(
-    at instant: Date,
-    target: Double,
-    isPlaying: Bool,
-    playbackRate: Double
-  ) -> Double {
-    let now = instant.timeIntervalSinceReferenceDate
-
-    if isPlaying {
-      lastTarget = target
-      anchorTime = target
-      anchorInstant = now
-      hasAnchor = true
-      return target
-    }
-
-    if !hasAnchor || abs(target - lastTarget) > 2 {
-      anchorTime = target
-      anchorInstant = now
-      lastTarget = target
-      hasAnchor = true
-      return target
-    }
-
-    anchorTime = target
-    anchorInstant = now
-    lastTarget = target
-    return target
-  }
+/// Markierungsstufe einer Teleprompter-Zeile: aktive Zeile (Wörter bis zum aktiven in voller
+/// Tinte), übrige Zeilen des aktiven Absatzes, Rest.
+private enum TeleprompterLineEmphasis: Equatable {
+  case activeLine(spokenThroughStart: Double)
+  case activeParagraph
+  case inactive
 }

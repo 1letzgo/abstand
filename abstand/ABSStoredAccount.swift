@@ -12,11 +12,16 @@ struct ABSStoredAccount: Codable, Identifiable, Equatable {
   var userType: String?
   var booksLibraryId: String?
   var podcastsLibraryId: String?
+  /// Legacy: spiegelte nur `booksLibraryId` — nicht als eBook-Primary lesen (siehe `primaryEbooksLibraryId`).
   var ebooksLibraryId: String?
   /// Aktive Books-Library-IDs (inkl. Primary); `nil` = noch nicht migriert.
   var activeBooksLibraryIds: [String]? = nil
   /// Aktive Podcast-Library-IDs (inkl. Primary); `nil` = noch nicht migriert.
   var activePodcastLibraryIds: [String]? = nil
+  /// Primary eBook-Library (`Keys.ebooksLibrary`); `nil` = nie gewählt → automatisch wie Audiobooks.
+  var primaryEbooksLibraryId: String? = nil
+  /// Aktive eBook-Library-IDs (inkl. eBook-Primary); `nil` = noch nicht migriert.
+  var activeEbooksLibraryIds: [String]? = nil
   var lastUsedAt: Date
 
   var id: String { accountKey }

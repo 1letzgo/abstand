@@ -1225,6 +1225,14 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Asset für eine lokale Track-Datei: präzises Timing, sonst schätzt AVFoundation bei VBR-MP3 Dauer und
   /// Seek-Ziele aus der Bitrate — Position und Teleprompter laufen dann sekundenweise auseinander.
   /// Bewusst nur lokal: beim Streamen würde der Schlüssel das Laden der ganzen Datei erzwingen.
+  /// Seek-Toleranz je Item: lokale Dateien springen exakt (Read Along braucht die genaue
+  /// Zeitbasis; das Asset ist mit `PreferPreciseDurationAndTiming` geladen). Streams behalten
+  /// die Standardtoleranz von `seek(to:)` (unendlich) — exakte Seeks dort wären langsam.
+  static func seekTolerance(for item: AVPlayerItem?) -> CMTime {
+    guard let asset = item?.asset as? AVURLAsset, asset.url.isFileURL else { return .positiveInfinity }
+    return .zero
+  }
+
   static func localTrackAsset(url: URL) -> AVURLAsset {
     AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
   }
@@ -1421,7 +1429,11 @@ final class PlaybackController: NSObject, ObservableObject {
     installObservers()
     applyEQToCurrentItem()
     let resumeSnapshot = resumeAt
-    player?.seek(to: CMTime(seconds: offsetInTrack, preferredTimescale: 600)) { [weak self] _ in
+    let localTolerance = Self.seekTolerance(for: item)
+    player?.seek(
+      to: CMTime(seconds: offsetInTrack, preferredTimescale: 600),
+      toleranceBefore: localTolerance, toleranceAfter: localTolerance
+    ) { [weak self] _ in
       guard let self else { return }
       Task { @MainActor [weak self] in
         guard let self, self.loadGeneration == generation else { return }
@@ -1901,7 +1913,11 @@ final class PlaybackController: NSObject, ObservableObject {
     installObservers()
     applyEQToCurrentItem()
     let offsetSnapshot = effectiveOffset
-    player?.seek(to: CMTime(seconds: effectiveOffset, preferredTimescale: 600)) { [weak self] _ in
+    let tolerance = Self.seekTolerance(for: item)
+    player?.seek(
+      to: CMTime(seconds: effectiveOffset, preferredTimescale: 600),
+      toleranceBefore: tolerance, toleranceAfter: tolerance
+    ) { [weak self] _ in
       guard let self else { return }
       let shouldPlay = play
       Task { @MainActor [weak self] in
@@ -2348,7 +2364,11 @@ final class PlaybackController: NSObject, ObservableObject {
       // direkt ans jüngste Ziel (`pendingSeekTarget`).
     } else {
       let position = g
-      player?.seek(to: CMTime(seconds: offset, preferredTimescale: 600)) { [weak self] finished in
+      let tolerance = Self.seekTolerance(for: player?.currentItem)
+      player?.seek(
+        to: CMTime(seconds: offset, preferredTimescale: 600),
+        toleranceBefore: tolerance, toleranceAfter: tolerance
+      ) { [weak self] finished in
         guard let self else { return }
         Task { @MainActor [weak self] in
           guard let self, generation == self.seekGeneration else { return }

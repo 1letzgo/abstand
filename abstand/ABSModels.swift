@@ -1716,6 +1716,8 @@ struct ABSBookMedia: Codable {
   let duration: Double?
   let size: Int64?
   let numTracks: Int?
+  /// Nur Podcasts: Folgenzahl aus dem (minified) Katalog (`media.numEpisodes`) — Sortierung der Leiste.
+  let numEpisodes: Int?
   let chapters: [ABSChapter]?
   let tracks: [ABSAudioTrack]?
   /// Nur Podcast-`media.episodes` (expandiertes Library-Item).
@@ -1733,7 +1735,7 @@ struct ABSBookMedia: Codable {
   let tags: [String]?
 
   enum CodingKeys: String, CodingKey {
-    case metadata, duration, size, numTracks, chapters, tracks, audioFiles, tags
+    case metadata, duration, size, numTracks, numEpisodes, chapters, tracks, audioFiles, tags
     case podcastEpisodes = "episodes"
     case autoDownloadEpisodes, autoDownloadSchedule
     case maxEpisodesToKeep, maxNewEpisodesToDownload
@@ -1747,6 +1749,7 @@ struct ABSBookMedia: Codable {
     duration = try c.decodeIfPresent(Double.self, forKey: .duration)
     size = try c.decodeIfPresent(Int64.self, forKey: .size)
     numTracks = try c.decodeIfPresent(Int.self, forKey: .numTracks)
+    numEpisodes = try c.decodeIfPresent(Int.self, forKey: .numEpisodes)
     chapters = try c.decodeIfPresent([ABSChapter].self, forKey: .chapters)
     podcastEpisodes = try c.decodeIfPresent([ABSRecentPodcastEpisodeDTO].self, forKey: .podcastEpisodes)
     autoDownloadEpisodes = try c.decodeIfPresent(Bool.self, forKey: .autoDownloadEpisodes)
@@ -1778,6 +1781,7 @@ struct ABSBookMedia: Codable {
     try c.encodeIfPresent(duration, forKey: .duration)
     try c.encodeIfPresent(size, forKey: .size)
     try c.encodeIfPresent(numTracks, forKey: .numTracks)
+    try c.encodeIfPresent(numEpisodes, forKey: .numEpisodes)
     try c.encodeIfPresent(chapters, forKey: .chapters)
     try c.encodeIfPresent(tracks, forKey: .tracks)
     try c.encodeIfPresent(podcastEpisodes, forKey: .podcastEpisodes)
@@ -2076,9 +2080,11 @@ extension ABSBookMedia {
     maxNewEpisodesToDownload: Int? = nil,
     ebookFile: ABSEbookFile? = nil,
     ebookFormat: String? = nil,
-    tags: [String]? = nil
+    tags: [String]? = nil,
+    numEpisodes: Int? = nil
   ) {
     self.metadata = metadata
+    self.numEpisodes = numEpisodes
     self.duration = duration
     self.size = size
     self.numTracks = numTracks
@@ -2349,7 +2355,8 @@ extension ABSBook {
       podcastEpisodes: media.podcastEpisodes ?? lm.podcastEpisodes,
       ebookFile: media.ebookFile ?? lm.ebookFile,
       ebookFormat: media.ebookFormat ?? lm.ebookFormat,
-      tags: media.tags ?? lm.tags
+      tags: media.tags ?? lm.tags,
+      numEpisodes: media.numEpisodes ?? lm.numEpisodes
     )
     return ABSBook(
       id: id,
@@ -2375,7 +2382,8 @@ extension ABSBook {
       podcastEpisodes: media.podcastEpisodes ?? other.media.podcastEpisodes,
       ebookFile: media.ebookFile ?? other.media.ebookFile,
       ebookFormat: media.ebookFormat ?? other.media.ebookFormat,
-      tags: media.tags ?? other.media.tags
+      tags: media.tags ?? other.media.tags,
+      numEpisodes: media.numEpisodes ?? other.media.numEpisodes
     )
     return ABSBook(
       id: id,
@@ -2402,7 +2410,8 @@ extension ABSBook {
       podcastEpisodes: media.podcastEpisodes,
       ebookFile: media.ebookFile ?? other.media.ebookFile,
       ebookFormat: media.ebookFormat ?? other.media.ebookFormat,
-      tags: other.media.tags ?? media.tags
+      tags: other.media.tags ?? media.tags,
+      numEpisodes: media.numEpisodes ?? other.media.numEpisodes
     )
     return ABSBook(
       id: id,
@@ -4704,6 +4713,24 @@ extension ABSListeningStatsResponse {
       if calendar.component(.year, from: d) == y { sum += sec }
     }
     return sum
+  }
+
+  /// Laufende Kalenderwoche (Wochenanfang laut `calendar`): Hörzeit-Sekunden und je Wochentag, ob gehört
+  /// wurde (Index 0 = erster Wochentag). Nur sieben `days`-Lookups — günstig genug für Home.
+  func currentWeekActivity(
+    calendar: Calendar = .current,
+    now: Date = Date()
+  ) -> (seconds: Int, activeDays: [Bool])? {
+    guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start else { return nil }
+    var seconds = 0
+    var active: [Bool] = []
+    for offset in 0..<7 {
+      guard let day = calendar.date(byAdding: .day, value: offset, to: weekStart) else { return nil }
+      let sec = max(0, days[Self.dayKey(day, calendar: calendar)] ?? 0)
+      seconds += sec
+      active.append(sec > 0)
+    }
+    return (seconds, active)
   }
 
   var daysActive: Int {

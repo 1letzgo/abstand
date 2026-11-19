@@ -403,9 +403,9 @@ actor LocalLibraryStore {
     try modelContext.save()
   }
 
-  func fetchPodcastShows(libraryId: String, sortField: String, ascending: Bool) -> [ABSBook]? {
-    LocalLibraryQueries.podcastShows(
-      context: modelContext, libraryId: libraryId, sortField: sortField, ascending: ascending)
+  /// Zuletzt gecachte Sendungen in Server-Reihenfolge; die Leiste sortiert sie selbst (`PodcastShowSorting`).
+  func fetchPodcastShows(libraryId: String) -> [ABSBook]? {
+    LocalLibraryQueries.podcastShows(context: modelContext, libraryId: libraryId)
   }
 
   // MARK: - Bücher (Katalog + geteilte "Server-Kopie" für Serien/Sammlungen/eBooks/Suche)
@@ -1061,15 +1061,10 @@ enum LocalLibraryQueries {
     return (try? context.fetch(descriptor))?.first?.toItem()
   }
 
-  static func podcastShows(
-    context: ModelContext, libraryId: String, sortField: String, ascending: Bool
-  ) -> [ABSBook]? {
-    var stateDescriptor = FetchDescriptor<LocalPodcastShowListState>(
-      predicate: #Predicate { $0.libraryId == libraryId })
-    stateDescriptor.fetchLimit = 1
-    guard let state = (try? context.fetch(stateDescriptor))?.first,
-      state.sortField == sortField, state.ascending == ascending
-    else { return nil }
+  /// Gecachte Sendungen einer Podcast-Bibliothek — **unabhängig** vom Sortierschlüssel, unter dem sie
+  /// gespeichert wurden. Früher kam bei abweichender Sortierung `nil` zurück: offline blieb die Leiste
+  /// dann in der alten Reihenfolge stehen. Sortiert wird beim Anzeigen (`AppModel.sortedPodcastShows`).
+  static func podcastShows(context: ModelContext, libraryId: String) -> [ABSBook]? {
     let entryPredicate = #Predicate<LocalPodcastShowEntry> { $0.libraryId == libraryId }
     let entries =
       (try? context.fetch(FetchDescriptor(predicate: entryPredicate, sortBy: [SortDescriptor(\.rank)]))) ?? []

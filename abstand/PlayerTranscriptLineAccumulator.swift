@@ -150,6 +150,66 @@ final class PlayerTranscriptLineAccumulator {
   }
 }
 
+// MARK: - Wortanfänge nach Sprechpausen
+
+/// Korrigiert Wortanfänge, die der Erkenner in eine vorausgehende Sprechpause vorzieht.
+///
+/// `SpeechTranscriber` lässt im Deutschen nach Pausen fast nie eine Lücke: Das Wort nach der Pause
+/// beginnt laut Erkenner schon am Ende des vorigen Worts, nur sein Ende stimmt. Die Markierung
+/// sprang dadurch bis ~1 s zu früh. Ein Wort darf deshalb höchstens `maxDuration` vor seinem Ende
+/// beginnen (Basis + je sichtbarem Zeichen). Gemessen mit synthetischer Sprache (DE/EN, bekannte
+/// Phrasenanfänge): Fehler erkannt − wahr DE Mittel −0,29 → −0,12 s, P5 −1,05 → −0,40 s; EN
+/// unverändert (−0,11 s). Konstanten aus TTS-Sprechtempo, eher großzügig gewählt.
+///
+/// Seit Transkript-Version 4 legt der Producer Wortanfänge nach Pausen auf den akustischen Einsatz
+/// (`SpeechOnsetRefiner`). Diese Heuristik bleibt nur der Rückfall für alte Transkripte (Version 2),
+/// bis sie neu erzeugt sind: Sie wirkt beim Lesen auf die Read-Along-Anzeige (Zeilen, Markierung,
+/// Scroll) und nie auf verfeinerte Wörter — die würde sie sonst ein zweites Mal verschieben.
+enum ReadAlongWordTiming {
+  static let baseMaxDuration: Double = 0.15
+  static let maxDurationPerCharacter: Double = 0.10
+
+  /// Sichtbare Zeichen ohne Leerraum.
+  static func characterCount(_ text: String) -> Int {
+    text.reduce(0) { $1.isWhitespace ? $0 : $0 + 1 }
+  }
+
+  static func maxDuration(characterCount: Int) -> Double {
+    baseMaxDuration + maxDurationPerCharacter * Double(max(0, characterCount))
+  }
+
+  /// `max(start, end − maxDuration)`, höchstens bis zum (unkorrigierten) Start des Folgeworts —
+  /// so bleiben die Anfänge monoton. Unverändert bei `end ≤ start` oder ungültigen Zeiten.
+  static func correctedStart(start: Double, end: Double, characterCount: Int, nextStart: Double?) -> Double {
+    guard start.isFinite, end.isFinite, end > start else { return start }
+    var corrected = max(start, end - maxDuration(characterCount: characterCount))
+    if let nextStart, nextStart.isFinite {
+      corrected = max(start, min(corrected, nextStart))
+    }
+    return corrected
+  }
+
+  /// Wörter (nach Startzeit sortiert) mit korrigierten Anfängen; Ende, Text und ID bleiben.
+  /// Folgewort ist das nächste Nicht-Leerraum-Wort derselben Liste.
+  static func corrected(_ words: [PlayerTranscriptWord]) -> [PlayerTranscriptWord] {
+    var out = words
+    var nextStart: Double?
+    for index in words.indices.reversed() {
+      let word = words[index]
+      guard !word.isWhitespaceOnly else { continue }
+      let start = correctedStart(
+        start: word.globalStart, end: word.globalEnd,
+        characterCount: characterCount(word.text), nextStart: nextStart)
+      if start != word.globalStart {
+        out[index] = PlayerTranscriptWord(
+          id: word.id, text: word.text, globalStart: start, globalEnd: word.globalEnd)
+      }
+      nextStart = word.globalStart
+    }
+    return out
+  }
+}
+
 /// Absätze für die Read-Along-Markierung. Das Transkript kennt selbst keine Absätze, daher
 /// abgeleitet: ein Absatz endet an einem Satzende mit Sprechpause oder nach einigen Sätzen,
 /// spätestens nach einer festen Zeilenzahl (Text ganz ohne Satzzeichen).

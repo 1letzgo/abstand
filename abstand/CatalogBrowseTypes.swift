@@ -57,14 +57,17 @@ enum CatalogSortField: String, CaseIterable, Identifiable, Hashable {
 
 /// Sortierung Podcast-Shows (`GET …/libraries/:id/items`, `mediaType=podcast`).
 /// Server: `libraryItemsPodcastFilters.getOrder` — nicht dieselben Felder wie bei Büchern.
+/// Verbindlich sortiert wird lokal (`PodcastShowSorting`), damit die Leiste sofort und offline umsortiert.
+/// „File created/modified“ gibt es nicht mehr (für Podcasts ohne Aussage); alte gespeicherte Werte
+/// `birthtimeMs`/`mtimeMs` migriert `AppModel.migratePodcastCatalogSortField` auf `.addedAt`/`.updatedAt`.
 enum PodcastCatalogSortField: String, CaseIterable, Identifiable, Hashable {
   case title
   case author
   case numEpisodes
   case addedAt
+  /// Zuletzt aktualisiert (`updatedAt` des Library-Items — ändert sich u. a. mit neuen Folgen).
+  case updatedAt
   case size
-  case birthtimeMs
-  case mtimeMs
   case random
 
   var id: String { rawValue }
@@ -75,22 +78,22 @@ enum PodcastCatalogSortField: String, CaseIterable, Identifiable, Hashable {
     case .author: return "Author"
     case .numEpisodes: return "Number of episodes"
     case .addedAt: return "Date added"
+    case .updatedAt: return "Last updated"
     case .size: return "Total size"
-    case .birthtimeMs: return "File created"
-    case .mtimeMs: return "File modified"
     case .random: return "Random"
     }
   }
 
+  /// Server-Schlüssel. `updatedAt` kennt der Server nicht — `mtimeMs` (Ordner-Änderung, also neue
+  /// Folgen-Dateien) ist der nächste unterstützte; die endgültige Reihenfolge kommt ohnehin lokal.
   var apiSortParameter: String {
     switch self {
     case .title: return "media.metadata.title"
     case .author: return "media.metadata.author"
     case .numEpisodes: return "media.numTracks"
     case .addedAt: return "addedAt"
+    case .updatedAt: return "mtimeMs"
     case .size: return "size"
-    case .birthtimeMs: return "birthtimeMs"
-    case .mtimeMs: return "mtimeMs"
     case .random: return "random"
     }
   }
@@ -123,15 +126,12 @@ enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
   case tags = "Tags"
   case author = "Authors"
   case narrators = "Narrators"
-  case ebooks = "eBooks"
-  case ebooksSupplementary = "Supplementary"
 
   var id: String { rawValue }
 
-  /// Unterbereiche im Audiobook-Bereich des gemeinsamen Medien-Tabs.
-  /// eBooks sind eine eigene Kategorie direkt nach „Audiobooks“ (nicht mehr als Katalog-Filter).
+  /// Unterbereiche im Audiobooks-Tab. eBooks haben einen eigenen Tab (`EbooksBrowseSection`).
   static let audiobookStripOrder: [BooksBrowseSection] = [
-    .books, .ebooks, .series, .author, .collections, .genres, .narrators, .tags,
+    .books, .series, .author, .collections, .genres, .narrators, .tags,
   ]
 
   /// Anzeigename in der Leiste. `rawValue` bleibt unverändert (Identität / Auswahl-ID).
@@ -152,8 +152,28 @@ enum BooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
     case .tags: return "tag"
     case .author: return "person.text.rectangle"
     case .narrators: return "waveform"
+    }
+  }
+}
+
+/// Leiste im eBooks-Tab: reine eBooks bzw. Hörbücher mit angehängtem eBook.
+enum EbooksBrowseSection: String, CaseIterable, Identifiable, Hashable {
+  case ebooks
+  case withAudiobook
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .ebooks: return "eBooks"
+    case .withAudiobook: return "With audiobook"
+    }
+  }
+
+  var systemImage: String {
+    switch self {
     case .ebooks: return "book.closed"
-    case .ebooksSupplementary: return "books.vertical.fill"
+    case .withAudiobook: return "headphones"
     }
   }
 }
@@ -170,8 +190,6 @@ enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
   case finished
   case notStarted
   case downloaded
-  case ebooks
-  case ebooksSupplementary
 
   var id: String { rawValue }
 
@@ -181,8 +199,6 @@ enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
     case .finished: return "Finished"
     case .notStarted: return "Not started"
     case .downloaded: return "Downloaded"
-    case .ebooks: return "eBooks"
-    case .ebooksSupplementary: return "Supplementary eBooks"
     }
   }
 
@@ -192,8 +208,6 @@ enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
     case .finished: return "checkmark.circle"
     case .notStarted: return "circle"
     case .downloaded: return "arrow.down.circle"
-    case .ebooks: return "book.closed"
-    case .ebooksSupplementary: return "books.vertical.fill"
     }
   }
 
@@ -209,8 +223,6 @@ enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
     case .inProgress: return key(group: "progress", value: "in-progress")
     case .finished: return key(group: "progress", value: "finished")
     case .notStarted: return key(group: "progress", value: "not-started")
-    case .ebooks: return key(group: "ebooks", value: "ebook")
-    case .ebooksSupplementary: return key(group: "ebooks", value: "supplementary")
     }
   }
 
@@ -218,8 +230,6 @@ enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
     switch self {
     case .inProgress, .finished, .notStarted: return "Progress"
     case .downloaded: return "Downloaded"
-    case .ebooks: return "eBooks"
-    case .ebooksSupplementary: return "Supplementary"
     }
   }
 
@@ -229,8 +239,6 @@ enum LibraryCatalogQuickFilter: String, CaseIterable, Identifiable, Hashable {
     case .finished: return "Finished"
     case .notStarted: return "Not started"
     case .downloaded: return nil
-    case .ebooks: return nil
-    case .ebooksSupplementary: return nil
     }
   }
 }
@@ -401,3 +409,11 @@ extension BooksBrowseSeriesSortField: AbstandSortMenuField {
 extension BooksBrowseFacetSortField: AbstandSortMenuField {}
 extension BooksBrowseCollectionsSortField: AbstandSortMenuField {}
 
+
+extension ABSBook {
+  /// Audiobooks-Tab: reine eBooks (keine Hörspuren, aber eBook-Datei) gehören nur in den eBooks-Tab.
+  /// Katalogzeilen ohne Spur- und eBook-Angaben bleiben sichtbar (wie `isUsableLibraryCatalogRow`).
+  var belongsInAudiobooksCatalog: Bool {
+    isPlayableAudiobook || !hasAttachedEbook
+  }
+}

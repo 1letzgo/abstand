@@ -692,7 +692,10 @@ final class EbookAlignmentStore {
       account: account, bookId: bookId, trackIndex: trackIndex, localeIdentifier: localeId),
       let stored = EbookTrackAlignment(data: data),
       stored.ebookWordCount == index.words.count,
-      stored.spokenWordCount == words.count
+      stored.spokenWordCount == words.count,
+      // Gleiche Wortzahl reicht nicht: ein neu erzeugtes Transkript (andere Zeiten) muss neu
+      // abgeglichen werden. Das Ende des letzten Worts steht schon im Dateiformat.
+      stored.spokenEnd == (words.last?.end ?? 0)
     {
       return stored
     }

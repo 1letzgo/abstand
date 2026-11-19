@@ -909,6 +909,8 @@ extension AppModel {
     let key = ABSStoredAccount.makeKey(serverURL: serverURL, userId: userId)
     let booksLib = UserDefaults.standard.string(forKey: Keys.booksLibrary)
     let podcastsLib = UserDefaults.standard.string(forKey: Keys.podcastsLibrary)
+    let primaryEbooksLib = UserDefaults.standard.string(forKey: Keys.ebooksLibrary)
+    let activeEbooks = activeEbooksLibraryIds
     let activeBooks = activeBooksLibraryIds
     let activePods = activePodcastLibraryIds
     if let idx = storedAccounts.firstIndex(where: { $0.accountKey == key }) {
@@ -923,6 +925,8 @@ extension AppModel {
       storedAccounts[idx].ebooksLibraryId = booksLib
       storedAccounts[idx].activeBooksLibraryIds = activeBooks
       storedAccounts[idx].activePodcastLibraryIds = activePods
+      storedAccounts[idx].primaryEbooksLibraryId = primaryEbooksLib
+      storedAccounts[idx].activeEbooksLibraryIds = activeEbooks
     } else if let legacyIdx = activeAccountKey.flatMap({ key in storedAccounts.firstIndex(where: { $0.accountKey == key }) }),
       storedAccounts[legacyIdx].userId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     {
@@ -939,6 +943,8 @@ extension AppModel {
       storedAccounts[legacyIdx].ebooksLibraryId = booksLib
       storedAccounts[legacyIdx].activeBooksLibraryIds = activeBooks
       storedAccounts[legacyIdx].activePodcastLibraryIds = activePods
+      storedAccounts[legacyIdx].primaryEbooksLibraryId = primaryEbooksLib
+      storedAccounts[legacyIdx].activeEbooksLibraryIds = activeEbooks
     } else {
       storedAccounts.append(
         ABSStoredAccount(
@@ -954,6 +960,8 @@ extension AppModel {
           ebooksLibraryId: booksLib,
           activeBooksLibraryIds: activeBooks,
           activePodcastLibraryIds: activePods,
+          primaryEbooksLibraryId: primaryEbooksLib,
+          activeEbooksLibraryIds: activeEbooks,
           lastUsedAt: Date()
         ))
     }

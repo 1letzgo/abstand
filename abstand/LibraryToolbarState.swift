@@ -405,8 +405,6 @@ private struct BooksLibraryToolbarBodyStandard: ToolbarContent {
     switch snapshot.booksBrowseSection {
     case .books:
       BrowseBooksCatalogToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
-    case .ebooks, .ebooksSupplementary:
-      BrowseEbooksCatalogToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
     case .author:
       BrowseAuthorsSortToolbarContent(snapshot: snapshot, toolbarState: toolbarState)
     case .narrators:
@@ -480,7 +478,7 @@ private struct BrowseBooksCatalogToolbarContent: ToolbarContent {
   }
 }
 
-/// Wie der Hörbuch-Katalog: Filter (lokal, eigener Zustand) + dieselbe Sortierung.
+/// eBooks-Tab wie der Hörbuch-Katalog: Filter (lokal, eigener Zustand) + dieselbe Sortierung.
 private struct BrowseEbooksCatalogToolbarContent: ToolbarContent {
   let snapshot: BooksLibraryToolbarSnapshot
   let toolbarState: BooksLibraryToolbarState
@@ -612,6 +610,36 @@ private struct BooksLibraryToolbarModifier: ViewModifier {
   }
 }
 
+/// eBooks-Tab: eigener NavigationStack, Toolbar nur mit eBook-Filter und Sortierung.
+struct EbooksLibraryTabShell<Catalog: View>: View {
+  let toolbarState: BooksLibraryToolbarState
+  @ViewBuilder var catalog: () -> Catalog
+
+  var body: some View {
+    NavigationStack {
+      catalog()
+        .abstandTabScreenChrome()
+        .abstandTabLargeTitle(AppModel.MainTab.ebooks.rawValue)
+        .modifier(EbooksLibraryToolbarModifier(toolbarState: toolbarState))
+        .booksEntityDetailNavigation(for: .ebooks)
+    }
+  }
+}
+
+/// Wie `BooksLibraryToolbarModifier`: Toolbar nur bei `toolbarState`-Änderungen neu auswerten.
+private struct EbooksLibraryToolbarModifier: ViewModifier {
+  @ObservedObject var toolbarState: BooksLibraryToolbarState
+
+  func body(content: Content) -> some View {
+    content.toolbar {
+      BrowseEbooksCatalogToolbarContent(
+        snapshot: BooksLibraryToolbarSnapshot(toolbarState),
+        toolbarState: toolbarState
+      )
+    }
+  }
+}
+
 struct PodcastCatalogToolbarSnapshot: Equatable {
   var sortField: PodcastCatalogSortField
   var sortDescending: Bool
@@ -682,7 +710,8 @@ struct PodcastCatalogToolbarContent: ToolbarContent {
         .accessibilityLabel("Show settings")
       }
 
-      // Gewählte Sendung: Sortierung der Folgen. „New“-Ansicht: Sortierung der Sendungs-Leiste.
+      // „New“-Ansicht: Sortierung der Sendungs-Leiste. Gewählte Sendung: Folgen-Sortierung plus
+      // Untermenü „Sort shows“ für die (weiter sichtbare) Leiste.
       if snapshot.isPodcastNewView {
         PodcastCatalogSortToolbarSnapshot(toolbarState: toolbarState)
           .equatable()
@@ -721,28 +750,38 @@ struct PodcastCatalogTabShell<Catalog: View>: View {
   }
 }
 
-/// Wert-Snapshot der Folgen-Sortierung — offenes Menü bleibt bei Katalog-Ticks stabil.
+/// Wert-Snapshot der Folgen-Sortierung (plus Untermenü für die Sendungs-Leiste) — offenes Menü
+/// bleibt bei Katalog-Ticks stabil.
 struct PodcastEpisodeSortToolbarSnapshot: View, Equatable {
   let sortField: PodcastEpisodeSortField
   let sortDescending: Bool
+  let showSortField: PodcastCatalogSortField
+  let showSortDescending: Bool
   let toolbarState: PodcastCatalogToolbarState
 
   init(toolbarState: PodcastCatalogToolbarState) {
     self.toolbarState = toolbarState
     sortField = toolbarState.episodeSortField
     sortDescending = toolbarState.episodeSortDescending
+    showSortField = toolbarState.sortField
+    showSortDescending = toolbarState.sortDescending
   }
 
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.sortField == rhs.sortField && lhs.sortDescending == rhs.sortDescending
+      && lhs.showSortField == rhs.showSortField && lhs.showSortDescending == rhs.showSortDescending
   }
 
   var body: some View {
-    PodcastEpisodeSortToolbarMenu(
-      sortField: sortField,
-      sortDescending: sortDescending,
-      onSortFieldChange: { toolbarState.applyEpisodeSortField($0) },
-      onSortDescendingChange: { toolbarState.applyEpisodeSortDescending($0) }
+    PodcastShowEpisodeSortToolbarMenu(
+      episodeSortField: sortField,
+      episodeSortDescending: sortDescending,
+      showSortField: showSortField,
+      showSortDescending: showSortDescending,
+      onEpisodeSortFieldChange: { toolbarState.applyEpisodeSortField($0) },
+      onEpisodeSortDescendingChange: { toolbarState.applyEpisodeSortDescending($0) },
+      onShowSortFieldChange: { toolbarState.applySortField($0) },
+      onShowSortDescendingChange: { toolbarState.applySortDescending($0) }
     )
   }
 }

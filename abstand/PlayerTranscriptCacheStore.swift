@@ -11,7 +11,28 @@ import Foundation
 struct PlayerTranscriptTrackCache: Codable {
   // 2: Wortzeiten am PTS des ersten dekodierten Samples verankert, präzises VBR-Timing,
   // Mehrwort-Runs nach Zeichenzahl verteilt — ältere Transkripte waren zeitversetzt.
-  static let currentVersion = 2
+  // 3: nie veröffentlicht (nur ein Debug-Build): konnte nach einem Abbruch fälschlich „bis Track-Ende
+  //    abgedeckt" eintragen und dabei einen vollständigen alten Stand ersetzen — wird verworfen.
+  // 4: Wortanfänge nach Sprechpausen auf den akustischen Einsatz gelegt (`SpeechOnsetRefiner`),
+  //    Läufe mit Vor-/Nachlauf an den Lückengrenzen (`PlayerTranscriptRunWindow`).
+  static let currentVersion = 4
+  /// Ältere, weiter lesbare Stände. Version 2 hat dieselbe Zeitbasis, nur unverfeinerte Anfänge:
+  /// Die Anzeige korrigiert sie per `ReadAlongWordTiming`, bis der Track neu erzeugt ist. Das erste
+  /// neu produzierte Segment ersetzt den ganzen alten Stand (`insert`) — ein Track ist immer
+  /// entweder ganz alt oder ganz verfeinert. Version 3 fehlt hier absichtlich (gilt als „kein Transkript").
+  static let readableLegacyVersions: Set<Int> = [2]
+
+  /// Wortanfänge akustisch verfeinert? Sonst greift beim Anzeigen die Heuristik.
+  var isOnsetRefined: Bool { version >= 4 }
+
+  /// Ein alter Stand wird nur ersetzt, wenn das neue Segment in seinem Bereich mindestens diesen Anteil
+  /// der alten Wörter mitbringt — sonst behauptete es Abdeckung, die es nicht hat (Abbruch, leeres
+  /// „bis Track-Ende"-Segment). Erst ab `legacyReplacementMinimumWords` alten Wörtern im Bereich.
+  static let legacyReplacementMinimumRatio = 0.5
+  static let legacyReplacementMinimumWords = 10
+  /// Doppelte an Segmentgrenzen: so weit vor dem Ende eines vorhandenen Segments dürfen Wörter eines
+  /// angrenzenden neuen Laufs noch beginnen (Zeitversatz desselben Worts zwischen zwei Läufen).
+  static let boundaryToleranceSeconds = 0.3
 
   struct Word: Codable {
     /// Kurze Schlüssel: eine Stunde Hörbuch sind ~9.000 Wörter pro Datei.
@@ -65,8 +86,19 @@ struct PlayerTranscriptTrackCache: Codable {
   /// Segment einfügen und mit überlappenden/angrenzenden Segmenten verschmelzen.
   /// Sortiert wird nur, wenn die Reihenfolge nicht ohnehin stimmt (Normalfall: das neue Segment
   /// schließt hinten an) — das Ergebnis ist dasselbe wie mit stabiler Sortierung.
-  mutating func insert(segment: Segment) {
-    guard !segment.words.isEmpty || segment.end > segment.start else { return }
+  /// `false`: nichts geändert (leeres Segment, oder ein alter Stand ginge dabei verloren).
+  @discardableResult
+  mutating func insert(segment: Segment) -> Bool {
+    guard !segment.words.isEmpty || segment.end > segment.start else { return false }
+    // Neue Segmente kommen immer verfeinert aus dem Producer. Ein alter Stand wird dabei verworfen
+    // statt gemischt — sonst wüsste niemand mehr, welche Wörter die Anzeige-Heuristik brauchen.
+    if version != Self.currentVersion {
+      // Aber nie durch etwas, das in seinem Bereich viel weniger Wörter hat als der alte Stand: Das
+      // behauptete Abdeckung, die es nicht gibt (Gerätefund: 217 Wörter „deckten" 14 h ab).
+      guard Self.mayReplaceLegacy(segments, with: segment) else { return false }
+      segments = []
+      version = Self.currentVersion
+    }
     var merged: [Segment] = []
     merged.reserveCapacity(segments.count + 1)
     var pending = segment
@@ -80,12 +112,20 @@ struct PlayerTranscriptTrackCache: Codable {
         merged.append(existing)
         continue
       }
-      // Überlappung: Wörter zusammenführen, doppelte Zeitbereiche verwerfen.
-      var words = existing.words
-      let existingEnd = existing.end
-      words.append(contentsOf: pending.words.filter { $0.s >= existingEnd - 0.05 })
-      let keptFromPending = pending.words.filter { $0.e <= existing.start + 0.05 }
-      words.insert(contentsOf: keptFromPending, at: 0)
+      // Überlappung: im Bereich des vorhandenen Segments gewinnt es. Vom neuen nur Wörter, die davor
+      // beginnen oder ab kurz vor seinem Ende — und keins, das ein vorhandenes Wort an der Grenze
+      // doppelt (dasselbe Wort aus zwei Läufen liegt um einige Hundertstel versetzt).
+      let tolerance = Self.boundaryToleranceSeconds
+      let head = existing.words.prefix { $0.s < existing.start + Self.boundaryDuplicateWindowSeconds }
+      let tail = existing.words.reversed().prefix { $0.e > existing.end - Self.boundaryDuplicateWindowSeconds }
+      let before = pending.words.filter { word in
+        word.s < existing.start && !head.contains { Self.isSameSpokenWord($0, word) }
+      }
+      let after = pending.words.filter { word in
+        word.s >= existing.start && word.s >= existing.end - tolerance
+          && !tail.contains { Self.isSameSpokenWord($0, word) }
+      }
+      let words = before + existing.words + after
       pending = Segment(
         start: min(existing.start, pending.start),
         end: max(existing.end, pending.end),
@@ -94,6 +134,29 @@ struct PlayerTranscriptTrackCache: Codable {
     }
     merged.append(pending)
     segments = Self.isSorted(merged, by: \.start) ? merged : merged.sorted { $0.start < $1.start }
+    return true
+  }
+
+  /// Nur Wörter so nah an einer Segmentgrenze können Doppelte eines angrenzenden Laufs sein.
+  private static let boundaryDuplicateWindowSeconds = 2.0
+
+  /// Darf `segment` einen alten Stand (`segments`) ersetzen? Nein, wenn es in seinem Bereich weniger als
+  /// `legacyReplacementMinimumRatio` der dort vorhandenen alten Wörter mitbringt.
+  static func mayReplaceLegacy(_ segments: [Segment], with segment: Segment) -> Bool {
+    var legacyWords = 0
+    for existing in segments where existing.end > segment.start && existing.start < segment.end {
+      legacyWords += existing.words.lazy.filter { $0.s >= segment.start && $0.s < segment.end }.count
+    }
+    guard legacyWords >= legacyReplacementMinimumWords else { return true }
+    return Double(segment.words.count) >= Double(legacyWords) * legacyReplacementMinimumRatio
+  }
+
+  /// Dasselbe gesprochene Wort aus zwei Läufen: Zeiten überlappen mindestens zur Hälfte des kürzeren
+  /// (zeitlose Wörter: Anfänge höchstens 50 ms auseinander).
+  static func isSameSpokenWord(_ a: Word, _ b: Word) -> Bool {
+    let shorter = min(a.e - a.s, b.e - b.s)
+    guard shorter > 0.02 else { return abs(a.s - b.s) < 0.05 }
+    return min(a.e, b.e) - max(a.s, b.s) >= shorter * 0.5
   }
 
   var allWords: [Word] {
@@ -105,6 +168,37 @@ struct PlayerTranscriptTrackCache: Codable {
   private static func isSorted<T>(_ items: [T], by key: KeyPath<T, Double>) -> Bool {
     guard items.count > 1 else { return true }
     for i in 1..<items.count where items[i][keyPath: key] < items[i - 1][keyPath: key] { return false }
+    return true
+  }
+}
+
+/// Lauf-Fenster für eine Transkript-Lücke `[gapStart, gapEnd)`. Ein Lauf, der mitten in der Sprache
+/// beginnt, setzt sein erstes Wort auf den Laufstart; ein Lauf, der mitten in einem Wort endet, verliert
+/// es. Deshalb füttert der Producer ab `preRollSeconds` vor der Lücke und bis `postRollSeconds` nach
+/// ihrem Ende; übernommen werden nur Wörter, die in der Lücke beginnen (`keeps`) — der Vorlauf gehört
+/// dem Segment davor, der Nachlauf dem danach. Das gespeicherte Segment beginnt bei `gapStart`, damit
+/// die Abdeckung nie den Vorlauf mitbehauptet (sonst fände `firstUncoveredTime` immer dieselbe Lücke).
+nonisolated struct PlayerTranscriptRunWindow: Sendable, Equatable {
+  /// Am Mac gemessen (40 Startpunkte mitten in Wörtern, 8 echte Tracks): ohne Vorlauf stimmten nur 57 von
+  /// 120 ersten Wörtern (±0,1 s), mit 2 s 115, 2,5 s 112, 3 s 119 — die Erkennung braucht Anlauf.
+  static let preRollSeconds: Double = 3
+  /// Muss nur länger sein als ein Wort: das Wort über dem Lückenende soll ganz gehört werden.
+  static let postRollSeconds: Double = 2.5
+
+  let gapStart: Double
+  let gapEnd: Double?
+
+  /// Lokale Track-Sekunde, ab der gefüttert wird (nie vor dem Track-Anfang).
+  var runStart: Double { max(0, gapStart - Self.preRollSeconds) }
+  /// Ende des Fütterns (`nil` = bis Dateiende).
+  var runEnd: Double? { gapEnd.map { $0 + Self.postRollSeconds } }
+
+  /// Wort mit diesem Anfang in die Lücke übernehmen? Wörter im Vorlauf (auch das am Laufstart
+  /// klebende erste) gehören dem vorhandenen Segment davor, Wörter ab `gapEnd` dem danach.
+  /// Die Toleranz deckt den Zeitversatz desselben Worts zwischen zwei Läufen; Doppelte räumt `insert`.
+  func keeps(start: Double) -> Bool {
+    guard start >= gapStart - PlayerTranscriptTrackCache.boundaryToleranceSeconds else { return false }
+    if let gapEnd, start >= gapEnd { return false }
     return true
   }
 }
@@ -169,7 +263,10 @@ enum PlayerTranscriptCacheStore {
     guard let data = try? Data(contentsOf: url) else { return nil }
     do {
       let cache = try ABSJSON.decoder().decode(PlayerTranscriptTrackCache.self, from: data)
-      guard cache.version == PlayerTranscriptTrackCache.currentVersion else {
+      guard
+        cache.version == PlayerTranscriptTrackCache.currentVersion
+          || PlayerTranscriptTrackCache.readableLegacyVersions.contains(cache.version)
+      else {
         AppLog.playback.warning("transcript cache version mismatch — reproducing track")
         return nil
       }

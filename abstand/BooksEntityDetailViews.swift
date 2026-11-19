@@ -19,7 +19,12 @@ struct BooksEntityDetailNavigationModifier: ViewModifier {
         get: { model.homeEntityDetailNav },
         set: { model.homeEntityDetailNav = $0 }
       )
-    case .settings, .podcasts:
+    case .ebooks:
+      Binding(
+        get: { model.ebooksEntityDetailNav },
+        set: { model.ebooksEntityDetailNav = $0 }
+      )
+    case .podcasts:
       Binding.constant(nil)
     case .search:
       Binding(

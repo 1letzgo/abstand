@@ -6,10 +6,15 @@ struct MainRootView: View {
   @EnvironmentObject var model: AppModel
   @Environment(\.colorScheme) private var colorScheme
   @StateObject private var booksLibraryToolbarState = BooksLibraryToolbarState()
+  /// Eigene Instanz für den eBooks-Tab — Filter/Sortierung kommen aus demselben Model.
+  @StateObject private var ebooksLibraryToolbarState = BooksLibraryToolbarState()
   @StateObject private var podcastCatalogToolbarState = PodcastCatalogToolbarState()
   /// Tabs erst bei erstem Besuch aufbauen — Home sofort, Rest lazy (Prewarm nach Bootstrap).
   @State private var activatedTabs: Set<AppModel.MainTab> = [.start]
   @State private var libraryRelayoutEpoch = 0
+  @State private var ebooksRelayoutEpoch = 0
+  /// Leisten-Auswahl im eBooks-Tab (reine eBooks / mit Hörbuch) — rein lokaler UI-Zustand.
+  @State private var ebooksBrowseSection: EbooksBrowseSection = .ebooks
   @State private var podcastsRelayoutEpoch = 0
   /// Eine Destination am Katalog-Stack — nicht pro Lazy-Zeile (`isPresented` kommt dort oft nicht an).
   @State private var podcastDetailEpisode: ABSPodcastEpisodeListItem?
@@ -31,10 +36,7 @@ struct MainRootView: View {
     .onAppear {
       activatedTabs.insert(model.mainTab)
       if model.shouldPrewarmSecondaryTabs {
-        var tabs: Set<AppModel.MainTab> = [.settings]
-        if model.showAudiobooksTab { tabs.insert(.library) }
-        if model.showPodcastsTab { tabs.insert(.podcasts) }
-        activatedTabs.formUnion(tabs)
+        activatedTabs.formUnion(prewarmTabs)
       }
     }
     .fullScreenCover(item: $model.ebookReaderSession) { session in
@@ -64,6 +66,12 @@ struct MainRootView: View {
         if model.focusedBooksLibrary?.id != previousFocus {
           Task { await model.reloadLibrary(reset: true) }
         }
+      case .ebooks:
+        ebooksRelayoutEpoch += 1
+        model.mediaCatalogKind = .audiobooks
+        // Wie Audiobooks: Tab-Wechsel fokussiert die eBook-Primary (eigener Fokus, Audiobooks bleiben).
+        // Die eBook-Listen merken sich ihre Bibliothek und laden bei Abweichung selbst neu (`.task(id:)`).
+        model.resetFocusedEbooksLibraryToPrimary()
       case .podcasts:
         podcastsRelayoutEpoch += 1
         model.mediaCatalogKind = .podcasts
@@ -81,10 +89,7 @@ struct MainRootView: View {
     }
     .onChange(of: model.shouldPrewarmSecondaryTabs) { _, prewarm in
       guard prewarm else { return }
-      var tabs: Set<AppModel.MainTab> = [.settings]
-      if model.showAudiobooksTab { tabs.insert(.library) }
-      if model.showPodcastsTab { tabs.insert(.podcasts) }
-      activatedTabs.formUnion(tabs)
+      activatedTabs.formUnion(prewarmTabs)
     }
     .onChange(of: model.ebookReaderSession?.libraryItemId) { _, newId in
       if newId == nil {
@@ -98,12 +103,22 @@ struct MainRootView: View {
         model.mainTab = .start
       }
     }
+    .onChange(of: model.selectedEbooksLibrary?.id) { _, _ in
+      model.clampMediaCatalogKindIfNeeded()
+      if !model.showEbooksTab, model.mainTab == .ebooks {
+        model.mainTab = .start
+      }
+    }
     .onChange(of: model.selectedPodcastLibrary?.id) { _, _ in
       model.clampMediaCatalogKindIfNeeded()
     }
     .onChange(of: model.showAudiobooksTab) { _, visible in
       model.clampMediaCatalogKindIfNeeded()
       if visible { activatedTabs.insert(.library) }
+    }
+    .onChange(of: model.showEbooksTab) { _, visible in
+      model.clampMediaCatalogKindIfNeeded()
+      if visible { activatedTabs.insert(.ebooks) }
     }
     .onChange(of: model.showPodcastsTab) { _, visible in
       model.clampMediaCatalogKindIfNeeded()
@@ -112,8 +127,11 @@ struct MainRootView: View {
     .onChange(of: model.accountSessionEpoch) { _, _ in
       activatedTabs = [.start]
       libraryRelayoutEpoch += 1
+      ebooksRelayoutEpoch += 1
       podcastsRelayoutEpoch += 1
+      ebooksBrowseSection = .ebooks
       booksLibraryToolbarState.resetForAccountSwitch()
+      ebooksLibraryToolbarState.resetForAccountSwitch()
       podcastCatalogToolbarState.resetForAccountSwitch()
       podcastDetailEpisode = nil
     }
@@ -122,6 +140,7 @@ struct MainRootView: View {
       // der Animation aufräumen: währenddessen kostete das Frames und ließ die Inhalte hinter
       // dem schließenden Player sichtbar springen.
       libraryRelayoutEpoch += 1
+      ebooksRelayoutEpoch += 1
       podcastsRelayoutEpoch += 1
     }
     .alert(
@@ -150,6 +169,15 @@ struct MainRootView: View {
     }
   }
 
+  /// Sekundär-Tabs, die nach dem Bootstrap vorgebaut werden (Settings ist kein Tab mehr).
+  private var prewarmTabs: Set<AppModel.MainTab> {
+    var tabs: Set<AppModel.MainTab> = []
+    if model.showAudiobooksTab { tabs.insert(.library) }
+    if model.showEbooksTab { tabs.insert(.ebooks) }
+    if model.showPodcastsTab { tabs.insert(.podcasts) }
+    return tabs
+  }
+
   private var tabViewBody: some View {
     // Tab-Struktur bleibt auch offline erhalten — Inhalte filtern sich selbst auf Downloads.
     onlineTabView
@@ -176,6 +204,19 @@ struct MainRootView: View {
         }
       }
 
+      // Eigene eBook-Primary (Settings „Primary eBook library“) — „None“ blendet den Tab aus.
+      if model.showEbooksTab {
+        Tab(AppModel.MainTab.ebooks.rawValue, systemImage: "book.closed", value: AppModel.MainTab.ebooks) {
+          lazyTabContent(.ebooks) {
+            if model.selectedEbooksLibrary != nil {
+              ebooksTabRoot
+            } else {
+              tabLibraryBootstrapPlaceholder
+            }
+          }
+        }
+      }
+
       if model.showPodcastsTab {
         Tab(AppModel.MainTab.podcasts.rawValue, systemImage: "mic.fill", value: AppModel.MainTab.podcasts) {
           lazyTabContent(.podcasts) {
@@ -186,10 +227,6 @@ struct MainRootView: View {
             }
           }
         }
-      }
-
-      Tab(AppModel.MainTab.settings.rawValue, systemImage: "gearshape.fill", value: AppModel.MainTab.settings) {
-        lazyTabContent(.settings) { settingsTabRoot }
       }
 
       // iOS-26-nativer Such-Tab (`role: .search`): System pinnt den Tab an den Rand der
@@ -228,17 +265,6 @@ struct MainRootView: View {
     } else {
       Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-  }
-
-  // MARK: - Settings tab root
-
-  private var settingsTabRoot: some View {
-    NavigationStack {
-      SettingsHubRootView()
-        .abstandTabScreenChrome()
-        .abstandTabLargeTitle(AppModel.MainTab.settings.rawValue)
-    }
-    .tint(model.appearanceAccentColor)
   }
 
   // MARK: - Library tab
@@ -327,8 +353,6 @@ struct MainRootView: View {
       booksBrowseGenresListBody
     case .tags:
       booksBrowseTagsListBody
-    case .ebooks, .ebooksSupplementary:
-      booksEbookListBody
     }
   }
 
@@ -354,30 +378,112 @@ struct MainRootView: View {
           libraryCatalogBookCard(book)
         }
       }
+      // Listenende: weiterblättern, auch wenn die letzte Server-Seite nur reine eBooks enthielt.
+      Color.clear
+        .frame(height: AppTheme.Layout.hairlineWidth)
+        .accessibilityHidden(true)
+        .task(id: model.books.count) {
+          await model.loadMoreAtCatalogEndIfNeeded()
+        }
     }
   }
 
-  /// Eigene eBooks-Kategorie: reine eBooks, darunter Hörbücher mit angehängtem eBook.
-  private var booksEbookListBody: some View {
-    let pure = model.browseEbooksFiltered(model.browseEbooks)
-    let supplementary = model.browseEbooksFiltered(model.browseEbooksSupplementary)
-    return LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-      TabContentSectionTitle(title: BooksBrowseSection.ebooks.title)
-      if model.browseEbooksLoading, pure.isEmpty, supplementary.isEmpty {
+  // MARK: - eBooks tab
+
+  private var ebooksTabRoot: some View {
+    EbooksLibraryTabShell(
+      toolbarState: ebooksLibraryToolbarState,
+      catalog: { ebooksCatalogScrollView }
+    )
+    .id("ebooks-library-tab-\(model.accountSessionEpoch)")
+    .onAppear { ebooksLibraryToolbarState.attach(model) }
+    .onDisappear { ebooksLibraryToolbarState.detach() }
+    // Erstes Öffnen und jeder Bibliothekswechsel (Picker, Tab-Wechsel auf Primary) laden die Listen.
+    .task(id: "\(model.ebooksCatalogLibrary?.id ?? "")-\(model.offlineHomeUIActive)") {
+      await model.ensureBrowseEbooksLoaded()
+    }
+  }
+
+  private var ebooksCatalogScrollView: some View {
+    AbstandFixedBrowseStripSectionsLayout(
+      relayoutTrigger: ebooksRelayoutEpoch,
+      bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
+      scrollToTopTrigger: model.libraryCatalogScrollToTopEpoch,
+      selection: ebooksBrowseSection,
+      sectionIDs: EbooksBrowseSection.allCases,
+      scrollBottomInset: AppTheme.Layout.scrollBottomInsetBase
+        + model.nowPlayingAccessoryScrollBottomInset,
+      onRefresh: { await model.refreshEbooksTab() }
+    ) {
+      ebooksBrowseSectionStrip
+    } sectionBody: { section in
+      ebooksSectionBody(for: section)
+    }
+  }
+
+  private var ebooksBrowseSectionStrip: some View {
+    // Eigener Fokus: ein Wechsel hier stellt den Audiobooks-Katalog nicht um.
+    let pickerLibraries = model.ebooksPickerLibraries
+    let libraryItems = pickerLibraries.map {
+      AbstandBrowseStripItem(id: $0.id, label: $0.name, systemImage: "books.vertical.fill")
+    }
+    let librarySelectionID =
+      model.focusedEbooksLibrary?.id
+      ?? model.selectedEbooksLibrary?.id
+      ?? libraryItems.first?.id
+      ?? ""
+    let sectionItems = EbooksBrowseSection.allCases.map {
+      AbstandBrowseStripItem(id: $0.rawValue, label: $0.title, systemImage: $0.systemImage)
+    }
+    return AbstandPinnedBrowseStrip(
+      libraryPickerItems: libraryItems,
+      libraryPickerSelectionID: librarySelectionID,
+      onSelectLibrary: { id in
+        guard let lib = pickerLibraries.first(where: { $0.id == id }) else { return }
+        model.focusEbooksLibrary(lib)
+      },
+      secondaryItems: sectionItems,
+      secondarySelectionID: ebooksBrowseSection.rawValue,
+      onSelectSecondary: { id in
+        if let section = EbooksBrowseSection(rawValue: id) {
+          ebooksBrowseSection = section
+        }
+      },
+      secondaryAccessibilityLabel: "Browse",
+      secondaryAccessibilityHint: "Chooses which eBook list to browse"
+    )
+  }
+
+  /// eBooks-Tab: reine eBooks bzw. Hörbücher mit angehängtem eBook — immer mit Leerzustand.
+  @ViewBuilder
+  private func ebooksSectionBody(for section: EbooksBrowseSection) -> some View {
+    let rows = section == .ebooks ? model.ebooksTabPureRows() : model.ebooksTabAudiobookRows()
+    LazyVStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      TabContentSectionTitle(title: section.title)
+      if model.browseEbooksLoading, rows.isEmpty {
         AbstandLoadingSpinner()
-      } else if pure.isEmpty {
-        AbstandSectionEmptyState(
-          text: model.ebookCatalogQuickFilter == nil
-            ? "No eBooks in this library." : "No eBooks match the current filter.")
+      } else if rows.isEmpty {
+        AbstandSectionEmptyState(text: ebooksEmptyStateText(for: section))
       } else {
-        ebookCards(pure, loadsMore: true)
-      }
-      if !supplementary.isEmpty {
-        TabContentSectionTitle(title: "Audiobooks with eBook")
-          .padding(.top, AppTheme.Layout.sectionSpacing)
-        ebookCards(supplementary, loadsMore: false)
+        ebookCards(rows, loadsMore: section == .ebooks)
       }
     }
+  }
+
+  private func ebooksEmptyStateText(for section: EbooksBrowseSection) -> String {
+    if model.ebookCatalogQuickFilter != nil {
+      return section == .ebooks
+        ? "No eBooks match the current filter."
+        : "No audiobooks with an eBook match the current filter."
+    }
+    if model.offlineHomeUIActive {
+      return section == .ebooks
+        ? "No downloaded eBooks."
+        : "No downloaded eBooks that belong to an audiobook."
+    }
+    return section == .ebooks
+      ? "No eBooks in this library."
+      : "No audiobooks with an eBook in this library."
   }
 
   @ViewBuilder

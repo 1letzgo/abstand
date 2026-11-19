@@ -27,12 +27,37 @@ struct HomeTabRootView: View {
   }
 }
 
-/// Nav-Bar-Trailing — statischer Offline-Schalter.
+/// Nav-Bar-Trailing — statischer Offline-Schalter, rechts daneben der Zugang zu Settings
+/// (Settings ist kein eigener Tab mehr, sondern wird auf den Home-Stack gepusht).
 struct HomeGoOfflineToolbarContent: ToolbarContent {
   var body: some ToolbarContent {
     ToolbarItemGroup(placement: .topBarTrailing) {
       HomeGoOfflineToolbarButton()
+      HomeSettingsToolbarButton()
     }
+  }
+}
+
+struct HomeSettingsToolbarButton: View {
+  var body: some View {
+    NavigationLink {
+      SettingsScreen()
+    } label: {
+      Label("Settings", systemImage: "gearshape")
+        .labelStyle(.iconOnly)
+    }
+    .accessibilityLabel("Settings")
+    .accessibilityIdentifier("home-settings-toolbar-button")
+  }
+}
+
+/// Settings als gepushte Seite auf dem Home-Stack — Inhalt unverändert der frühere Settings-Tab.
+struct SettingsScreen: View {
+  var body: some View {
+    SettingsHubRootView()
+      .abstandTabScreenChrome()
+      .navigationTitle("Settings")
+      .toolbarTitleDisplayMode(.inline)
   }
 }
 
@@ -84,6 +109,11 @@ struct StartDashboardView: View {
           await model.loadStartDashboard()
         }
       }
+      .task(id: "levels-\(model.sessionUserId)-\(model.isAppBootstrapInProgress)") {
+        // Cache-first: Snapshot aus SwiftData sofort, Server-Stats nur verzögert und gedrosselt.
+        guard !model.isAppBootstrapInProgress else { return }
+        await model.refreshHomeListeningLevelsIfStale()
+      }
       .onChange(of: model.offlineHomeUIActive) { _, _ in
         guard !model.isAppBootstrapInProgress else { return }
         model.clampHomeBrowseSectionIfNeeded()
@@ -99,6 +129,8 @@ struct StartDashboardView: View {
     // Kein Browse-Menü mehr — Stats liegt in Settings; Home zeigt nur Dashboard-Inhalte.
     return AbstandFixedBrowseStripSectionsLayout(
       showsStrip: false,
+      // Stats-Karte bzw. ihre Wochenzeilen erscheinen/verschwinden → Inhaltshöhe ändert sich, neu anwenden.
+      relayoutTrigger: AnyHashable(homeListeningSummaryLayoutKey),
       bottomInsetRevalidationTrigger: model.nowPlayingAccessoryScrollBottomInset,
       selection: continueID,
       sectionIDs: [continueID],
@@ -141,18 +173,48 @@ struct StartDashboardView: View {
 
   @ViewBuilder
   private func startDashboardContinueCombinedContent() -> some View {
-    let shelves = model.startShelves(
+    let allShelves = model.startShelves(
       forHomeBrowseSection: ABSStartShelfLocalization.homeBrowseContinueSectionID
-    ).filter(startDashboardShelfHasVisibleContent)
+    )
+    let shelves = allShelves.filter(startDashboardShelfHasVisibleContent)
+    // Stats-Karte erst, wenn ein Stats-Snapshot vorliegt (Cache oder Server) — vorher kein Platzhalter.
+    let listeningSummary = homeListeningSummary
+    // Ohne „Continue listening“-Regal steht die Karte ganz oben; sonst in dessen Slot (auch wenn es leer ist).
+    let hasContinueSlot = allShelves.contains(where: startDashboardIsContinueListeningShelf)
     if shelves.isEmpty {
-      startDashboardSectionEmptyState(category: ABSStartShelfLocalization.homeBrowseContinueSectionID)
+      VStack(alignment: .leading, spacing: AppTheme.Layout.homeSectionSpacing) {
+        if let listeningSummary {
+          HomeListeningSummaryCard(summary: listeningSummary).equatable()
+        }
+        startDashboardSectionEmptyState(category: ABSStartShelfLocalization.homeBrowseContinueSectionID)
+      }
     } else {
       VStack(alignment: .leading, spacing: AppTheme.Layout.homeSectionSpacing) {
-        ForEach(shelves) { shelf in
-          startDashboardShelfContent(shelf)
+        if let listeningSummary, !hasContinueSlot {
+          HomeListeningSummaryCard(summary: listeningSummary).equatable()
+        }
+        ForEach(allShelves) { shelf in
+          if startDashboardShelfHasVisibleContent(shelf)
+            || (listeningSummary != nil && startDashboardIsContinueListeningShelf(shelf))
+          {
+            startDashboardShelfContent(shelf, listeningSummary: listeningSummary)
+          }
         }
       }
     }
+  }
+
+  /// Werte der Stats-Karte; `nil`, solange kein Stats-Snapshot geladen ist (Cache oder Server).
+  private var homeListeningSummary: HomeListeningSummary? {
+    let snapshot = model.listeningAchievementsSnapshot
+    guard snapshot.savedAt != nil, !snapshot.achievements.isEmpty else { return nil }
+    return HomeListeningSummary(snapshot: snapshot, stats: model.listeningStats)
+  }
+
+  /// Layout-Schlüssel der Stats-Karte: sichtbar / mit Wochenwerten.
+  private var homeListeningSummaryLayoutKey: String {
+    guard let summary = homeListeningSummary else { return "none" }
+    return summary.weekActiveDays == nil ? "snapshot" : "week"
   }
 
   private func startDashboardShelfHasVisibleContent(_ shelf: ABSStartShelfSection) -> Bool {
@@ -160,11 +222,17 @@ struct StartDashboardView: View {
   }
 
   @ViewBuilder
-  private func startDashboardShelfContent(_ shelf: ABSStartShelfSection) -> some View {
+  private func startDashboardShelfContent(
+    _ shelf: ABSStartShelfSection,
+    listeningSummary: HomeListeningSummary?
+  ) -> some View {
     if startDashboardIsContinueListeningShelf(shelf) {
       VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         if shelf.hasBooks || shelf.hasPodcastEpisodes {
           startDashboardContinueListeningSection(shelf)
+        }
+        if let listeningSummary {
+          HomeListeningSummaryCard(summary: listeningSummary).equatable()
         }
         if shelf.hasAuthors {
           startDashboardAuthorsSection(
@@ -253,6 +321,251 @@ struct StartDashboardView: View {
     )
   }
 
+}
+
+// MARK: - Home: Stats-Karte (Settings → Stats)
+
+/// Werte der Home-Stats-Karte — nur aus vorhandenen Stats: Streak und „Finished books“ aus dem
+/// Achievement-Snapshot (wie Settings → Stats → Level), Wochenwerte aus den Tageswerten der Hörstatistik.
+struct HomeListeningSummary: Equatable {
+  /// „Current streak“-Achievement (Tage).
+  let streakDays: Int
+  /// „Finished books“-Achievement inkl. Stufe und Fortschritt zur nächsten.
+  let finishedBooks: ListeningAchievementState?
+  /// Hörzeit der laufenden Woche; `nil` ohne Tageswerte im Cache.
+  let weekSeconds: Int?
+  /// Je Wochentag (ab Wochenanfang laut Kalender), ob gehört wurde; `nil` ohne Tageswerte.
+  let weekActiveDays: [Bool]?
+  /// Einbuchstabige Wochentage in derselben Reihenfolge („M T W …“).
+  let weekdaySymbols: [String]
+
+  @MainActor
+  init(snapshot: ListeningAchievementsSnapshot, stats: ABSListeningStatsResponse?) {
+    streakDays = snapshot.achievements.first { $0.kind == .currentStreak }?.currentValue ?? 0
+    finishedBooks = snapshot.achievements.first { $0.kind == .finishedBooks }
+    let calendar = Calendar.current
+    let week = stats?.currentWeekActivity(calendar: calendar)
+    weekSeconds = week?.seconds
+    weekActiveDays = week?.activeDays
+    // UI-Texte englisch, Wochenanfang aber nach Nutzer-Kalender.
+    var english = Calendar(identifier: .gregorian)
+    english.locale = Locale(identifier: "en_US")
+    let symbols = english.veryShortStandaloneWeekdaySymbols
+    let start = max(0, calendar.firstWeekday - 1) % max(symbols.count, 1)
+    weekdaySymbols = Array(symbols[start...] + symbols[..<start])
+  }
+}
+
+/// Home-Stats-Karte unter „Continue listening“: Kopfzeile + drei Spalten (Streak · Finished books · diese
+/// Woche) mit senkrechten Haarlinien. Tippen öffnet die Stats-Seite.
+/// `Equatable` + kein `@EnvironmentObject`: rendert nur neu, wenn sich die Werte ändern.
+private struct HomeListeningSummaryCard: View, Equatable {
+  @Environment(\.themeAccent) private var themeAccent
+  @Environment(\.appearanceThemeRevision) private var themeRevision
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @ScaledMetric(relativeTo: .title2) private var ringEdge = Metrics.ringEdge
+  @ScaledMetric(relativeTo: .title2) private var ringLineWidth = Metrics.ringLineWidth
+  let summary: HomeListeningSummary
+
+  private enum Metrics {
+    static let ringEdge: CGFloat = 20
+    static let ringLineWidth: CGFloat = 3
+  }
+
+  nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.summary == rhs.summary
+  }
+
+  private var valueFont: Font { .title2.weight(.bold).monospacedDigit() }
+
+  var body: some View {
+    let _ = themeRevision
+    let palette = AppTheme.palette
+    // Überschrift über der Karte wie bei den übrigen Home-Sektionen; erscheint nur zusammen mit ihr.
+    VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+      TabContentSectionTitle(title: "Your Listening")
+      // Die ganze Kartenreihe ist ein Tap-Ziel (Stats-Seite) und ein zusammengefasstes Accessibility-Element.
+      NavigationLink {
+        ListeningStatsScreen()
+      } label: {
+        cards(palette: palette)
+          .contentShape(Rectangle())
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(accessibilitySummary)
+          .accessibilityHint("Opens your listening stats.")
+      }
+      .buttonStyle(.plain)
+      .accessibilityIdentifier("home-listening-stats-card")
+    }
+  }
+
+  /// Je Wert eine eigene Karte, gleich breit und gleich hoch nebeneinander; bei Accessibility-Schriftgrößen
+  /// untereinander in voller Breite. Fehlende Werte → weniger Karten, die sich die Breite teilen.
+  @ViewBuilder
+  private func cards(palette: AppColorPalette) -> some View {
+    let items = columnViews(palette: palette)
+    if dynamicTypeSize.isAccessibilitySize {
+      VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
+        ForEach(items.indices, id: \.self) { index in
+          statCard(items[index])
+        }
+      }
+    } else {
+      HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
+        ForEach(items.indices, id: \.self) { index in
+          statCard(items[index])
+        }
+      }
+      // Ideale Höhe der höchsten Karte für alle — Inhalt bleibt oben ausgerichtet.
+      .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  private func statCard(_ content: AnyView) -> some View {
+    AbstandGroupedCard(
+      horizontalPadding: AppTheme.Layout.withinSectionSpacing,
+      verticalPadding: AppTheme.Layout.cardPadding
+    ) {
+      content
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+    .frame(maxHeight: .infinity, alignment: .top)
+  }
+
+  private func columnViews(palette: AppColorPalette) -> [AnyView] {
+    var result: [AnyView] = [AnyView(streakColumn(palette: palette))]
+    if let finished = summary.finishedBooks {
+      result.append(AnyView(finishedBooksColumn(finished, palette: palette)))
+    }
+    if let seconds = summary.weekSeconds {
+      result.append(AnyView(weekColumn(seconds: seconds, palette: palette)))
+    }
+    return result
+  }
+
+  private func streakColumn(palette: AppColorPalette) -> some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
+      HStack(spacing: AppTheme.Layout.compactSpacing) {
+        Image(systemName: "flame.fill")
+          .font(.title3)
+          .foregroundStyle(themeAccent)
+        Text("\(summary.streakDays)")
+          .font(valueFont)
+          .foregroundStyle(palette.textPrimary)
+      }
+      columnLabel("day streak", palette: palette)
+      if let active = summary.weekActiveDays, active.count == summary.weekdaySymbols.count {
+        HStack(spacing: AppTheme.Layout.hairlineSpacing) {
+          ForEach(active.indices, id: \.self) { index in
+            Text(summary.weekdaySymbols[index])
+              .font(.caption2.weight(active[index] ? .bold : .regular))
+              .foregroundStyle(active[index] ? themeAccent : palette.textSecondary)
+          }
+        }
+      }
+    }
+  }
+
+  private func finishedBooksColumn(_ finished: ListeningAchievementState, palette: AppColorPalette) -> some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
+      HStack(spacing: AppTheme.Layout.compactSpacing) {
+        progressRing(finished.tier == .level5 ? 1 : finished.progressToNext, palette: palette)
+        Text("\(finished.currentValue)")
+          .font(valueFont)
+          .foregroundStyle(palette.textPrimary)
+      }
+      columnLabel("books finished", palette: palette)
+      columnDetail(finishedBooksDetail(finished), palette: palette)
+    }
+  }
+
+  private func weekColumn(seconds: Int, palette: AppColorPalette) -> some View {
+    VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
+      Text(ListeningAchievementKind.formatMarathonDaySeconds(seconds))
+        .font(valueFont)
+        .foregroundStyle(palette.textPrimary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+      columnLabel("this week", palette: palette)
+      if let active = summary.weekActiveDays {
+        columnDetail("\(active.filter { $0 }.count) of \(active.count) days", palette: palette)
+      }
+    }
+  }
+
+  private func progressRing(_ value: Double, palette: AppColorPalette) -> some View {
+    ZStack {
+      Circle()
+        .stroke(palette.rule, lineWidth: ringLineWidth)
+      Circle()
+        .trim(from: 0, to: min(max(value, 0), 1))
+        .stroke(themeAccent, style: StrokeStyle(lineWidth: ringLineWidth, lineCap: .round))
+        .rotationEffect(.degrees(-90))
+    }
+    .frame(width: ringEdge, height: ringEdge)
+    .accessibilityHidden(true)
+  }
+
+  private func columnLabel(_ text: String, palette: AppColorPalette) -> some View {
+    Text(text)
+      .font(.subheadline)
+      .foregroundStyle(palette.textSecondary)
+      .fixedSize(horizontal: false, vertical: true)
+  }
+
+  private func columnDetail(_ text: String, palette: AppColorPalette) -> some View {
+    Text(text)
+      .font(.caption.monospacedDigit())
+      .foregroundStyle(palette.textSecondary)
+      .fixedSize(horizontal: false, vertical: true)
+  }
+
+  /// Stufe aus `ListeningAchievements` (Schwellen wie in Settings → Stats → Level).
+  private func finishedBooksDetail(_ finished: ListeningAchievementState) -> String {
+    guard let next = finished.nextThreshold else { return "Max level" }
+    let remaining = max(0, next - finished.currentValue)
+    guard let level = finished.tier.levelNumber else { return "\(remaining) to Level 1" }
+    return "Level \(level) · \(remaining) to go"
+  }
+
+  private var accessibilitySummary: String {
+    var parts = ["\(summary.streakDays) day streak"]
+    if let finished = summary.finishedBooks {
+      parts.append("\(finished.currentValue) books finished, \(finishedBooksDetail(finished))")
+    }
+    if let seconds = summary.weekSeconds {
+      let hours = seconds / 3600
+      let minutes = (seconds % 3600) / 60
+      var week = "\(hours) hours \(minutes) minutes this week"
+      if let active = summary.weekActiveDays {
+        week += ", \(active.filter { $0 }.count) of \(active.count) days"
+      }
+      parts.append(week)
+    }
+    return parts.joined(separator: ". ")
+  }
+}
+
+/// Stats als gepushte Seite auf dem Home-Stack (Ziel der Stats-Karte) — derselbe Inhalt wie Settings → Stats.
+struct ListeningStatsScreen: View {
+  @EnvironmentObject private var model: AppModel
+
+  var body: some View {
+    ServerAdminScrollScreen {
+      SettingsStatsSectionView()
+    }
+    .navigationTitle("Stats")
+    .toolbarTitleDisplayMode(.inline)
+    .refreshable {
+      guard !model.offlineHomeUIActive else { return }
+      await model.loadListeningStats()
+    }
+    .task {
+      // Wie Settings → Stats: offline nur der gecachte Stand.
+      guard !model.offlineHomeUIActive else { return }
+      await model.loadListeningStats()
+    }
+  }
 }
 
 // MARK: - Home: Cover-Card-Reihen (einheitlich wie „New episodes“)

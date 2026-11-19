@@ -7,7 +7,8 @@ import Speech
 /// nie Vorsprung aufbauen konnte (Drossel hing an der Ergebniszeit des Analyzers).
 ///
 /// Ergebnisse kommen als Batches finalisierter Wörter mit **lokalen Track-Sekunden** heraus.
-/// Der Aufrufer entscheidet, was er anzeigt und was er persistiert.
+/// Wortanfänge nach Sprechpausen sind bereits auf den akustischen Einsatz gelegt
+/// (`SpeechOnsetRefiner`). Der Aufrufer entscheidet, was er anzeigt und was er persistiert.
 struct PlayerTranscriptProducedWord: Sendable {
   let text: String
   let start: Double
@@ -24,6 +25,8 @@ struct PlayerTranscriptProductionBatch: Sendable {
 enum PlayerTranscriptProducerError: Error {
   case audioUnavailable
   case conversionFailed
+  /// Stream ohne finalen Batch beendet (weder fertig gefüttert noch als Fehler) — nie als „fertig" werten.
+  case endedWithoutFinalBatch
 }
 
 /// Ein Lauf = ein Track-Bereich. Kein Watchdog, kein Selbstheilen: bricht etwas ab, wirft der
@@ -99,24 +102,34 @@ enum PlayerTranscriptProducer {
     let (stream, input) = AsyncStream<AnalyzerInput>.makeStream()
     try await analyzer.start(inputSequence: stream)
     let gate = FeedGate(analyzedThrough: startSeconds)
+    // Pegel des gefütterten Audios: Wortanfänge nach Sprechpausen auf den echten Einsatz legen.
+    let envelope = SpeechEnvelopeTracker()
 
     // Ergebnisse einsammeln, während parallel gefüttert wird.
     let resultsTask = Task {
+      var batcher = PlayerTranscriptRefinementBatcher()
+      // Zurückgehaltenes Wort mit ausgeben (Ende des Laufs oder Abbruch) — kein Wortverlust.
+      func flush() {
+        let words = batcher.finish { envelope.refine($0, previous: $1) }
+        guard let last = words.last else { return }
+        continuation.yield(
+          PlayerTranscriptProductionBatch(words: words, processedThrough: last.end, isFinalBatch: false))
+      }
       do {
         for try await result in transcriber.results where result.isFinal {
-          if Task.isCancelled { return }
+          if Task.isCancelled { break }
           // Ergebnisse kommen erst nach dem ersten gefütterten Buffer — der Ursprung steht dann fest.
-          let words = Self.words(from: result.text, offset: gate.timelineOrigin ?? startSeconds)
-          gate.recordResult(end: words.last?.end)
-          guard !words.isEmpty else { continue }
+          let recognized = Self.words(from: result.text, offset: gate.timelineOrigin ?? startSeconds)
+          gate.recordResult(end: recognized.last?.end)
+          guard !recognized.isEmpty else { continue }
+          // Das letzte Wort eines Ergebnisses bleibt bis zum nächsten zurück: erst dann ist bekannt,
+          // ob dessen Einsatz nach einer Pause liegt — und das Wortende auf den Pausenbeginn gehört.
+          let words = batcher.add(recognized) { envelope.refine($0, previous: $1) }
+          guard let last = words.last else { continue }
           continuation.yield(
-            PlayerTranscriptProductionBatch(
-              words: words,
-              processedThrough: words.last?.end ?? (gate.timelineOrigin ?? startSeconds),
-              isFinalBatch: false
-            )
-          )
+            PlayerTranscriptProductionBatch(words: words, processedThrough: last.end, isFinalBatch: false))
         }
+        flush()
       } catch {
         // Fütter-Schleife sofort stoppen statt die restliche Datei ins Leere zu schieben.
         gate.fail(error)
@@ -131,7 +144,8 @@ enum PlayerTranscriptProducer {
         endSeconds: endSeconds,
         targetFormat: format,
         input: input,
-        gate: gate
+        gate: gate,
+        envelope: envelope
       )
       input.finish()
       // Ohne Finalisieren bleibt der letzte Satz im Analyzer hängen.
@@ -160,7 +174,8 @@ enum PlayerTranscriptProducer {
     endSeconds: Double?,
     targetFormat: AVAudioFormat,
     input: AsyncStream<AnalyzerInput>.Continuation,
-    gate: FeedGate
+    gate: FeedGate,
+    envelope: SpeechEnvelopeTracker
   ) async throws -> Double {
     // Präzises Timing: bei VBR-MP3 schätzt AVFoundation die Startposition sonst aus der Bitrate
     // (Sekunden daneben). Der Producer liest nur lokale Dateien.
@@ -170,6 +185,7 @@ enum PlayerTranscriptProducer {
       throw PlayerTranscriptProducerError.audioUnavailable
     }
 
+    let sourceFormat = await sourceFormatDescription(audioTrack)
     let reader = try AVAssetReader(asset: asset)
     // Der Reader dekodiert direkt ins Analyzer-Format (Rate, Kanäle, Sampletyp) — keine
     // Zwischenstufe in Quellrate plus zweite Kopie durch einen Resampler.
@@ -218,9 +234,12 @@ enum PlayerTranscriptProducer {
         let pts = CMSampleBufferGetOutputPresentationTimeStamp(sample)
         if pts.isValid, pts.isNumeric { origin = max(0, pts.seconds) }
         gate.setTimelineOrigin(origin)
-        let message = String(
-          format: "transcript producer: start=%.3f firstPTS=%.3f delta=%+.3f",
-          startSeconds, origin, origin - startSeconds)
+        envelope.setOrigin(origin)
+        // Nur Diagnose (Gerät 30–40 ms zu früh bei Einstieg mitten in eine MP3, am Mac nicht
+        // nachstellbar): alles, was die Zeitachse des ersten Buffers bestimmt, in eine Zeile.
+        let message = Self.timelineDiagnostics(
+          requestedStart: startSeconds, origin: origin, firstSample: sample, sourceFormat: sourceFormat,
+          usedBuffer: buffer)
         Task { @MainActor in DebugLogCollector.shared.log(message) }
       }
       let analyzerBuffer: AVAudioPCMBuffer
@@ -237,6 +256,8 @@ enum PlayerTranscriptProducer {
       // Lückenlos füttern, ohne `bufferStartTime`: aus den Ausgabe-PTS abgeleitete Startzeiten
       // überlappen nach Resampling/Trimming um Bruchteile von Samples — der Analyzer bricht dann
       // mit „Audio input timestamp overlaps or precedes prior audio input" ab (am Mac nachgemessen).
+      // Hüllkurve vor dem Füttern: ein Ergebnis kann nie Audio betreffen, das sie noch nicht kennt.
+      envelope.append(analyzerBuffer)
       input.yield(AnalyzerInput(buffer: analyzerBuffer))
       fedSeconds += Double(analyzerBuffer.frameLength) / targetFormat.sampleRate
 
@@ -274,6 +295,48 @@ enum PlayerTranscriptProducer {
       throw reader.error ?? PlayerTranscriptProducerError.audioUnavailable
     }
     return fedSeconds
+  }
+
+  /// Diagnosezeile zum ersten Ausgabe-Buffer: angeforderter Start, Ausgabe-PTS (= Zeitachsen-Ursprung),
+  /// Dekodier-PTS, Trim-Werte (Encoder-Delay/Padding), Frames vor/nach dem Trimmen, Quell- und
+  /// Ausgabeformat. Ändert nichts am Verhalten.
+  private nonisolated static func timelineDiagnostics(
+    requestedStart: Double,
+    origin: Double,
+    firstSample sample: CMSampleBuffer,
+    sourceFormat: String,
+    usedBuffer: AVAudioPCMBuffer
+  ) -> String {
+    func seconds(_ time: CMTime) -> String { time.isNumeric ? String(format: "%.4f", time.seconds) : "n/a" }
+    func trim(_ key: CFString) -> String {
+      guard let value = CMGetAttachment(sample, key: key, attachmentModeOut: nil),
+        CFGetTypeID(value) == CFDictionaryGetTypeID()
+      else { return "0" }
+      return seconds(CMTimeMakeFromDictionary((value as! CFDictionary)))
+    }
+    return String(
+      format:
+        "transcript producer: start=%.4f firstPTS=%.4f delta=%+.4f decodePTS=%@ dur=%@ trimStart=%@ trimEnd=%@ frames=%ld used=%u src=[%@] out=%.0fHz ch=%u %@",
+      requestedStart, origin, origin - requestedStart,
+      seconds(CMSampleBufferGetPresentationTimeStamp(sample)),
+      seconds(CMSampleBufferGetDuration(sample)),
+      trim(kCMSampleBufferAttachmentKey_TrimDurationAtStart),
+      trim(kCMSampleBufferAttachmentKey_TrimDurationAtEnd),
+      CMSampleBufferGetNumSamples(sample), usedBuffer.frameLength, sourceFormat,
+      usedBuffer.format.sampleRate, usedBuffer.format.channelCount,
+      usedBuffer.format.commonFormat == .pcmFormatFloat32 ? "f32" : "i16")
+  }
+
+  /// Quellformat des Tracks für die Diagnosezeile (Codec, Rate, Kanäle, Frames je Paket).
+  private nonisolated static func sourceFormatDescription(_ track: AVAssetTrack) async -> String {
+    guard let description = try? await track.load(.formatDescriptions).first,
+      let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee
+    else { return "?" }
+    let code = asbd.mFormatID
+    let bytes = [24, 16, 8, 0].map { UInt8((code >> UInt32($0)) & 0xFF) }
+    let fourCC = String(bytes: bytes, encoding: .ascii)?.trimmingCharacters(in: .whitespaces) ?? "\(code)"
+    return String(
+      format: "%@ %.0fHz ch=%u fpp=%u", fourCC, asbd.mSampleRate, asbd.mChannelsPerFrame, asbd.mFramesPerPacket)
   }
 
   /// Reader-Ausgabe passt direkt zum Analyzer (Rate, Kanäle, Sampletyp, Anordnung).

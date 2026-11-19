@@ -187,7 +187,8 @@ enum ListeningAchievementKind: String, Codable, CaseIterable, Identifiable {
     }
   }
 
-  private static func formatMarathonDaySeconds(_ seconds: Int) -> String {
+  /// „9 h 17 m“ — auch für die Wochen-Hörzeit der Home-Stats-Karte.
+  static func formatMarathonDaySeconds(_ seconds: Int) -> String {
     let h = seconds / 3600
     let m = (seconds % 3600) / 60
     if h > 0, m > 0 { return "\(h) h \(m) m" }
