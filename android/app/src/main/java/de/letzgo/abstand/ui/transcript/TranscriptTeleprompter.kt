@@ -179,7 +179,7 @@ fun TranscriptTeleprompter(
     }
 }
 
-/** Zeilen-Stack: aktive Zeile in der Mitte, fließend nach Zeilenfortschritt verschoben (60 fps). */
+/** Zeilen-Stack: gesprochene Zeile in der Mitte, kurzer Smoothstep-Übergang um jeden Zeilenstart (60 fps). */
 @Composable
 private fun TeleprompterLines(
     controller: PlayerLiveTranscriptionController,
@@ -220,8 +220,11 @@ private fun TeleprompterLines(
         val paragraphs = remember(lines) { PlayerTranscriptParagraphs.paragraphIndices(lines) }
         // Über die Zeile, nicht das Wort: in Pausen zwischen Wörtern gibt es keinen Treffer,
         // die Markierung darf dort nicht springen.
-        val activeParagraph by remember(lines, paragraphs) {
-            derivedStateOf { paragraphs.getOrNull(PlayerTranscriptTimeline.activeLineIndex(lines, displayTime)) }
+        val activeLineIndex by remember(lines) { derivedStateOf { PlayerTranscriptTimeline.activeLineIndex(lines, displayTime) } }
+        val activeParagraph by remember(paragraphs) { derivedStateOf { paragraphs.getOrNull(activeLineIndex) } }
+        // Wortmarkierung der aktiven Zeile: ändert sich nur beim nächsten Wort (Recomposition nur dann).
+        val spokenWordIndex by remember(lines) {
+            derivedStateOf { PlayerTranscriptTimeline.spokenWordIndex(lines.getOrNull(activeLineIndex), displayTime) }
         }
         val style = remember(layout.fontSize) { TextStyle(fontSize = layout.fontSize.sp, fontWeight = FontWeight.Bold, lineHeight = layout.slotHeight.sp) }
 
@@ -230,7 +233,7 @@ private fun TeleprompterLines(
                 .fillMaxWidth()
                 .wrapContentHeight(Alignment.Top, unbounded = true)
                 .graphicsLayer {
-                    // Aktive Zeile (Mitte des Stacks) auf Viewport-Mitte, plus Fortschritt in der Zeile.
+                    // Aktive Zeile (Mitte des Stacks) auf Viewport-Mitte, plus Anteil des laufenden Zeilenübergangs.
                     val activeLineCenterY = layout.linesBeforeCenter * rowStridePx + slotHeightPx / 2
                     val progress = fractional - floor(fractional)
                     translationY = heightPx / 2 - activeLineCenterY - (progress * rowStridePx).toFloat()
@@ -242,9 +245,13 @@ private fun TeleprompterLines(
                 Box(Modifier.fillMaxWidth().height(layout.slotHeight.dp), contentAlignment = Alignment.CenterStart) {
                     val line = lines.getOrNull(lineIndex)
                     if (line != null) {
+                        val isActiveLine = lineIndex == activeLineIndex
                         LineText(
                             line = line,
+                            isActiveLine = isActiveLine,
                             isInActiveParagraph = paragraphs.getOrNull(lineIndex) == activeParagraph,
+                            // Nur die aktive Zeile hängt am Wortfortschritt — die übrigen bleiben überspringbar.
+                            spokenWordIndex = if (isActiveLine) spokenWordIndex else null,
                             selectedWordId = selectedWordId,
                             style = style,
                             textColor = palette.textPrimary,
@@ -261,25 +268,28 @@ private fun TeleprompterLines(
 @Composable
 private fun LineText(
     line: PlayerTranscriptLine,
+    isActiveLine: Boolean,
     isInActiveParagraph: Boolean,
+    spokenWordIndex: Int?,
     selectedWordId: String?,
     style: TextStyle,
     textColor: androidx.compose.ui.graphics.Color,
     accent: androidx.compose.ui.graphics.Color,
     onWordTap: (PlayerTranscriptWord) -> Unit,
 ) {
-    val baseOpacity = if (isInActiveParagraph) 1.0 else PlayerTeleprompterMetrics.INACTIVE_LINE_TEXT_OPACITY
+    // Nur die Farbe (Tinte, abgestufte Deckkraft) ändert sich — Gewicht und Breite bleiben, kein Umbruch.
     Row(Modifier.fillMaxWidth()) {
-        for (word in line.words) {
+        for ((wordIndex, word) in line.words.withIndex()) {
             if (word.isWhitespaceOnly) {
                 Text(word.text, style = style, color = androidx.compose.ui.graphics.Color.Transparent, maxLines = 1, softWrap = false)
                 continue
             }
             val selected = word.id == selectedWordId
+            val opacity = PlayerTeleprompterMetrics.wordTextOpacity(isActiveLine, isInActiveParagraph, wordIndex, spokenWordIndex)
             Text(
                 word.text,
                 style = style,
-                color = if (selected) accent else textColor.copy(alpha = baseOpacity.toFloat()),
+                color = if (selected) accent else textColor.copy(alpha = opacity.toFloat()),
                 textDecoration = if (selected) TextDecoration.Underline else null,
                 maxLines = 1,
                 softWrap = false,

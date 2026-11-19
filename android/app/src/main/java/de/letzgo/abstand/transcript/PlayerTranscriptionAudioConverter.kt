@@ -4,7 +4,9 @@ import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.util.Log
 import de.letzgo.abstand.logic.speech.PcmResampler
+import de.letzgo.abstand.ui.settings.DebugLogCollector
 import kotlinx.coroutines.ensureActive
 import java.io.File
 import java.nio.ByteOrder
@@ -92,6 +94,8 @@ object PlayerTranscriptionAudioConverter {
             var inputDone = false
             var anchored = false
             var idleRounds = 0
+            // Diagnose: Paketzeit gegen gezählte Samples (der Producer rechnet Anker + Samples/16 kHz).
+            val drift = DecodeTimingDrift()
 
             while (true) {
                 coroutineContext.ensureActive()
@@ -144,10 +148,14 @@ object PlayerTranscriptionAudioConverter {
                                 val slice = if (window.first == 0 && window.last == frames - 1) shorts
                                 else shorts.copyOfRange(window.first * ch, (window.last + 1) * ch)
                                 val pcm = resampler.process(slice)
+                                val bufferTrackTime = sampleStart + window.first.toDouble() / rate
                                 if (!anchored) {
                                     anchored = true
-                                    onAnchor(sampleStart + window.first.toDouble() / rate)
+                                    drift.anchor(bufferTrackTime)
+                                    onAnchor(bufferTrackTime)
                                 }
+                                drift.record(bufferTrackTime)
+                                drift.addSamples(pcm.size)
                                 reached = max(reached, sampleStart + (window.last + 1).toDouble() / rate)
                                 if (pcm.isNotEmpty()) onPcm(pcm)
                             }
@@ -160,6 +168,10 @@ object PlayerTranscriptionAudioConverter {
                     else -> if (inputDone && ++idleRounds > 200) break
                 }
             }
+            drift.summary(start, reached)?.let { line ->
+                Log.d(TAG, line)
+                DebugLogCollector.log(line)
+            }
         } finally {
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
@@ -167,6 +179,8 @@ object PlayerTranscriptionAudioConverter {
         }
         return reached
     }
+
+    private const val TAG = "ReadAlongDecode"
 
     /** Vorlauf vor dem Ziel: MP3-Frames hängen über das Bit-Reservoir an Vorgängern (verworfen per [DecodeWindow]). */
     private const val MP3_PREROLL_SECONDS = 0.2
@@ -211,5 +225,50 @@ object DecodeWindow {
         val lastExclusive = if (end == null) frames else kotlin.math.ceil((end - bufferStart) * rate - 1e-9).toInt().coerceAtMost(frames)
         if (first >= frames || lastExclusive <= first) return null
         return first until lastExclusive
+    }
+}
+
+/**
+ * Diagnose der Zeitbasis (noch ohne Korrektur): Der Producer verankert einmal und zählt dann
+ * 16-kHz-Samples. Je dekodiertem Puffer wird die Paketzeit mit `Anker + Samples/Rate` verglichen;
+ * gemerkt wird die größte Abweichung |PTS − Anker − Samples/Rate| eines Laufs (Vorzeichen: + = Paket
+ * später als gezählt, also Lücke im Datenstrom; − = Überlappung).
+ */
+class DecodeTimingDrift(private val sampleRate: Int = PlayerTranscriptionAudioConverter.SAMPLE_RATE) {
+    private var anchor: Double? = null
+    private var samples = 0L
+    var buffers = 0
+        private set
+    /** Vorzeichenbehaftete Abweichung mit dem größten Betrag (Sekunden). */
+    var maxDeviation = 0.0
+        private set
+    /** Track-Zeit, an der [maxDeviation] auftrat. */
+    var maxDeviationAt = 0.0
+        private set
+
+    fun anchor(trackTime: Double) {
+        if (anchor == null) anchor = trackTime
+    }
+
+    /** Vor dem Zählen des Puffers aufrufen: [bufferTrackTime] = Track-Zeit seines ersten verwendeten Samples. */
+    fun record(bufferTrackTime: Double) {
+        val a = anchor ?: return
+        buffers += 1
+        val deviation = bufferTrackTime - (a + samples.toDouble() / sampleRate)
+        if (kotlin.math.abs(deviation) > kotlin.math.abs(maxDeviation)) {
+            maxDeviation = deviation
+            maxDeviationAt = bufferTrackTime
+        }
+    }
+
+    fun addSamples(count: Int) {
+        samples += count
+    }
+
+    /** Eine Log-Zeile je Lauf (`null` ohne verankerten Puffer). */
+    fun summary(start: Double, reached: Double): String? {
+        val a = anchor ?: return null
+        return "Read along decode timing: range %.2f–%.2f s, anchor %.3f s, %d buffers, max drift %+.1f ms at %.2f s"
+            .format(java.util.Locale.ROOT, start, reached, a, buffers, maxDeviation * 1000, maxDeviationAt)
     }
 }

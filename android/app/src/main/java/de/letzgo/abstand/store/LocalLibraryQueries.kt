@@ -176,9 +176,12 @@ object LocalLibraryQueries {
     suspend fun podcastEpisode(dao: LocalLibraryDao, progressLookupKey: String): AbsPodcastEpisodeListItem? =
         dao.podcastEpisode(progressLookupKey)?.toItem()
 
-    suspend fun podcastShows(dao: LocalLibraryDao, libraryId: String, sortField: String, ascending: Boolean): List<AbsBook>? {
-        val state = dao.podcastShowListState(libraryId) ?: return null
-        if (state.sortField != sortField || state.ascending != ascending) return null
+    /**
+     * iOS: `LocalLibraryQueries.podcastShows` — gecachte Sendungen **unabhängig** vom Sortierschlüssel, unter dem
+     * sie gespeichert wurden (früher `null` bei Abweichung → offline blieb die Leiste in alter Reihenfolge).
+     * Sortiert wird beim Anzeigen ([de.letzgo.abstand.model.PodcastShowSorting]).
+     */
+    suspend fun podcastShows(dao: LocalLibraryDao, libraryId: String): List<AbsBook>? {
         val entries = dao.podcastShowEntries(libraryId)
         if (entries.isEmpty()) return null
         val books = booksById(dao, entries.map { it.bookId })

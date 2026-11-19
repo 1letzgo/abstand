@@ -24,9 +24,9 @@ enum class PodcastCatalogSortField(val menuTitle: String, val apiSortParameter: 
     author("Author", "media.metadata.author"),
     numEpisodes("Number of episodes", "media.numTracks"),
     addedAt("Date added", "addedAt"),
+    /** Zuletzt aktualisiert (`updatedAt`); Server kennt den Schlüssel nicht → `mtimeMs`, lokal verbindlich. */
+    updatedAt("Last updated", "mtimeMs"),
     size("Total size", "size"),
-    birthtimeMs("File created", "birthtimeMs"),
-    mtimeMs("File modified", "mtimeMs"),
     random("Random", "random");
 
     /** iOS: `AbstandSortMenuField.suppressesSortOrderPicker`. */
@@ -104,8 +104,9 @@ object PodcastLogic {
             "media.numTracks", "media.duration" -> PodcastCatalogSortField.numEpisodes
             "addedAt" -> PodcastCatalogSortField.addedAt
             "size" -> PodcastCatalogSortField.size
-            "birthtimeMs" -> PodcastCatalogSortField.birthtimeMs
-            "mtimeMs" -> PodcastCatalogSortField.mtimeMs
+            // „File created/modified“ gibt es für Podcasts nicht mehr.
+            "birthtimeMs" -> PodcastCatalogSortField.addedAt
+            "mtimeMs" -> PodcastCatalogSortField.updatedAt
             "random" -> PodcastCatalogSortField.random
             else -> PodcastCatalogSortField.title
         }
@@ -116,8 +117,8 @@ object PodcastLogic {
         "authorName", "authorNameLF" -> PodcastCatalogSortField.author
         "addedAt" -> PodcastCatalogSortField.addedAt
         "size" -> PodcastCatalogSortField.size
-        "birthtimeMs" -> PodcastCatalogSortField.birthtimeMs
-        "mtimeMs" -> PodcastCatalogSortField.mtimeMs
+        "birthtimeMs" -> PodcastCatalogSortField.addedAt
+        "mtimeMs" -> PodcastCatalogSortField.updatedAt
         "duration" -> PodcastCatalogSortField.numEpisodes
         "random" -> PodcastCatalogSortField.random
         "title", "publishedYear", "progress", "progressCreatedAt", "progressFinishedAt" -> PodcastCatalogSortField.title

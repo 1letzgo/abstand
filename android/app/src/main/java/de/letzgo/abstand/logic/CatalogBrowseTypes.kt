@@ -46,9 +46,8 @@ enum class PodcastCatalogSortField(override val rawValue: String, override val m
     AUTHOR("author", "Author", "media.metadata.author"),
     NUM_EPISODES("numEpisodes", "Number of episodes", "media.numTracks"),
     ADDED_AT("addedAt", "Date added", "addedAt"),
+    UPDATED_AT("updatedAt", "Last updated", "mtimeMs"),
     SIZE("size", "Total size", "size"),
-    BIRTHTIME_MS("birthtimeMs", "File created", "birthtimeMs"),
-    MTIME_MS("mtimeMs", "File modified", "mtimeMs"),
     RANDOM("random", "Random", "random");
 
     override val suppressesSortOrderPicker: Boolean get() = this == RANDOM

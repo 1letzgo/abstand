@@ -21,7 +21,6 @@ import de.letzgo.abstand.data.Prefs
 import de.letzgo.abstand.data.swiftTrim
 import de.letzgo.abstand.downloads.DownloadManager
 import de.letzgo.abstand.logic.PlayerTranscriptLibrary
-import de.letzgo.abstand.logic.PlayerTranscriptTrackCache
 import de.letzgo.abstand.logic.PlayerTranscriptTrackSource
 import de.letzgo.abstand.logic.speech.SpeechModelStore
 import de.letzgo.abstand.model.AppModel
@@ -282,9 +281,17 @@ object PlayerTranscriptPrefetcher {
         generation: Int,
     ): Boolean {
         var cursor = from
+        // iOS gleich: Lückenanfang des letzten regulär durchgelaufenen Abschnitts — taucht dieselbe Lücke
+        // wieder auf (Merge abgelehnt, Datei nicht schreibbar), nicht endlos neu transkribieren.
+        var lastFilledGapStart: Double? = null
         while (coroutineContext.isActive) {
-            val gapStart = PlayerTranscriptLibrary.firstUncoveredTime(bookId, source, selection.localeIdentifier, cursor) ?: return true
-            if (runGeneration != generation) return false
+            val gap = PlayerTranscriptLibrary.nextGap(bookId, source, selection.localeIdentifier, cursor) ?: return true
+            val gapStart = gap.start
+            if (runGeneration != generation || !coroutineContext.isActive) return false
+            if (lastFilledGapStart != null && gapStart <= lastFilledGapStart + 0.5) {
+                Log.w(TAG, "gap at $gapStart track=${source.trackIndex} not closed — giving up for this run")
+                return false
+            }
             // Vorrang und Gerätezustand vor jedem Abschnitt prüfen.
             val reason = blockingReason()
             if (reason != null) {
@@ -296,33 +303,27 @@ object PlayerTranscriptPrefetcher {
             }
             _pausedReason.value = null
             try {
-                // Nur die Lücke — am nächsten vorhandenen Segment aufhören (iOS gleich).
-                val gapEnd = PlayerTranscriptLibrary.nextCoveredStart(bookId, source, selection.localeIdentifier, gapStart)
-                val produced = PlayerTranscriptProduction.produceAndPersist(
-                    appContext, bookId, source, selection.entry, selection.localeIdentifier, gapStart, gapEnd,
-                ) {
-                    // Ein Track läuft minutenlang — Pause greift sofort, nicht erst beim nächsten Track.
-                    if (runGeneration != generation || blockingReason() != null) throw PauseSignal()
-                }
-                if (!(produced > gapStart + 0.5)) {
-                    // Bis Dateiende nichts mehr dekodierbar, obwohl die Server-Dauer länger ist: den Rest als
-                    // abgedeckt (ohne Wörter) eintragen — sonst bleibt die Lücke offen und jeder Lauf öffnet
-                    // Datei und Sprachmodell erneut.
-                    if (gapEnd == null && source.duration > gapStart) {
-                        PlayerTranscriptLibrary.mergeAndSave(
-                            PlayerTranscriptTrackCache.Segment(gapStart, source.duration, emptyList()),
-                            bookId, source.trackIndex, selection.localeIdentifier,
-                        )
-                    }
-                    return true
-                }
-                cursor = produced
+                // Nur die Lücke (mit Vor-/Nachlauf) — am nächsten vorhandenen Segment aufhören (iOS gleich).
+                // Abbruch kommt immer als Ausnahme zurück, nie als „nichts produziert".
+                cursor = PlayerTranscriptProduction.fillGap(
+                    appContext, bookId, source, selection.entry, selection.localeIdentifier, gapStart, gap.end,
+                    isCurrent = { runGeneration == generation },
+                    onBatch = {
+                        // Ein Track läuft minutenlang — Pause greift sofort, nicht erst beim nächsten Track.
+                        if (runGeneration != generation || blockingReason() != null) throw PauseSignal()
+                    },
+                )
+                // Ohne folgendes Segment lief der Producer bis Dateiende — ab der Lücke ist der Track fertig.
+                if (gap.end == null) return true
+                lastFilledGapStart = gapStart
             } catch (p: PauseSignal) {
                 // Abschnitt abgebrochen (gesichert) — oben warten und an der Lücke weitermachen.
                 if (runGeneration != generation) return false
                 if (blockingReason() == null) delay(1_000)
             } catch (c: CancellationException) {
-                throw c
+                // Echter Abbruch der Coroutine weiterreichen; überholter Lauf (isCurrent) endet als „nicht fertig".
+                if (!coroutineContext.isActive) throw c
+                return false
             } catch (t: Throwable) {
                 Log.w(TAG, "prefetch failed track=${source.trackIndex}", t)
                 return false

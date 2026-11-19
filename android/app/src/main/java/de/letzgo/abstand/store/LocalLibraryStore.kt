@@ -235,8 +235,9 @@ class LocalLibraryStore internal constructor(val database: LocalLibraryDatabase)
         dao.upsertPodcastShowListState(LocalPodcastShowListState(libraryId, sortField, ascending, items.size))
     }
 
-    suspend fun fetchPodcastShows(libraryId: String, sortField: String, ascending: Boolean): List<AbsBook>? =
-        LocalLibraryQueries.podcastShows(dao, libraryId, sortField, ascending)
+    /** Zuletzt gecachte Sendungen in Server-Reihenfolge; die Leiste sortiert selbst (`PodcastShowSorting`). */
+    suspend fun fetchPodcastShows(libraryId: String): List<AbsBook>? =
+        LocalLibraryQueries.podcastShows(dao, libraryId)
 
     // MARK: - Bücher
 

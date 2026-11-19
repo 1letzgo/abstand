@@ -70,7 +70,10 @@ import de.letzgo.abstand.ui.components.AbstandIconButton
 fun HomeTabRoot(model: AppModel = AppModel.shared) {
     val home = model.home
     val session = model.session
-    val shelves by home.startShelves.collectAsState()
+    val rawShelves by home.startShelves.collectAsState()
+    val progressMap by home.progressByItemId.collectAsState()
+    // iOS: „Recently added“ blendet beendete Titel zur Render-Zeit aus (reagiert auf Fortschritt, gilt offline gleich).
+    val shelves = remember(rawShelves, progressMap) { HomeShelfLogic.hideFinishedFromRecentlyAdded(rawShelves, progressMap) }
     val categoryList by home.startSettingsCategoryList.collectAsState()
     val disabled by home.startDisabledCategories.collectAsState()
     val isRestoring by session.isHomeContinueRestoreInProgress.collectAsState()

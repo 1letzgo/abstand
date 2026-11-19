@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import de.letzgo.abstand.data.AbsBook
@@ -43,6 +44,8 @@ import de.letzgo.abstand.data.AbsPodcastCharts
 import de.letzgo.abstand.data.AbsPodcastDirectorySearchHit
 import de.letzgo.abstand.data.swiftTrim
 import de.letzgo.abstand.model.AppModel
+import de.letzgo.abstand.model.PodcastCatalogSortField
+import de.letzgo.abstand.model.PodcastEpisodeSortField
 import de.letzgo.abstand.model.PodcastLogic
 import de.letzgo.abstand.model.PodcastStore
 import de.letzgo.abstand.ui.AppTheme
@@ -90,6 +93,34 @@ internal fun <F> PodcastSortMenuButton(
                 listOf(false, true), descending, { if (it) "Descending" else "Ascending" }, onSelectDescending,
                 icon = { if (it) SF.arrowDown else SF.arrowUp },
             )
+        }
+    }
+}
+
+/**
+ * iOS: `PodcastShowEpisodeSortToolbarMenu` — gewählte Sendung: Folgen-Sortierung plus Abschnitt für die
+ * (weiter sichtbare) Sendungs-Leiste, damit die Leiste auch hier sortierbar ist.
+ */
+@Composable
+internal fun PodcastShowEpisodeSortMenuButton(
+    episodeField: PodcastEpisodeSortField,
+    episodeDescending: Boolean,
+    showField: PodcastCatalogSortField,
+    showDescending: Boolean,
+    onSelectEpisodeField: (PodcastEpisodeSortField) -> Unit,
+    onSelectEpisodeDescending: (Boolean) -> Unit,
+    onSelectShowField: (PodcastCatalogSortField) -> Unit,
+    onSelectShowDescending: (Boolean) -> Unit,
+) {
+    val orderLabel: (Boolean) -> String = { if (it) "Descending" else "Ascending" }
+    val orderIcon: (Boolean) -> ImageVector? = { if (it) SF.arrowDown else SF.arrowUp }
+    AbstandMenuButton(SF.arrowUpArrowDown, "Sort", pill = true) {
+        picker(PodcastEpisodeSortField.entries, episodeField, { it.menuTitle }, onSelectEpisodeField, title = "Episodes")
+        picker(listOf(false, true), episodeDescending, orderLabel, onSelectEpisodeDescending, icon = orderIcon)
+        divider()
+        picker(PodcastCatalogSortField.entries, showField, { it.menuTitle }, onSelectShowField, title = "Sort shows")
+        if (!showField.suppressesSortOrderPicker) {
+            picker(listOf(false, true), showDescending, orderLabel, onSelectShowDescending, icon = orderIcon)
         }
     }
 }

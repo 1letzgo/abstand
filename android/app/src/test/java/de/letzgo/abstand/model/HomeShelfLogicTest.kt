@@ -239,4 +239,31 @@ class HomeShelfLogicTest {
         assertNull(ContinueHeroMath.bookProgress(progress("a", finished = true)))
         assertEquals(1800.0, ContinueHeroMath.episodeRemainingSeconds(0.0, progress("s", "e", current = 1800.0)), 1e-9)
     }
+
+    // MARK: Recently added — beendete Titel ausblenden
+
+    @Test
+    fun recentlyAddedHidesFinishedBooksAndEpisodesOnly() {
+        val recent = AbsStartShelfSection(
+            id = "r", category = "newestItems", displayTitle = "Recently added",
+            books = listOf(book("done"), book("open"), book("read"), book("show")),
+            podcastEpisodes = listOf(episode("s", "e1"), episode("s", "e2")),
+        )
+        val other = AbsStartShelfSection(id = "o", category = "recommended", displayTitle = "x", books = listOf(book("done")))
+        val map = progressMap(
+            progress("done", finished = true), progress("open"), progress("read", ebook = 0.999),
+            progress("s", "e1", finished = true),
+        )
+        val out = HomeShelfLogic.hideFinishedFromRecentlyAdded(listOf(recent, other), map)
+        assertEquals(listOf("open", "show"), out[0].books.map { it.id })
+        assertEquals(listOf("e2"), out[0].podcastEpisodes.map { it.episodeId })
+        assertEquals(listOf("done"), out[1].books.map { it.id })
+    }
+
+    @Test
+    fun recentlyAddedBecomesEmptyWhenEverythingIsFinished() {
+        val recent = AbsStartShelfSection(id = "r", category = "newestItems", displayTitle = "x", books = listOf(book("a")))
+        val out = HomeShelfLogic.hideFinishedFromRecentlyAdded(listOf(recent), progressMap(progress("a", finished = true)))
+        assertFalse(HomeShelfLogic.shelfHasVisibleContent(out[0]))
+    }
 }

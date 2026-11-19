@@ -24,7 +24,6 @@ import de.letzgo.abstand.data.AbsPodcastEpisodeListItem
 import de.letzgo.abstand.model.AppModel
 import de.letzgo.abstand.model.PodcastCatalogSortField
 import de.letzgo.abstand.model.PodcastCatalogStripSection
-import de.letzgo.abstand.model.PodcastEpisodeSortField
 import de.letzgo.abstand.model.PodcastStore
 import de.letzgo.abstand.ui.AppTheme
 import de.letzgo.abstand.ui.LocalTabNavigator
@@ -137,14 +136,16 @@ fun PodcastsTabRoot(model: AppModel = AppModel.shared) {
                     onSelectDescending = store::setPodcastCatalogSortDescending,
                 )
             } else {
-                PodcastSortMenuButton(
-                    fields = PodcastEpisodeSortField.entries,
-                    selected = episodeSortField,
-                    title = { it.menuTitle },
-                    descending = episodeSortDescending,
-                    showsOrder = true,
-                    onSelectField = store::setPodcastEpisodeSortField,
-                    onSelectDescending = store::setPodcastEpisodeSortDescending,
+                // Gewählte Sendung: Folgen sortieren + Leiste („Sort shows“), die weiter sichtbar ist.
+                PodcastShowEpisodeSortMenuButton(
+                    episodeField = episodeSortField,
+                    episodeDescending = episodeSortDescending,
+                    showField = catalogSortField,
+                    showDescending = catalogSortDescending,
+                    onSelectEpisodeField = store::setPodcastEpisodeSortField,
+                    onSelectEpisodeDescending = store::setPodcastEpisodeSortDescending,
+                    onSelectShowField = store::setPodcastCatalogSortField,
+                    onSelectShowDescending = store::setPodcastCatalogSortDescending,
                 )
             }
         },

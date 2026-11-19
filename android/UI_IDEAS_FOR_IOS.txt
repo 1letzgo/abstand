@@ -44,6 +44,10 @@ Player
 - [offen] Mini-Player waagerecht wegwischen (beide Richtungen) stoppt die Wiedergabe; dahinter
   „Stop“-Hinweis mit Symbol. Lange-Drücken aufs Cover bleibt, zusätzlich Accessibility-Aktion
   „Stop playback“. (M3-Konformität) — auf iOS z. B. als Swipe auf dem tabViewBottomAccessory prüfen.
+- [parallel auf iOS umgesetzt] Read Along: Markierung in drei Stufen (aktive Zeile volle Tinte, übrige
+  Zeilen des aktiven Absatzes 0,58, Rest 0,32); in der aktiven Zeile gesprochene Wörter volle Tinte,
+  noch nicht gesprochene 0,72 (letztes begonnenes Wort bleibt in Pausen aktiv). Nur Deckkraft, Tinte
+  statt Akzent, kein Gewichtswechsel. Scrollen zeilengebunden mit 0,3-s-Smoothstep um jeden Zeilenstart.
 
 Farben
 ------

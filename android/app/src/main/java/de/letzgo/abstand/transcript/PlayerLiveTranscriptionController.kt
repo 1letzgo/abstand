@@ -8,6 +8,7 @@ import de.letzgo.abstand.logic.PlayerTranscriptLibrary
 import de.letzgo.abstand.logic.PlayerTranscriptLine
 import de.letzgo.abstand.logic.PlayerTranscriptLineAccumulator
 import de.letzgo.abstand.logic.PlayerTranscriptTimeline
+import de.letzgo.abstand.logic.PlayerTranscriptRunWindow
 import de.letzgo.abstand.logic.PlayerTranscriptTrackCache
 import de.letzgo.abstand.logic.PlayerTranscriptWord
 import de.letzgo.abstand.logic.PlayerTranscriptWordLookup
@@ -29,6 +30,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.abs
@@ -378,7 +381,10 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
         activeTrackDuration = trackDuration
         finalizedWords = emptyList()
         lineAccumulator.reset()
-        trackCache = loaded ?: PlayerTranscriptTrackCache(localeIdentifier = context.localeIdentifier, trackIndex = context.trackIndex)
+        // iOS gleich: alter Stand (unverfeinerte Wortanfänge) nur, wenn er den Track ganz abdeckt — mit Lücken
+        // würde die Produktion ihn beim ersten Zwischenspeichern ersetzen; dann gleich frisch beginnen.
+        val usable = loaded?.takeIf { it.isOnsetRefined || it.firstUncoveredTime(0.0, trackDuration) == null }
+        trackCache = usable ?: PlayerTranscriptTrackCache(localeIdentifier = context.localeIdentifier, trackIndex = context.trackIndex)
 
         rebuildDisplayFromCache()
         val playbackLocal = PlaybackTranscription.localPlaybackSeconds(player, context.trackGlobalOffset)
@@ -413,6 +419,9 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
         }
         // Nur bis zum nächsten transkribierten Segment, danach an der nächsten Lücke weiter (iOS gleich).
         val end = cache.nextCoveredStart(start)
+        // iOS gleich: mit Vor-/Nachlauf füttern, übernommen wird nur, was in der Lücke beginnt.
+        val window = PlayerTranscriptRunWindow(start, end)
+        val trackDuration = activeTrackDuration
         productionJob?.cancel()
         productionRunId += 1
         val runId = productionRunId
@@ -430,15 +439,19 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
             var through = start
             var segmentStart = start
             var sawWords = false
+            // iOS gleich: nur ein Lauf mit finalem Batch hat den Bereich ganz gesehen.
+            var sawFinalBatch = false
             try {
-                PlayerTranscriptProducer.transcribe(appContext, context.assetFile, start, end, model).collect { batch ->
+                PlayerTranscriptProducer.transcribe(appContext, context.assetFile, window.runStart, window.runEnd, model).collect { batch ->
                     if (!sessionIsCurrent(generation) || activeContext?.trackIndex != trackIndex) throw CancellationException()
-                    if (batch.words.isNotEmpty()) {
+                    val kept = batch.words.filter { window.keeps(it.start) }
+                    if (kept.isNotEmpty()) {
                         sawWords = true
-                        pending.addAll(batch.words.map { PlayerTranscriptTrackCache.Word(it.text, it.start, it.end) })
-                        appendProducedWords(batch.words, trackIndex)
+                        pending.addAll(kept.map { PlayerTranscriptTrackCache.Word(it.text, it.start, it.end) })
+                        appendProducedWords(kept, trackIndex)
                     }
                     through = max(through, batch.processedThrough)
+                    if (batch.isFinalBatch) sawFinalBatch = true
                     productionThroughLocalTime = through
                     if (through - segmentStart >= PlayerTranscriptLibrary.TRANSCRIPT_PERSIST_INTERVAL_SECONDS) {
                         persistProducedSegment(segmentStart, through, pending.toList(), bookId, trackIndex, localeId)
@@ -447,11 +460,19 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
                     }
                 }
                 persistProducedSegment(segmentStart, through, pending.toList(), bookId, trackIndex, localeId)
+                currentCoroutineContext().ensureActive()
+                val completed = sawFinalBatch && productionRunId == runId && sessionIsCurrent(generation) &&
+                    activeContext?.trackIndex == trackIndex
+                // iOS gleich: Datei endet vor der Server-Dauer (belegt durch den finalen Batch) — Rest ohne Wörter
+                // als abgedeckt eintragen, sonst setzte die Positionsverfolgung am Track-Ende immer neu an.
+                if (completed && end == null && trackDuration > through + 1) {
+                    persistProducedSegment(through, trackDuration, emptyList(), bookId, trackIndex, localeId)
+                }
                 // Lauf durch, aber kein einziges Wort — sonst bliebe die Karte dauerhaft im Ladezustand.
-                if (productionRunId == runId && !sawWords && _transcriptLines.value.isEmpty() && sessionIsCurrent(generation)) {
+                if (completed && !sawWords && _transcriptLines.value.isEmpty()) {
                     scope.launch { failTeleprompterSession(PlayerLiveTranscriptionError.transcriptionProgressStalled, generation) }
                 }
-                if (end != null && productionRunId == runId && sessionIsCurrent(generation) && activeContext?.trackIndex == trackIndex) {
+                if (end != null && completed) {
                     scope.launch { if (productionRunId == runId) startProduction(end, generation) }
                 }
             } catch (c: CancellationException) {
@@ -484,6 +505,7 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
         if (context.trackIndex != trackIndex || words.isEmpty()) return
         val offset = context.trackGlobalOffset
         val tail = finalizedWords.lastOrNull()?.globalStart ?: -1.0
+        // Frisch produzierte Wörter sind verfeinert (`SpeechOnsetRefiner`) — keine Anzeige-Heuristik.
         val mapped = words.mapIndexed { index, word ->
             PlayerTranscriptWord(
                 id = "p-$trackIndex-${Math.round(word.start * 1000)}-$index",
@@ -516,7 +538,18 @@ class PlayerLiveTranscriptionController private constructor(private val appConte
         val merged = PlayerTranscriptLibrary.mergeAndSave(
             PlayerTranscriptTrackCache.Segment(start, end, words), bookId, trackIndex, localeIdentifier,
         )
-        if (activeContext?.trackIndex == trackIndex) trackCache = merged
+        if (activeContext?.trackIndex == trackIndex) {
+            if (!merged.isOnsetRefined) {
+                // iOS gleich: Merge abgelehnt (alter Stand hätte mehr Wörter verloren als dazukamen) — Datei bleibt,
+                // der Lauf führt seine Abdeckung im Speicher weiter, damit er nicht dieselbe Lücke erneut ansetzt.
+                trackCache?.insert(PlayerTranscriptTrackCache.Segment(start, end, words))
+                return
+            }
+            val replacedLegacy = trackCache?.isOnsetRefined == false && merged.isOnsetRefined
+            trackCache = merged
+            // Der Merge hat einen alten Stand verworfen: dessen Wörter auch aus der Anzeige nehmen.
+            if (replacedLegacy) rebuildDisplayFromCache()
+        }
     }
 
     /** iOS: `followPlaybackPosition` — Track-Wechsel und Sprünge. */

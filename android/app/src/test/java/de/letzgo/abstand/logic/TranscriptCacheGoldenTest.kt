@@ -37,7 +37,10 @@ class TranscriptCacheGoldenTest {
         flags = byteArrayOf(1, 1, 0, 1, 0, 1),
     )
 
+    // Die Fixture ist ein Stand der Version 2 (vor der Einsatz-Verfeinerung) — beide Plattformen müssen
+    // ihn weiter lesen können (Anzeige mit Heuristik, bis der Track neu erzeugt ist).
     private fun transcript() = PlayerTranscriptTrackCache(
+        version = 2,
         localeIdentifier = locale,
         trackIndex = trackIndex,
         segments = listOf(
@@ -128,8 +131,29 @@ class TranscriptCacheGoldenTest {
 
     @Test
     fun versionMismatchIsRejected() {
-        val json = PlayerTranscriptCacheStore.encode(transcript()).replace("\"version\":2", "\"version\":3")
+        val json = PlayerTranscriptCacheStore.encode(transcript()).replace("\"version\":2", "\"version\":1")
         assertEquals(null, PlayerTranscriptCacheStore.decode(json))
+    }
+
+    @Test
+    fun legacyVersionStaysReadableAndIsReplacedOnInsert() {
+        val legacy = PlayerTranscriptCacheStore.decode(PlayerTranscriptCacheStore.encode(transcript()))!!
+        assertEquals(2, legacy.version)
+        assertEquals(false, legacy.isOnsetRefined)
+        val current = PlayerTranscriptCacheStore.decode(
+            PlayerTranscriptCacheStore.encode(transcript()).replace("\"version\":2", "\"version\":4"),
+        )!!
+        assertEquals(true, current.isOnsetRefined)
+        // Version 3 (nie veröffentlichter Debug-Stand mit möglicher Falsch-Abdeckung) gilt als kein Transkript.
+        assertEquals(
+            null,
+            PlayerTranscriptCacheStore.decode(PlayerTranscriptCacheStore.encode(transcript()).replace("\"version\":2", "\"version\":3")),
+        )
+        // Erstes neues (verfeinertes) Segment ersetzt den alten Stand ganz statt zu mischen.
+        legacy.insert(PlayerTranscriptTrackCache.Segment(130.0, 140.0, listOf(PlayerTranscriptTrackCache.Word("new", 131.0, 131.4))))
+        assertEquals(PlayerTranscriptTrackCache.CURRENT_VERSION, legacy.version)
+        assertEquals(listOf("new"), legacy.allWords.map { it.t })
+        assertEquals(listOf(130.0 to 140.0), legacy.segments.map { it.start to it.end })
     }
 
     @Test

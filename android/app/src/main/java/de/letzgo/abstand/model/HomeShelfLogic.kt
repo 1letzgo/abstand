@@ -537,6 +537,29 @@ object HomeShelfLogic {
     fun hasOpenProgressExpectingContinue(progress: Map<String, AbsUserMediaProgress>): Boolean =
         progress.values.any { !it.isFinished && it.currentTime > continueListeningMinPositionSeconds }
 
+    const val newestItemsCategory = "newestItems"
+
+    /**
+     * iOS: `startShelf(forCategory:)` für „Recently added“ — beendete Titel ausblenden (`isFinished` bzw.
+     * eBook-Server-Fortschritt ≥ 99,5 %). Podcast-Shows ohne Fortschrittseintrag bleiben; Episoden einzeln.
+     */
+    fun hideFinishedFromRecentlyAdded(
+        shelves: List<AbsStartShelfSection>,
+        progress: Map<String, AbsUserMediaProgress>,
+    ): List<AbsStartShelfSection> {
+        fun finished(key: String): Boolean {
+            val p = progress[key.swiftTrim()] ?: return false
+            return p.isFinished || (p.ebookProgress?.let { it.isFinite() && it >= 0.995 } == true)
+        }
+        return shelves.map { shelf ->
+            if (shelf.category != newestItemsCategory) return@map shelf
+            val books = shelf.books.filterNot { finished(it.id) }
+            val episodes = shelf.podcastEpisodes.filterNot { finished(it.progressLookupKey) }
+            if (books.size == shelf.books.size && episodes.size == shelf.podcastEpisodes.size) shelf
+            else shelf.copy(books = books, podcastEpisodes = episodes)
+        }
+    }
+
     /** iOS: `startDashboardShelfHasVisibleContent`. */
     fun shelfHasVisibleContent(shelf: AbsStartShelfSection): Boolean =
         shelf.hasBooks || shelf.hasPodcastEpisodes || shelf.hasSeries || shelf.hasAuthors

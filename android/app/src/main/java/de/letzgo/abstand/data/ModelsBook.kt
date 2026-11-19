@@ -633,6 +633,8 @@ data class AbsBookMedia(
     val ebookFormat: String? = null,
     /** ABS: Tags am Medien-Objekt (`media.tags`), nicht in `metadata`. */
     val tags: List<String>? = null,
+    /** Nur Podcasts: Folgenzahl aus dem (minified) Katalog (`media.numEpisodes`) — Sortierung der Leiste. */
+    val numEpisodes: Int? = null,
 )
 
 object AbsBookMediaSerializer : SwiftObjectSerializer<AbsBookMedia>("ABSBookMedia") {
@@ -642,6 +644,7 @@ object AbsBookMediaSerializer : SwiftObjectSerializer<AbsBookMedia>("ABSBookMedi
         val duration = c.doubleOrNull("duration")
         val size = c.longOrNull("size")
         val numTracks = c.intOrNull("numTracks")
+        val numEpisodes = c.intOrNull("numEpisodes")
         val chapters = c.listOrNull("chapters", AbsChapterSerializer)
         val podcastEpisodes = c.listOrNull("episodes", AbsRecentPodcastEpisodeDTOSerializer)
         val autoDownloadEpisodes = c.boolOrNull("autoDownloadEpisodes")
@@ -668,6 +671,7 @@ object AbsBookMediaSerializer : SwiftObjectSerializer<AbsBookMedia>("ABSBookMedi
             tracks = tracks, podcastEpisodes = podcastEpisodes, autoDownloadEpisodes = autoDownloadEpisodes,
             autoDownloadSchedule = autoDownloadSchedule, maxEpisodesToKeep = maxEpisodesToKeep,
             maxNewEpisodesToDownload = maxNewEpisodesToDownload, ebookFile = ebookFile, ebookFormat = ebookFormat, tags = tags,
+            numEpisodes = numEpisodes,
         )
     }
 
@@ -677,6 +681,7 @@ object AbsBookMediaSerializer : SwiftObjectSerializer<AbsBookMedia>("ABSBookMedi
         putIfPresent("duration", v.duration)
         putIfPresent("size", v.size)
         putIfPresent("numTracks", v.numTracks)
+        putIfPresent("numEpisodes", v.numEpisodes)
         putList("chapters", v.chapters) { AbsChapterSerializer.encode(it) }
         putList("tracks", v.tracks) { AbsAudioTrackSerializer.encode(it) }
         putList("episodes", v.podcastEpisodes) { AbsRecentPodcastEpisodeDTOSerializer.encode(it) }

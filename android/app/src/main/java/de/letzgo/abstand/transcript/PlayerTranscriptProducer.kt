@@ -2,6 +2,9 @@ package de.letzgo.abstand.transcript
 
 import android.content.Context
 import de.letzgo.abstand.data.AbsJson
+import de.letzgo.abstand.logic.SpeechEnvelopeTracker
+import de.letzgo.abstand.logic.SpeechOnsetRefinementBatcher
+import de.letzgo.abstand.logic.SpeechOnsetWord
 import de.letzgo.abstand.logic.speech.SpeechModelCatalog
 import de.letzgo.abstand.logic.speech.SpeechModelStore
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +37,8 @@ data class PlayerTranscriptProductionBatch(
  * iOS: `PlayerTranscriptProducer` — erzeugt Transkripte für einen Track-Bereich so schnell das Gerät
  * kann, entkoppelt von der Wiedergabe. Statt `SpeechAnalyzer` läuft Vosk: die Erkennung arbeitet
  * synchron im Fütter-Thread, deshalb braucht es keine `FeedGate`-Drossel — jede Endpunkt-Erkennung
- * (Pause im Sprachfluss) liefert einen Batch finalisierter Wörter.
+ * (Pause im Sprachfluss) liefert einen Batch finalisierter Wörter. Wortanfänge nach Sprechpausen werden
+ * wie auf iOS per [de.letzgo.abstand.logic.SpeechOnsetRefiner] auf den akustischen Einsatz gelegt.
  */
 object PlayerTranscriptProducer {
     /** JNI-Aufrufe kurz halten: 0,25 s je `acceptWaveForm`. */
@@ -55,11 +59,27 @@ object PlayerTranscriptProducer {
                 var anchor = max(0.0, startSeconds)
                 var analyzedSamples = 0L
                 fun analyzedThrough() = anchor + analyzedSamples.toDouble() / PlayerTranscriptionAudioConverter.SAMPLE_RATE
+                // iOS: Hüllkurve des gefütterten Audios — Wortanfänge nach Sprechpausen auf den echten Einsatz.
+                val envelope = SpeechEnvelopeTracker()
+                // iOS gleich: das letzte Wort eines Ergebnisses bleibt bis zum nächsten zurück — erst dann ist
+                // bekannt, ob dessen Ende auf den Beginn der folgenden Pause gehört.
+                val batcher = SpeechOnsetRefinementBatcher()
+                val refine = { words: List<SpeechOnsetWord>, previous: SpeechOnsetWord? -> envelope.refine(words, previous) }
+                fun refined(words: List<PlayerTranscriptProducedWord>, last: Boolean): List<PlayerTranscriptProducedWord> {
+                    val out = batcher.add(words.map { SpeechOnsetWord(it.text, it.start, it.end) }, refine) +
+                        (if (last) batcher.finish(refine) else emptyList())
+                    return out.map { PlayerTranscriptProducedWord(it.text, it.start, it.end) }
+                }
 
                 val reached = PlayerTranscriptionAudioConverter.decode(
                     assetFile, startSeconds, endSeconds,
-                    onAnchor = { anchor = it },
+                    onAnchor = {
+                        anchor = it
+                        envelope.setOrigin(it)
+                    },
                     onPcm = { pcm ->
+                        // Vor dem Erkennen: ein Ergebnis betrifft nie Audio, das die Hüllkurve nicht kennt.
+                        envelope.append(pcm, pcm.size, PlayerTranscriptionAudioConverter.SAMPLE_RATE)
                         var offset = 0
                         while (offset < pcm.size) {
                             val n = minOf(SLICE, pcm.size - offset)
@@ -68,14 +88,16 @@ object PlayerTranscriptProducer {
                             analyzedSamples += n
                             offset += n
                             if (endpoint) {
-                                val words = VoskResult.words(recognizer.result, anchor)
-                                emit(PlayerTranscriptProductionBatch(words, analyzedThrough(), isFinalBatch = false))
+                                val words = refined(VoskResult.words(recognizer.result, anchor), last = false)
+                                if (words.isNotEmpty()) {
+                                    emit(PlayerTranscriptProductionBatch(words, words.last().end, isFinalBatch = false))
+                                }
                             }
                         }
                     },
                 )
                 // Ohne Finalisieren bliebe der letzte Satz im Erkenner hängen.
-                val tail = VoskResult.words(recognizer.finalResult, anchor)
+                val tail = refined(VoskResult.words(recognizer.finalResult, anchor), last = true)
                 val through = max(analyzedThrough(), reached)
                 if (tail.isNotEmpty()) emit(PlayerTranscriptProductionBatch(tail, through, isFinalBatch = false))
                 emit(PlayerTranscriptProductionBatch(emptyList(), through, isFinalBatch = true))

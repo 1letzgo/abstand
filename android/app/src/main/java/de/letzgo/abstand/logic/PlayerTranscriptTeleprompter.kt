@@ -35,6 +35,21 @@ object PlayerTeleprompterMetrics {
     const val FONT_SIZE_STORAGE_KEY = "abstand_teleprompter_font_size"
     /** Zeilen außerhalb des aktiven Absatzes (symmetrisch ausgeblendet). */
     const val INACTIVE_LINE_TEXT_OPACITY = 0.32
+    /** Übrige Zeilen des aktiven Absatzes (Stufen identisch zu iOS). */
+    const val ACTIVE_PARAGRAPH_LINE_TEXT_OPACITY = 0.58
+    /** Aktive Zeile: noch nicht gesprochene Wörter (gesprochene volle Tinte). */
+    const val UPCOMING_WORD_TEXT_OPACITY = 0.72
+
+    /**
+     * Deckkraft eines Worts in drei Stufen: aktive Zeile volle Tinte (noch nicht gesprochene Wörter
+     * [UPCOMING_WORD_TEXT_OPACITY]), übrige Zeilen des aktiven Absatzes [ACTIVE_PARAGRAPH_LINE_TEXT_OPACITY],
+     * Rest [INACTIVE_LINE_TEXT_OPACITY]. [spokenWordIndex] aus `PlayerTranscriptTimeline.spokenWordIndex`.
+     */
+    fun wordTextOpacity(isActiveLine: Boolean, isInActiveParagraph: Boolean, wordIndex: Int, spokenWordIndex: Int?): Double = when {
+        isActiveLine -> if (spokenWordIndex != null && wordIndex <= spokenWordIndex) 1.0 else UPCOMING_WORD_TEXT_OPACITY
+        isInActiveParagraph -> ACTIVE_PARAGRAPH_LINE_TEXT_OPACITY
+        else -> INACTIVE_LINE_TEXT_OPACITY
+    }
 
     fun clampFontSize(size: Double): Double = minOf(MAX_FONT_SIZE, maxOf(MIN_FONT_SIZE, size))
 
@@ -119,35 +134,95 @@ object PlayerTranscriptTimeline {
         return WordHit(idx, word)
     }
 
-    /** Fortlaufende Zeilenposition (Ganzzahl = Zeilenanfang, Nachkomma = Fortschritt in der Zeile). */
+    /** iOS: `ReadAlongLinePosition.transitionSeconds` — Übergangsdauer τ zwischen zwei Zeilen (s). */
+    const val LINE_TRANSITION_SECONDS = 0.3
+    /** iOS: `endHoldSeconds` — so lange bleibt die letzte Zeile nach ihrem Ende noch stehen (s). */
+    const val END_HOLD_SECONDS = 0.25
+    /** iOS: `endMinimumSpan` — Mindest-Zeilendauer für das Weiterscrollen hinter der letzten Zeile (s). */
+    const val END_MINIMUM_SPAN = 0.35
+    /** iOS: `endMaximumOvershoot` — höchstens so viele Zeilen in den leeren Bereich scrollen. */
+    const val END_MAXIMUM_OVERSHOOT = 3.5
+
+    /**
+     * iOS: `ReadAlongLinePosition.halfWindow` — halbe Fensterbreite um den Start von Zeile [k] (k ≥ 1):
+     * `min(τ/2, (s_k − s_{k−1})/2, (s_{k+1} − s_k)/2)`, negative Abstände zählen als 0.
+     */
+    fun transitionHalfWidth(lines: List<PlayerTranscriptLine>, k: Int): Double {
+        var h = LINE_TRANSITION_SECONDS / 2
+        h = minOf(h, maxOf(0.0, lines[k].globalStart - lines[k - 1].globalStart) / 2)
+        if (k + 1 < lines.size) h = minOf(h, maxOf(0.0, lines[k + 1].globalStart - lines[k].globalStart) / 2)
+        return h
+    }
+
+    /** iOS: `smoothFraction` — Smoothstep 3x² − 2x³ über `[0, width]`; Breite 0 = harter Schritt. */
+    fun smoothFraction(elapsed: Double, width: Double): Double {
+        if (width <= 0) return if (elapsed >= 0) 1.0 else 0.0
+        val x = minOf(1.0, maxOf(0.0, elapsed / width))
+        return x * x * (3 - 2 * x)
+    }
+
+    /**
+     * iOS: `ReadAlongLinePosition.position` — zeilengebundene Scroll-Position. Sei `i` die letzte Zeile mit
+     * `s_i ≤ t`: die Position ist exakt `i`, solange die Zeile gesprochen wird, auch in Pausen. Nur um
+     * jeden Zeilenstart `s_k` (k ≥ 1) gleitet sie im Fenster `[s_k − h_k, s_k + h_k]` per Smoothstep von
+     * `k − 1` nach `k` (bei `t = s_k` genau `k − 0,5`). Stetig und monoton. Hinter der letzten Zeile
+     * (Transkript hinkt hinterher) nach [END_HOLD_SECONDS] linear in den leeren Bereich.
+     */
     fun fractionalActiveLinePosition(lines: List<PlayerTranscriptLine>, globalTime: Double): Double {
         if (lines.isEmpty()) return 0.0
-        if (globalTime <= lines[0].globalStart) return 0.0
+        val t = globalTime
+        if (t <= lines[0].globalStart) return 0.0
         val lastIdx = lines.size - 1
-        if (globalTime >= lines[lastIdx].globalEnd) {
-            val gap = globalTime - lines[lastIdx].globalEnd
-            val span = maxOf(0.35, lines[lastIdx].globalEnd - lines[lastIdx].globalStart)
-            // Wiedergabe voraus: in den leeren Bereich hinter der letzten Zeile scrollen.
-            if (gap > 0.25) return (lastIdx + 1).toDouble() + minOf(2.5, gap / span)
-            return lastIdx.toDouble() + minOf(0.92, gap / span)
+        val i = activeLineIndex(lines, t)
+
+        // Übergang in die nächste Zeile (erste Hälfte des Fensters um s_{i+1}).
+        if (i < lastIdx) {
+            val h = transitionHalfWidth(lines, i + 1)
+            val windowStart = lines[i + 1].globalStart - h
+            if (t >= windowStart) return i + smoothFraction(t - windowStart, 2 * h)
         }
-        val idx = activeLineIndex(lines, globalTime)
-        val line = lines[idx]
-        if (globalTime < line.globalEnd) {
-            val span = line.globalEnd - line.globalStart
-            val progress = if (span > 0) (globalTime - line.globalStart) / span else 0.0
-            return idx.toDouble() + minOf(1.0, maxOf(0.0, progress))
+        // Ausklang des Übergangs aus der vorigen Zeile (zweite Hälfte des Fensters um s_i).
+        var holdUntil = lines[i].globalStart
+        if (i >= 1) {
+            val h = transitionHalfWidth(lines, i)
+            val windowStart = lines[i].globalStart - h
+            holdUntil = lines[i].globalStart + h
+            if (t < holdUntil) return (i - 1) + smoothFraction(t - windowStart, 2 * h)
         }
-        // Lücke zwischen zwei Zeilen — am Anfang der nächsten stehen bleiben.
-        return minOf(lastIdx, idx + 1).toDouble()
+        // Hinter der letzten Zeile: kurz stehen bleiben, dann in den leeren Bereich scrollen.
+        if (i == lastIdx) {
+            val lastEnd = lines[lastIdx].globalEnd
+            val endStart = maxOf(lastEnd, holdUntil) + END_HOLD_SECONDS
+            if (t > endStart) {
+                val span = maxOf(END_MINIMUM_SPAN, lastEnd - lines[lastIdx].globalStart)
+                return lastIdx + minOf(END_MAXIMUM_OVERSHOOT, (t - endStart) / span)
+            }
+        }
+        return i.toDouble()
+    }
+
+    /**
+     * Index (in `line.words`) des zuletzt begonnenen gesprochenen Worts: letztes Nicht-Leerzeichen-Wort
+     * mit Start ≤ [globalTime]; bleibt in Pausen stehen (anders als [activeWordHit]). `null`, solange
+     * noch kein Wort der Zeile begonnen hat.
+     */
+    fun spokenWordIndex(line: PlayerTranscriptLine?, globalTime: Double): Int? {
+        if (line == null) return null
+        var result: Int? = null
+        line.words.forEachIndexed { index, word ->
+            if (!word.isWhitespaceOnly && word.globalStart <= globalTime) result = index
+        }
+        return result
     }
 
     /**
      * iOS: `rebuildDisplayFromCache` — Cache-Wörter eines Tracks als Teleprompter-Wörter
-     * (`c-<track>-<n>`, Text mit angehängtem Leerzeichen, globale Zeit).
+     * (`c-<track>-<n>`, Text mit angehängtem Leerzeichen, globale Zeit). Verfeinerte Transkripte tragen
+     * schon die akustischen Einsätze; nur alte Stände (Version 2) bekommen die Anzeige-Heuristik
+     * [ReadAlongWordTiming] für in Pausen vorgezogene Wortanfänge.
      */
-    fun recognizedWords(cache: PlayerTranscriptTrackCache, trackIndex: Int, trackGlobalOffset: Double): List<PlayerTranscriptWord> =
-        cache.allWords.mapIndexed { index, word ->
+    fun recognizedWords(cache: PlayerTranscriptTrackCache, trackIndex: Int, trackGlobalOffset: Double): List<PlayerTranscriptWord> {
+        val words = cache.allWords.mapIndexed { index, word ->
             PlayerTranscriptWord(
                 id = "c-$trackIndex-$index",
                 text = word.t + " ",
@@ -155,6 +230,8 @@ object PlayerTranscriptTimeline {
                 globalEnd = maxOf(trackGlobalOffset + word.s, trackGlobalOffset + word.e),
             )
         }
+        return if (cache.isOnsetRefined) words else ReadAlongWordTiming.corrected(words)
+    }
 }
 
 /** iOS: `PlayerTranscriptWordLookup` — reine Teile (Lemma, Sprachcode). */

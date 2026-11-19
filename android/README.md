@@ -114,6 +114,8 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `logic/PlayerTranscriptCacheStore.kt` | `PlayerTranscriptCacheStore.swift`, `PlayerTranscriptWord`/`PlayerTranscriptLine` |
 | `logic/PlayerTranscriptLibrary.kt` | `PlayerTranscriptLibrary.swift` (cache access, merge chain), `EbookAlignmentStore.loadOrBuild` |
 | `logic/PlayerTranscriptLineAccumulator.kt` | `PlayerTranscriptLineAccumulator.swift` |
+| `logic/ReadAlongWordTiming.kt` | `ReadAlongWordTiming` (PlayerTranscriptLineAccumulator.swift) — display fallback for legacy (version 2) transcripts only |
+| `logic/SpeechOnsetRefinement.kt` (`SpeechOnsetRefiner`, `SpeechEnvelopeTracker`, `SpeechEnvelope`) | `SpeechOnsetRefinement.swift` — word starts after speech pauses moved to the acoustic onset (RMS envelope of the fed 16 kHz PCM); used by `PlayerTranscriptProducer`, transcript version 3 |
 | `logic/PlayerTranscriptTeleprompter.kt` | `PlayerTranscriptTeleprompter.swift` metrics, timeline/merge parts of `PlayerLiveTranscriptionController`, `PlayerTranscriptWordLookup.swift` (pure parts) |
 | `logic/speech/SpeechTranscriptionLocaleResolver.kt` | `SpeechTranscriptionLocaleResolver.swift`, `SpeechTranscriberAvailability.swift` (Vosk catalog instead of `SpeechTranscriber`) |
 | `logic/speech/SpeechModelCatalog.kt`, `SpeechModelStore.kt`, `PcmResampler.kt` | `SpeechTranscriber` locales / `AssetInventory`, `PlayerTranscriptionAudioConverter` (from stashy) |
@@ -180,7 +182,7 @@ The `play` flavor (Google Play) never checks GitHub and is signed with the uploa
 | `transcript/PlaybackTranscriptionSupport.kt` (`PlaybackTranscription`, `PlayerTranscriptionAudioContext`) | transcription extension of `PlaybackController` (`transcriptionStorageId`, `transcriptionTrackKey`, `makeTranscriptionAudioContext`, `localTranscriptionTrackSources`, language override) |
 | `transcript/PlayerTranscriptionAudioConverter.kt` | `PlayerTranscriptionAudioConverter.swift` + `AVAssetReader` part of `PlayerTranscriptProducer` (MediaExtractor/MediaCodec → 16 kHz mono) |
 | `transcript/PlayerTranscriptProducer.kt` (`PlayerTranscriptProducer`, `VoskResult`) | `PlayerTranscriptProducer.swift` (Vosk instead of `SpeechAnalyzer`/`SpeechTranscriber`) |
-| `transcript/PlayerTranscriptProduction.kt` | `PlayerTranscriptLibrary.produceAndPersist` / `transcriptText` (gap filling) |
+| `transcript/PlayerTranscriptProduction.kt` | `PlayerTranscriptLibrary.fillGap` / `persistProduction` (Lücke mit Vor-/Nachlauf füllen) |
 | `transcript/PlayerLiveTranscriptionController.kt` (+ `TranscriptFollowPolicy`, `TranscriptWordMerge`) | `PlayerLiveTranscriptionController.swift` |
 | `transcript/TranscriptionModelSelection.kt` | `SpeechTranscriptionLocaleResolver.resolve` + `ensureSpeechModel` (language → Vosk model) |
 | `transcript/PlayerTranscriptPrefetcher.kt` (`PlayerTranscriptPrefetcher`, `PrefetchPlanner`, `TranscriptPrefetchWorker`) | `PlayerTranscriptPrefetcher.swift` (`BGProcessingTask` → WorkManager unique work `de.letzgo.abstand.transcripts`, charging + battery not low), `AppModel.downloadedTranscriptJobs` |

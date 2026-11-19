@@ -38,6 +38,8 @@ android {
         // Monoton ohne manuelles Hochzählen: Anzahl Commits (-PabstandVersionCode=… überschreibt).
         versionCode = (project.findProperty("abstandVersionCode") as String?)?.toIntOrNull() ?: gitCommitCount()
         versionName = iosMarketingVersion()
+        // Nur für den Messtest in androidTest (überspringt sich ohne Instrumentation-Argumente).
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "DEBUG_SERVER", "\"\"")
         buildConfigField("String", "DEBUG_USER", "\"\"")
         buildConfigField("String", "DEBUG_PASSWORD", "\"\"")
@@ -140,4 +142,8 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver3:5.3.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    // Read-Along-Messung auf dem Emulator (VoskTimingMeasurementTest), nicht Teil normaler Builds.
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("junit:junit:4.13.2")
 }

@@ -67,35 +67,34 @@ object PlayerTranscriptLibrary {
             withContext(Dispatchers.IO) {
                 val cache = PlayerTranscriptCacheStore.load(account, bookId, trackIndex, localeIdentifier)
                     ?: PlayerTranscriptTrackCache(localeIdentifier = localeIdentifier, trackIndex = trackIndex)
-                cache.insert(segment)
-                PlayerTranscriptCacheStore.save(cache, account, bookId)
+                // Abgelehnt (alter Stand bliebe sonst durch weniger Abdeckendes ersetzt): nichts schreiben.
+                if (cache.insert(segment)) PlayerTranscriptCacheStore.save(cache, account, bookId)
                 cache
             }
         }
     }
 
-    /** Fehlt im Track noch etwas ab [from]? Liefert die erste offene lokale Sekunde. */
-    suspend fun firstUncoveredTime(
+    /** iOS: Rückgabe von `nextGap` — erste offene lokale Sekunde und Beginn des nächsten Segments danach. */
+    data class Gap(val start: Double, val end: Double?)
+
+    /**
+     * iOS: `nextGap` — fehlt im Track noch etwas ab [from]? Erste offene lokale Sekunde und Ende der Lücke
+     * (Beginn des nächsten transkribierten Segments) aus einem Lesevorgang. Ein Transkript mit unverfeinerten
+     * Wortanfängen (Version 2) gilt hier als leer — die Vorproduktion erzeugt es nach und nach neu; bis dahin
+     * zeigt die Anzeige es mit Heuristik.
+     */
+    suspend fun nextGap(
         bookId: String,
         source: PlayerTranscriptTrackSource,
         localeIdentifier: String,
         from: Double,
         account: File? = activeAccount,
-    ): Double? {
-        val existing = cache(bookId, source.trackIndex, localeIdentifier, account)
+    ): Gap? {
+        val existing = cache(bookId, source.trackIndex, localeIdentifier, account)?.takeIf { it.isOnsetRefined }
             ?: PlayerTranscriptTrackCache(localeIdentifier = localeIdentifier, trackIndex = source.trackIndex)
-        return existing.firstUncoveredTime(from, source.duration)
+        val start = existing.firstUncoveredTime(from, source.duration) ?: return null
+        return Gap(start, existing.nextCoveredStart(start))
     }
-
-    /** iOS: `nextCoveredStart(bookId:source:locale:after:)` — Endpunkt einer Lücke. */
-    suspend fun nextCoveredStart(
-        bookId: String,
-        source: PlayerTranscriptTrackSource,
-        localeIdentifier: String,
-        after: Double,
-        account: File? = activeAccount,
-    ): Double? = cache(bookId, source.trackIndex, localeIdentifier, account)?.nextCoveredStart(after)
-
 }
 
 /**
@@ -117,7 +116,11 @@ object EbookAlignmentStore {
     ): EbookTrackAlignment {
         val stored = PlayerTranscriptCacheStore.loadAlignment(account, bookId, trackIndex, localeIdentifier)
             ?.let(EbookTrackAlignment::decode)
-        if (stored != null && stored.ebookWordCount == index.words.size && stored.spokenWordCount == words.size) return stored
+        // iOS gleich: gleiche Wortzahl reicht nicht — ein neu erzeugtes Transkript (andere Zeiten) wird neu
+        // abgeglichen; das Ende des letzten Worts steht schon im Dateiformat.
+        if (stored != null && stored.ebookWordCount == index.words.size && stored.spokenWordCount == words.size &&
+            stored.spokenEnd == (words.lastOrNull()?.end ?: 0.0)
+        ) return stored
         val built = EbookAlignmentBuilder.build(words, index)
         PlayerTranscriptCacheStore.saveAlignment(built.encoded(), account, bookId, trackIndex, localeIdentifier)
         return built

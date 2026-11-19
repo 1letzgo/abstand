@@ -280,8 +280,7 @@ class PodcastStore(private val model: AppModel) : SessionParticipant {
         }
         val store = session.currentLocalLibraryStore() ?: return
         if (_podcastEpisodes.value.isEmpty()) applyPodcastListFromLocalStore(store, lib.id)
-        val (sortKey, ascending) = currentShowsSortParams()
-        store.fetchPodcastShows(lib.id, sortKey, ascending)?.let { if (podcastCatalogLibrary?.id == lib.id) _podcastShows.value = it }
+        store.fetchPodcastShows(lib.id)?.let { if (podcastCatalogLibrary?.id == lib.id) _podcastShows.value = sortedPodcastShows(it) }
     }
 
     /** iOS: `applyPodcastListFromLocalStore`. */
@@ -303,6 +302,12 @@ class PodcastStore(private val model: AppModel) : SessionParticipant {
         val ascending = if (field == PodcastCatalogSortField.random) true else !_catalogSortDescending.value
         return field.apiSortParameter to ascending
     }
+
+    /** iOS: `sortedPodcastShows` — Leiste nach der gewählten Sortierung ([PodcastShowSorting]). */
+    fun sortedPodcastShows(shows: List<AbsBook>): List<AbsBook> = PodcastShowSorting.sorted(
+        shows, _catalogSortField.value, _catalogSortDescending.value,
+        ignoreTitlePrefix = session.serverSettings.value?.sortingIgnorePrefix ?: false,
+    )
 
     // MARK: - Sortierung setzen
 
@@ -334,13 +339,16 @@ class PodcastStore(private val model: AppModel) : SessionParticipant {
         Prefs.setBool(Keys.podcastEpisodeSortDescending, descending)
     }
 
-    /** iOS: `schedulePodcastCatalogSortReload` — 350 ms entprellt, Shows neu; Feed nur in „New“. */
+    /**
+     * iOS: `schedulePodcastCatalogSortReload` — Leiste **sofort** lokal umsortieren (wirkt auch offline/aus dem
+     * Cache), danach 350 ms entprellt vom Server nachladen. Der „New“-Feed hängt nicht an dieser Sortierung.
+     */
     fun schedulePodcastCatalogSortReload() {
+        _podcastShows.value = sortedPodcastShows(_podcastShows.value)
         catalogSortReloadJob?.cancel()
         catalogSortReloadJob = model.scope.launch {
             delay(350)
             reloadPodcastShowsCatalog()
-            if (_selectedShowId.value == null) reloadPodcastLibrary(reset = true)
         }
     }
 
@@ -365,8 +373,7 @@ class PodcastStore(private val model: AppModel) : SessionParticipant {
         if (!isNetworkReachable) {
             if (_podcastEpisodes.value.isEmpty() && store != null) applyPodcastListFromLocalStore(store, lib.id)
             if (_podcastShows.value.isEmpty() && store != null) {
-                val (sortKey, ascending) = currentShowsSortParams()
-                store.fetchPodcastShows(lib.id, sortKey, ascending)?.let { _podcastShows.value = it }
+                store.fetchPodcastShows(lib.id)?.let { _podcastShows.value = sortedPodcastShows(it) }
             }
             return
         }
@@ -514,12 +521,13 @@ class PodcastStore(private val model: AppModel) : SessionParticipant {
         val store = session.currentLocalLibraryStore()
         if (session.offlineHomeUIActive) {
             // Offline: nur Sendungen mit mindestens einer heruntergeladenen Folge.
-            val all = store?.fetchPodcastShows(lib.id, sortKey, ascending) ?: _podcastShows.value
-            _podcastShows.value = all.filter { actions.downloadedEpisodes(it.id, null).isNotEmpty() }
+            val all = store?.fetchPodcastShows(lib.id) ?: _podcastShows.value
+            _podcastShows.value = sortedPodcastShows(all.filter { actions.downloadedEpisodes(it.id, null).isNotEmpty() })
             return
         }
         if (!isNetworkReachable) {
-            store?.fetchPodcastShows(lib.id, sortKey, ascending)?.let { _podcastShows.value = it }
+            // Cache unabhängig vom gespeicherten Sortierschlüssel — sortiert wird lokal.
+            store?.fetchPodcastShows(lib.id)?.let { _podcastShows.value = sortedPodcastShows(it) }
             return
         }
         val c = session.client ?: return
@@ -535,7 +543,9 @@ class PodcastStore(private val model: AppModel) : SessionParticipant {
                     Log.w(TAG, "LocalStore replacePodcastShows failed: ${e.message}")
                 }
             }
-            if (podcastCatalogLibrary?.id == lib.id && currentShowsSortParams() == (sortKey to ascending)) _podcastShows.value = rows
+            if (podcastCatalogLibrary?.id == lib.id && currentShowsSortParams() == (sortKey to ascending)) {
+                _podcastShows.value = sortedPodcastShows(rows)
+            }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Log.w(TAG, "Podcast shows refresh failed: ${e.message}")
@@ -545,7 +555,8 @@ class PodcastStore(private val model: AppModel) : SessionParticipant {
     }
 
     private fun replacePodcastShowInCatalog(updated: AbsBook) {
-        _podcastShows.update { list -> list.map { if (it.id == updated.id) updated else it } }
+        // Geänderte Metadaten (Titel, Autor, Folgenzahl) können die Position in der Leiste ändern.
+        _podcastShows.update { list -> sortedPodcastShows(list.map { if (it.id == updated.id) updated else it }) }
     }
 
     /** iOS: `selectPodcastShowFilter` — sofort UI, danach Netz (Cache zuerst). */

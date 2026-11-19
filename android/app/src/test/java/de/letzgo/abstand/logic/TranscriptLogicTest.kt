@@ -69,13 +69,14 @@ class TranscriptLogicTest {
             line("l1", 3.0, 4.0, w("c ", 3.0, 4.0, "c")),
         )
         assertEquals(0.0, PlayerTranscriptTimeline.fractionalActiveLinePosition(lines, -1.0), 0.0)
-        assertEquals(0.5, PlayerTranscriptTimeline.fractionalActiveLinePosition(lines, 1.0), 1e-12)
-        // Lücke zwischen Zeilen → Anfang der nächsten
-        assertEquals(1.0, PlayerTranscriptTimeline.fractionalActiveLinePosition(lines, 2.5), 0.0)
-        // Hinter der letzten Zeile: gap 0.2 ≤ 0.25 → lastIdx + gap/span
-        assertEquals(1.2, PlayerTranscriptTimeline.fractionalActiveLinePosition(lines, 4.2), 1e-9)
-        // gap 1.0 > 0.25 → lastIdx + 1 + min(2.5, 1.0/1.0)
-        assertEquals(3.0, PlayerTranscriptTimeline.fractionalActiveLinePosition(lines, 5.0), 1e-9)
+        // Zeilengebunden: in der Zeile exakt ihr Index
+        assertEquals(0.0, PlayerTranscriptTimeline.fractionalActiveLinePosition(lines, 1.0), 0.0)
+        // Lücke zwischen Zeilen → bleibt auf der gesprochenen Zeile
+        assertEquals(0.0, PlayerTranscriptTimeline.fractionalActiveLinePosition(lines, 2.5), 0.0)
+        // Hinter der letzten Zeile: 0,25 s stehen bleiben (Ende 4.0 + 0.25) …
+        assertEquals(1.0, PlayerTranscriptTimeline.fractionalActiveLinePosition(lines, 4.2), 1e-9)
+        // … dann linear: lastIdx + (t − 4.25) / max(0.35, 1.0)
+        assertEquals(1.75, PlayerTranscriptTimeline.fractionalActiveLinePosition(lines, 5.0), 1e-9)
 
         assertEquals("b", PlayerTranscriptTimeline.activeWordHit(lines, 1.5)!!.word.id)
         assertEquals(0, PlayerTranscriptTimeline.activeWordHit(lines, 1.5)!!.lineIndex)
