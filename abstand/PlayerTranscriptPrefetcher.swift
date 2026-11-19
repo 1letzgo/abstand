@@ -73,21 +73,31 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
     if enabled {
       scheduleIfNeeded()
     } else {
-      stop()
+      stop(reason: "disabled")
     }
   }
 
   func scheduleIfNeeded() {
-    guard isEnabled, task == nil, player != nil else { return }
+    // Diagnose: jeder Nicht-Start mit Grund (am Gerät sonst nicht nachvollziehbar, warum nichts läuft).
+    guard isEnabled else { return Self.log("not started: disabled") }
+    guard task == nil else {
+      return Self.log("not started: run gen=\(runGeneration) already active (bg=\(backgroundTask != nil))")
+    }
+    guard player != nil else { return Self.log("not started: no player") }
     // Im Vordergrund oder in einer von iOS gewährten Hintergrundverarbeitung (am Strom). Ein Titel,
     // der per CarPlay/Sperrbildschirm im Hintergrund geladen wird, startet sonst ungefragt Arbeit.
-    guard UIApplication.shared.applicationState == .active || backgroundTask != nil else { return }
+    let appState = UIApplication.shared.applicationState
+    guard appState == .active || backgroundTask != nil else {
+      return Self.log("not started: app \(Self.name(of: appState)), no background task")
+    }
     guard SpeechTranscriber.isAvailable else {
+      Self.log("not started: SpeechTranscriber unavailable")
       finishBackgroundTask(success: true)
       return
     }
     runGeneration &+= 1
     let generation = runGeneration
+    Self.log("run gen=\(generation) started (app \(Self.name(of: appState)), bg=\(backgroundTask != nil))")
     task = Task { @MainActor [weak self] in
       await self?.run(generation: generation)
       guard let self, self.runGeneration == generation else { return }
@@ -131,6 +141,7 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
   }
 
   private func handleBackgroundTask(_ processing: BGProcessingTask) {
+    Self.log("background task started (app \(Self.name(of: UIApplication.shared.applicationState)))")
     // Eine noch offene frühere Aufgabe sauber abschließen, bevor die neue übernimmt.
     if backgroundTask != nil {
       runLeftWorkPending = true
@@ -140,17 +151,35 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
     let processingId = ObjectIdentifier(processing)
     processing.expirationHandler = { [weak self] in
       Task { @MainActor [weak self] in
-        // Zeit abgelaufen: Lauf abbrechen (Zwischenstand ist gesichert) und später weitermachen.
         // Nur, wenn diese Aufgabe noch die laufende ist.
         guard let self, let current = self.backgroundTask, ObjectIdentifier(current) == processingId else { return }
-        self.stop()
+        self.handleBackgroundTaskExpiration()
       }
     }
-    cancelRun()
+    cancelRun(reason: "background task takes over")
     scheduleIfNeeded()
     // Nichts gestartet (aus, kein Player …) → iOS sofort Bescheid geben, sonst wertet es die
     // Aufgabe als hängend und plant die App künftig seltener ein.
     if task == nil { finishBackgroundTask(success: true) }
+  }
+
+  /// iOS beendet die Hintergrundverarbeitung — Zeit abgelaufen oder, typisch, weil der Nutzer das Gerät
+  /// entsperrt und benutzt. Ist die App inzwischen im Vordergrund, läuft der Lauf als Vordergrund-Lauf
+  /// weiter: Das `.active`-Ereignis beim Entsperren kam, während er noch als Hintergrund-Lauf lief
+  /// (`scheduleIfNeeded` fand ihn belegt) — ein `stop()` hier ließe die App bis zum nächsten Entsperren
+  /// oder Neustart ohne Vorproduktion (Gerätefund: Teilsegment, danach minutenlang nichts).
+  private func handleBackgroundTaskExpiration() {
+    let appState = UIApplication.shared.applicationState
+    if appState == .active, task != nil {
+      Self.log("background task expired, app active — run gen=\(runGeneration) continues in foreground")
+      // Restarbeit meldet der Wechsel in den Hintergrund ohnehin neu an.
+      finishBackgroundTask(success: false)
+      return
+    }
+    Self.log("background task expired (app \(Self.name(of: appState)))")
+    stop(reason: "background task expired")
+    // Vordergrund ohne laufenden Lauf (z. B. schon beendet): neu anstoßen; sonst ohne Wirkung.
+    if appState == .active { scheduleIfNeeded() }
   }
 
   private func finishBackgroundTask(success: Bool) {
@@ -166,8 +195,8 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
   /// App in den Hintergrund, Buchwechsel, Einstellung aus. Läuft gerade eine iOS-Hintergrund-
   /// verarbeitung, wird sie wie beim Ablauf der Zeit beendet (Arbeit offen → neue Anfrage) — sonst
   /// bliebe `backgroundTask` gesetzt und erlaubte später Arbeit ohne Hintergrund-Erlaubnis.
-  func stop() {
-    cancelRun()
+  func stop(reason: String) {
+    cancelRun(reason: reason)
     if backgroundTask != nil {
       runLeftWorkPending = true
       finishBackgroundTask(success: false)
@@ -178,14 +207,15 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
   /// Hintergrundverarbeitung bestehen — ein Hintergrund-Launch, der den letzten Titel wiederherstellt,
   /// würde sich sonst die eigene Aufgabe beenden.
   func restart() {
-    cancelRun()
+    cancelRun(reason: "restart (media prepared)")
     scheduleIfNeeded()
     // Nichts gestartet → iOS sofort Bescheid geben (wie in `handleBackgroundTask`).
     if task == nil { finishBackgroundTask(success: true) }
   }
 
   /// Nur den laufenden Lauf abbrechen; eine Hintergrundverarbeitung bleibt bestehen.
-  private func cancelRun() {
+  private func cancelRun(reason: String) {
+    if task != nil { Self.log("run gen=\(runGeneration) cancelled: \(reason)") }
     runGeneration &+= 1
     task?.cancel()
     task = nil
@@ -220,7 +250,7 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
     for job in jobsProvider?() ?? [] where job.storageId != activeId {
       jobs.append((job, nil))
     }
-    guard !jobs.isEmpty else { return }
+    guard !jobs.isEmpty else { return Self.log("run gen=\(generation) ended: no downloaded jobs") }
     totalTracks = jobs.reduce(0) { $0 + $1.job.sources.count }
 
     // Sprachauflösung einmal je Sprache.
@@ -228,15 +258,20 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
     let installed = await SpeechTranscriber.installedLocales
 
     isRunning = true
+    var skippedJobs = 0
     for (job, startGlobal) in jobs {
-      if Task.isCancelled { return }
+      if Task.isCancelled { return Self.log("run gen=\(generation) ended: cancelled") }
       let tag = job.languageTag ?? ""
       if localeByTag[tag] == nil {
         localeByTag[tag] = await Self.installedLocale(forLanguageTag: job.languageTag, installed: installed)
       }
       // Nur die Buchsprache und nur installierte Modelle — kein Download im Hintergrund, kein
       // stundenlanges Transkribieren in einer fremden Sprache.
-      guard let locale = localeByTag[tag] ?? nil else { continue }
+      guard let locale = localeByTag[tag] ?? nil else {
+        skippedJobs += 1
+        Self.log("skip \(job.storageId): no installed model for language '\(tag)'")
+        continue
+      }
       currentJobTitle = job.title.isEmpty ? nil : job.title
 
       let sources = job.sources
@@ -244,7 +279,7 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
       // Erst ab hier nach vorn, danach der übersprungene Anfang.
       let ordered = Array(sources[currentIndex...]) + Array(sources[..<currentIndex])
       for source in ordered {
-        if Task.isCancelled { return }
+        if Task.isCancelled { return Self.log("run gen=\(generation) ended: cancelled") }
         // Laufender Track ab Abspielposition, alle anderen von vorn.
         let from =
           (startGlobal != nil && source.trackIndex == sources[currentIndex].trackIndex)
@@ -258,7 +293,9 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
           completed = await prepare(
             bookId: job.storageId, source: source, locale: locale, from: 0, generation: generation)
         }
-        if Task.isCancelled { return }
+        if Task.isCancelled {
+          return Self.log("run gen=\(generation) ended: cancelled during track=\(source.trackIndex)")
+        }
         // Nur zählen, was wirklich durchgelaufen ist — sonst meldet die Einstellung Fortschritt,
         // den es nicht gibt (abgebrochene oder fehlgeschlagene Tracks).
         if completed {
@@ -268,6 +305,9 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
         }
       }
     }
+    Self.log(
+      "run gen=\(generation) ended: all jobs done, prepared \(preparedTracks)/\(totalTracks), "
+        + "left work=\(runLeftWorkPending), skipped jobs=\(skippedJobs)")
     isRunning = false
     pausedReason = nil
   }
@@ -296,6 +336,9 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
     // Lückenanfang des letzten regulär durchgelaufenen Abschnitts. Taucht dieselbe Lücke danach wieder
     // auf (Merge abgelehnt, Datei nicht schreibbar), nicht endlos neu transkribieren.
     var lastFilledGapStart: Double?
+    // Diagnose: Pausen nur beim Wechsel protokollieren, Abbrüche ohne Grund gezählt (Ringpuffer schonen).
+    var loggedPause: String?
+    var unexplainedCancellations = 0
     while !Task.isCancelled {
       // Lückenanfang und -ende aus einem Lesevorgang (Transkript bleibt im Speicher, solange die
       // Datei unverändert ist) — nach einer Pause neu, weil der Teleprompter inzwischen geschrieben haben kann.
@@ -313,11 +356,19 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
 
       // Vorrang und Gerätezustand vor jedem Abschnitt prüfen.
       if let reason = blockingReason() {
+        if loggedPause != reason {
+          loggedPause = reason
+          Self.log("paused track=\(source.trackIndex) at \(Int(gapStart)) s: \(reason)")
+        }
         pausedReason = reason
         isRunning = false
         try? await Task.sleep(nanoseconds: Self.idleRecheckSeconds)
         isRunning = !Task.isCancelled
         continue
+      }
+      if loggedPause != nil {
+        loggedPause = nil
+        Self.log("resumed track=\(source.trackIndex) at \(Int(gapStart)) s")
       }
       pausedReason = nil
 
@@ -352,7 +403,16 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
           // aufgeben, sondern oben warten und an der Lücke weitermachen. Echter Abbruch: raus.
           if !Task.isCancelled, runGeneration == generation {
             // Ohne Blockade-Grund (anderer Abbruch) nicht in eine enge Schleife laufen.
-            if blockingReason() == nil { try? await Task.sleep(nanoseconds: 1_000_000_000) }
+            if blockingReason() == nil {
+              unexplainedCancellations += 1
+              // Erster Fall und dann selten — eine stille Wiederholschleife bliebe sonst unsichtbar.
+              if unexplainedCancellations == 1 || unexplainedCancellations % 30 == 0 {
+                Self.log(
+                  "cancellation without pause reason track=\(source.trackIndex) at \(Int(gapStart)) s "
+                    + "(#\(unexplainedCancellations)): \(error.localizedDescription)")
+              }
+              try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
             continue
           }
           return false
@@ -363,6 +423,20 @@ final class PlayerTranscriptPrefetcher: ObservableObject {
       }
     }
     return false
+  }
+
+  /// Diagnosezeile im Debug-Log (Einstellungen → Debug-Log), einheitlich präfixiert.
+  private static func log(_ message: String) {
+    DebugLogCollector.shared.log("readAlong prefetch: \(message)")
+  }
+
+  private static func name(of state: UIApplication.State) -> String {
+    switch state {
+    case .active: return "active"
+    case .inactive: return "inactive"
+    case .background: return "background"
+    @unknown default: return "unknown"
+    }
   }
 
   /// `nil`, wenn gearbeitet werden darf.

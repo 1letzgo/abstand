@@ -204,13 +204,24 @@ object PlayerTranscriptPrefetcher {
         return withContext(Dispatchers.Main.immediate) {
             runGeneration += 1
             val generation = runGeneration
+            // Bis zum regulären Ende gilt der Lauf als „abgebrochen/offen" (WorkManager-Stopp wirft).
+            var leftWork = true
             try {
-                runMutex.withLock { runPrefetch(generation) }
+                leftWork = runMutex.withLock { runPrefetch(generation) }
+                leftWork
             } finally {
                 if (runGeneration == generation) {
                     _isRunning.value = false
                     _pausedReason.value = null
                     _currentJobTitle.value = null
+                    // iOS: `handleBackgroundTaskExpiration` — endet der Hintergrundlauf (Stopp, offene Arbeit),
+                    // während die App sichtbar ist, im Vordergrund weitermachen. Sonst stünde die
+                    // Vorproduktion bis zum nächsten `onStart` still (der Worker hatte den Vordergrundlauf beendet).
+                    val foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                    if (PrefetchPlanner.shouldContinueInForeground(leftWork, foreground)) {
+                        Log.i(TAG, "background run ended with app in foreground — continuing in foreground")
+                        scheduleIfNeeded()
+                    }
                 }
             }
         }
@@ -410,6 +421,13 @@ object PrefetchPlanner {
             TrackStep(source, from)
         }
     }
+
+    /**
+     * iOS: `handleBackgroundTaskExpiration` — ein (nicht überholter) Hintergrundlauf, der abgebrochen oder mit
+     * offener Arbeit endet, während die App sichtbar ist, wird als Vordergrundlauf fortgesetzt.
+     */
+    fun shouldContinueInForeground(endedWithOpenWork: Boolean, appInForeground: Boolean): Boolean =
+        endedWithOpenWork && appInForeground
 
     /** iOS: `blockingReason()`. */
     fun blockingReason(priorityWorkActive: Boolean, powerSaveMode: Boolean, thermalSevere: Boolean): String? = when {

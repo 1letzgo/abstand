@@ -172,6 +172,16 @@ class TranscriptPipelineTest {
     }
 
     @Test
+    fun backgroundRunEndingWhileVisibleContinuesInForeground() {
+        // Gerätefund (iOS): Hintergrundlauf endet beim Entsperren mitten im Track → ohne Übergabe Stillstand.
+        assertTrue(PrefetchPlanner.shouldContinueInForeground(endedWithOpenWork = true, appInForeground = true))
+        // Im Hintergrund übernimmt der nächste Worker, kein Vordergrundlauf.
+        assertFalse(PrefetchPlanner.shouldContinueInForeground(endedWithOpenWork = true, appInForeground = false))
+        // Alles erledigt: kein unnötiger neuer Lauf.
+        assertFalse(PrefetchPlanner.shouldContinueInForeground(endedWithOpenWork = false, appInForeground = true))
+    }
+
+    @Test
     fun downloadAccountFilter() {
         assertTrue(PrefetchPlanner.belongsToActiveAccount(null, setOf("l1")))
         assertTrue(PrefetchPlanner.belongsToActiveAccount("l2", emptySet()))

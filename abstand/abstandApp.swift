@@ -113,7 +113,7 @@ private struct AppRootContainer: View {
         // oder Anruf-Banner, wo die App gleich wieder aktiv ist.
         model.player.handleEnterBackground()
         // Vordergrund-Lauf beenden; Rest übernimmt iOS später am Strom (Hintergrundverarbeitung).
-        model.transcriptPrefetcher.stop()
+        model.transcriptPrefetcher.stop(reason: "app background")
         model.transcriptPrefetcher.scheduleBackgroundProcessingIfNeeded()
       }
     }
