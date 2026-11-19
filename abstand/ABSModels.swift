@@ -4715,22 +4715,19 @@ extension ABSListeningStatsResponse {
     return sum
   }
 
-  /// Laufende Kalenderwoche (Wochenanfang laut `calendar`): Hörzeit-Sekunden und je Wochentag, ob gehört
-  /// wurde (Index 0 = erster Wochentag). Nur sieben `days`-Lookups — günstig genug für Home.
-  func currentWeekActivity(
+  /// Laufende Kalenderwoche (Wochenanfang laut `calendar`): Hörzeit-Sekunden je Tag (Index 0 = erster
+  /// Wochentag). Nur sieben `days`-Lookups — günstig genug für Home.
+  func currentWeekDaySeconds(
     calendar: Calendar = .current,
     now: Date = Date()
-  ) -> (seconds: Int, activeDays: [Bool])? {
+  ) -> [Int]? {
     guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start else { return nil }
-    var seconds = 0
-    var active: [Bool] = []
+    var result: [Int] = []
     for offset in 0..<7 {
       guard let day = calendar.date(byAdding: .day, value: offset, to: weekStart) else { return nil }
-      let sec = max(0, days[Self.dayKey(day, calendar: calendar)] ?? 0)
-      seconds += sec
-      active.append(sec > 0)
+      result.append(max(0, days[Self.dayKey(day, calendar: calendar)] ?? 0))
     }
-    return (seconds, active)
+    return result
   }
 
   var daysActive: Int {

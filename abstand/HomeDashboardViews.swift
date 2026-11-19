@@ -214,7 +214,7 @@ struct StartDashboardView: View {
   /// Layout-Schlüssel der Stats-Karte: sichtbar / mit Wochenwerten.
   private var homeListeningSummaryLayoutKey: String {
     guard let summary = homeListeningSummary else { return "none" }
-    return summary.weekActiveDays == nil ? "snapshot" : "week"
+    return summary.weekDaySeconds == nil ? "snapshot" : "week"
   }
 
   private func startDashboardShelfHasVisibleContent(_ shelf: ABSStartShelfSection) -> Bool {
@@ -325,28 +325,43 @@ struct StartDashboardView: View {
 
 // MARK: - Home: Stats-Karte (Settings → Stats)
 
-/// Werte der Home-Stats-Karte — nur aus vorhandenen Stats: Streak und „Finished books“ aus dem
-/// Achievement-Snapshot (wie Settings → Stats → Level), Wochenwerte aus den Tageswerten der Hörstatistik.
+/// Werte der Home-Stats-Karte — nur aus vorhandenen Stats: Streak, beendete Bücher und Gesamt-Hörzeit aus dem
+/// Achievement-Snapshot (wie Settings → Stats → Level), Hörzeit je Wochentag aus den Tageswerten der Hörstatistik.
 struct HomeListeningSummary: Equatable {
   /// „Current streak“-Achievement (Tage).
   let streakDays: Int
-  /// „Finished books“-Achievement inkl. Stufe und Fortschritt zur nächsten.
-  let finishedBooks: ListeningAchievementState?
-  /// Hörzeit der laufenden Woche; `nil` ohne Tageswerte im Cache.
-  let weekSeconds: Int?
-  /// Je Wochentag (ab Wochenanfang laut Kalender), ob gehört wurde; `nil` ohne Tageswerte.
-  let weekActiveDays: [Bool]?
+  /// „Finished books“-Achievement; `nil`, wenn der Snapshot es nicht enthält.
+  let finishedBooks: Int?
+  /// „Listening time“-Achievement (Gesamt-Hörzeit in Stunden, wie Stats → Level).
+  let totalListeningHours: Int?
+  /// Hörzeit je Tag der laufenden Woche (Index 0 = erster Wochentag); `nil` ohne Tageswerte im Cache.
+  let weekDaySeconds: [Int]?
   /// Einbuchstabige Wochentage in derselben Reihenfolge („M T W …“).
   let weekdaySymbols: [String]
+  /// Hörzeit je Tag der vier Wochen vor der laufenden (älteste zuerst, je 7 Werte in Wochentags-Reihenfolge
+  /// wie `weekDaySeconds`); `nil` ohne Tageswerte. Bewusst ohne laufende Woche — die zeigen die Balken.
+  let previousWeeksDaySeconds: [[Int]]?
+
+  /// Hörzeit der laufenden Woche; `nil` ohne Tageswerte.
+  var weekSeconds: Int? { weekDaySeconds?.reduce(0, +) }
 
   @MainActor
   init(snapshot: ListeningAchievementsSnapshot, stats: ABSListeningStatsResponse?) {
     streakDays = snapshot.achievements.first { $0.kind == .currentStreak }?.currentValue ?? 0
-    finishedBooks = snapshot.achievements.first { $0.kind == .finishedBooks }
+    finishedBooks = snapshot.achievements.first { $0.kind == .finishedBooks }?.currentValue
+    totalListeningHours = snapshot.achievements.first { $0.kind == .listeningTimeHours }?.currentValue
     let calendar = Calendar.current
-    let week = stats?.currentWeekActivity(calendar: calendar)
-    weekSeconds = week?.seconds
-    weekActiveDays = week?.activeDays
+    weekDaySeconds = stats?.currentWeekDaySeconds(calendar: calendar)
+    if let stats {
+      let now = Date()
+      let weeks = (1...Self.previousWeekCount).reversed().compactMap { offset -> [Int]? in
+        guard let date = calendar.date(byAdding: .day, value: -7 * offset, to: now) else { return nil }
+        return stats.currentWeekDaySeconds(calendar: calendar, now: date)
+      }
+      previousWeeksDaySeconds = weeks.count == Self.previousWeekCount ? weeks : nil
+    } else {
+      previousWeeksDaySeconds = nil
+    }
     // UI-Texte englisch, Wochenanfang aber nach Nutzer-Kalender.
     var english = Calendar(identifier: .gregorian)
     english.locale = Locale(identifier: "en_US")
@@ -354,29 +369,49 @@ struct HomeListeningSummary: Equatable {
     let start = max(0, calendar.firstWeekday - 1) % max(symbols.count, 1)
     weekdaySymbols = Array(symbols[start...] + symbols[..<start])
   }
+
+  /// Wochen in der Heatmap neben den Balken.
+  static let previousWeekCount = 4
 }
 
-/// Home-Stats-Karte unter „Continue listening“: Kopfzeile + drei Spalten (Streak · Finished books · diese
-/// Woche) mit senkrechten Haarlinien. Tippen öffnet die Stats-Seite.
+/// Home-Stats-Karte unter „Continue listening“: Überschrift + eine breite Karte — oben Wochen-Hörzeit und
+/// Gesamtzeit, darunter ein Balken je Wochentag und rechts daneben eine Heatmap der vier Wochen davor, unten
+/// Streak und beendete Bücher. Tippen öffnet die Stats-Seite.
+/// Ohne Tageswerte im Cache: Gesamtzeit als Hauptwert, keine Balken und keine Heatmap.
 /// `Equatable` + kein `@EnvironmentObject`: rendert nur neu, wenn sich die Werte ändern.
 private struct HomeListeningSummaryCard: View, Equatable {
   @Environment(\.themeAccent) private var themeAccent
   @Environment(\.appearanceThemeRevision) private var themeRevision
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-  @ScaledMetric(relativeTo: .title2) private var ringEdge = Metrics.ringEdge
-  @ScaledMetric(relativeTo: .title2) private var ringLineWidth = Metrics.ringLineWidth
+  @ScaledMetric(relativeTo: .caption2) private var barMinActiveHeight = Metrics.barMinActiveHeight
+  @ScaledMetric(relativeTo: .caption2) private var barWidth = Metrics.barWidth
+  @ScaledMetric(relativeTo: .caption2) private var heatCell = Metrics.heatCell
+  @ScaledMetric(relativeTo: .caption2) private var heatCellSpacing = Metrics.heatCellSpacing
   let summary: HomeListeningSummary
 
   private enum Metrics {
-    static let ringEdge: CGFloat = 20
-    static let ringLineWidth: CGFloat = 3
+    /// Mindesthöhe gehörter Tage — deutlich höher als breit, damit kurze Tage als Balken lesbar bleiben.
+    static let barMinActiveHeight: CGFloat = 22
+    /// Höhe ungehörter Tage (flacher Strich).
+    static let barEmptyHeight: CGFloat = 4
+    static let barWidth: CGFloat = 14
+    static let heatCell: CGFloat = 14
+    static let heatCellSpacing: CGFloat = 3
+    static let heatCellCornerRadius: CGFloat = 2
+    /// Deckkraft-Spanne gehörter Tage: auch kurze Tage bleiben sichtbar, lange erreichen den vollen Akzent.
+    static let heatMinOpacity: Double = 0.25
+  }
+
+  /// Höhe der Balkenfläche = Höhe des Heatmap-Rasters daneben (eine Kachelzeile je Woche), damit Balken und
+  /// Heatmap oben bündig stehen und die Wochentags-Buchstaben darunter auf einer Linie liegen.
+  private var barMaxHeight: CGFloat {
+    let rows = CGFloat(HomeListeningSummary.previousWeekCount)
+    return rows * heatCell + (rows - 1) * heatCellSpacing
   }
 
   nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.summary == rhs.summary
   }
-
-  private var valueFont: Font { .title2.weight(.bold).monospacedDigit() }
 
   var body: some View {
     let _ = themeRevision
@@ -384,11 +419,11 @@ private struct HomeListeningSummaryCard: View, Equatable {
     // Überschrift über der Karte wie bei den übrigen Home-Sektionen; erscheint nur zusammen mit ihr.
     VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
       TabContentSectionTitle(title: "Your Listening")
-      // Die ganze Kartenreihe ist ein Tap-Ziel (Stats-Seite) und ein zusammengefasstes Accessibility-Element.
+      // Die ganze Karte ist ein Tap-Ziel (Stats-Seite) und ein zusammengefasstes Accessibility-Element.
       NavigationLink {
         ListeningStatsScreen()
       } label: {
-        cards(palette: palette)
+        card(palette: palette)
           .contentShape(Rectangle())
           .accessibilityElement(children: .ignore)
           .accessibilityLabel(accessibilitySummary)
@@ -399,148 +434,215 @@ private struct HomeListeningSummaryCard: View, Equatable {
     }
   }
 
-  /// Je Wert eine eigene Karte, gleich breit und gleich hoch nebeneinander; bei Accessibility-Schriftgrößen
-  /// untereinander in voller Breite. Fehlende Werte → weniger Karten, die sich die Breite teilen.
-  @ViewBuilder
-  private func cards(palette: AppColorPalette) -> some View {
-    let items = columnViews(palette: palette)
-    if dynamicTypeSize.isAccessibilitySize {
+  private func card(palette: AppColorPalette) -> some View {
+    AbstandGroupedCard(horizontalPadding: AppTheme.Layout.cardPadding, verticalPadding: AppTheme.Layout.cardPadding) {
       VStack(alignment: .leading, spacing: AppTheme.Layout.withinSectionSpacing) {
-        ForEach(items.indices, id: \.self) { index in
-          statCard(items[index])
-        }
-      }
-    } else {
-      HStack(alignment: .top, spacing: AppTheme.Layout.withinSectionSpacing) {
-        ForEach(items.indices, id: \.self) { index in
-          statCard(items[index])
-        }
-      }
-      // Ideale Höhe der höchsten Karte für alle — Inhalt bleibt oben ausgerichtet.
-      .fixedSize(horizontal: false, vertical: true)
-    }
-  }
-
-  private func statCard(_ content: AnyView) -> some View {
-    AbstandGroupedCard(
-      horizontalPadding: AppTheme.Layout.withinSectionSpacing,
-      verticalPadding: AppTheme.Layout.cardPadding
-    ) {
-      content
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-    .frame(maxHeight: .infinity, alignment: .top)
-  }
-
-  private func columnViews(palette: AppColorPalette) -> [AnyView] {
-    var result: [AnyView] = [AnyView(streakColumn(palette: palette))]
-    if let finished = summary.finishedBooks {
-      result.append(AnyView(finishedBooksColumn(finished, palette: palette)))
-    }
-    if let seconds = summary.weekSeconds {
-      result.append(AnyView(weekColumn(seconds: seconds, palette: palette)))
-    }
-    return result
-  }
-
-  private func streakColumn(palette: AppColorPalette) -> some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
-      HStack(spacing: AppTheme.Layout.compactSpacing) {
-        Image(systemName: "flame.fill")
-          .font(.title3)
-          .foregroundStyle(themeAccent)
-        Text("\(summary.streakDays)")
-          .font(valueFont)
-          .foregroundStyle(palette.textPrimary)
-      }
-      columnLabel("day streak", palette: palette)
-      if let active = summary.weekActiveDays, active.count == summary.weekdaySymbols.count {
-        HStack(spacing: AppTheme.Layout.hairlineSpacing) {
-          ForEach(active.indices, id: \.self) { index in
-            Text(summary.weekdaySymbols[index])
-              .font(.caption2.weight(active[index] ? .bold : .regular))
-              .foregroundStyle(active[index] ? themeAccent : palette.textSecondary)
+        // Ohne Wochen- und Gesamtzeit bleibt nur die Fußzeile (keine leere Kopfzeile, keine Trennlinie).
+        if summary.weekSeconds != nil || summary.totalListeningHours != nil {
+          headline(palette: palette)
+          if let days = summary.weekDaySeconds {
+            weekBarsRow(days, palette: palette)
           }
+          Rectangle()
+            .fill(palette.rule)
+            .frame(height: AppTheme.Layout.hairlineWidth)
         }
+        footer(palette: palette)
       }
     }
   }
 
-  private func finishedBooksColumn(_ finished: ListeningAchievementState, palette: AppColorPalette) -> some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
-      HStack(spacing: AppTheme.Layout.compactSpacing) {
-        progressRing(finished.tier == .level5 ? 1 : finished.progressToNext, palette: palette)
-        Text("\(finished.currentValue)")
-          .font(valueFont)
-          .foregroundStyle(palette.textPrimary)
+  /// Balken der laufenden Woche, rechts daneben (Haarlinie als Trenner) die Heatmap der vier Wochen davor.
+  @ViewBuilder
+  private func weekBarsRow(_ days: [Int], palette: AppColorPalette) -> some View {
+    if let weeks = summary.previousWeeksDaySeconds {
+      HStack(alignment: .top, spacing: AppTheme.Layout.rowSpacing) {
+        weekBars(days, palette: palette)
+          .layoutPriority(1)
+        Rectangle()
+          .fill(palette.rule)
+          .frame(width: AppTheme.Layout.hairlineWidth)
+        previousWeeksHeatmap(weeks, palette: palette)
       }
-      columnLabel("books finished", palette: palette)
-      columnDetail(finishedBooksDetail(finished), palette: palette)
+      .fixedSize(horizontal: false, vertical: true)
+    } else {
+      weekBars(days, palette: palette)
     }
   }
 
-  private func weekColumn(seconds: Int, palette: AppColorPalette) -> some View {
-    VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
-      Text(ListeningAchievementKind.formatMarathonDaySeconds(seconds))
-        .font(valueFont)
+  // MARK: Kopfzeile: Woche groß, Gesamtzeit dezent rechts
+
+  @ViewBuilder
+  private func headline(palette: AppColorPalette) -> some View {
+    let layout = dynamicTypeSize.isAccessibilitySize
+      ? AnyLayout(VStackLayout(alignment: .leading, spacing: AppTheme.Layout.stackSpacing))
+      : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: AppTheme.Layout.rowSpacing))
+    layout {
+      if let week = summary.weekSeconds {
+        valueBlock(
+          ListeningAchievementKind.formatMarathonDaySeconds(week), "this week",
+          font: .title2.weight(.bold).monospacedDigit(), alignment: .leading, palette: palette)
+        if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
+        if let total = totalText {
+          valueBlock(
+            total, "total",
+            font: .headline.monospacedDigit(),
+            alignment: dynamicTypeSize.isAccessibilitySize ? .leading : .trailing, palette: palette)
+        }
+      } else if let total = totalText {
+        valueBlock(
+          total, "total listening",
+          font: .title2.weight(.bold).monospacedDigit(), alignment: .leading, palette: palette)
+      }
+    }
+  }
+
+  private func valueBlock(
+    _ value: String, _ label: String, font: Font, alignment: HorizontalAlignment, palette: AppColorPalette
+  ) -> some View {
+    VStack(alignment: alignment, spacing: AppTheme.Layout.hairlineSpacing) {
+      Text(value)
+        .font(font)
         .foregroundStyle(palette.textPrimary)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
-      columnLabel("this week", palette: palette)
-      if let active = summary.weekActiveDays {
-        columnDetail("\(active.filter { $0 }.count) of \(active.count) days", palette: palette)
+      Text(label)
+        .font(.subheadline)
+        .foregroundStyle(palette.textSecondary)
+    }
+  }
+
+  // MARK: Wochen-Balken
+
+  /// Ein Balken je Wochentag, Höhe relativ zum stärksten Tag; ungehörte Tage als flacher Strich in Haarlinienfarbe.
+  private func weekBars(_ days: [Int], palette: AppColorPalette) -> some View {
+    let maxValue = max(days.max() ?? 0, 1)
+    return HStack(alignment: .bottom, spacing: 0) {
+      ForEach(days.indices, id: \.self) { index in
+        let seconds = days[index]
+        VStack(spacing: AppTheme.Layout.tightSpacing) {
+          Capsule()
+            .fill(seconds > 0 ? themeAccent : palette.rule)
+            .frame(
+              width: barWidth,
+              height: seconds > 0
+                ? max(barMinActiveHeight, CGFloat(seconds) / CGFloat(maxValue) * barMaxHeight)
+                : Metrics.barEmptyHeight
+            )
+            .frame(height: barMaxHeight, alignment: .bottom)
+          if index < summary.weekdaySymbols.count {
+            Text(summary.weekdaySymbols[index])
+              .font(.caption2)
+              .foregroundStyle(palette.textSecondary)
+          }
+        }
+        .frame(maxWidth: .infinity)
       }
     }
   }
 
-  private func progressRing(_ value: Double, palette: AppColorPalette) -> some View {
-    ZStack {
-      Circle()
-        .stroke(palette.rule, lineWidth: ringLineWidth)
-      Circle()
-        .trim(from: 0, to: min(max(value, 0), 1))
-        .stroke(themeAccent, style: StrokeStyle(lineWidth: ringLineWidth, lineCap: .round))
-        .rotationEffect(.degrees(-90))
+  // MARK: Heatmap der vier Wochen vor der laufenden
+
+  /// Zeile je Woche (älteste oben, die jüngste unten direkt über den Wochentagen — zeitlich der laufenden Woche
+  /// links am nächsten), Spalte je Wochentag in derselben Reihenfolge wie die Balken. Deckkraft des Akzents nach
+  /// Hörzeit, skaliert am Median gehörter Tage (×2), damit einzelne Spitzentage nicht alles andere blass machen;
+  /// ungehörte Tage in Haarlinienfarbe.
+  private func previousWeeksHeatmap(_ weeks: [[Int]], palette: AppColorPalette) -> some View {
+    let listened = weeks.flatMap { $0 }.filter { $0 > 0 }.sorted()
+    let scale = Double(max(listened.isEmpty ? 1 : listened[listened.count / 2] * 2, 1))
+    return VStack(alignment: .leading, spacing: AppTheme.Layout.tightSpacing) {
+      VStack(alignment: .leading, spacing: heatCellSpacing) {
+        ForEach(weeks.indices, id: \.self) { row in
+          HStack(spacing: heatCellSpacing) {
+            ForEach(weeks[row].indices, id: \.self) { column in
+              let seconds = weeks[row][column]
+              RoundedRectangle(cornerRadius: Metrics.heatCellCornerRadius, style: .continuous)
+                .fill(
+                  seconds > 0
+                    ? themeAccent.opacity(
+                      Metrics.heatMinOpacity + (1 - Metrics.heatMinOpacity) * min(1, Double(seconds) / scale))
+                    : palette.rule
+                )
+                .frame(width: heatCell, height: heatCell)
+            }
+          }
+        }
+      }
+      // Wochentage wie unter den Balken, je Kachelspalte zentriert.
+      HStack(spacing: heatCellSpacing) {
+        ForEach(summary.weekdaySymbols.indices, id: \.self) { index in
+          Text(summary.weekdaySymbols[index])
+            .font(.caption2)
+            .foregroundStyle(palette.textSecondary)
+            .frame(width: heatCell)
+        }
+      }
+      Text("previous \(weeks.count) weeks")
+        .font(.caption2)
+        .foregroundStyle(palette.textSecondary)
+        .lineLimit(1)
     }
-    .frame(width: ringEdge, height: ringEdge)
-    .accessibilityHidden(true)
+    .fixedSize()
   }
 
-  private func columnLabel(_ text: String, palette: AppColorPalette) -> some View {
-    Text(text)
-      .font(.subheadline)
-      .foregroundStyle(palette.textSecondary)
-      .fixedSize(horizontal: false, vertical: true)
+  // MARK: Fußzeile: Streak · beendete Bücher
+
+  private func footer(palette: AppColorPalette) -> some View {
+    let layout = dynamicTypeSize.isAccessibilitySize
+      ? AnyLayout(VStackLayout(alignment: .leading, spacing: AppTheme.Layout.stackSpacing))
+      : AnyLayout(HStackLayout(spacing: AppTheme.Layout.compactSpacing))
+    return layout {
+      HStack(spacing: AppTheme.Layout.compactSpacing) {
+        Image(systemName: "flame.fill")
+          .foregroundStyle(themeAccent)
+        valueAndLabel("\(summary.streakDays)", "day streak", palette: palette)
+      }
+      if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: AppTheme.Layout.rowSpacing) }
+      if let finished = summary.finishedBooks {
+        valueAndLabel("\(finished)", "books finished", palette: palette)
+      }
+    }
+    .font(.subheadline)
+    .lineLimit(1)
   }
 
-  private func columnDetail(_ text: String, palette: AppColorPalette) -> some View {
-    Text(text)
-      .font(.caption.monospacedDigit())
-      .foregroundStyle(palette.textSecondary)
-      .fixedSize(horizontal: false, vertical: true)
+  private func valueAndLabel(_ value: String, _ label: String, palette: AppColorPalette) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: AppTheme.Layout.tightSpacing) {
+      Text(value)
+        .fontWeight(.semibold)
+        .monospacedDigit()
+        .foregroundStyle(palette.textPrimary)
+      Text(label)
+        .foregroundStyle(palette.textSecondary)
+    }
   }
 
-  /// Stufe aus `ListeningAchievements` (Schwellen wie in Settings → Stats → Level).
-  private func finishedBooksDetail(_ finished: ListeningAchievementState) -> String {
-    guard let next = finished.nextThreshold else { return "Max level" }
-    let remaining = max(0, next - finished.currentValue)
-    guard let level = finished.tier.levelNumber else { return "\(remaining) to Level 1" }
-    return "Level \(level) · \(remaining) to go"
+  // MARK: Werte
+
+  /// Gesamt-Hörzeit im Format von Stats → Level („1628 h“).
+  private var totalText: String? {
+    summary.totalListeningHours.map { ListeningAchievementKind.listeningTimeHours.formattedValue($0) }
   }
 
   private var accessibilitySummary: String {
-    var parts = ["\(summary.streakDays) day streak"]
-    if let finished = summary.finishedBooks {
-      parts.append("\(finished.currentValue) books finished, \(finishedBooksDetail(finished))")
-    }
+    var parts: [String] = []
     if let seconds = summary.weekSeconds {
-      let hours = seconds / 3600
-      let minutes = (seconds % 3600) / 60
-      var week = "\(hours) hours \(minutes) minutes this week"
-      if let active = summary.weekActiveDays {
-        week += ", \(active.filter { $0 }.count) of \(active.count) days"
+      var week = "\(seconds / 3600) hours \((seconds % 3600) / 60) minutes this week"
+      if let days = summary.weekDaySeconds {
+        week += ", listened on \(days.filter { $0 > 0 }.count) of \(days.count) days"
       }
       parts.append(week)
+    }
+    if let weeks = summary.previousWeeksDaySeconds {
+      let days = weeks.flatMap { $0 }
+      parts.append("Previous \(weeks.count) weeks: listened on \(days.filter { $0 > 0 }.count) of \(days.count) days")
+    }
+    if let hours = summary.totalListeningHours {
+      parts.append("\(hours) hours total")
+    }
+    parts.append("\(summary.streakDays) day streak")
+    if let finished = summary.finishedBooks {
+      parts.append("\(finished) books finished")
     }
     return parts.joined(separator: ". ")
   }
