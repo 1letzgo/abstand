@@ -1117,6 +1117,7 @@ final class AppModel: ObservableObject {
   /// Einziges Home-Regal für „Continue listening“ (kein separates Fallback-Regal).
   private static let homeContinueCategory = "recentlyListened"
   private static let newestEpisodesCategory = "newestEpisodes"
+  private static let listeningSummaryCategory = ABSStartShelfLocalization.homeListeningSummaryCategory
 
   init() {
     let sp = AppLog.launchSignposter.beginInterval("appModelInit")
@@ -2820,6 +2821,8 @@ final class AppModel: ObservableObject {
     startDisabledCategories = next
     UserDefaults.standard.set(Array(startDisabledCategories), forKey: Keys.startDisabledCategories)
     clampHomeBrowseSectionIfNeeded()
+    // „Your Listening“ ist kein Server-Regal — Umschalten braucht keinen Dashboard-Reload.
+    guard category != Self.listeningSummaryCategory else { return }
     Task { await loadStartDashboard(force: true) }
   }
 
@@ -2867,7 +2870,10 @@ final class AppModel: ObservableObject {
   private func effectiveStartSettingsCategoryOrder() -> [String] {
     var available = ABSStartShelfLocalization.settingsCategoryOrder
     if !available.contains("continueEbooks") {
-      if let idx = available.firstIndex(of: Self.homeContinueCategory) {
+      // „Continue reading“ hinter „Your Listening“ — die Karte stand schon immer direkt unter Continue listening.
+      if let idx = available.firstIndex(of: Self.listeningSummaryCategory) {
+        available.insert("continueEbooks", at: idx + 1)
+      } else if let idx = available.firstIndex(of: Self.homeContinueCategory) {
         available.insert("continueEbooks", at: idx + 1)
       } else {
         available.insert("continueEbooks", at: 0)
@@ -2895,6 +2901,14 @@ final class AppModel: ObservableObject {
     }
     var remaining = available.filter { $0 != Self.homeContinueCategory }
     var result = [Self.homeContinueCategory]
+    // Gespeicherte Reihenfolge aus der Zeit vor der „Your Listening“-Zeile: Karte bleibt direkt unter
+    // Continue listening (wie bisher auf Home) statt neu ans Ende zu rutschen.
+    if !startCategoryOrder.isEmpty, !startCategoryOrder.contains(Self.listeningSummaryCategory),
+      remaining.contains(Self.listeningSummaryCategory)
+    {
+      result.append(Self.listeningSummaryCategory)
+      remaining.removeAll { $0 == Self.listeningSummaryCategory }
+    }
     for id in savedTail {
       guard remaining.contains(id) else { continue }
       result.append(id)

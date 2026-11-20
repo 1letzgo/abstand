@@ -109,9 +109,10 @@ struct StartDashboardView: View {
           await model.loadStartDashboard()
         }
       }
-      .task(id: "levels-\(model.sessionUserId)-\(model.isAppBootstrapInProgress)") {
+      .task(id: "levels-\(model.sessionUserId)-\(model.isAppBootstrapInProgress)-\(isListeningSummaryEnabled)") {
         // Cache-first: Snapshot aus SwiftData sofort, Server-Stats nur verzögert und gedrosselt.
-        guard !model.isAppBootstrapInProgress else { return }
+        // Bei ausgeschalteter „Your Listening“-Karte (Appearance → Home) nichts laden.
+        guard !model.isAppBootstrapInProgress, isListeningSummaryEnabled else { return }
         await model.refreshHomeListeningLevelsIfStale()
       }
       .onChange(of: model.offlineHomeUIActive) { _, _ in
@@ -176,12 +177,12 @@ struct StartDashboardView: View {
     let allShelves = model.startShelves(
       forHomeBrowseSection: ABSStartShelfLocalization.homeBrowseContinueSectionID
     )
-    let shelves = allShelves.filter(startDashboardShelfHasVisibleContent)
-    // Stats-Karte erst, wenn ein Stats-Snapshot vorliegt (Cache oder Server) — vorher kein Platzhalter.
+    let shelvesByCategory = Dictionary(allShelves.map { ($0.category, $0) }, uniquingKeysWith: { first, _ in first })
+    let hasVisibleShelf = allShelves.contains(where: startDashboardShelfHasVisibleContent)
+    // Stats-Karte erst, wenn ein Stats-Snapshot vorliegt (Cache oder Server) — vorher kein Platzhalter;
+    // ausgeschaltet (Appearance → Home) gar nicht berechnet.
     let listeningSummary = homeListeningSummary
-    // Ohne „Continue listening“-Regal steht die Karte ganz oben; sonst in dessen Slot (auch wenn es leer ist).
-    let hasContinueSlot = allShelves.contains(where: startDashboardIsContinueListeningShelf)
-    if shelves.isEmpty {
+    if !hasVisibleShelf {
       VStack(alignment: .leading, spacing: AppTheme.Layout.homeSectionSpacing) {
         if let listeningSummary {
           HomeListeningSummaryCard(summary: listeningSummary).equatable()
@@ -189,23 +190,34 @@ struct StartDashboardView: View {
         startDashboardSectionEmptyState(category: ABSStartShelfLocalization.homeBrowseContinueSectionID)
       }
     } else {
+      // Reihenfolge wie Appearance → Home; „Your Listening“ nimmt als eigene Zeile daran teil.
       VStack(alignment: .leading, spacing: AppTheme.Layout.homeSectionSpacing) {
-        if let listeningSummary, !hasContinueSlot {
-          HomeListeningSummaryCard(summary: listeningSummary).equatable()
-        }
-        ForEach(allShelves) { shelf in
-          if startDashboardShelfHasVisibleContent(shelf)
-            || (listeningSummary != nil && startDashboardIsContinueListeningShelf(shelf))
-          {
-            startDashboardShelfContent(shelf, listeningSummary: listeningSummary)
+        ForEach(enabledHomeCategories, id: \.self) { category in
+          if category == ABSStartShelfLocalization.homeListeningSummaryCategory {
+            if let listeningSummary {
+              HomeListeningSummaryCard(summary: listeningSummary).equatable()
+            }
+          } else if let shelf = shelvesByCategory[category], startDashboardShelfHasVisibleContent(shelf) {
+            startDashboardShelfContent(shelf)
           }
         }
       }
     }
   }
 
-  /// Werte der Stats-Karte; `nil`, solange kein Stats-Snapshot geladen ist (Cache oder Server).
+  /// Eingeschaltete Home-Zeilen in Settings-Reihenfolge (Regale und „Your Listening“).
+  private var enabledHomeCategories: [String] {
+    model.startSettingsCategoryList.map(\.category).filter { model.isStartCategoryEnabled($0) }
+  }
+
+  private var isListeningSummaryEnabled: Bool {
+    model.isStartCategoryEnabled(ABSStartShelfLocalization.homeListeningSummaryCategory)
+  }
+
+  /// Werte der Stats-Karte; `nil`, solange kein Stats-Snapshot geladen ist (Cache oder Server) oder die Karte in
+  /// Appearance → Home ausgeschaltet ist.
   private var homeListeningSummary: HomeListeningSummary? {
+    guard isListeningSummaryEnabled else { return nil }
     let snapshot = model.listeningAchievementsSnapshot
     guard snapshot.savedAt != nil, !snapshot.achievements.isEmpty else { return nil }
     return HomeListeningSummary(snapshot: snapshot, stats: model.listeningStats)
@@ -222,17 +234,11 @@ struct StartDashboardView: View {
   }
 
   @ViewBuilder
-  private func startDashboardShelfContent(
-    _ shelf: ABSStartShelfSection,
-    listeningSummary: HomeListeningSummary?
-  ) -> some View {
+  private func startDashboardShelfContent(_ shelf: ABSStartShelfSection) -> some View {
     if startDashboardIsContinueListeningShelf(shelf) {
       VStack(alignment: .leading, spacing: AppTheme.Layout.sectionSpacing) {
         if shelf.hasBooks || shelf.hasPodcastEpisodes {
           startDashboardContinueListeningSection(shelf)
-        }
-        if let listeningSummary {
-          HomeListeningSummaryCard(summary: listeningSummary).equatable()
         }
         if shelf.hasAuthors {
           startDashboardAuthorsSection(

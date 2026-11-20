@@ -2593,8 +2593,13 @@ enum ABSStartShelfLocalization {
     String(localized: "Stats", comment: "Home browse strip: listening statistics")
   }
 
+  /// „Your Listening“-Karte auf Home — kein Server-Regal, aber wie ein Regal in Appearance → Home schalt- und
+  /// sortierbar (gleiche Persistenz: `startDisabledCategories` / `startCategoryOrder`).
+  static let homeListeningSummaryCategory = "listeningSummary"
+
   static let categoryTitles: [String: String] = [
     "recentlyListened": "Continue listening",
+    "listeningSummary": "Your Listening",
     "continueEbooks": "Continue reading",
     "continueSeries": "Continue series",
     "newestEpisodes": "New episodes",
@@ -2615,7 +2620,7 @@ enum ABSStartShelfLocalization {
   /// Bekannte Server-`category`-Keys für die Schalter „Regal anzeigen“ (kein separates Fallback; gehört zu „Continue listening“).
   /// `newestEpisodes` wird in Settings nur bei Primary-Podcast-Library eingeblendet.
   static let settingsCategoryOrder: [String] = [
-    "recentlyListened", "continueSeries", "newestEpisodes", "newestItems", "newestSeries",
+    "recentlyListened", "listeningSummary", "continueSeries", "newestEpisodes", "newestItems", "newestSeries",
     "recommended", "recentlyFinished", "newestAuthors",
   ]
 
@@ -2627,7 +2632,7 @@ enum ABSStartShelfLocalization {
     case "continueSeries": return "rectangle.stack.fill"
     case "newestEpisodes": return "mic.fill"
     case homeBrowseRecentSectionID, "newestItems": return "sparkles"
-    case homeBrowseStatsSectionID: return "chart.bar.fill"
+    case homeBrowseStatsSectionID, homeListeningSummaryCategory: return "chart.bar.fill"
     case "newestSeries": return "books.vertical.fill"
     case "recommended": return "lightbulb.fill"
     case "recentlyFinished": return "arrow.counterclockwise"
