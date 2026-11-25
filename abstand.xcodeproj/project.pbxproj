@@ -10,16 +10,65 @@
 		37RD0B12FBA41D6001BFF73 /* ReadiumShared in Frameworks */ = {isa = PBXBuildFile; productRef = 37RD002F9D32F90003D078 /* ReadiumShared */; };
 		37RD0B22FBA41D6001BFF73 /* ReadiumStreamer in Frameworks */ = {isa = PBXBuildFile; productRef = 37RD003F9D32F90003D078 /* ReadiumStreamer */; };
 		37RD0B32FBA41D6001BFF73 /* ReadiumNavigator in Frameworks */ = {isa = PBXBuildFile; productRef = 37RD004F9D32F90003D078 /* ReadiumNavigator */; };
+		37AC00022FF0000000A10001 /* abstandWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 37AC00012FF0000000A10001 /* abstandWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		37AC000C2FF0000000A10001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 37DCB4F92F9D32F90003D078 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 37AC00062FF0000000A10001;
+			remoteInfo = abstandWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		37AC000A2FF0000000A10001 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				37AC00022FF0000000A10001 /* abstandWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		37DCB5012F9D32F90003D078 /* abstand.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = abstand.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		37AC00012FF0000000A10001 /* abstandWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = abstandWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		37AC00052FF0000000A10001 /* Exceptions for "abstandWidgets" folder in "abstandWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 37AC00062FF0000000A10001 /* abstandWidgets */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		37DCB5032F9D32F90003D078 /* abstand */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = abstand;
+			sourceTree = "<group>";
+		};
+		37AC00042FF0000000A10001 /* abstandShared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = abstandShared;
+			sourceTree = "<group>";
+		};
+		37AC00032FF0000000A10001 /* abstandWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				37AC00052FF0000000A10001 /* Exceptions for "abstandWidgets" folder in "abstandWidgets" target */,
+			);
+			path = abstandWidgets;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -35,6 +84,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		37AC00082FF0000000A10001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -42,6 +98,8 @@
 			isa = PBXGroup;
 			children = (
 				37DCB5032F9D32F90003D078 /* abstand */,
+				37AC00042FF0000000A10001 /* abstandShared */,
+				37AC00032FF0000000A10001 /* abstandWidgets */,
 				37DCB5022F9D32F90003D078 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -50,6 +108,7 @@
 			isa = PBXGroup;
 			children = (
 				37DCB5012F9D32F90003D078 /* abstand.app */,
+				37AC00012FF0000000A10001 /* abstandWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -64,13 +123,16 @@
 				37DCB4FD2F9D32F90003D078 /* Sources */,
 				37DCB4FE2F9D32F90003D078 /* Frameworks */,
 				37DCB4FF2F9D32F90003D078 /* Resources */,
+				37AC000A2FF0000000A10001 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				37AC000B2FF0000000A10001 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				37DCB5032F9D32F90003D078 /* abstand */,
+				37AC00042FF0000000A10001 /* abstandShared */,
 			);
 			name = abstand;
 			packageProductDependencies = (
@@ -81,6 +143,29 @@
 			productName = abstand;
 			productReference = 37DCB5012F9D32F90003D078 /* abstand.app */;
 			productType = "com.apple.product-type.application";
+		};
+		37AC00062FF0000000A10001 /* abstandWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 37AC000D2FF0000000A10001 /* Build configuration list for PBXNativeTarget "abstandWidgets" */;
+			buildPhases = (
+				37AC00072FF0000000A10001 /* Sources */,
+				37AC00082FF0000000A10001 /* Frameworks */,
+				37AC00092FF0000000A10001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				37AC00042FF0000000A10001 /* abstandShared */,
+				37AC00032FF0000000A10001 /* abstandWidgets */,
+			);
+			name = abstandWidgets;
+			packageProductDependencies = (
+			);
+			productName = abstandWidgets;
+			productReference = 37AC00012FF0000000A10001 /* abstandWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -93,6 +178,9 @@
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					37DCB5002F9D32F90003D078 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					37AC00062FF0000000A10001 = {
 						CreatedOnToolsVersion = 26.3;
 					};
 				};
@@ -115,12 +203,20 @@
 			projectRoot = "";
 			targets = (
 				37DCB5002F9D32F90003D078 /* abstand */,
+				37AC00062FF0000000A10001 /* abstandWidgets */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		37DCB4FF2F9D32F90003D078 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		37AC00092FF0000000A10001 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -137,7 +233,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		37AC00072FF0000000A10001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		37AC000B2FF0000000A10001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 37AC00062FF0000000A10001 /* abstandWidgets */;
+			targetProxy = 37AC000C2FF0000000A10001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		37DCB50A2F9D32FA0003D078 /* Debug */ = {
@@ -281,7 +392,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.8;
+				MARKETING_VERSION = 1.8.1;
 				PRODUCT_BUNDLE_IDENTIFIER = de.letzgo.abstand;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -324,7 +435,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.8;
+				MARKETING_VERSION = 1.8.1;
 				PRODUCT_BUNDLE_IDENTIFIER = de.letzgo.abstand;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -333,6 +444,70 @@
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		37AC000E2FF0000000A10001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 200;
+				DEVELOPMENT_TEAM = 699G2QY959;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = abstandWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = abstand;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.8.1;
+				PRODUCT_BUNDLE_IDENTIFIER = de.letzgo.abstand.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		37AC000F2FF0000000A10001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 200;
+				DEVELOPMENT_TEAM = 699G2QY959;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = abstandWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = abstand;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.8.1;
+				PRODUCT_BUNDLE_IDENTIFIER = de.letzgo.abstand.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = targeted;
@@ -359,6 +534,15 @@
 			buildConfigurations = (
 				37DCB50D2F9D32FA0003D078 /* Debug */,
 				37DCB50E2F9D32FA0003D078 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		37AC000D2FF0000000A10001 /* Build configuration list for PBXNativeTarget "abstandWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				37AC000E2FF0000000A10001 /* Debug */,
+				37AC000F2FF0000000A10001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

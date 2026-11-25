@@ -45,6 +45,9 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- Live Activity für den Sleep-Timer (Sperrbildschirm + Dynamic Island), siehe abstandWidgets/. -->
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>abstand connects to your Audiobookshelf server on the local network to stream and download your library.</string>
 </dict>

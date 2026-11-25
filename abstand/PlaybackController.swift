@@ -355,6 +355,11 @@ final class PlaybackController: NSObject, ObservableObject {
   /// Verbleibende Laufzeit; bei Pause eingefroren, `sleepEndDate` nur während Wiedergabe.
   private var sleepTimerRemaining: TimeInterval?
   private var sleepTimerPaused = false
+  /// Entprellter Abgleich der Sleep-Timer-Live-Activity.
+  private var sleepTimerActivitySyncTask: Task<Void, Never>?
+  private static let sleepTimerActivitySyncDelayNanoseconds: UInt64 = 250_000_000
+  /// > 0, solange `playBook` den Timer über einen Player-Neuaufbau rettet (kein Activity-Ende dazwischen).
+  private var sleepTimerActivityHoldCount = 0
   /// Für `.shouldResume` nach Telefonanruf / Unterbrechung.
   private var wasPlayingBeforeInterruption = false
   /// Nach Media-Services-Reset: Player-Item ist unbrauchbar, Track einmal neu laden.
@@ -466,6 +471,88 @@ final class PlaybackController: NSObject, ObservableObject {
         }
       }
       .store(in: &cancellables)
+
+    // Live Activity des Sleep-Timers: jede Änderung an Timer, Wiedergabe, Titel oder Kapitel stößt
+    // einen (entprellten) Abgleich an. Der erste Lauf räumt verwaiste Activities vom letzten Start weg.
+    Publishers.MergeMany(
+      $sleepEndDate.map { _ in () }.eraseToAnyPublisher(),
+      $sleepTimerMode.map { _ in () }.eraseToAnyPublisher(),
+      $isPlaying.map { _ in () }.eraseToAnyPublisher(),
+      $activeBook.map { _ in () }.eraseToAnyPublisher(),
+      $currentChapterOrdinal.removeDuplicates().map { _ in () }.eraseToAnyPublisher()
+    )
+    .sink { [weak self] in self?.scheduleSleepTimerActivitySync() }
+    .store(in: &cancellables)
+    SleepTimerActivityActionHub.handler = { [weak self] action in
+      self?.handleSleepTimerActivityAction(action)
+    }
+  }
+
+  // MARK: - Sleep-Timer Live Activity
+
+  /// Entprellt: Pause/Resume-Flattern (Seek, Track-Wechsel) und mehrere Zuweisungen in einer
+  /// Runloop-Runde ergeben genau ein Update mit dem Endzustand.
+  private func scheduleSleepTimerActivitySync() {
+    sleepTimerActivitySyncTask?.cancel()
+    sleepTimerActivitySyncTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(nanoseconds: Self.sleepTimerActivitySyncDelayNanoseconds)
+      guard !Task.isCancelled, let self else { return }
+      // `playBook` baut den Player neu auf und setzt den Timer danach wieder — Activity stehen lassen.
+      guard self.sleepTimerActivityHoldCount == 0 else { return }
+      SleepTimerLiveActivityController.shared.apply(self.sleepTimerActivityState())
+    }
+  }
+
+  /// Zustand für die Live Activity; `nil` = kein Timer (Activity beenden).
+  private func sleepTimerActivityState() -> SleepTimerActivityAttributes.ContentState? {
+    guard sleepTimerMode != .off, let book = activeBook else { return nil }
+    let author = book.displayAuthors.trimmingCharacters(in: .whitespacesAndNewlines)
+    var state = SleepTimerActivityAttributes.ContentState(
+      title: book.displayTitle,
+      author: author.isEmpty ? nil : author,
+      endDate: nil,
+      pausedRemaining: nil,
+      totalSeconds: 0,
+      chaptersRemaining: nil,
+      isPlaying: isPlaying
+    )
+    if let target = sleepTimerChapterTarget {
+      // Positionsbasiert: kein Countdown, nur die Zahl der Kapitel bis zum Stopp.
+      let current = currentChapterIndex() ?? target
+      state.chaptersRemaining = max(1, target - current + 1)
+      return state
+    }
+    var configured: TimeInterval = 0
+    if case .minutes(let minutes) = sleepTimerMode { configured = TimeInterval(minutes * 60) }
+    if let end = sleepEndDate, !sleepTimerPaused {
+      state.endDate = end
+      state.totalSeconds = max(configured, end.timeIntervalSinceNow)
+      return state
+    }
+    if let remaining = sleepTimerRemaining, remaining > 0 {
+      state.pausedRemaining = remaining
+      state.totalSeconds = max(configured, remaining)
+      return state
+    }
+    return nil
+  }
+
+  /// Buttons der Live Activity (`LiveActivityIntent`, läuft im App-Prozess). Ändert nur den Timer —
+  /// Wiedergabe und Audio-Session bleiben unberührt.
+  private func handleSleepTimerActivityAction(_ action: SleepTimerActivityAction) {
+    switch action {
+    case .cancel:
+      clearSleepTimer()
+      sleepTimerMode = .off
+    case .extend:
+      // Nur der Zeit-Timer lässt sich verlängern; der Kapitel-Timer hat keinen Button dafür.
+      guard sleepTimerMode != .off, sleepTimerChapterTarget == nil,
+        let remaining = sleepTimerDisplaySeconds, remaining > 0
+      else { break }
+      applySleepTimerRemaining(remaining + TimeInterval(SleepTimerActivityConstants.extendMinutes * 60))
+    }
+    applySleepTimerFadeVolume()
+    scheduleSleepTimerActivitySync()
   }
 
   /// Countdown für UI — bei Pause konstant, bei Wiedergabe läuft die Uhr weiter.
@@ -522,6 +609,7 @@ final class PlaybackController: NSObject, ObservableObject {
     lastExpiredSleepMode = nil
     lastExpiredSleepSeconds = nil
     lastExpiredSleepDate = nil
+    scheduleSleepTimerActivitySync()
   }
 
   func applySleepTimerRemaining(_ seconds: TimeInterval) {
@@ -546,6 +634,7 @@ final class PlaybackController: NSObject, ObservableObject {
       sleepWakeTask = nil
       sleepEndDate = nil
     }
+    scheduleSleepTimerActivitySync()
   }
 
   /// Kapitel-Sleep-Timer setzen: feuert, sobald die Wiedergabe das Ende des Ziel-Kapitels
@@ -558,6 +647,7 @@ final class PlaybackController: NSObject, ObservableObject {
     sleepWakeTask?.cancel()
     sleepWakeTask = nil
     lastExpiredSleepDate = nil
+    scheduleSleepTimerActivitySync()
   }
 
   /// Laufender Timer zum Retten über einen Player-Neuaufbau (`playBook` → `tearDownPlayer` löscht ihn).
@@ -1135,6 +1225,15 @@ final class PlaybackController: NSObject, ObservableObject {
     let sameTitle = activeBook?.id == book.id
       && (activePlaybackEpisodeId ?? "") == (episodeId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
     let sleepTimerToKeep = sleepTimerSnapshot().flatMap { $0.chapterTarget != nil && !sameTitle ? nil : $0 }
+    // Der Timer wird nach dem Neuaufbau wieder gesetzt — die Live Activity soll dazwischen nicht
+    // enden (ein neues `Activity.request` wäre im Hintergrund nicht erlaubt).
+    if sleepTimerToKeep != nil { sleepTimerActivityHoldCount += 1 }
+    defer {
+      if sleepTimerToKeep != nil {
+        sleepTimerActivityHoldCount -= 1
+        scheduleSleepTimerActivitySync()
+      }
+    }
     tearDownPlayer()
     loadGeneration &+= 1
     let generation = loadGeneration
